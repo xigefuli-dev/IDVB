@@ -141,7 +141,7 @@
                         Height="40"
                         Margin="4,16,4,0"
                         VerticalAlignment="Top"
-                        Background="{ThemeResource AccentFillColorTertiaryBrush}"
+                        Background="#DCE6F2"
                         CornerRadius="4"
                         IsHitTestVisible="False" />
                 <Border x:Name="NavigationHoverIndicator"

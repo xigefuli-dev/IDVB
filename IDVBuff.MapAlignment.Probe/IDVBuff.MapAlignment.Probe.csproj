@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <UseSystemDrawing>true</UseSystemDrawing>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.cs" Link="Production\MapSessionModels.cs" />
+    <Compile Include="..\Features\Maps\MapGameToggleState.cs" Link="Production\MapGameToggleState.cs" />
+    <Compile Include="..\Features\Maps\MapPlayerModels.cs" Link="Production\MapPlayerModels.cs" />
+    <Compile Include="..\Features\Maps\MapModels.cs" Link="Production\MapModels.cs" />
+    <Compile Include="..\Features\Maps\MapRecognitionCoordinates.cs" Link="Production\MapRecognitionCoordinates.cs" />
+    <Compile Include="..\Features\Maps\MapAlignmentConfidence.cs" Link="Production\MapAlignmentConfidence.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionScript.cs" Link="Production\MapCvRecognitionScript.cs" />
+    <Compile Include="..\Features\Maps\MapRuntimeSettings.cs" Link="Production\MapRuntimeSettings.cs" />
+    <Compile Include="..\Features\Maps\MapRuntimeSettingsRules.cs" Link="Production\MapRuntimeSettingsRules.cs" />
+    <Compile Include="..\Features\Maps\GateTemplateRules.cs" Link="Production\GateTemplateRules.cs" />
+    <Compile Include="..\Features\Maps\FloorRecognitionRules.cs" Link="Production\FloorRecognitionRules.cs" />
+    <Compile Include="..\Features\Maps\PlayerTrackingRules.cs" Link="Production\PlayerTrackingRules.cs" />
+    <Compile Include="..\Features\Maps\GateTemplateDetector.cs" Link="Production\GateTemplateDetector.cs" />
+    <Compile Include="..\Features\Maps\DwrGameWindowCaptureService.cs" Link="Production\DwrGameWindowCaptureService.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.cs" Link="Production\MapRepository.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceFeaturePreprocessor.cs" Link="Production\SideEntranceFeaturePreprocessor.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceScanPipeline.cs" Link="Production\SideEntranceScanPipeline.cs" />
+    <Compile Include="..\Features\Maps\FloorIndicatorCaptureService.cs" Link="Production\FloorIndicatorCaptureService.cs" />
+    <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.cs" Link="Production\FloorIndicatorRecognizer.cs" />
+    <Compile Include="..\Features\Maps\MapFloorRecognitionModels.cs" Link="Production\MapFloorRecognitionModels.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.cs" Link="Production\MapStructureRegistrationModels.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationRules.cs" Link="Production\StructureRegistrationRules.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.cs" Link="Production\MapStructurePreprocessor.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.cs" Link="Production\MapStructureRegistrar.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
+    <Compile Include="..\Features\Maps\MapLogModels.cs" Link="Production\MapLogModels.cs" />
+    <Compile Include="..\Features\Maps\MapLogCollector.cs" Link="Production\MapLogCollector.cs" />
+    <Compile Include="..\Features\Maps\MapLogRepository.cs" Link="Production\MapLogRepository.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Assets\Gate.png" Link="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Assets\1F.png" Link="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Assets\2F.png" Link="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

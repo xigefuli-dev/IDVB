@@ -27,7 +27,7 @@ internal sealed class FundamentalsModule : IAppModule
 internal sealed class SettingsModule : IAppModule
 {
     public string Id => "settings";
-    public string DisplayName => "Settings";
+    public string DisplayName => "关于";
     public string IconKey => nameof(Symbol.Setting);
     public object CreateView() => new IDVBuff.Views.SettingsPage();
 }

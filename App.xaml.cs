@@ -180,7 +180,7 @@ namespace IDVBuff
             {
                 shutdownComplete = true;
                 shutdownInProgress = false;
-                window.Close();
+                window?.Close();
             }
         }
 
@@ -191,13 +191,18 @@ namespace IDVBuff
         {
             if (elevationDialogOpen)
                 return;
+
+            var currentWindow = window;
+            if (currentWindow is null)
+                return;
+
             elevationDialogOpen = true;
             try
             {
                 FrameworkElement? root = null;
                 for (var attempt = 0; attempt < 10; attempt++)
                 {
-                    root = window.Content as FrameworkElement;
+                    root = currentWindow.Content as FrameworkElement;
                     if (root?.XamlRoot is not null)
                         break;
                     await Task.Delay(150);
@@ -219,7 +224,7 @@ namespace IDVBuff
                     return;
                 if (MapRuntimeHost.Current.TryRestartElevated(out var failureReason))
                 {
-                    window.Close();
+                    currentWindow.Close();
                     return;
                 }
 

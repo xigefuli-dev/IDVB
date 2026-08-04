@@ -20,10 +20,10 @@
         <PackageId>IdentityVisionBridge</PackageId>
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
-        <Version>1.0.0.1</Version>
-        <AssemblyVersion>1.0.0.1</AssemblyVersion>
-        <FileVersion>1.0.0.1</FileVersion>
-        <InformationalVersion>b01</InformationalVersion>
+        <Version>26.8.4.1129</Version>
+        <AssemblyVersion>26.8.4.1129</AssemblyVersion>
+        <FileVersion>26.8.4.1129</FileVersion>
+        <InformationalVersion>b01.1-26.8.4.1129</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>
         <!-- OpenCvSharp4.runtime.win ships the native matcher used by dwrg.exe scanning for Windows x64. -->
@@ -56,6 +56,7 @@
         <Content Include="Assets\Wide310x150Logo.scale-200.png" />
         <Content Include="Assets\Icons\*.ico" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\player_01.png" CopyToOutputDirectory="PreserveNewest" />

@@ -1,0 +1,65 @@
+bin/
+obj/
+.verify/
+.artifacts/
+
+# Visual Studio
+.vs/
+
+*.user
+*.suo
+*.cache
+alignment-debug/
+
+# Build and test outputs
+**/artifacts/
+publish/
+buildverify/
+build-verifyViews/
+binDebugverify-buildViews/
+TestResults/
+*.trx
+
+# Local screenshots
+_shot_conv.jpg
+
+# Local agent workspaces and verification scratch files
+.claude/
+.codex/
+.verify/
+
+# Markdown documents are kept out of the public source snapshot.
+*.md
+
+# Reproducible build, package and test outputs
+**/bin/
+**/obj/
+**/artifacts/
+artifacts/
+buildverify/
+build-verify*.xbf
+binDebugverify-*.xbf
+publish/
+TestResults/
+*.trx
+*.dll
+*.exe
+*.pdb
+*.pri
+*.xbf
+
+# Local application data, diagnostics and package samples
+settings.json
+recognition-statistics.json
+maps.json
+attempts.jsonl
+startup.log
+Logs/
+MapRuntime/
+AlignmentResearch/
+*.idvm
+
+# Locally acquired installer tooling and redistributables. Build-Release.ps1 verifies their hashes.
+installer/tools/
+installer/dependencies/*.exe
+installer/dependencies/*.zip

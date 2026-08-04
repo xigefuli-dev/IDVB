@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Application
+    x:Class="IDVBuff.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:IDVBuff"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!-- Other merged dictionaries here -->
+            </ResourceDictionary.MergedDictionaries>
+            <x:Double x:Key="AppFontSize">14</x:Double>
+
+            <Style x:Key="MyLabel" TargetType="TextBlock">
+                <Setter Property="Foreground"
+                        Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+            </Style>
+
+            <Style x:Key="Action" TargetType="Button">
+                <Setter Property="FontSize"
+                        Value="{StaticResource AppFontSize}" />
+                <Setter Property="Padding"
+                        Value="14,10" />
+            </Style>
+
+            <Style x:Key="PrimaryAction"
+                   TargetType="Button"
+                   BasedOn="{StaticResource Action}">
+                <Setter Property="Background"
+                        Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

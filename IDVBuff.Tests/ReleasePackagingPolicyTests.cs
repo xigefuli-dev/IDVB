@@ -16,15 +16,12 @@ public sealed class ReleasePackagingPolicyTests
     }
 
     [Fact]
-    public void InnoUninstallerKeepsLocalDataUnlessTheUserExplicitlyDeletesIt()
+    public void InnoUninstallerNeverDeletesUserLocalData()
     {
         var script = File.ReadAllText(Path.Combine(RepositoryRoot, "installer", "IDVB.iss"));
 
-        Assert.Contains("KeepPersonalData := True", script);
-        Assert.Contains("MB_YESNO or MB_DEFBUTTON1", script);
-        Assert.Contains("MB_YESNO or MB_DEFBUTTON2", script);
-        Assert.Contains("Name: \"{localappdata}\\IDVB\"; Check: ShouldRemovePersonalData", script);
-        Assert.Contains("if UninstallSilent then", script);
+        Assert.Contains("Type: filesandordirs; Name: \"{app}\"", script);
+        Assert.DoesNotContain("Type: filesandordirs; Name: \"{localappdata}\\IDVB\"", script);
     }
 
     private static string RepositoryRoot

@@ -12,10 +12,13 @@ public sealed class GateTemplateDetectorTests(ITestOutputHelper output)
 
     [Theory]
     [InlineData(0.275d)]
-    [InlineData(0.5d)]
-    [InlineData(1.5d)]
+    [InlineData(0.4d)]
+    [InlineData(0.55d)]
     public void ColdSearchCoversConfiguredScaleRange(double scale)
     {
+        // FullSearch no longer enumerates a flat 0.5…1.5 global list (latency
+        // tax). Coverage is the client-relative band around ReferenceScale —
+        // which matches real in-game gate template scales (~0.15–0.55).
         var gatePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");
         using var detector = new GateTemplateDetector(gatePath);
         using var frame = BuildSyntheticFrame(gatePath, scale);
@@ -503,11 +506,53 @@ public sealed class GateTemplateDetectorTests(ITestOutputHelper output)
         stopwatch.Stop();
 
         Assert.Equal(GateSearchMode.FullSearch, result.SearchModeUsed);
-        // Full search should evaluate many scales.
-        Assert.True(result.ScalesEvaluated >= 10,
-            $"Expected ≥10 scales for full search, got {result.ScalesEvaluated}");
+        // Full search evaluates the client-relative band (global 0.5…1.5 list
+        // was removed as a latency tax). Still multi-scale cold start.
+        Assert.True(result.ScalesEvaluated >= 8,
+            $"Expected ≥8 scales for full search, got {result.ScalesEvaluated}");
+        Assert.True(result.ScalesEvaluated <= 15,
+            $"Expected ≤15 scales after FullSearch list trim, got {result.ScalesEvaluated}");
         output.WriteLine($"ColdStartFullSearch (no gates): {result.ScalesEvaluated} scales, " +
             $"{stopwatch.Elapsed.TotalMilliseconds:F0}ms");
+    }
+
+    [Fact]
+    public void FullSearchSingleGateCanExitEarlyWhenEnabled()
+    {
+        var gatePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");
+        using var detector = new GateTemplateDetector(gatePath);
+        // One gate only — dual-gate early exit cannot fire.
+        using var frame = BuildSingleGateFrame(gatePath, 0.275d);
+        using var matchImage = GateTemplateDetector.CreateMatchImage(frame);
+        var viewport = new MapScreenRect(0d, 0d, frame.Width, frame.Height);
+
+        var result = detector.Detect(
+            matchImage,
+            viewport,
+            BaselineClientWidth,
+            MapRecognitionTuning.DefaultGateTemplateThreshold,
+            new GateSearchContext
+            {
+                Mode = GateSearchMode.FullSearch,
+                AllowSingleGateEarlyExit = true,
+                SingleGateScoreThreshold =
+                    GateTemplateRules.EarlyExitScoreThreshold,
+            });
+
+        Assert.True(result.Gates.Count >= 1);
+        Assert.Equal(
+            GateSearchStopReason.SingleGateWarmExit,
+            result.StopReason);
+        Assert.True(
+            result.ScalesEvaluated
+                >= GateTemplateRules.FullSearchMinScalesBeforeSingleGateExit,
+            $"Must evaluate min scales before single-gate exit, got {result.ScalesEvaluated}");
+        Assert.True(
+            result.ScalesEvaluated < 12,
+            $"Single-gate early exit should not burn the full list, got {result.ScalesEvaluated}");
+        output.WriteLine(
+            $"FullSearchSingleGateExit: {result.ScalesEvaluated} scales, "
+            + $"{result.ElapsedMilliseconds:F0}ms, stop={result.StopReason}");
     }
 
     [Fact]
@@ -788,6 +833,19 @@ public sealed class GateTemplateDetectorTests(ITestOutputHelper output)
     private static Mat BuildEmptyFrame()
     {
         return new Mat(new Size(1706, 1066), MatType.CV_8UC3, new Scalar(35, 42, 48));
+    }
+
+    private static Mat BuildSingleGateFrame(string gatePath, double scale)
+    {
+        var frame = new Mat(new Size(1706, 1066), MatType.CV_8UC3, new Scalar(35, 42, 48));
+        using var gate = Cv2.ImRead(gatePath, ImreadModes.Color);
+        using var resized = new Mat();
+        Cv2.Resize(gate, resized, new Size(), scale, scale, InterpolationFlags.Linear);
+        using var dimmed = new Mat();
+        resized.ConvertTo(dimmed, MatType.CV_8UC3, 0.82d, 12d);
+        Cv2.GaussianBlur(dimmed, dimmed, new Size(3, 3), 0d);
+        Paste(frame, dimmed, 280, 230);
+        return frame;
     }
 
     private static void Paste(Mat target, Mat source, int x, int y)

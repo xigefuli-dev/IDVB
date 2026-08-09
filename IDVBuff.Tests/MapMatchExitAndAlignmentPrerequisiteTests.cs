@@ -126,7 +126,6 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
     }
 
     [Theory]
-    [InlineData(MapAlignmentPrerequisiteKind.SideDualGateAlignment)]
     [InlineData(MapAlignmentPrerequisiteKind.SideSingleGateAlignment)]
     [InlineData(MapAlignmentPrerequisiteKind.SideStructureAlignment)]
     public void SideStrategyAlignmentPrerequisite_RejectsPreviousMatchData(
@@ -136,6 +135,25 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
             FirstScanStrategy.SideEntrance,
             operation,
             SideEntranceSession);
+    }
+
+    [Fact]
+    public void SideStrategyAlignmentPrerequisite_RejectsGatePairOnlySession()
+    {
+        var matches = new MapMatchSession();
+        var current = matches.Begin(PlayerSlot.Player1, "S1");
+        var mapId = Guid.NewGuid();
+        var lease = new MapMatchMapLease();
+        lease.Bind(current, mapId);
+
+        Assert.False(MapMatchLifecycleRules.CanStart(
+            MapAlignmentPrerequisiteKind.SideSingleGateAlignment,
+            current,
+            current,
+            FirstScanStrategy.SideEntrance,
+            lease,
+            selectedMapId: mapId,
+            alignmentSession: GatePairSession(mapId)));
     }
 
     [Fact]

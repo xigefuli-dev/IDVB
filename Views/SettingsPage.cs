@@ -1,4 +1,3 @@
-using System.Reflection;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -317,17 +316,7 @@ public sealed class SettingsPage : Page
     }
 
     private static string GetDisplayVersion()
-    {
-        var assembly = typeof(SettingsPage).Assembly;
-        var informationalVersion = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion?
-            .Split('+')[0];
-        var fileVersion = assembly.GetName().Version?.ToString(4);
-        return string.IsNullOrWhiteSpace(informationalVersion)
-            ? fileVersion ?? "未知版本"
-            : $"{informationalVersion}（{fileVersion}）";
-    }
+        => $"{BuildVersionInfo.ProductVersion}\n构建版本：{BuildVersionInfo.BuildVersion}";
 
     private async void SpecificationCard_Click(object sender, RoutedEventArgs e)
     {

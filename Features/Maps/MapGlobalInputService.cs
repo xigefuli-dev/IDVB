@@ -52,6 +52,7 @@ public sealed class MapGlobalInputService : IDisposable
     private MapInputBinding _gameMapToggle = new();
     private MapInputBinding _controlPanelToggle = new();
     private MapInputBinding _switchFloor = new();
+    private MapInputBinding _saveMapCache = new();
     private bool _disposed;
 
     public MapGlobalInputService(DispatcherQueue dispatcher)
@@ -67,6 +68,7 @@ public sealed class MapGlobalInputService : IDisposable
     public event EventHandler<MapInputInvokedEventArgs>? GameMapToggleInvoked;
     public event EventHandler<MapInputInvokedEventArgs>? ControlPanelToggleInvoked;
     public event EventHandler<MapInputInvokedEventArgs>? SwitchFloorInvoked;
+    public event EventHandler<MapInputInvokedEventArgs>? SaveMapCacheInvoked;
 
     public void ApplyBindings(
         MapInputBinding quickScan,
@@ -74,7 +76,8 @@ public sealed class MapGlobalInputService : IDisposable
         MapInputBinding manualRecognition,
         MapInputBinding gameMapToggle,
         MapInputBinding controlPanelToggle,
-        MapInputBinding switchFloor)
+        MapInputBinding switchFloor,
+        MapInputBinding saveMapCache)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureDistinctBindings(
@@ -83,7 +86,8 @@ public sealed class MapGlobalInputService : IDisposable
             manualRecognition,
             gameMapToggle,
             controlPanelToggle,
-            switchFloor);
+            switchFloor,
+            saveMapCache);
         UnregisterBindings();
         _quickScan = quickScan.Clone();
         _overlayToggle = overlayToggle.Clone();
@@ -91,6 +95,7 @@ public sealed class MapGlobalInputService : IDisposable
         _gameMapToggle = gameMapToggle.Clone();
         _controlPanelToggle = controlPanelToggle.Clone();
         _switchFloor = switchFloor.Clone();
+        _saveMapCache = saveMapCache.Clone();
         try
         {
             if (_quickScan.Kind == MapInputBindingKind.Keyboard
@@ -98,7 +103,8 @@ public sealed class MapGlobalInputService : IDisposable
                 || _manualRecognition.Kind == MapInputBindingKind.Keyboard
                 || _gameMapToggle.Kind == MapInputBindingKind.Keyboard
                 || _controlPanelToggle.Kind == MapInputBindingKind.Keyboard
-                || _switchFloor.Kind == MapInputBindingKind.Keyboard)
+                || _switchFloor.Kind == MapInputBindingKind.Keyboard
+                || _saveMapCache.Kind == MapInputBindingKind.Keyboard)
             {
                 _keyboardHook = SetWindowsHookEx(WhKeyboardLl, _keyboardProc, GetModuleHandle(null), 0);
                 if (_keyboardHook == IntPtr.Zero)
@@ -109,7 +115,8 @@ public sealed class MapGlobalInputService : IDisposable
                 || _manualRecognition.Kind == MapInputBindingKind.Mouse
                 || _gameMapToggle.Kind == MapInputBindingKind.Mouse
                 || _controlPanelToggle.Kind == MapInputBindingKind.Mouse
-                || _switchFloor.Kind == MapInputBindingKind.Mouse)
+                || _switchFloor.Kind == MapInputBindingKind.Mouse
+                || _saveMapCache.Kind == MapInputBindingKind.Mouse)
             {
                 _mouseHook = SetWindowsHookEx(WhMouseLl, _mouseProc, GetModuleHandle(null), 0);
                 if (_mouseHook == IntPtr.Zero)
@@ -133,6 +140,7 @@ public sealed class MapGlobalInputService : IDisposable
         _gameMapToggle = new MapInputBinding();
         _controlPanelToggle = new MapInputBinding();
         _switchFloor = new MapInputBinding();
+        _saveMapCache = new MapInputBinding();
     }
 
     private IntPtr KeyboardHookCallback(int code, IntPtr wParam, IntPtr lParam)
@@ -213,7 +221,8 @@ public sealed class MapGlobalInputService : IDisposable
             && _manualRecognition.Kind != MapInputBindingKind.Keyboard
             && _gameMapToggle.Kind != MapInputBindingKind.Keyboard
             && _controlPanelToggle.Kind != MapInputBindingKind.Keyboard
-            && _switchFloor.Kind != MapInputBindingKind.Keyboard)
+            && _switchFloor.Kind != MapInputBindingKind.Keyboard
+            && _saveMapCache.Kind != MapInputBindingKind.Keyboard)
         {
             return;
         }
@@ -227,6 +236,7 @@ public sealed class MapGlobalInputService : IDisposable
             InitializePressedKey(_gameMapToggle);
             InitializePressedKey(_controlPanelToggle);
             InitializePressedKey(_switchFloor);
+            InitializePressedKey(_saveMapCache);
             var generation = ++_keyboardPollGeneration;
             _keyboardPoller = new Timer(
                 PollKeyboardBindings,
@@ -256,6 +266,7 @@ public sealed class MapGlobalInputService : IDisposable
         uint gameMapKey;
         uint controlPanelKey;
         uint switchFloorKey;
+        uint saveMapCacheKey;
         lock (_keyboardStateLock)
         {
             if (!_keyboardBindingsActive
@@ -279,6 +290,10 @@ public sealed class MapGlobalInputService : IDisposable
             switchFloorKey =
                 _switchFloor.Kind == MapInputBindingKind.Keyboard
                     ? _switchFloor.VirtualKey
+                    : 0;
+            saveMapCacheKey =
+                _saveMapCache.Kind == MapInputBindingKind.Keyboard
+                    ? _saveMapCache.VirtualKey
                     : 0;
         }
 
@@ -318,6 +333,19 @@ public sealed class MapGlobalInputService : IDisposable
                 IsKeyDown(switchFloorKey),
                 generation);
         }
+        if (saveMapCacheKey != 0
+            && saveMapCacheKey != quickKey
+            && saveMapCacheKey != overlayKey
+            && saveMapCacheKey != manualKey
+            && saveMapCacheKey != gameMapKey
+            && saveMapCacheKey != controlPanelKey
+            && saveMapCacheKey != switchFloorKey)
+        {
+            HandleKeyboardState(
+                saveMapCacheKey,
+                IsKeyDown(saveMapCacheKey),
+                generation);
+        }
     }
 
     private void HandleKeyboardState(uint key, bool isDown, int? expectedGeneration = null)
@@ -328,6 +356,7 @@ public sealed class MapGlobalInputService : IDisposable
         var invokeGameMapToggle = false;
         var invokeControlPanelToggle = false;
         var invokeSwitchFloor = false;
+        var invokeSaveMapCache = false;
         lock (_keyboardStateLock)
         {
             if (!_keyboardBindingsActive
@@ -363,6 +392,8 @@ public sealed class MapGlobalInputService : IDisposable
                 && _controlPanelToggle.VirtualKey == key;
             invokeSwitchFloor = _switchFloor.Kind == MapInputBindingKind.Keyboard
                 && _switchFloor.VirtualKey == key;
+            invokeSaveMapCache = _saveMapCache.Kind == MapInputBindingKind.Keyboard
+                && _saveMapCache.VirtualKey == key;
         }
 
         var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
@@ -381,6 +412,8 @@ public sealed class MapGlobalInputService : IDisposable
         }
         if (invokeSwitchFloor)
             _dispatcher.TryEnqueue(() => SwitchFloorInvoked?.Invoke(this, invoked));
+        if (invokeSaveMapCache)
+            _dispatcher.TryEnqueue(() => SaveMapCacheInvoked?.Invoke(this, invoked));
     }
 
     private static bool IsKeyDown(uint key) =>
@@ -423,6 +456,12 @@ public sealed class MapGlobalInputService : IDisposable
             {
                 _dispatcher.TryEnqueue(
                     () => SwitchFloorInvoked?.Invoke(this, invoked));
+            }
+            if (_saveMapCache.Kind == MapInputBindingKind.Mouse
+                && _saveMapCache.MouseButton == button)
+            {
+                _dispatcher.TryEnqueue(
+                    () => SaveMapCacheInvoked?.Invoke(this, invoked));
             }
         }
         return CallNextHookEx(_mouseHook, code, wParam, lParam);

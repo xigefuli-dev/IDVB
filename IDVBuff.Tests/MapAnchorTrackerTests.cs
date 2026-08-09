@@ -235,7 +235,8 @@ public sealed class MapAnchorTrackerTests
     [Fact]
     public void ConflictingAuxiliaryOffsetsAreRejected()
     {
-        using var reference = BuildReference(out var fingerprint);
+        // 使用独立 reference（无装饰线），避免连线穿过锚点模板区域导致全域搜索匹配失败。
+        using var reference = BuildCleanReference(out var fingerprint);
         using var live = new Mat(
             new Size(440, 320),
             MatType.CV_8UC3,
@@ -318,6 +319,67 @@ public sealed class MapAnchorTrackerTests
         Assert.Equal(8, first.TemplatesEvaluated);
         Assert.Equal(8, second.TemplatesEvaluated);
         Assert.Equal(8, cache.CachedTemplateCount);
+    }
+
+    private static Mat BuildCleanReference(out MapGeometryFingerprint fingerprint)
+    {
+        // 粗描边(5px)使 Canny 双边缘经 morph close 合并为厚边缘，避免被 morph open 抹除，
+        // 从而在全域 CCOEFF_NORMED 搜索中达到 >= 0.78 的分数。
+        var reference = new Mat(new Size(240, 180), MatType.CV_8UC3, Scalar.All(0));
+
+        Cv2.Rectangle(reference, new Rect(24, 30, 32, 30), Scalar.White, 2);
+        Cv2.Circle(reference, new Point(184, 126), 14, Scalar.White, 2);
+
+        var map = new MapRecord
+        {
+            Id = Guid.NewGuid(),
+            SequenceNumber = 1,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        map.Recognition.EnsureStandardAnchors();
+        var profile = map.Recognition.FirstFloor;
+        profile.RecognitionRegion = new NormalizedRectangle { Width = 1d, Height = 1d };
+        profile.RecognitionPixelWidth = reference.Width;
+        profile.RecognitionPixelHeight = reference.Height;
+        profile.FindAnchor("main-entrance")!.Bounds =
+            new NormalizedRectangle { X = 0.1d, Y = 0.75d, Width = 0.05d, Height = 0.05d };
+        profile.FindAnchor("side-entrance")!.Bounds =
+            new NormalizedRectangle { X = 0.85d, Y = 0.15d, Width = 0.05d, Height = 0.05d };
+        profile.Anchors.Add(new RecognitionAnchor
+        {
+            Key = "optional-box",
+            DisplayName = "box",
+            Role = RecognitionAnchorRole.Optional,
+            Weight = 0.35d,
+            Bounds = new NormalizedRectangle
+            {
+                X = 24d / reference.Width,
+                Y = 30d / reference.Height,
+                Width = 32d / reference.Width,
+                Height = 30d / reference.Height
+            }
+        });
+        profile.Anchors.Add(new RecognitionAnchor
+        {
+            Key = "optional-circle",
+            DisplayName = "circle",
+            Role = RecognitionAnchorRole.Optional,
+            Weight = 0.35d,
+            Bounds = new NormalizedRectangle
+            {
+                X = 168d / reference.Width,
+                Y = 110d / reference.Height,
+                Width = 32d / reference.Width,
+                Height = 32d / reference.Height
+            }
+        });
+        fingerprint = new MapGeometryFingerprint
+        {
+            Map = map,
+            ReferenceWidth = reference.Width,
+            ReferenceHeight = reference.Height
+        };
+        return reference;
     }
 
     private static Mat BuildReference(out MapGeometryFingerprint fingerprint)

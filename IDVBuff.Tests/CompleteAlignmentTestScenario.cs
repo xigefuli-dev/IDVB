@@ -65,7 +65,9 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
         MinimumConfidence = 0.30d,
         VectorErrorTolerance = 0.06d,
         AmbiguityMargin = 0.01d,
-        ConfirmationAdvantage = 0.01d
+        ConfirmationAdvantage = 0.01d,
+        ForceBestRecognitionResult = true,
+        ForceCandidateSelection = false
     };
 
     public static MapStructureRegistrationTuning StructureTuning
@@ -75,6 +77,7 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
             var tuning = new MapStructureRegistrationTuning
             {
                 UseAuxiliaryAnchorRecognition = false,
+                EnableFastAlignment = false,
                 StructureFallbackBudgetMilliseconds = 5_000,
                 MinimumEdgePixels = 50,
                 MinimumSpanPixels = 18,
@@ -186,7 +189,11 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
                     },
                     SideEntranceFeaturePaths = new Dictionary<string, string>
                     {
-                        [MainFloor] = sideFeaturePath
+                        [MainFloor] = sideFeaturePath,
+                        // Deliberately provide a non-primary feature too. The
+                        // initial side scan must filter it at the operation
+                        // boundary and return only the map's primary floor.
+                        [UpperFloor] = sideFeaturePath
                     },
                     Recognition = recognition
                 },

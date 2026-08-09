@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Drawing;
 
@@ -55,7 +56,13 @@ public sealed class MapOverlayWindow : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!gameBounds.IsValid || gameWindowHandle == IntPtr.Zero)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.Overlay,
+                MapLogLevel.Warning,
+                "状态层更新被跳过：游戏窗口边界或句柄无效。");
             return;
+        }
 
         _gameBounds = gameBounds;
         _gameWindowHandle = gameWindowHandle;
@@ -63,6 +70,13 @@ public sealed class MapOverlayWindow : IDisposable
         _status = status;
         if (showImmediately)
             Present();
+    }
+
+    public void ClearStatus()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _status = null;
+        RefreshVisibleContent();
     }
 
     public void UpdateMap(
@@ -79,6 +93,18 @@ public sealed class MapOverlayWindow : IDisposable
             || !gameBounds.IsValid
             || gameWindowHandle == IntPtr.Zero)
         {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.Overlay,
+                MapLogLevel.Warning,
+                "地图层更新被跳过：变换、地图图像、游戏边界或窗口句柄无效。",
+                details: new()
+                {
+                    ["hasTransform"] = recognition.Result.OverlayTransform is not null,
+                    ["floorImagePath"] = recognition.FloorImagePath,
+                    ["imageExists"] = File.Exists(recognition.FloorImagePath),
+                    ["boundsValid"] = gameBounds.IsValid,
+                    ["windowHandle"] = $"0x{gameWindowHandle.ToInt64():X}"
+                });
             return;
         }
 
@@ -92,6 +118,15 @@ public sealed class MapOverlayWindow : IDisposable
             || overlayWidth <= 0
             || overlayHeight <= 0)
         {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.Overlay,
+                MapLogLevel.Warning,
+                "地图层更新被跳过：Overlay 尺寸无效。",
+                details: new()
+                {
+                    ["overlayWidth"] = overlayWidth,
+                    ["overlayHeight"] = overlayHeight
+                });
             return;
         }
 
@@ -203,7 +238,13 @@ public sealed class MapOverlayWindow : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!HasContent)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.Overlay,
+                MapLogLevel.Warning,
+                "Overlay Toggle 被忽略：当前没有地图、状态或小地图内容。");
             return;
+        }
         if (IsVisible)
             Hide();
         else
@@ -311,9 +352,10 @@ public sealed class MapOverlayWindow : IDisposable
             using var bitmap = RenderScene(scene);
             _nativeWindow.Present(bitmap, _gameBounds);
         }
-        catch
+        catch (Exception ex)
         {
             _nativeWindow.Hide();
+            Debug.WriteLine($"[Overlay] Present 异常: {ex.Message}");
             throw;
         }
 
@@ -485,6 +527,18 @@ public sealed class MapOverlayWindow : IDisposable
     public void SetMiniMapOffsetY(double offsetY)
     {
         _miniMapOffsetY = (float)offsetY;
+        if (IsVisible)
+            Present();
+    }
+
+    public void SetMiniMapScale(double scale)
+    {
+        if (_persistentMiniMap is not { } miniMap) return;
+        if (!MapOverlayBitmapRenderer.TryGetScaledImageSize(
+                miniMap.ImagePath, scale, out var w, out var h))
+            return;
+        _persistentMiniMap = miniMap with { Width = w, Height = h };
+        InvalidateLockedBackground();
         if (IsVisible)
             Present();
     }

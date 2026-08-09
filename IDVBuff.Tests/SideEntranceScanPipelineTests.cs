@@ -74,6 +74,54 @@ public sealed class SideEntranceScanPipelineTests
     }
 
     [Fact]
+    public void GateSeedKeepsFeatureScaleAndTranslation()
+    {
+        var map = CreateMap();
+        var profile = MapFloorRules.GetFloorProfile(map, "1f")!;
+        profile.SideEntranceFeatureCenterX = 200d;
+        profile.SideEntranceFeatureCenterY = 300d;
+        profile.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
+        {
+            X = 0.18d,
+            Y = 0.35d,
+            Width = 0.04d,
+            Height = 0.05d
+        };
+        var candidate = new SideEntranceScanCandidate
+        {
+            Map = map,
+            FloorKey = "1f",
+            MatchScore = 0.92d,
+            MatchScale = 1.25d,
+            MatchLocation = new MapScreenRect(300d, 150d, 50d, 50d)
+        };
+        var gate = new GateDetection
+        {
+            Score = 0.95d,
+            Scale = 0.4d,
+            // A measured 40px icon over a 20px reference would imply 2.0.
+            // It must not replace the feature-derived map scale of 1.25.
+            ScreenBounds = new MapScreenRect(700d, 500d, 40d, 40d)
+        };
+
+        var created = SideEntranceScanPipeline.TryCreateGateAlignmentSeed(
+            candidate,
+            gate,
+            new MapScreenRect(100d, 200d, 800d, 600d),
+            referenceGateIconWidth: 20d,
+            referenceGateIconHeight: 20d,
+            out var session,
+            out var failureReason);
+
+        Assert.True(created, failureReason);
+        Assert.Equal(1.25d, session.LockedTransform.ScaleX, 8);
+        Assert.Equal(175d, session.LockedTransform.OffsetX, 8);
+        Assert.Equal(0d, session.LockedTransform.OffsetY, 8);
+        Assert.Equal(1.25d, session.BaselineGateScale, 8);
+        Assert.Equal(0.4d, session.GateTemplateScale!.Value, 8);
+    }
+
+    [Fact]
     public void SeedRejectsScaleOutsideSearchRange()
     {
         var map = CreateMap();
@@ -99,6 +147,41 @@ public sealed class SideEntranceScanPipelineTests
 
         Assert.False(created);
         Assert.Contains("缩放", failureReason);
+    }
+
+    [Theory]
+    [InlineData(-0.25d, 0d)]
+    [InlineData(1.25d, 1d)]
+    public void SeedClampsRecognitionConfidence(
+        double matchScore,
+        double expectedConfidence)
+    {
+        var map = CreateMap();
+        var profile = MapFloorRules.GetFloorProfile(map, "1f")!;
+        profile.SideEntranceFeatureCenterX = 200d;
+        profile.SideEntranceFeatureCenterY = 300d;
+        profile.SideEntranceFeatureRadius = 20;
+        var candidate = new SideEntranceScanCandidate
+        {
+            Map = map,
+            FloorKey = "1f",
+            MatchScore = matchScore,
+            MatchScale = 1d,
+            MatchLocation = new MapScreenRect(300d, 150d, 40d, 40d)
+        };
+
+        var created = SideEntranceScanPipeline.TryCreateAlignmentSeed(
+            candidate,
+            new MapScreenRect(100d, 200d, 800d, 600d),
+            out var session,
+            out var failureReason);
+
+        Assert.True(created, failureReason);
+        Assert.Equal(expectedConfidence, session.LastConfidence);
+        Assert.Equal(expectedConfidence, session.LastObservationConfidence);
+        Assert.Equal(
+            expectedConfidence,
+            session.SideEntranceScanPriorConfidence);
     }
 
     [Fact]

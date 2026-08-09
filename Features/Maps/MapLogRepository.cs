@@ -50,6 +50,21 @@ public sealed class MapLogRepository
         CancellationToken cancellationToken = default) =>
         MergeAndWriteAsync(sessionPath, entries, ".final.tmp", cancellationToken);
 
+    public async Task<IReadOnlyList<MapLogEntry>> ReadSessionAsync(
+        string sessionPath,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionPath) || !File.Exists(sessionPath))
+            return [];
+
+        await using var stream = File.OpenRead(sessionPath);
+        return await JsonSerializer.DeserializeAsync<List<MapLogEntry>>(
+                   stream,
+                   JsonOptions,
+                   cancellationToken)
+               ?? [];
+    }
+
     public void DeleteSession(string sessionPath)
     {
         try

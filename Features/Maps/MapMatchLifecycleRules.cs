@@ -7,7 +7,6 @@ public enum MapAlignmentPrerequisiteKind
     DefaultDualGateAlignment,
     DefaultSingleGateAlignment,
     DefaultStructureAlignment,
-    SideDualGateAlignment,
     SideSingleGateAlignment,
     SideStructureAlignment,
     OtherFloorStructureAlignment
@@ -105,13 +104,9 @@ public static class MapMatchLifecycleRules
             return IsValidTransform(floorScaleSeed);
         }
 
-        if (operation is MapAlignmentPrerequisiteKind.DefaultDualGateAlignment
-            or MapAlignmentPrerequisiteKind.SideDualGateAlignment)
+        if (operation == MapAlignmentPrerequisiteKind.DefaultDualGateAlignment)
         {
-            return configuredStrategy ==
-                (operation == MapAlignmentPrerequisiteKind.DefaultDualGateAlignment
-                    ? FirstScanStrategy.DoubleGate
-                    : FirstScanStrategy.SideEntrance);
+            return configuredStrategy == FirstScanStrategy.DoubleGate;
         }
 
         if (alignmentSession is null
@@ -132,8 +127,8 @@ public static class MapMatchLifecycleRules
         }
 
         return configuredStrategy == FirstScanStrategy.SideEntrance
-            && (alignmentSession.SideEntranceScanPriorConfidence > 0d
-                || alignmentSession.HasGatePairLock);
+            && alignmentSession.SideEntranceScanPriorConfidence > 0d
+            && !alignmentSession.HasGatePairLock;
     }
 
     private static bool IsValidTransform(MapOverlayTransform? transform) =>

@@ -88,15 +88,12 @@ public sealed class MapSecondFloorAlignmentTests
             sourceFloor,
             targetFloor);
 
-        // 宽高比不一致时不再回退到 1.0，而是使用对角线长度比
-        // 作为几何综合估计。
-        Assert.True(usedDimensionRatio);
-        var expectedDiagonalRatio = Math.Sqrt(
-            (1129.0 * 1129.0) + (1196.0 * 1196.0))
-            / Math.Sqrt((1198.0 * 1198.0) + (658.0 * 658.0));
-        Assert.Equal(expectedDiagonalRatio, ratio, 6);
-        Assert.Equal(source.ScaleX * expectedDiagonalRatio, result.ScaleX, 6);
-        Assert.Equal(source.ScaleY * expectedDiagonalRatio, result.ScaleY, 6);
+        // Different aspect ratios represent different world extents rather
+        // than a reliable pixel-density ratio.
+        Assert.False(usedDimensionRatio);
+        Assert.Equal(1d, ratio, 6);
+        Assert.Equal(source.ScaleX, result.ScaleX, 6);
+        Assert.Equal(source.ScaleY, result.ScaleY, 6);
     }
 
     [Fact]
@@ -128,7 +125,7 @@ public sealed class MapSecondFloorAlignmentTests
             RejectionReason = MapStructureRejectionReason.None
         };
 
-        var recognition = MapCvRecognitionService.BuildFloorStructureRecognition(
+        var recognition = MapCvRecognitionBuilders.BuildFloorStructureRecognition(
             map,
             "2f",
             "C:\\fake\\floor-2.png",

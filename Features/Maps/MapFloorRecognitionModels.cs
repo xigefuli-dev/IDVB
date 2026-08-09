@@ -38,6 +38,16 @@ public enum MapFloorRecognitionIntent
     ManualRecognition
 }
 
+public enum MapAlignmentFloorSource
+{
+    ManualOverride,
+    DisplayedMiniMap
+}
+
+public readonly record struct MapAlignmentFloorSelection(
+    string FloorKey,
+    MapAlignmentFloorSource Source);
+
 public static class MapFloorRecognitionRules
 {
     public const double PerformanceBudgetMilliseconds = 100d;
@@ -67,8 +77,38 @@ public static class MapFloorRecognitionRules
     }
 
     public static bool RequiresConfirmedFirstFloor(
-        MapFloorRecognitionIntent intent) =>
-        intent == MapFloorRecognitionIntent.AutomaticMapOpen;
+        MapFloorRecognitionIntent intent) => intent switch
+        {
+            MapFloorRecognitionIntent.AutomaticMapOpen => true,
+            MapFloorRecognitionIntent.QuickScan => true,
+            MapFloorRecognitionIntent.ManualRecognition => true,
+            _ => true
+        };
+
+    public static MapAlignmentFloorSelection? ResolvePreferredAlignmentFloor(
+        MapRecord map,
+        string? manualFloorKey,
+        string? displayedFloorKey)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        if (IsKnownFloor(map, manualFloorKey))
+        {
+            return new MapAlignmentFloorSelection(
+                manualFloorKey!,
+                MapAlignmentFloorSource.ManualOverride);
+        }
+        if (IsKnownFloor(map, displayedFloorKey))
+        {
+            return new MapAlignmentFloorSelection(
+                displayedFloorKey!,
+                MapAlignmentFloorSource.DisplayedMiniMap);
+        }
+        return null;
+    }
+
+    public static bool MayFallbackToAutomaticFloor(
+        MapAlignmentFloorSource source) =>
+        source == MapAlignmentFloorSource.DisplayedMiniMap;
 
     public static int GetOperationPriority(
         MapFloorRecognitionIntent intent) =>
@@ -78,6 +118,10 @@ public static class MapFloorRecognitionRules
             MapFloorRecognitionIntent.QuickScan => 1,
             _ => 0
         };
+
+    private static bool IsKnownFloor(MapRecord map, string? floorKey) =>
+        !string.IsNullOrWhiteSpace(floorKey)
+        && MapFloorRules.GetFloorProfile(map, floorKey) is not null;
 }
 
 /// <summary>

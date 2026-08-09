@@ -18,7 +18,8 @@ public sealed class MapControlPanelWindow : IDisposable
 {
     private readonly Func<PlayerSlot, string, Task> _beginMatch;
     private readonly Func<Task<IReadOnlyList<string>>> _getMapClasses;
-    private readonly Func<Task> _endMatch;
+    private readonly Func<bool> _isAutomaticMapCacheEnabled;
+    private readonly Func<bool, Task> _endMatch;
     private readonly Dictionary<PlayerSlot, Button> _slotButtons = [];
     private readonly TextBlock _stateText = new()
     {
@@ -66,10 +67,12 @@ public sealed class MapControlPanelWindow : IDisposable
     public MapControlPanelWindow(
         Func<PlayerSlot, string, Task> beginMatch,
         Func<Task<IReadOnlyList<string>>> getMapClasses,
-        Func<Task> endMatch)
+        Func<bool> isAutomaticMapCacheEnabled,
+        Func<bool, Task> endMatch)
     {
         _beginMatch = beginMatch;
         _getMapClasses = getMapClasses;
+        _isAutomaticMapCacheEnabled = isAutomaticMapCacheEnabled;
         _endMatch = endMatch;
         _beginButton.Click += BeginButton_Click;
         _endButton.Click += EndButton_Click;
@@ -167,7 +170,9 @@ public sealed class MapControlPanelWindow : IDisposable
             ? Visibility.Visible
             : Visibility.Collapsed;
         _messageText.Text = snapshot.IsStarted
-            ? "结束后将清空本局地图和玩家状态。"
+            ? _isAutomaticMapCacheEnabled()
+                ? "结束时将询问是否保存本局收集的稳定地图缩放值。"
+                : "结束后将清空本局地图和玩家状态。"
             : _pendingSlot is null
                 ? "请选择本局自己的玩家序号。"
                 : $"已选择 {(int)_pendingSlot.Value} 号玩家 · 模式 {_pendingClass}，可以开始对局。";
@@ -329,7 +334,9 @@ public sealed class MapControlPanelWindow : IDisposable
         SetActionsEnabled(false);
         try
         {
-            await _endMatch();
+            var saveAutomaticMapCache = _isAutomaticMapCacheEnabled()
+                && await ConfirmAutomaticMapCacheSaveAsync();
+            await _endMatch(saveAutomaticMapCache);
             _pendingSlot = null;
             Hide();
         }
@@ -341,6 +348,25 @@ public sealed class MapControlPanelWindow : IDisposable
         {
             SetActionsEnabled(true);
         }
+    }
+
+    private async Task<bool> ConfirmAutomaticMapCacheSaveAsync()
+    {
+        var xamlRoot = (_window?.Content as FrameworkElement)?.XamlRoot;
+        if (xamlRoot is null)
+            return false;
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = xamlRoot,
+            Title = "保存本局地图缓存？",
+            Content = "将从本局收集的稳定缩放样本中生成地图缓存。"
+                + "如果本局对齐结果可能有误，请选择不保存。",
+            PrimaryButtonText = "保存并退出",
+            CloseButtonText = "不保存并退出",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     private void SetActionsEnabled(bool enabled)

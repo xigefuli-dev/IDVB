@@ -135,9 +135,29 @@ public sealed class MapStructurePreprocessor
             ignoreRegions,
             dynamicIgnoreRegions,
             timing,
-            useOrb: true,
+            // The immutable reference cache uses AKAZE/MLDB. Structure feature
+            // voting requires identical descriptor type and width, so the
+            // regular live path must use the same extractor.
+            useOrb: false,
             generateVisibleMask: generateVisibleMask);
     }
+
+    /// <summary>
+    /// Produces the same cleaned live structure as ProcessLiveRoi while using
+    /// AKAZE descriptors compatible with the immutable reference cache. VPSG
+    /// consumes this path before any translation is known.
+    /// </summary>
+    public MapStructureFeatures ProcessLiveRoiAkaze(
+        Mat source,
+        IReadOnlyList<NormalizedRectangle>? ignoreRegions = null,
+        IReadOnlyList<Rect>? dynamicIgnoreRegions = null) =>
+        ProcessCore(
+            source,
+            retainDominantStructureCluster: true,
+            ignoreRegions,
+            dynamicIgnoreRegions,
+            new PreprocessTiming(),
+            useOrb: false);
 
     public MapStructureFeatures ProcessLiveRoiDiagnostic(
         Mat source,
@@ -158,7 +178,7 @@ public sealed class MapStructurePreprocessor
             ignoreRegions,
             dynamicIgnoreRegions,
             timing,
-            useOrb: true,
+            useOrb: false,
             generateVisibleMask: generateVisibleMask);
     }
 

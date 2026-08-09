@@ -31,6 +31,20 @@ public sealed class MapGameToggleState
         _openPipelineVersion = Version;
     }
 
+    /// <summary>
+    /// Synchronizes the runtime state with an externally controlled game map.
+    /// This is used by the real CLI after overlay_game has sent the same
+    /// XButton1 event that a player would send.  Unlike <see cref="MarkOpen"/>
+    /// it leaves the open pipeline available for the explicit align command.
+    /// </summary>
+    public MapGameToggleTransition SetOpenForExternalController(bool isOpen)
+    {
+        IsOpen = isOpen;
+        Version++;
+        _openPipelineVersion = -1;
+        return new MapGameToggleTransition(IsOpen, Version);
+    }
+
     public void Reset()
     {
         IsOpen = false;

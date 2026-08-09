@@ -92,6 +92,35 @@ public sealed class MapLogCollectorTests
         }
     }
 
+    [Fact]
+    public async Task CompleteEntriesIncludePersistedAndPendingEntries()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            await using var collector = new MapLogCollector(new MapLogRepository(root));
+            collector.IsEnabled = true;
+            collector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info, "persisted-or-pending-1");
+            collector.Append(MapLogCategory.ViewportCapture, MapLogLevel.Warning, "persisted-or-pending-2");
+
+            var entries = await collector.GetCompleteEntriesAsync();
+
+            Assert.Contains(entries, entry => entry.Message == "Log collection started");
+            Assert.Contains(entries, entry => entry.Message == "persisted-or-pending-1");
+            Assert.Contains(entries, entry => entry.Message == "persisted-or-pending-2");
+            Assert.Equal(
+                entries.Count,
+                entries.Select(entry => entry.Sequence).Distinct().Count());
+            Assert.Equal(
+                entries.Count,
+                entries.OrderBy(entry => entry.Sequence).Count());
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
     private static async Task<List<MapLogEntry>> ReadEntriesAsync(string path)
     {
         await using var stream = File.OpenRead(path);

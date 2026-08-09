@@ -25,6 +25,10 @@ public sealed record MapAlignmentResearchAttempt
     public int SchemaVersion { get; init; } = 1;
     public Guid AttemptId { get; init; } = Guid.NewGuid();
     public DateTimeOffset ObservedAt { get; init; } = DateTimeOffset.UtcNow;
+    /// <summary>Map-open session 版本号，用于关联同一对局的多次对齐。</summary>
+    public long SessionVersion { get; init; }
+    /// <summary>对齐修订号，在同一 session 内递增。</summary>
+    public long AlignmentRevision { get; init; }
     public Guid MapId { get; init; }
     public DateTimeOffset MapUpdatedAt { get; init; }
     public string FloorKey { get; init; } = string.Empty;

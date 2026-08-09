@@ -1,93 +1,17 @@
+using IDVBuff.Core.Contracts;
 using OpenCvSharp;
 using System.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
 
-/// <summary>Controls how GateTemplateDetector enumerates scales and image regions.</summary>
-public enum GateSearchMode
-{
-    /// <summary>Cold-start: warm scales + client-relative scales + global fallback.</summary>
-    FullSearch,
-
-    /// <summary>Only a narrow band around the remembered warm scale (~7 scales).</summary>
-    WarmScaleSearch,
-
-    /// <summary>Only search small ROIs around predicted gate positions (~3 scales).</summary>
-    LocalConfirmationSearch,
-
-    /// <summary>Single fixed scale from a locked gate-pair session — no scale search.</summary>
-    LockedScale,
-}
-
-/// <summary>Why the search stopped — carried in GateDetectionResult for diagnostics.</summary>
-public enum GateSearchStopReason
-{
-    Completed,
-    DualGateEarlyExit,
-    SingleGateWarmExit,
-    BudgetExceeded,
-    NoValidScale,
-    InvalidSearchContext,
-}
-
-/// <summary>
-/// Pure template-detection parameters. Contains no map / geometry / session types.
-/// </summary>
-public sealed class GateSearchContext
-{
-    public GateSearchMode Mode { get; init; } = GateSearchMode.FullSearch;
-
-    // ── WarmScaleSearch ──────────────────────────────────────────
-    public double? WarmScale { get; init; }
-
-    // ── LocalConfirmationSearch ───────────────────────────────────
-    public IReadOnlyList<MapScreenRect> PredictedGateRegions { get; init; } = [];
-    public double? PredictedScale { get; init; }
-
-    // ── LockedScale ──────────────────────────────────────────────
-    public double? LockedScale { get; init; }
-
-    // ── ROI ──────────────────────────────────────────────────────
-    /// <summary>Multiplied by template size and added around each predicted region.</summary>
-    public double LocalRoiTemplatePaddingFactor { get; init; } = 1.0;
-    public int LocalRoiMinimumPaddingPixels { get; init; } = 24;
-    public int MaximumExpectedMotionPixels { get; init; }
-
-    // ── Budget ───────────────────────────────────────────────────
-    /// <summary>Checked before each MatchTemplate call. Null = no budget.</summary>
-    public int? TimeBudgetMilliseconds { get; set; }
-
-    // ── Single-gate warm exit ────────────────────────────────────
-    public bool AllowSingleGateEarlyExit { get; init; }
-    public double SingleGateScoreThreshold { get; init; } =
-        GateTemplateRules.EarlyExitScoreThreshold;
-    public double SingleGateScaleTolerance { get; init; } =
-        GateTemplateRules.SingleGateScaleTolerance;
-    public double AmbiguityScoreGap { get; init; } =
-        GateTemplateRules.SingleGateAmbiguityGap;
-}
-
-/// <summary>Full diagnostic result from one gate detection call.</summary>
-public sealed class GateDetectionResult
-{
-    public IReadOnlyList<GateDetection> Gates { get; init; } = [];
-    public IReadOnlyList<GateDetection> RawCandidates { get; init; } = [];
-    public GateSearchMode SearchModeUsed { get; init; }
-    public GateSearchStopReason StopReason { get; init; }
-    public int ScalesEvaluated { get; init; }
-    public int RegionsEvaluated { get; init; }
-    public int MatchTemplateCalls { get; init; }
-    public bool BudgetExceeded { get; init; }
-    public double ElapsedMilliseconds { get; init; }
-}
-
 /// <summary>
 /// Detects the two in-game Gate icons from one preprocessed map viewport.
 /// The detector owns its template and remembers the last successful scale.
 /// </summary>
-public sealed class GateTemplateDetector : IDisposable
+public sealed partial class GateTemplateDetector : IDisposable
 {
     private readonly Mat _gateSource;
+    private readonly IConfigProvider? _configProvider;
     private double? _warmScale;
     private bool _disposed;
 
@@ -103,13 +27,58 @@ public sealed class GateTemplateDetector : IDisposable
             throw new InvalidOperationException("门图标资源无法生成有效的边缘模板。");
     }
 
-    // ── Backward-compatible overload ──────────────────────────────────────
+    /// <summary>
+    /// Creates a detector that reads gate algorithm parameters from an
+    /// <see cref="IConfigProvider"/> under the "detection.gate" section.
+    /// Subscribes to <see cref="IConfigProvider.ConfigChanged"/> for hot-reload.
+    /// </summary>
+    public GateTemplateDetector(string gatePath, IConfigProvider configProvider)
+        : this(gatePath)
+    {
+        _configProvider = configProvider;
+        GateTemplateRules.ApplyConfig(configProvider);
+        configProvider.ConfigChanged += OnConfigChanged;
+    }
+
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        if (_configProvider is null) return;
+        GateTemplateRules.ApplyConfig(_configProvider);
+    }
+
+    // ── Backward-compatible overloads ─────────────────────────────────────
+
+    /// <summary>Convenience overload that resolves defaults through <see cref="GateTemplateRules"/>.</summary>
+    public IReadOnlyList<GateDetection> Detect(
+        Mat liveMatchImage,
+        MapScreenRect viewportBounds)
+    {
+        return Detect(
+            liveMatchImage,
+            viewportBounds,
+            GateTemplateRules.ReferenceClientWidth,
+            GateTemplateRules.MatchThreshold,
+            searchContext: null).Gates;
+    }
 
     public IReadOnlyList<GateDetection> Detect(
         Mat liveMatchImage,
         MapScreenRect viewportBounds,
-        double clientWidth = GateTemplateRules.ReferenceClientWidth,
-        double scoreThreshold = MapRecognitionTuning.DefaultGateTemplateThreshold)
+        double clientWidth)
+    {
+        return Detect(
+            liveMatchImage,
+            viewportBounds,
+            clientWidth,
+            GateTemplateRules.MatchThreshold,
+            searchContext: null).Gates;
+    }
+
+    public IReadOnlyList<GateDetection> Detect(
+        Mat liveMatchImage,
+        MapScreenRect viewportBounds,
+        double clientWidth,
+        double scoreThreshold)
     {
         return Detect(
             liveMatchImage,
@@ -131,7 +100,7 @@ public sealed class GateTemplateDetector : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         scoreThreshold = double.IsFinite(scoreThreshold)
             ? Math.Clamp(scoreThreshold, 0d, 1d)
-            : MapRecognitionTuning.DefaultGateTemplateThreshold;
+            : GateTemplateRules.MatchThreshold;
         searchContext ??= new GateSearchContext { Mode = GateSearchMode.FullSearch };
 
         var detectTimer = Stopwatch.StartNew();
@@ -297,41 +266,23 @@ public sealed class GateTemplateDetector : IDisposable
                     }
                 }
 
-                // Single-gate warm early exit: check after each scale whether
-                // we have a confident single-gate candidate that allows us to
-                // stop early. DualGateEarlyExit always takes priority.
+                // Single-gate early exit (Warm + FullSearch). DualGate always wins.
+                // FullSearch requires a minimum scale count so an undersized first
+                // match cannot abort the cold list prematurely.
                 if (stopReason != GateSearchStopReason.DualGateEarlyExit
-                    && searchContext.Mode == GateSearchMode.WarmScaleSearch
                     && searchContext.AllowSingleGateEarlyExit
-                    && raw.Count > 0)
+                    && raw.Count > 0
+                    && (searchContext.Mode == GateSearchMode.WarmScaleSearch
+                        || searchContext.Mode == GateSearchMode.FullSearch))
                 {
-                    var clusters = ClusterAcrossScales(raw);
-                    if (clusters.Count == 1)
+                    if (TrySingleGateEarlyExit(
+                        searchContext,
+                        raw,
+                        scalesEvaluated,
+                        out var singleExitReason))
                     {
-                        var best = clusters[0]
-                            .OrderByDescending(c => c.Score)
-                            .First();
-                        if (best.Score >= searchContext.SingleGateScoreThreshold
-                            && searchContext.WarmScale is { } warmScale
-                            && Math.Abs((best.Scale / warmScale) - 1d)
-                                <= searchContext.SingleGateScaleTolerance)
-                        {
-                            stopReason = GateSearchStopReason.SingleGateWarmExit;
-                            break;
-                        }
-                    }
-                    else if (clusters.Count >= 2)
-                    {
-                        var ordered = clusters
-                            .Select(c => c.OrderByDescending(g => g.Score).First())
-                            .OrderByDescending(c => c.Score)
-                            .ToArray();
-                        if (ordered[0].Score - ordered[1].Score
-                            >= searchContext.AmbiguityScoreGap)
-                        {
-                            stopReason = GateSearchStopReason.SingleGateWarmExit;
-                            break;
-                        }
+                        stopReason = singleExitReason;
+                        break;
                     }
                 }
             }
@@ -383,39 +334,6 @@ public sealed class GateTemplateDetector : IDisposable
 
     public void ResetSuccessfulScale() => _warmScale = null;
 
-    public static Mat CreateEdges(Mat source)
-    {
-        using var gray = new Mat();
-        if (source.Channels() == 1)
-            source.CopyTo(gray);
-        else if (source.Channels() == 4)
-            Cv2.CvtColor(source, gray, ColorConversionCodes.BGRA2GRAY);
-        else
-            Cv2.CvtColor(source, gray, ColorConversionCodes.BGR2GRAY);
-
-        using var blurred = new Mat();
-        Cv2.GaussianBlur(gray, blurred, new Size(3, 3), 0d);
-        var edges = new Mat();
-        Cv2.Canny(
-            blurred,
-            edges,
-            GateTemplateRules.CannyLowThreshold,
-            GateTemplateRules.CannyHighThreshold);
-        return edges;
-    }
-
-    public static Mat CreateMatchImage(Mat source)
-    {
-        var gray = new Mat();
-        if (source.Channels() == 1)
-            source.CopyTo(gray);
-        else if (source.Channels() == 4)
-            Cv2.CvtColor(source, gray, ColorConversionCodes.BGRA2GRAY);
-        else
-            Cv2.CvtColor(source, gray, ColorConversionCodes.BGR2GRAY);
-        return gray;
-    }
-
     // ── Scale lists per mode ──────────────────────────────────────────────
 
     private IReadOnlyList<double> GetScalesForMode(
@@ -447,6 +365,10 @@ public sealed class GateTemplateDetector : IDisposable
         // the centre first and expand outwards; otherwise an undersized
         // neighbour can produce two merely adequate matches and trigger the
         // dual-gate early exit before the exact scale is evaluated.
+        //
+        // Global 0.5…1.5 fallback is intentionally omitted from the default
+        // list: those large templates dominate MatchTemplate cost on ~1400px
+        // viewports and almost never match real gate icons (~0.15–0.4).
         IEnumerable<double> warmScales = _warmScale is { } warm
             ? new[]
             {
@@ -457,21 +379,84 @@ public sealed class GateTemplateDetector : IDisposable
                 warm * GateTemplateRules.WarmScaleMaximum,
             }
             : [];
+        // Client-relative band only (no flat 0.5…1.5 global list).  Keep
+        // enough samples for cold-start coverage while staying well under the
+        // historical ~21-scale tax on large viewports.
         var clientRelativeScales = new[]
             {
-                    1d, GateTemplateRules.WarmScaleStart,
-                    GateTemplateRules.WarmScaleMaximum, 0.7d, 1.35d,
-                0.55d, 1.65d, 2d, 2.4d, 2.8d,
+                1d,
+                GateTemplateRules.WarmScaleStart,
+                GateTemplateRules.WarmScaleMaximum,
+                0.7d,
+                1.35d,
+                0.55d,
+                1.65d,
+                2d,
+                2.4d,
+                2.8d,
             }
             .Select(factor => estimatedScale * factor);
-        var globalFallback = Enumerable.Range(0, 11)
-            .Select(index => 0.5d + (index * 0.1d));
         return warmScales
             .Concat(clientRelativeScales)
-            .Concat(globalFallback)
             .Select(scale => Math.Clamp(scale, 0.12d, 1.5d))
             .DistinctBy(scale => Math.Round(scale, 3))
             .ToArray();
+    }
+
+    private static bool TrySingleGateEarlyExit(
+        GateSearchContext searchContext,
+        List<GateDetection> raw,
+        int scalesEvaluated,
+        out GateSearchStopReason stopReason)
+    {
+        stopReason = GateSearchStopReason.Completed;
+        if (searchContext.Mode == GateSearchMode.FullSearch
+            && scalesEvaluated
+                < GateTemplateRules.FullSearchMinScalesBeforeSingleGateExit)
+        {
+            return false;
+        }
+
+        var clusters = ClusterAcrossScales(raw);
+        if (clusters.Count == 1)
+        {
+            var best = clusters[0]
+                .OrderByDescending(c => c.Score)
+                .First();
+            if (best.Score < searchContext.SingleGateScoreThreshold)
+                return false;
+
+            if (searchContext.WarmScale is { } warmScale)
+            {
+                if (Math.Abs((best.Scale / warmScale) - 1d)
+                    > searchContext.SingleGateScaleTolerance)
+                {
+                    return false;
+                }
+            }
+            // FullSearch without an explicit warm scale: high single-cluster
+            // score after MinScales is enough to stop burning remaining scales.
+
+            stopReason = GateSearchStopReason.SingleGateWarmExit;
+            return true;
+        }
+
+        if (clusters.Count >= 2
+            && searchContext.Mode == GateSearchMode.WarmScaleSearch)
+        {
+            var ordered = clusters
+                .Select(c => c.OrderByDescending(g => g.Score).First())
+                .OrderByDescending(c => c.Score)
+                .ToArray();
+            if (ordered[0].Score - ordered[1].Score
+                >= searchContext.AmbiguityScoreGap)
+            {
+                stopReason = GateSearchStopReason.SingleGateWarmExit;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private IReadOnlyList<double> GetWarmOnlyScales(double? contextWarmScale)
@@ -652,99 +637,14 @@ public sealed class GateTemplateDetector : IDisposable
         return union <= 0d ? 0d : intersection / union;
     }
 
-    public static string ResolveGateAssetPath()
-    {
-        var deployed = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");
-        if (File.Exists(deployed))
-            return deployed;
-        var workspace = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Assets", "Gate.png"));
-        if (File.Exists(workspace))
-            return workspace;
-        var current = Path.Combine(Environment.CurrentDirectory, "Assets", "Gate.png");
-        return File.Exists(current) ? current : deployed;
-    }
-
-    // ── Reference gate icon measurement ────────────────────────────────
-
-    /// <summary>
-    /// Runs narrow-band multi-scale template matching in the reference image
-    /// around <paramref name="anchorCenter"/> to measure the actual pixel size
-    /// of the gate icon. Returns the matched template dimensions (in reference
-    /// pixels), or null when no confident match is found.
-    /// </summary>
-    public static (double Width, double Height)? EstimateReferenceGateIconSize(
-        Mat referenceImage,
-        Point2d anchorCenter)
-    {
-        if (referenceImage.Empty())
-            return null;
-
-        using var matchImage = CreateMatchImage(referenceImage);
-        using var gate = Cv2.ImRead(ResolveGateAssetPath(), ImreadModes.Unchanged);
-        if (gate.Empty())
-            return null;
-
-        using var gateGray = CreateMatchImage(gate);
-        var gateW = (double)gateGray.Width;
-        var gateH = (double)gateGray.Height;
-
-        // Narrow band of plausible icon scales on the reference image.
-        // Reference images are rendered at a consistent resolution where
-        // gate icons typically occupy ~2–5% of the image width.
-        double[] scales = [0.16, 0.20, 0.24, 0.28, 0.32, 0.36, 0.40, 0.44];
-
-        double bestScore = 0.5; // minimum confidence
-        double bestWidth = 0d;
-        double bestHeight = 0d;
-
-        foreach (var scale in scales)
-        {
-            var width = Math.Max(12, (int)Math.Round(gateW * scale));
-            var height = Math.Max(12, (int)Math.Round(gateH * scale));
-            if (width >= matchImage.Width || height >= matchImage.Height)
-                continue;
-
-            var halfW = width / 2;
-            var halfH = height / 2;
-            var searchRadius = Math.Max(halfW, halfH) + 12; // small local search
-
-            var roiX = Math.Max(0, (int)Math.Round(anchorCenter.X - searchRadius));
-            var roiY = Math.Max(0, (int)Math.Round(anchorCenter.Y - searchRadius));
-            var roiW = Math.Min(matchImage.Width - roiX, searchRadius * 2);
-            var roiH = Math.Min(matchImage.Height - roiY, searchRadius * 2);
-            if (roiW < width || roiH < height)
-                continue;
-
-            using var scaledGate = new Mat();
-            Cv2.Resize(gateGray, scaledGate, new Size(width, height),
-                0d, 0d,
-                scale < 1d ? InterpolationFlags.Area : InterpolationFlags.Linear);
-            using var roi = new Mat(matchImage, new Rect(roiX, roiY, roiW, roiH));
-            using var output = new Mat();
-            Cv2.MatchTemplate(roi, scaledGate, output, TemplateMatchModes.CCoeffNormed);
-            Cv2.MinMaxLoc(output, out _, out var score, out _, out _);
-
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestWidth = width;
-                bestHeight = height;
-            }
-        }
-
-        if (bestWidth <= 0d || bestHeight <= 0d)
-            return null;
-
-        return (bestWidth, bestHeight);
-    }
-
     public void Dispose()
     {
         if (_disposed)
             return;
 
         _disposed = true;
+        if (_configProvider is not null)
+            _configProvider.ConfigChanged -= OnConfigChanged;
         _gateSource.Dispose();
     }
 }

@@ -153,7 +153,7 @@ public sealed class MapRuntimeSettingsRulesTests
         var settings = JsonSerializer.Deserialize<MapRuntimeSettings>(json)!;
         settings.Normalize();
 
-        Assert.Equal(8, settings.SchemaVersion);
+        Assert.Equal(MapRuntimeSettings.CurrentSchemaVersion, settings.SchemaVersion);
         Assert.Equal(0.62d, settings.SessionTuning.MediumConfidence);
         Assert.Equal(0.60d, settings.FloorRecognitionTuning.MinimumConfidence);
         Assert.Equal(0.70d, settings.PlayerTrackingTuning.MinimumConfidence);
@@ -626,19 +626,63 @@ public sealed class MapRuntimeSettingsRulesTests
     }
 
     [Fact]
-    public void ExplicitScanAndManualRecognitionAreNotGatedByFloor()
+    public void EveryScanAndAlignmentIntentRequiresAConfirmedFloor()
     {
         Assert.True(MapFloorRecognitionRules.RequiresConfirmedFirstFloor(
             MapFloorRecognitionIntent.AutomaticMapOpen));
-        Assert.False(MapFloorRecognitionRules.RequiresConfirmedFirstFloor(
+        Assert.True(MapFloorRecognitionRules.RequiresConfirmedFirstFloor(
             MapFloorRecognitionIntent.QuickScan));
-        Assert.False(MapFloorRecognitionRules.RequiresConfirmedFirstFloor(
+        Assert.True(MapFloorRecognitionRules.RequiresConfirmedFirstFloor(
             MapFloorRecognitionIntent.ManualRecognition));
         Assert.True(
             MapFloorRecognitionRules.GetOperationPriority(
                 MapFloorRecognitionIntent.ManualRecognition)
             > MapFloorRecognitionRules.GetOperationPriority(
                 MapFloorRecognitionIntent.QuickScan));
+    }
+
+    [Fact]
+    public void ManualFloorOverridesDisplayedFloorAndCannotAutomaticallyFallback()
+    {
+        var main = new FloorRecognitionProfile { FloorKey = "main" };
+        var upper = new FloorRecognitionProfile { FloorKey = "upper" };
+        var map = new MapRecord
+        {
+            Floors =
+            [
+                new FloorDefinition { Key = "main", SortOrder = 1 },
+                new FloorDefinition { Key = "upper", SortOrder = 2 }
+            ],
+            Recognition = new MapRecognitionProfile
+            {
+                FirstFloor = main,
+                SecondFloor = upper,
+                Floors = new Dictionary<string, FloorRecognitionProfile>
+                {
+                    ["main"] = main,
+                    ["upper"] = upper
+                }
+            }
+        };
+
+        var manual = Assert.IsType<MapAlignmentFloorSelection>(
+            MapFloorRecognitionRules.ResolvePreferredAlignmentFloor(
+                map,
+                manualFloorKey: "upper",
+                displayedFloorKey: "main"));
+        Assert.Equal("upper", manual.FloorKey);
+        Assert.Equal(MapAlignmentFloorSource.ManualOverride, manual.Source);
+        Assert.False(MapFloorRecognitionRules.MayFallbackToAutomaticFloor(
+            manual.Source));
+
+        var displayed = Assert.IsType<MapAlignmentFloorSelection>(
+            MapFloorRecognitionRules.ResolvePreferredAlignmentFloor(
+                map,
+                manualFloorKey: "missing",
+                displayedFloorKey: "main"));
+        Assert.Equal(MapAlignmentFloorSource.DisplayedMiniMap, displayed.Source);
+        Assert.True(MapFloorRecognitionRules.MayFallbackToAutomaticFloor(
+            displayed.Source));
     }
 
     [Theory]

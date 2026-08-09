@@ -426,6 +426,8 @@ public sealed partial class MainPage : Page
             var view = _catalog.GetRequired(moduleId).CreateView();
             ModuleContentHost.Content = view;
             animateMainContent = view is not MapListPage;
+            if (view is MapListPage mapListPage)
+                mapListPage.ParentScrollViewer = MainContentHost;
         }
         catch (Exception exception)
         {
@@ -491,7 +493,7 @@ public sealed partial class MainPage : Page
     {
         try
         {
-            MapRuntimeHost.Current.LogCollector.Append(
+            App.Session.LogCollector.Append(
                 MapLogCategory.System,
                 MapLogLevel.Error,
                 $"Module '{moduleId}' failed to create its view: {exception.Message}",

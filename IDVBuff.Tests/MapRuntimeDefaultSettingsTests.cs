@@ -10,7 +10,7 @@ public sealed class MapRuntimeDefaultSettingsTests
         var settings = MapRuntimeSettings.CreateDefault();
 
         Assert.False(settings.IsEnabled);
-        Assert.Equal(FirstScanStrategy.DoubleGate, settings.FirstScanStrategy);
+        Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
         Assert.False(settings.CollectLogs);
         Assert.False(settings.CollectAlignmentResearchData);
         Assert.False(settings.SkipFloorRecognition);
@@ -28,6 +28,8 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.False(settings.ControlPanelToggleBinding.IsConfigured);
         Assert.False(settings.ManualRecognitionBinding.IsConfigured);
         Assert.False(settings.SwitchFloorBinding.IsConfigured);
+        Assert.False(settings.SaveMapCacheBinding.IsConfigured);
+        Assert.False(settings.AllowAutomaticMapCache);
         Assert.Empty(settings.AlignmentCalibrations);
         Assert.Empty(settings.FloorScaleCalibrations);
         Assert.Null(settings.MapViewportRegion);

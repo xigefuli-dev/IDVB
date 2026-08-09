@@ -10,13 +10,45 @@ public sealed class ReleaseVersioningPolicyTests
         var modulePath = Path.Combine(RepositoryRoot, "installer", "ReleaseVersion.psm1")
             .Replace("'", "''");
         var output = RunPowerShell(
-            "Import-Module '" + modulePath + "' -Force; "
-            + "$public = ConvertTo-IDVBPublicVersion -ReleaseLine 'b01.1' "
+            "Import-Module '" + modulePath + "' -Force -DisableNameChecking; "
+            + "$public = ConvertTo-IDVBPublicVersion -ReleaseLine 'b01.2' "
             + "-UtcNow ([DateTimeOffset]'2026-08-04T03:29:00+00:00'); "
             + "$numeric = ConvertTo-IDVBNumericVersion -PublicVersion $public; "
             + "Write-Output \"$public|$numeric\"");
 
-        Assert.Equal("b01.1-26.8.4.1129|26.8.4.1129", output.Trim());
+        Assert.Equal("b01.2-26.08.04.0000|1.2.0.0", output.Trim());
+    }
+
+    [Fact]
+    public void BuildCounterIncrementsForEachReservedBuild()
+    {
+        var modulePath = Path.Combine(RepositoryRoot, "installer", "ReleaseVersion.psm1")
+            .Replace("'", "''");
+        var counterPath = Path.Combine(
+                Path.GetTempPath(),
+                "idvb-counter-" + Guid.NewGuid().ToString("N") + ".txt")
+            .Replace("'", "''");
+        try
+        {
+            var output = RunPowerShell(
+                "Import-Module '" + modulePath + "' -Force -DisableNameChecking; "
+                + "$first = New-IDVBBuildVersion -ReleaseLine 'b01.2' "
+                + "-CounterPath '" + counterPath + "' "
+                + "-UtcNow ([DateTimeOffset]'2026-08-09T00:00:00+00:00'); "
+                + "$second = New-IDVBBuildVersion -ReleaseLine 'b01.2' "
+                + "-CounterPath '" + counterPath + "' "
+                + "-UtcNow ([DateTimeOffset]'2026-08-09T00:00:00+00:00'); "
+                + "Write-Output \"$first|$second\"");
+
+            Assert.Equal(
+                "b01.2-26.08.09.0001|b01.2-26.08.09.0002",
+                output.Trim());
+        }
+        finally
+        {
+            if (File.Exists(counterPath)) File.Delete(counterPath);
+            if (File.Exists(counterPath + ".lock")) File.Delete(counterPath + ".lock");
+        }
     }
 
     [Fact]
@@ -25,33 +57,36 @@ public sealed class ReleaseVersioningPolicyTests
         var modulePath = Path.Combine(RepositoryRoot, "installer", "ReleaseVersion.psm1")
             .Replace("'", "''");
         var result = RunPowerShellAllowFailure(
-            "Import-Module '" + modulePath + "' -Force; "
-            + "ConvertTo-IDVBNumericVersion -PublicVersion 'b01.1-26.2.30.1129'");
+            "Import-Module '" + modulePath + "' -Force -DisableNameChecking; "
+            + "ConvertTo-IDVBNumericVersion -PublicVersion 'b01.2-26.02.30.0000'");
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("Invalid IDVB release timestamp", result.StandardError);
     }
 
     [Fact]
-    public void InstallerBuildAboutPageAndWorkflowUseTheSamePublicVersionContract()
+    public void InstallerBuildAndAboutPageUseTheSamePublicVersionContract()
     {
         var project = File.ReadAllText(Path.Combine(RepositoryRoot, "IDVBuff.csproj"));
         var installer = File.ReadAllText(Path.Combine(RepositoryRoot, "installer", "IDVB.iss"));
         var build = File.ReadAllText(Path.Combine(RepositoryRoot, "installer", "Build-Release.ps1"));
+        var buildTargets = File.ReadAllText(Path.Combine(RepositoryRoot, "Directory.Build.targets"));
         var about = File.ReadAllText(Path.Combine(RepositoryRoot, "Views", "SettingsPage.cs"));
-        var workflow = File.ReadAllText(Path.Combine(
-            RepositoryRoot, ".github", "workflows", "release.yml"));
 
-        Assert.Contains("b01.1-26.8.4.1129", project);
-        Assert.Contains("26.8.4.1129", installer);
+        Assert.Contains("<IDVBProductVersion>1.2.0</IDVBProductVersion>", project);
+        Assert.Contains("<IDVBReleaseLine>b01.2</IDVBReleaseLine>", project);
+        Assert.Contains("b01.2-26.08.09.0000", installer);
+        Assert.Contains("1.2.0.0", installer);
         Assert.Contains("ConvertTo-IDVBNumericVersion", build);
-        Assert.Contains("AssemblyInformationalVersionAttribute", about);
-        Assert.Contains("contents: write", workflow);
-        Assert.Contains("IDVB_SIGNING_CERTIFICATE_PFX_BASE64", workflow);
-        Assert.Contains("-RequireSignedRelease", workflow);
-        Assert.Contains("actions/upload-artifact@v4", workflow);
-        Assert.Contains("'release', 'create'", workflow);
-        Assert.DoesNotContain("--verify-tag", workflow);
+        Assert.Contains("BuildVersionInfo.ProductVersion", about);
+        Assert.Contains("BuildVersionInfo.BuildVersion", about);
+        Assert.Contains("Generate-IDVBBuildVersion.ps1", buildTargets);
+        Assert.Contains("PublishGitHubRelease", build);
+        Assert.Contains("Get-GitHubCliPath", build);
+        Assert.Contains("Invoke-GitHubRelease", build);
+        Assert.Contains("'release', 'create'", build);
+        Assert.DoesNotContain("Publishing to GitHub Release requires -RequireSignedRelease", build);
+        Assert.DoesNotContain("--verify-tag", build);
     }
 
     private static string RunPowerShell(string command)

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using IDVBuff.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
 
@@ -110,11 +112,19 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
         double? elapsedMs = null,
         Dictionary<string, object?>? details = null)
     {
+        WritePlainTextOutput(category, level, message, elapsedMs, details);
         lock (_stateGate)
         {
             if (!_isEnabled || _session is null)
                 return;
-            AppendInternal(_session, category, level, message, elapsedMs, details);
+            AppendInternal(
+                _session,
+                category,
+                level,
+                message,
+                elapsedMs,
+                details,
+                writePlainTextOutput: false);
         }
     }
 
@@ -144,13 +154,40 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
             return session.Entries.ToArray();
     }
 
+    public async Task<IReadOnlyList<MapLogEntry>> GetCompleteEntriesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var session = Volatile.Read(ref _session);
+        if (session is null)
+            return [];
+
+        var flushTask = FlushAsync(session);
+        TrackFlush(session, flushTask);
+        await flushTask.ConfigureAwait(false);
+
+        var persisted = await _repository.ReadSessionAsync(
+            session.Path,
+            cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<MapLogEntry> pending;
+        lock (session.Gate)
+            pending = session.Entries.ToArray();
+
+        return persisted
+            .Concat(pending)
+            .GroupBy(entry => entry.Sequence)
+            .Select(group => group.First())
+            .OrderBy(entry => entry.Sequence)
+            .ToArray();
+    }
+
     private void AppendInternal(
         Session session,
         MapLogCategory category,
         MapLogLevel level,
         string message,
         double? elapsedMs = null,
-        Dictionary<string, object?>? details = null)
+        Dictionary<string, object?>? details = null,
+        bool writePlainTextOutput = true)
     {
         var entry = new MapLogEntry
         {
@@ -162,6 +199,9 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
             ElapsedMs = elapsedMs,
             Details = details
         };
+
+        if (writePlainTextOutput)
+            WritePlainTextOutput(category, level, message, elapsedMs, details);
 
         var shouldFlush = false;
         lock (session.Gate)
@@ -176,6 +216,37 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
 
         if (shouldFlush)
             TrackFlush(session, FlushAsync(session));
+    }
+
+    private static void WritePlainTextOutput(
+        MapLogCategory category,
+        MapLogLevel level,
+        string message,
+        double? elapsedMs,
+        Dictionary<string, object?>? details)
+    {
+        try
+        {
+            var outputMessage = message;
+            if (elapsedMs is not null)
+            {
+                outputMessage += $" | elapsedMs="
+                    + elapsedMs.Value.ToString("0.###", CultureInfo.InvariantCulture);
+            }
+            if (details is not null)
+            {
+                foreach (var detail in details)
+                {
+                    outputMessage += $" | {detail.Key}="
+                        + (Convert.ToString(detail.Value, CultureInfo.InvariantCulture) ?? "null");
+                }
+            }
+            OutputLog.Write(level.ToString(), $"MAP/{category}", outputMessage);
+        }
+        catch
+        {
+            // The plain-text logging side channel must never affect map recognition.
+        }
     }
 
     private void OnFlushTimer(Session session)

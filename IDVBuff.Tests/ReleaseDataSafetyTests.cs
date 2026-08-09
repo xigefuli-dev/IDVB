@@ -11,7 +11,7 @@ public sealed class ReleaseDataSafetyTests
         var settings = MapRuntimeSettings.CreateDefault();
 
         Assert.False(settings.IsEnabled);
-        Assert.Equal(FirstScanStrategy.DoubleGate, settings.FirstScanStrategy);
+        Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
         Assert.False(settings.CollectLogs);
         Assert.False(settings.CollectAlignmentResearchData);
         Assert.All(AllBindings(settings), binding => Assert.False(binding.IsConfigured));

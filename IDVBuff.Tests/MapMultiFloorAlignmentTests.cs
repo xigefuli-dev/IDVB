@@ -278,7 +278,7 @@ public sealed class MapMultiFloorAlignmentTests
             Confidence = 0.88d
         };
 
-        var recognition = MapCvRecognitionService.BuildFloorStructureRecognition(
+        var recognition = MapCvRecognitionBuilders.BuildFloorStructureRecognition(
             map,
             "basement",
             "C:\\fake\\basement.png",

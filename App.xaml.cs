@@ -1,7 +1,12 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Navigation;
+using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
 using Microsoft.UI.Dispatching;
+using IDVBuff.Diagnostics;
+using IDVBuff.Cli;
+using System.Runtime.InteropServices;
 
 // Windows App SDK 单文件发布要求：在程序入口前设置此环境变量，
 // 以便运行时能在单文件包内找到原生 DLL。
@@ -26,6 +31,19 @@ namespace IDVBuff
         private bool elevationDialogOpen;
         private bool shutdownInProgress;
         private bool shutdownComplete;
+        private ServiceProvider? _serviceProvider;
+        private IdvbControlServer? _idvbControlServer;
+
+        /// <summary>全局 DI 容器（供 Views 等非 DI 感知组件使用）。</summary>
+        public static ServiceProvider Services =>
+            (_currentApp?._serviceProvider)
+            ?? throw new InvalidOperationException("DI 容器尚未构建。");
+
+        /// <summary>快捷访问新架构入口（供 Views 使用）。</summary>
+        public static Features.Maps.SessionOrchestrator Session =>
+            Services.GetRequiredService<Features.Maps.SessionOrchestrator>();
+
+        private static App? _currentApp;
 
         public Window MainWindow => window ?? throw new InvalidOperationException("主窗口尚未初始化。");
 
@@ -35,6 +53,12 @@ namespace IDVBuff
         /// </summary>
         public App()
         {
+            _currentApp = this;
+            var isCliLaunch = Array.Exists(
+                Environment.GetCommandLineArgs(),
+                argument => string.Equals(argument, "--cli", StringComparison.OrdinalIgnoreCase));
+            OutputLog.Initialize(captureFirstChanceExceptions: !isCliLaunch);
+            UnhandledException += App_UnhandledException;
             this.InitializeComponent();
         }
 
@@ -47,6 +71,13 @@ namespace IDVBuff
         {
             try
             {
+                var cliOptions = CliLaunchOptions.Parse(Environment.GetCommandLineArgs());
+                if (cliOptions.IsCli)
+                {
+                    await RunCliAsync(cliOptions);
+                    return;
+                }
+
                 WriteStartupTrace("Creating the main window.");
                 window = new Window
                 {
@@ -68,11 +99,32 @@ namespace IDVBuff
                 window.Activate();
                 WriteStartupTrace("Main window activated.");
 
+                // ═══ 构建 DI 容器 ═══
+                var dispatcher = DispatcherQueue.GetForCurrentThread();
+                var services = new ServiceCollection();
+                services.AddIdvbServices(dispatcher);
+                _serviceProvider = services.BuildServiceProvider();
+                WriteStartupTrace("DI container built.");
+
                 await Task.Yield();
                 WriteStartupTrace("Initializing map runtime.");
-                MapRuntimeHost.Initialize(DispatcherQueue.GetForCurrentThread());
-                MapRuntimeHost.Current.ElevationRequiredDetected += Runtime_ElevationRequiredDetected;
-                await MapRuntimeHost.Current.InitializeAsync();
+
+                // 新架构入口 — 唯一运行路径
+                var session = _serviceProvider.GetRequiredService<Features.Maps.SessionOrchestrator>();
+                session.ElevationRequiredDetected += Runtime_ElevationRequiredDetected;
+                await session.InitializeAsync();
+
+                if (!string.IsNullOrWhiteSpace(cliOptions.IdvbControlPipeName))
+                {
+                    _idvbControlServer = new IdvbControlServer(
+                        cliOptions.IdvbControlPipeName,
+                        dispatcher,
+                        session);
+                    _idvbControlServer.Start();
+                    WriteStartupTrace(
+                        $"IDVB control pipe started: {cliOptions.IdvbControlPipeName}");
+                }
+
                 WriteStartupTrace("Map runtime initialized.");
             }
             catch (Exception exception)
@@ -83,8 +135,114 @@ namespace IDVBuff
             }
         }
 
+        private async Task RunCliAsync(CliLaunchOptions options)
+        {
+            OutputLog.Shutdown();
+            AttachCliConsole();
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+            OutputLog.Initialize(captureFirstChanceExceptions: false);
+            using var cancellation = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+            {
+                eventArgs.Cancel = true;
+                try { cancellation.Cancel(); } catch (ObjectDisposedException) { }
+            };
+            Console.CancelKeyPress += cancelHandler;
+            var exitCode = RealCliExitCodes.Fatal;
+
+            try
+            {
+                WriteStartupTrace("Starting the RealCLI runtime host.");
+                if (options.IdvbAttachPipeName is not null)
+                {
+                    await using var remote = new RemoteRealCliClient(options);
+                    exitCode = await remote.RunAsync(cancellation.Token);
+                }
+                else
+                {
+                    var dispatcher = DispatcherQueue.GetForCurrentThread();
+                    var services = new ServiceCollection();
+                    services.AddIdvbServices(dispatcher, headless: true);
+                    _serviceProvider = services.BuildServiceProvider();
+
+                    var session = _serviceProvider.GetRequiredService<Features.Maps.SessionOrchestrator>();
+                    await session.InitializeAsync();
+
+                    await using (var host = new RealCliHost(session, options))
+                    {
+                        exitCode = await host.RunAsync(cancellation.Token);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                WriteStartupTrace("RealCLI startup failed.", exception);
+                Console.Error.WriteLine(exception.ToString());
+                exitCode = RealCliExitCodes.Fatal;
+            }
+            finally
+            {
+                try
+                {
+                    if (_serviceProvider is not null)
+                    {
+                        await _serviceProvider.DisposeAsync()
+                            .AsTask()
+                            .WaitAsync(TimeSpan.FromSeconds(8));
+                    }
+                }
+                catch (Exception exception)
+                {
+                    WriteStartupTrace("RealCLI shutdown failed.", exception);
+                    exitCode = RealCliExitCodes.Fatal;
+                }
+                finally
+                {
+                    _serviceProvider = null;
+                    Console.CancelKeyPress -= cancelHandler;
+                    OutputLog.Shutdown();
+                }
+            }
+
+            Environment.ExitCode = exitCode;
+            Environment.Exit(exitCode);
+        }
+
+        private static void AttachCliConsole()
+        {
+            const uint AttachParentProcess = 0xFFFFFFFF;
+            if (!AttachConsole(AttachParentProcess))
+                AllocConsole();
+
+            var output = new StreamWriter(
+                Console.OpenStandardOutput(),
+                System.Text.Encoding.UTF8)
+            {
+                AutoFlush = true
+            };
+            var error = new StreamWriter(
+                Console.OpenStandardError(),
+                System.Text.Encoding.UTF8)
+            {
+                AutoFlush = true
+            };
+            Console.SetOut(output);
+            Console.SetError(error);
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AttachConsole(uint processId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AllocConsole();
+
         private static void WriteStartupTrace(string message, Exception? exception = null)
         {
+            OutputLog.Write(
+                exception is null ? "INFO" : "ERROR",
+                "STARTUP",
+                message,
+                exception);
             try
             {
                 var logDirectory = Path.Combine(AppDataPaths.RootDirectory, "Logs");
@@ -102,6 +260,11 @@ namespace IDVBuff
                 // Startup diagnostics must never make startup fail.
             }
         }
+
+        private static void App_UnhandledException(
+            object sender,
+            Microsoft.UI.Xaml.UnhandledExceptionEventArgs args) =>
+            OutputLog.Write("ERROR", "WINUI", "Unhandled UI exception.", args.Exception);
 
         private async Task ShowStartupFailureAsync(Exception exception)
         {
@@ -169,7 +332,26 @@ namespace IDVBuff
             shutdownInProgress = true;
             try
             {
-                await MapRuntimeHost.ShutdownAsync();
+                // 释放新架构 SessionOrchestrator 及所有子资源
+                if (_idvbControlServer is not null)
+                {
+                    await _idvbControlServer.DisposeAsync();
+                    _idvbControlServer = null;
+                }
+
+                if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is IAsyncDisposable ad)
+                {
+                    await ad.DisposeAsync()
+                        .AsTask()
+                        .WaitAsync(TimeSpan.FromSeconds(8));
+                }
+
+                if (_serviceProvider is { } sp)
+                {
+                    await sp.DisposeAsync()
+                        .AsTask()
+                        .WaitAsync(TimeSpan.FromSeconds(8));
+                }
             }
             catch (Exception exception)
             {
@@ -184,8 +366,10 @@ namespace IDVBuff
             }
         }
 
-        private static void Window_Closed(object sender, WindowEventArgs args) =>
-            MapRuntimeHost.Shutdown();
+        private static void Window_Closed(object sender, WindowEventArgs args)
+        {
+            OutputLog.Shutdown();
+        }
 
         private async void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)
         {
@@ -222,7 +406,9 @@ namespace IDVBuff
                 };
                 if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                     return;
-                if (MapRuntimeHost.Current.TryRestartElevated(out var failureReason))
+                string? failureReason = null;
+                if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is { } s
+                    && s.TryRestartElevated(out failureReason))
                 {
                     currentWindow.Close();
                     return;
@@ -232,7 +418,7 @@ namespace IDVBuff
                 {
                     XamlRoot = root.XamlRoot,
                     Title = "未能管理员重启",
-                    Content = failureReason,
+                    Content = failureReason ?? "管理员重启失败。",
                     CloseButtonText = "知道了"
                 };
                 await failure.ShowAsync();

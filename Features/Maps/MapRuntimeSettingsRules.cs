@@ -5,20 +5,20 @@ public sealed class MapRecognitionTuning
 {
     public const double DefaultGateTemplateThreshold = 0.72d;
     public const double DefaultMinimumConfidence = 0.50d;
-    public const double DefaultVectorErrorTolerance = 0.04d;
+    public const double DefaultVectorErrorTolerance = 0.15d;
     public const double DefaultAmbiguityMargin = 0.015d;
     public const double DefaultConfirmationAdvantage = 0.08d;
-    public const int DefaultSideEntranceFeatureRadius = 100;
+    public const int DefaultSideEntranceFeatureRadius = 80;
 
     public double GateTemplateThreshold { get; set; } = DefaultGateTemplateThreshold;
     public double MinimumConfidence { get; set; } = DefaultMinimumConfidence;
     public double VectorErrorTolerance { get; set; } = DefaultVectorErrorTolerance;
     public double AmbiguityMargin { get; set; } = DefaultAmbiguityMargin;
     public double ConfirmationAdvantage { get; set; } = DefaultConfirmationAdvantage;
-    public bool ForceBestRecognitionResult { get; set; } = true;
-    public bool ForceCandidateSelection { get; set; }
+    public bool ForceBestRecognitionResult { get; set; } = false;
+    public bool ForceCandidateSelection { get; set; } = true;
 
-    public int WarmGateSearchBudgetMs { get; set; }
+    public int WarmGateSearchBudgetMs { get; set; } = 120;
     public int ConfirmationGateSearchBudgetMs { get; set; }
 
     public double ConfirmationRoiTemplatePaddingFactor { get; set; } = 1.0d;

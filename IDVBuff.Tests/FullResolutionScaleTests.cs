@@ -69,10 +69,15 @@ public sealed class FullResolutionScaleTests
             && candidate.PixelHeight == pixelHeight
             && candidate.Dpi != dpi);
         Assert.Equal(
-            MapRecalibrationReason.DpiChanged,
+            MapRecalibrationReason.None,
             MapSessionRules.GetSignatureChangeReason(
                 signature,
                 differentScale.CreateSignature()));
+        Assert.True(calibration.Matches(
+            mapId,
+            mapUpdatedAt,
+            differentScale.CreateSignature(),
+            "1f"));
 
         var differentResolution = DisplayTestMatrix.Profiles.First(candidate =>
             candidate.Dpi == dpi

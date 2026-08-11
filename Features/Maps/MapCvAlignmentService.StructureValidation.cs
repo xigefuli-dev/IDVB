@@ -203,6 +203,9 @@ internal static partial class MapCvAlignmentService
                 OrientationDegrees =
                     anchorRecognition.Result.OrientationDegrees,
                 Confidence = confidence,
+                IdentityConfidence =
+                    anchorRecognition.Result.IdentityConfidence,
+                LocalizationConfidence = confidence,
                 Source = anchorRecognition.Result.Source,
                 HasAllRequiredAnchorEvidence =
                     anchorRecognition.Result.HasAllRequiredAnchorEvidence,

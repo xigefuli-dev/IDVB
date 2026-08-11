@@ -131,6 +131,9 @@ namespace IDVBuff
             {
                 WriteStartupTrace("Startup failed.", exception);
                 System.Diagnostics.Debug.WriteLine($"Application startup failed: {exception}");
+                if (ShowStartupFailurePage(exception))
+                    return;
+
                 await ShowStartupFailureAsync(exception);
             }
         }
@@ -285,6 +288,62 @@ namespace IDVBuff
             };
             await dialog.ShowAsync();
         }
+
+        // This application is Windows-only; the fallback is intentionally built
+        // from WinUI controls so it can still render when authored XAML fails.
+#pragma warning disable CA1416
+        private bool ShowStartupFailurePage(Exception exception)
+        {
+            if (window?.Content is not Frame rootFrame || rootFrame.Content is not null)
+                return false;
+
+            try
+            {
+                var logPath = Path.Combine(AppDataPaths.RootDirectory, "Logs", "startup.log");
+                var content = new StackPanel
+                {
+                    MaxWidth = 760,
+                    Padding = new Thickness(40),
+                    Spacing = 16,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                content.Children.Add(new TextBlock
+                {
+                    Text = "Identity Vision Bridge 启动失败",
+                    FontSize = 28,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                });
+                content.Children.Add(new TextBlock
+                {
+                    Text = "主界面未能加载。请将下面的错误与诊断日志一并反馈。",
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                content.Children.Add(new TextBlock
+                {
+                    Text = exception.GetBaseException().Message,
+                    IsTextSelectionEnabled = true,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                content.Children.Add(new TextBlock
+                {
+                    Text = $"诊断日志：{logPath}",
+                    IsTextSelectionEnabled = true,
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                rootFrame.Content = content;
+                window.Activate();
+                return true;
+            }
+            catch (Exception fallbackException)
+            {
+                WriteStartupTrace("Unable to show the startup failure page.", fallbackException);
+                return false;
+            }
+        }
+#pragma warning restore CA1416
 
         private static void TrySetWindowIcon(Window targetWindow)
         {

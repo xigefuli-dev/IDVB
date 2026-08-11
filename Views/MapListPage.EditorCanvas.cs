@@ -193,7 +193,7 @@ public sealed partial class MapListPage : UserControl
             AddMarkerRectangle(annotation.Bounds, color, isSourceRelative: true, isDashed: isDashed);
             if (annotation.Type == MapAnnotationType.Text && !string.IsNullOrWhiteSpace(annotation.Text))
             {
-                AddAnnotationTextLabel(annotation.Bounds, annotation.Text, color);
+                AddAnnotationTextLabel(annotation.Bounds!, annotation.Text, color);
             }
         }
     }
@@ -509,6 +509,7 @@ public sealed partial class MapListPage : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        ResetModernMarkerEditorSession();
         DetachMarkerHostScroller();
         if (ParentScrollViewer is not null)
             ParentScrollViewer.SizeChanged -= OnParentScrollViewerSizeChanged;

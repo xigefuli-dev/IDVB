@@ -96,7 +96,11 @@ public sealed partial class IdvmPackageService
                 Id = map.Id,
                 ClassId = classId,
                 Title = map.DisplayName,
-                Source = "manual",
+                Source = map.Source,
+                SourceProjectId = map.SourceProjectId,
+                SourceProjectRevision = map.SourceProjectRevision,
+                SourceVisualSha256 = map.SourceVisualSha256,
+                SourceStructureSha256 = map.SourceStructureSha256,
                 CoordinateSystem = "normalized-top-left-y-down"
             },
             Recognition = new RecognitionSettingsDto
@@ -128,6 +132,19 @@ public sealed partial class IdvmPackageService
             if (image.Empty())
                 throw new InvalidOperationException($"无法读取 {map.DisplayName} 的楼层原图。");
 
+            string? recognitionLogicalPath = null;
+            if (string.Equals(map.Source, "survey", StringComparison.Ordinal))
+            {
+                var recognitionSource = _repository.GetFloorRecognitionPath(map, floor.Key);
+                if (File.Exists(recognitionSource))
+                {
+                    recognitionLogicalPath = $"{root}/data/floor-{index + 1:D3}-recognition.png";
+                    await CopyFileAsync(
+                        recognitionSource,
+                        Path.Combine(staging, recognitionLogicalPath.Replace('/', Path.DirectorySeparatorChar)),
+                        cancellationToken);
+                }
+            }
             var profile = map.Recognition.GetFloor(floor.Key)
                 ?? throw new InvalidOperationException($"{map.DisplayName} 缺少楼层 {floor.Key} 的识别配置。");
             var manifestFloor = new ManifestFloorDto
@@ -144,6 +161,7 @@ public sealed partial class IdvmPackageService
                 DisplayName = floor.DisplayName,
                 SortOrder = index + 1,
                 Image = imageLogicalPath,
+                RecognitionImage = recognitionLogicalPath,
                 ImageWidth = image.Width,
                 ImageHeight = image.Height,
                 OrientationDegrees = profile.OrientationDegrees,
@@ -181,10 +199,24 @@ public sealed partial class IdvmPackageService
                 Annotations = profile.Annotations.Select(annotation => new AnnotationDto
                 {
                     Id = annotation.Id,
-                    Type = annotation.Type == MapAnnotationType.Text ? "text" : "outline",
-                    ColorIndex = annotation.ColorIndex,
-                    Bounds = ToDto(annotation.Bounds)!,
-                    Text = annotation.Text
+                    Type = annotation.Type switch
+                    {
+                        MapAnnotationType.Text => "text",
+                        MapAnnotationType.Outline => "outline",
+                        MapAnnotationType.Line => "line",
+                        _ => string.Empty
+                    },
+                    ColorIndex = MapAnnotationColor.ToLegacyIndex(annotation.EffectiveColorHex),
+                    Color = annotation.EffectiveColorHex,
+                    Bounds = ToDto(annotation.Bounds),
+                    Start = ToDto(annotation.Start),
+                    End = ToDto(annotation.End),
+                    Text = annotation.Text,
+                    FontFamily = annotation.FontFamily,
+                    FontSize = annotation.FontSize,
+                    IsBold = annotation.IsBold,
+                    IsItalic = annotation.IsItalic,
+                    IsStrikethrough = annotation.IsStrikethrough
                 }).ToList()
             };
             foreach (var anchor in profile.Anchors)

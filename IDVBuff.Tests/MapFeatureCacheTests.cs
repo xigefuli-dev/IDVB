@@ -213,8 +213,10 @@ public sealed class MapFeatureCacheTests
 
             Assert.True(repository.TryGet(key, out var migrated));
             Assert.NotNull(migrated);
-            Assert.Equal(2, migrated!.SchemaVersion);
-            Assert.Equal(2, migrated.Scale.SchemaVersion);
+            Assert.Equal(MapFeatureCacheSchema.CurrentVersion, migrated!.SchemaVersion);
+            Assert.Equal(
+                MapFeatureCacheSchema.CurrentVersion,
+                migrated.Scale.SchemaVersion);
             Assert.Equal(7, migrated.Scale.SampleCount);
             Assert.InRange(migrated.Scale.UniformScale, 1.337, 1.339);
         }
@@ -223,6 +225,209 @@ public sealed class MapFeatureCacheTests
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task LegacyManualCacheRemainsDirectlyTrustedAfterMigration()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"idvb-manual-cache-migration-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var mapId = Guid.NewGuid();
+            var updated = DateTimeOffset.UtcNow;
+            var json = $$"""
+                {
+                  "SchemaVersion": 2,
+                  "Entries": [{
+                    "SchemaVersion": 2,
+                    "Key": {
+                      "MapId": "{{mapId}}",
+                      "MapContentFingerprint": "trusted-content",
+                      "FloorKey": "2f",
+                      "Resolution": {
+                        "ClientWidth": 2560,
+                        "ClientHeight": 1600,
+                        "ViewportWidth": 1421,
+                        "ViewportHeight": 1249
+                      }
+                    },
+                    "Scale": {
+                      "SchemaVersion": 2,
+                      "UniformScale": 1.337,
+                      "Source": 0,
+                      "SampleCount": 1,
+                      "Confidence": 0.84,
+                      "RelativeMedianAbsoluteDeviation": 0.0,
+                      "UpdatedAt": "{{updated:O}}"
+                    }
+                  }]
+                }
+                """;
+            await File.WriteAllTextAsync(
+                Path.Combine(directory, "map-feature-cache.json"),
+                json);
+            var repository = new MapFeatureCacheRepository(directory);
+
+            await repository.InitializeAsync();
+
+            var key = new MapFeatureCacheKey(
+                mapId,
+                "trusted-content",
+                "2f",
+                new MapCacheResolutionSignature(2560, 1600, 1421, 1249));
+            Assert.True(repository.TryGet(key, out var migrated));
+            Assert.NotNull(migrated);
+            Assert.Equal(MapFeatureCacheSource.Manual, migrated!.Scale.Source);
+            Assert.True(migrated.Scale.Validation!.DirectlyTrusted);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RepairRequiresThreeSpatiallyConsistentHighQualitySamples()
+    {
+        var consistent = new[]
+        {
+            new MapCacheRepairSample(1.3370, 210.0, 330.0, 0.90, 0.06),
+            new MapCacheRepairSample(1.3375, 211.0, 329.5, 0.88, 0.07),
+            new MapCacheRepairSample(1.3368, 209.5, 331.0, 0.92, 0.05)
+        };
+
+        Assert.False(MapCacheRepairSampleAggregator.TryAggregate(
+            consistent.Take(2).ToArray(),
+            out _));
+        Assert.True(MapCacheRepairSampleAggregator.TryAggregate(
+            consistent,
+            out var aggregate));
+        Assert.Equal(3, aggregate!.SampleCount);
+
+        var drifting = consistent.ToArray();
+        drifting[2] = drifting[2] with { OffsetX = 220d };
+        Assert.False(MapCacheRepairSampleAggregator.TryAggregate(
+            drifting,
+            out _));
+    }
+
+    [Fact]
+    public void IdentityPriorCannotPassLocalizationCacheGate()
+    {
+        var result = new MapRecognitionResult
+        {
+            Confidence = 0.52d,
+            IdentityConfidence = 0.90d,
+            LocalizationConfidence = 0.52d,
+            EvidenceKind = MapAlignmentEvidenceKind.Structure,
+            StructureCandidateMargin = 0.08d
+        };
+
+        Assert.False(MapFeatureCacheRules.IsReliableLocalizationSample(
+            result,
+            minimumLocalizationConfidence: 0.70d,
+            minimumCandidateMargin: 0.04d));
+    }
+
+    [Fact]
+    public void ManualEntryCanOnlyBeReplacedByValidatedThreeSampleRecovery()
+    {
+        var key = new MapFeatureCacheKey(
+            Guid.NewGuid(),
+            "content",
+            "2f",
+            new MapCacheResolutionSignature(2560, 1600, 1421, 1249));
+        MapFeatureCacheEntry Entry(
+            MapFeatureCacheSource source,
+            int samples,
+            int validations) => new()
+        {
+            Key = key,
+            Scale = new MapScaleCachePayload
+            {
+                UniformScale = 1.337d,
+                Source = source,
+                SampleCount = samples,
+                Confidence = 0.9d,
+                RelativeMedianAbsoluteDeviation = 0.001d,
+                Validation = new MapScaleCacheValidationMetadata
+                {
+                    SuccessfulValidationCount = validations,
+                    LastLocalizationConfidence = 0.9d,
+                    LastCandidateMargin = 0.06d,
+                    LastValidatedAt = validations > 0
+                        ? DateTimeOffset.UtcNow
+                        : default
+                },
+                UpdatedAt = DateTimeOffset.UtcNow
+            }
+        };
+        var manual = Entry(MapFeatureCacheSource.Manual, 1, 0);
+
+        Assert.False(MapFeatureCacheRules.CanReplaceExistingEntry(
+            manual,
+            Entry(MapFeatureCacheSource.Automatic, 4, 4)));
+        Assert.False(MapFeatureCacheRules.CanReplaceExistingEntry(
+            manual,
+            Entry(MapFeatureCacheSource.Recovery, 2, 2)));
+        Assert.True(MapFeatureCacheRules.CanReplaceExistingEntry(
+            manual,
+            Entry(MapFeatureCacheSource.Recovery, 3, 3)));
+    }
+
+    [Fact]
+    public void PlayerEntryIsProtectedFromAutomaticOverwrites()
+    {
+        var key = new MapFeatureCacheKey(
+            Guid.NewGuid(),
+            "content",
+            "1f",
+            new MapCacheResolutionSignature(1920, 1080, 1280, 720));
+        MapFeatureCacheEntry Entry(
+            MapFeatureCacheSource source,
+            int samples,
+            int validations) => new()
+        {
+            Key = key,
+            Scale = new MapScaleCachePayload
+            {
+                UniformScale = 1.0d,
+                Source = source,
+                SampleCount = samples,
+                Confidence = 1.0d,
+                RelativeMedianAbsoluteDeviation = 0d,
+                Validation = new MapScaleCacheValidationMetadata
+                {
+                    SuccessfulValidationCount = validations,
+                    LastLocalizationConfidence = 1.0d,
+                    LastCandidateMargin = 0.06d,
+                    LastValidatedAt = validations > 0
+                        ? DateTimeOffset.UtcNow
+                        : default
+                },
+                UpdatedAt = DateTimeOffset.UtcNow
+            }
+        };
+        var player = Entry(MapFeatureCacheSource.Player, 1, 0);
+
+        Assert.False(MapFeatureCacheRules.CanReplaceExistingEntry(
+            player,
+            Entry(MapFeatureCacheSource.Automatic, 4, 4)));
+        Assert.False(MapFeatureCacheRules.CanReplaceExistingEntry(
+            player,
+            Entry(MapFeatureCacheSource.Recovery, 2, 2)));
+        Assert.False(MapFeatureCacheRules.CanReplaceExistingEntry(
+            player,
+            Entry(MapFeatureCacheSource.PreprocessedEstimate, 1, 1)));
+        // Recovery with three consistent samples may still displace player
+        // data, mirroring the Manual-entry rule.
+        Assert.True(MapFeatureCacheRules.CanReplaceExistingEntry(
+            player,
+            Entry(MapFeatureCacheSource.Recovery, 3, 3)));
     }
 
     [Fact]

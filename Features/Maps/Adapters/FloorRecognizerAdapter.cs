@@ -17,13 +17,13 @@ public sealed class FloorRecognizerAdapter : IFloorRecognizer
         _recognizer.Recognize(bgraPixels, width, height, stride);
 
     public object Recognize(ReadOnlySpan<byte> bgraPixels, int width, int height, int stride, object tuning) =>
-        _recognizer.Recognize(bgraPixels, width, height, stride, (MapFloorRecognitionTuning?)tuning);
+        _recognizer.Recognize(bgraPixels, width, height, stride, (MapFloorRecognitionTuning)tuning);
 
     public object Recognize(object image) =>
         _recognizer.Recognize((Mat)image);
 
     public object Recognize(object image, object tuning) =>
-        _recognizer.Recognize((Mat)image, (MapFloorRecognitionTuning?)tuning);
+        _recognizer.Recognize((Mat)image, (MapFloorRecognitionTuning)tuning);
 
     public void Dispose() => _recognizer.Dispose();
 }

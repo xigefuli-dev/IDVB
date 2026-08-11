@@ -32,9 +32,22 @@ internal static partial class MapCvAlignmentService
         structureTuning ??= new MapStructureRegistrationTuning();
         structureTuning = structureTuning.Clone();
         structureTuning.Normalize();
+        var livePreprocessingProfile =
+            ResolveLiveStructurePreprocessingProfile(
+                scaleSearchPolicy,
+                isTracking,
+                structureTuning);
+        if (livePreprocessingProfile
+            == MapStructurePreprocessingProfile.EdgesOnly)
+        {
+            // Edge-only inputs intentionally cannot contribute descriptor
+            // votes. Avoid entering the feature-voting branch at all.
+            structureTuning.EnableFeatureVoting = false;
+        }
         var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(
             service.ReadyMapCount,
             service.TotalMapCount);
+        var totalTimer = Stopwatch.StartNew();
 
         var map = service.TryGetMap(selectedMapId);
         if (map is null)
@@ -85,7 +98,11 @@ internal static partial class MapCvAlignmentService
                 $"The recognition image for floor '{floorKey}' is missing.");
         }
 
+        var referenceLoadTimer = Stopwatch.StartNew();
         using var reference = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
+        referenceLoadTimer.Stop();
+        diagnostics.ReferenceImageLoadMilliseconds =
+            referenceLoadTimer.Elapsed.TotalMilliseconds;
         if (reference.Empty())
         {
             return MapCvRecognitionDiagnostics.Failure(
@@ -107,15 +124,124 @@ internal static partial class MapCvAlignmentService
             floorKey);
         stopwatch.Stop();
         diagnostics.CacheMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
-
-        stopwatch.Restart();
-        using var preparedLive = service.StructurePreprocessor.ProcessLiveRoi(
-            frame.Image,
-            liveIgnoreRegions,
-            dynamicIgnoreRegions);
-        stopwatch.Stop();
-        diagnostics.StructurePreprocessMilliseconds =
+        diagnostics.ReferenceCacheMilliseconds =
             stopwatch.Elapsed.TotalMilliseconds;
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            $"结构参考输入就绪 · floor={floorKey}",
+            elapsedMs: referenceLoadTimer.Elapsed.TotalMilliseconds
+                + stopwatch.Elapsed.TotalMilliseconds,
+            details: new()
+            {
+                ["mapId"] = map.Id,
+                ["floor"] = floorKey,
+                ["referenceImageLoadMs"] =
+                    referenceLoadTimer.Elapsed.TotalMilliseconds,
+                ["referenceCacheMs"] = stopwatch.Elapsed.TotalMilliseconds,
+                ["referenceWidth"] = reference.Width,
+                ["referenceHeight"] = reference.Height
+            });
+
+        MapStructureFeatures preparedLive;
+        MapStructureFeatures? ownedPreparedLive = null;
+        PreprocessTiming liveTiming;
+        bool liveFrameCacheHit;
+        double originalExtractionMilliseconds;
+        var canUseFrameCache = (liveIgnoreRegions is null
+                || liveIgnoreRegions.Count == 0)
+            && dynamicIgnoreRegions.Count == 0;
+        if (canUseFrameCache)
+        {
+            preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
+                service.StructurePreprocessor,
+                livePreprocessingProfile,
+                out liveFrameCacheHit,
+                out originalExtractionMilliseconds,
+                out liveTiming);
+        }
+        else
+        {
+            stopwatch.Restart();
+            ownedPreparedLive =
+                service.StructurePreprocessor.ProcessLiveRoiDiagnostic(
+                    frame.Image,
+                    liveIgnoreRegions,
+                    dynamicIgnoreRegions,
+                    out liveTiming,
+                    profile: livePreprocessingProfile);
+            stopwatch.Stop();
+            preparedLive = ownedPreparedLive;
+            liveFrameCacheHit = false;
+            originalExtractionMilliseconds =
+                stopwatch.Elapsed.TotalMilliseconds;
+        }
+        using var ownedPreparedLiveDispose = ownedPreparedLive;
+        var currentExtractionMilliseconds = liveFrameCacheHit
+            ? 0d
+            : originalExtractionMilliseconds;
+        diagnostics.StructurePreprocessMilliseconds =
+            currentExtractionMilliseconds;
+        diagnostics.LiveStructurePreprocessMilliseconds =
+            currentExtractionMilliseconds;
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            liveFrameCacheHit
+                ? "同一捕获帧的实时结构特征已复用"
+                : "实时帧结构特征提取完成",
+            elapsedMs: currentExtractionMilliseconds,
+            details: CreateLiveStructureLogDetails(
+                frame,
+                preparedLive,
+                liveTiming,
+                liveFrameCacheHit
+                    ? "captured-frame-cache"
+                    : "new-extraction",
+                originalExtractionMilliseconds,
+                currentExtractionMilliseconds,
+                diagnostics.ReferenceImageLoadMilliseconds,
+                diagnostics.ReferenceCacheMilliseconds,
+                liveIgnoreRegions?.Count ?? 0,
+                dynamicIgnoreRegions.Count,
+                requestedProfile: livePreprocessingProfile));
+
+        if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
+                is { } remainingMilliseconds)
+        {
+            if (remainingMilliseconds
+                < MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds)
+            {
+                const string reason =
+                    "无门对齐预处理完成后已无足够的结构搜索预算，请保持地图打开并重试。";
+                var timedOut = MapStructureRegistrationResult.Reject(
+                    MapStructureRejectionReason.TimeBudgetExceeded,
+                    reason);
+                diagnostics.StructureAttempted = true;
+                diagnostics.StructureAccepted = false;
+                diagnostics.StructureRejectionReason =
+                    MapStructureRejectionReason.TimeBudgetExceeded;
+                diagnostics.StructureDisposition =
+                    MapStructureEvidenceDisposition.Inconclusive;
+                totalTimer.Stop();
+                diagnostics.TotalMilliseconds =
+                    totalTimer.Elapsed.TotalMilliseconds;
+                return new MapRecognitionAttempt
+                {
+                    Diagnostics = diagnostics,
+                    StructureResult = timedOut,
+                    FailureReason = reason,
+                    StructureAttempted = true,
+                    StructureAccepted = false,
+                    StructureFailureReason = reason,
+                    SearchStage = AlignmentSearchStage.StructureFallback
+                };
+            }
+
+            structureTuning.StructureFallbackBudgetMilliseconds = Math.Min(
+                structureTuning.StructureFallbackBudgetMilliseconds,
+                remainingMilliseconds);
+        }
 
         var structure = service.StructureRegistrar.Register(
             new MapStructureRegistrationRequest
@@ -156,6 +282,45 @@ internal static partial class MapCvAlignmentService
         diagnostics.StructureDisposition =
             structure.RejectionReason.ToDisposition(structure.Accepted);
         diagnostics.AlignmentEvidence = MapAlignmentEvidenceKind.Structure;
+        totalTimer.Stop();
+        diagnostics.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            structure.Accepted ? MapLogLevel.Info : MapLogLevel.Warning,
+            $"单次结构对齐阶段完成 · floor={floorKey} · accepted={structure.Accepted}",
+            elapsedMs: totalTimer.Elapsed.TotalMilliseconds,
+            details: new()
+            {
+                ["mapId"] = map.Id,
+                ["floor"] = floorKey,
+                ["scaleSearchPolicy"] = scaleSearchPolicy.ToString(),
+                ["scaleSeed"] = scaleSeed.ScaleX,
+                ["referenceImageLoadMs"] =
+                    diagnostics.ReferenceImageLoadMilliseconds,
+                ["referenceCacheMs"] =
+                    diagnostics.ReferenceCacheMilliseconds,
+                ["liveStructureExtractionMs"] =
+                    diagnostics.LiveStructurePreprocessMilliseconds,
+                ["liveFrameCacheHit"] = liveFrameCacheHit,
+                ["preprocessingProfile"] =
+                    liveTiming.Profile.ToString(),
+                ["descriptorExtractionSkipped"] =
+                    liveTiming.DescriptorExtractionSkipped,
+                ["structureSearchMs"] = structure.SearchMilliseconds,
+                ["structureRefineMs"] = structure.RefineMilliseconds,
+                ["referenceWidth"] = structure.ReferenceWidth,
+                ["referenceHeight"] = structure.ReferenceHeight,
+                ["queryEdgePixels"] = structure.QueryEdgePixels,
+                ["queryBoundsX"] = structure.QueryBoundsX,
+                ["queryBoundsY"] = structure.QueryBoundsY,
+                ["queryBoundsWidth"] = structure.QueryBoundsWidth,
+                ["queryBoundsHeight"] = structure.QueryBoundsHeight,
+                ["scaleHypotheses"] = structure.ScaleHypothesisCount,
+                ["oversizedHypotheses"] =
+                    structure.OversizedHypothesisCount,
+                ["rejection"] = structure.RejectionReason.ToString(),
+                ["failureReason"] = structure.FailureReason
+            });
 
         if (!structure.Accepted
             || structure.Transform is null

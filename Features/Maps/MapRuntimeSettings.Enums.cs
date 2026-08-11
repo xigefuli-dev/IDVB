@@ -7,6 +7,16 @@ public enum MapInputBindingKind
     Mouse
 }
 
+[Flags]
+public enum MapInputModifiers
+{
+    None = 0,
+    Control = 1,
+    Alt = 2,
+    Shift = 4,
+    Windows = 8
+}
+
 /// <summary>首次扫描策略：双门对齐（默认）或带门前置的侧门扫描。</summary>
 public enum FirstScanStrategy
 {

@@ -11,14 +11,16 @@ public sealed partial class MapCvRecognitionService
     /// Re-locates one already locked primary floor from its authored side
     /// feature. No other map participates, so this path cannot alter ranking
     /// or identity. A high feature score and a scale consistent with the
-    /// existing lock are sufficient alignment evidence; weaker observations
-    /// fall back to the normal gate/structure pipeline.
+    /// existing lock only produce a same-frame transform proposal; static
+    /// structure must independently validate it before it can be committed.
     /// </summary>
     public MapRecognitionAttempt AlignLockedSideEntranceFeature(
         CapturedGameFrame frame,
         Guid selectedMapId,
         MapAlignmentSession session,
-        MapRecognitionTuning tuning)
+        MapOverlayAlignmentMode alignmentMode,
+        MapRecognitionTuning tuning,
+        MapStructureRegistrationTuning? structureTuning = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(frame);
@@ -55,7 +57,7 @@ public sealed partial class MapCvRecognitionService
         {
             return MapCvRecognitionDiagnostics.Failure(
                 diagnostics,
-                "The locked map side feature observation was not strong enough for direct alignment.");
+                "The locked map side feature observation was not strong enough to seed structure validation.");
         }
 
         if (!SideEntranceScanPipeline.TryCreateAlignmentSeed(
@@ -69,39 +71,10 @@ public sealed partial class MapCvRecognitionService
                 seedFailure);
         }
 
-        var fingerprint = _fingerprints.FirstOrDefault(item =>
-            item.Map.Id == selectedMapId
-            && string.Equals(
-                item.FloorKey,
-                session.FloorKey,
-                StringComparison.Ordinal));
-        if (fingerprint is null)
-        {
-            return MapCvRecognitionDiagnostics.Failure(
-                diagnostics,
-                "The locked map side feature is no longer in the map cache.");
-        }
-
-        diagnostics.TrackingMode =
-            MapAlignmentTrackingMode.AuxiliaryAnchorTracking;
-        diagnostics.AlignmentEvidence = MapAlignmentEvidenceKind.None;
-        diagnostics.SkippedStructureValidation = true;
-        diagnostics.StructureAttempted = false;
-        var confidence = Math.Max(
-            session.SideEntranceScanPriorConfidence,
-            candidate.MatchScore);
-        var recognition = MapCvRecognitionBuilders.BuildTrackedRecognition(
-            fingerprint,
-            seed.LockedTransform,
-            [],
-            MapRecognitionSource.SideEntranceSelection,
-            confidenceOverride: confidence,
-            evidenceKind: MapAlignmentEvidenceKind.None);
-
         MapLogCollector.Instance.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
-            $"已锁定地图侧门特征直接对齐 · score={candidate.MatchScore:P0} · "
+            $"已锁定地图侧门特征提出结构验证种子 · score={candidate.MatchScore:P0} · "
             + $"scale={candidate.MatchScale:F3}",
             elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
             details: new()
@@ -112,13 +85,17 @@ public sealed partial class MapCvRecognitionService
                 ["matchScale"] = candidate.MatchScale,
                 ["scaleChange"] = scaleChange
             });
-        return new MapRecognitionAttempt
-        {
-            Diagnostics = diagnostics,
-            Recognition = recognition,
-            SearchStage = AlignmentSearchStage.WarmGateSearch,
-            StructureAttempted = false,
-            StructureAccepted = false
-        };
+        var searchContext = CreateSideEntranceWarmSearchContext(
+            seed,
+            tuning,
+            useInitialHighPrecisionRecovery: true);
+        return AlignSideEntrance(
+            frame,
+            selectedMapId,
+            seed,
+            alignmentMode,
+            tuning,
+            structureTuning,
+            alignmentSearchContext: searchContext);
     }
 }

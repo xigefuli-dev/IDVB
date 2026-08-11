@@ -71,6 +71,8 @@ internal static class StructureRegistrationRules
     public static double EarlyTermMarginFactor => _structure.EarlyTermMarginFactor;
     public static double GlobalSearchMarginMultiplier => _structure.GlobalSearchMarginMultiplier;
     public static double MarginNormalizationFloor => _structure.MarginNormalizationFloor;
+    public static double FastMinimumGeometricLockConfidence =>
+        _structure.FastMinimumGeometricLockConfidence;
 
     // ═══════════════════════════════════════════════════════════════
     // 局部精修 (alignment.structure)

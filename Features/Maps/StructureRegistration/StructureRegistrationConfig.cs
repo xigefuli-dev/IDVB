@@ -49,6 +49,7 @@ internal sealed class StructureConfig
     public double EarlyTermMarginFactor { get; set; } = 1.5d;
     public double GlobalSearchMarginMultiplier { get; set; } = 1.25d;
     public double MarginNormalizationFloor { get; set; } = 0.01d;
+    public double FastMinimumGeometricLockConfidence { get; set; } = 0.60d;
 
     // ── 局部精修（非 ECC 部分） ─────────────────────────────────
     public int[] RefinementSteps { get; set; } = { 8, 4, 2, 1 };

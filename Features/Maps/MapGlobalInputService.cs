@@ -380,20 +380,27 @@ public sealed class MapGlobalInputService : IDisposable
             }
             _lastKeyDownAt[key] = now;
             invokeQuickScan = _quickScan.Kind == MapInputBindingKind.Keyboard
-                && _quickScan.VirtualKey == key;
+                && _quickScan.VirtualKey == key
+                && AreRequiredModifiersDown(_quickScan.Modifiers);
             invokeOverlayToggle = _overlayToggle.Kind == MapInputBindingKind.Keyboard
-                && _overlayToggle.VirtualKey == key;
+                && _overlayToggle.VirtualKey == key
+                && AreRequiredModifiersDown(_overlayToggle.Modifiers);
             invokeManualRecognition = _manualRecognition.Kind == MapInputBindingKind.Keyboard
-                && _manualRecognition.VirtualKey == key;
+                && _manualRecognition.VirtualKey == key
+                && AreRequiredModifiersDown(_manualRecognition.Modifiers);
             invokeGameMapToggle = _gameMapToggle.Kind == MapInputBindingKind.Keyboard
-                && _gameMapToggle.VirtualKey == key;
+                && _gameMapToggle.VirtualKey == key
+                && AreRequiredModifiersDown(_gameMapToggle.Modifiers);
             invokeControlPanelToggle =
                 _controlPanelToggle.Kind == MapInputBindingKind.Keyboard
-                && _controlPanelToggle.VirtualKey == key;
+                && _controlPanelToggle.VirtualKey == key
+                && AreRequiredModifiersDown(_controlPanelToggle.Modifiers);
             invokeSwitchFloor = _switchFloor.Kind == MapInputBindingKind.Keyboard
-                && _switchFloor.VirtualKey == key;
+                && _switchFloor.VirtualKey == key
+                && AreRequiredModifiersDown(_switchFloor.Modifiers);
             invokeSaveMapCache = _saveMapCache.Kind == MapInputBindingKind.Keyboard
-                && _saveMapCache.VirtualKey == key;
+                && _saveMapCache.VirtualKey == key
+                && AreRequiredModifiersDown(_saveMapCache.Modifiers);
         }
 
         var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
@@ -418,6 +425,34 @@ public sealed class MapGlobalInputService : IDisposable
 
     private static bool IsKeyDown(uint key) =>
         (GetAsyncKeyState((int)key) & 0x8000) != 0;
+
+    private static bool AreRequiredModifiersDown(MapInputModifiers modifiers)
+    {
+        if (modifiers.HasFlag(MapInputModifiers.Control)
+            && !IsAnyKeyDown(0x11, 0xA2, 0xA3))
+        {
+            return false;
+        }
+        if (modifiers.HasFlag(MapInputModifiers.Alt)
+            && !IsAnyKeyDown(0x12, 0xA4, 0xA5))
+        {
+            return false;
+        }
+        if (modifiers.HasFlag(MapInputModifiers.Shift)
+            && !IsAnyKeyDown(0x10, 0xA0, 0xA1))
+        {
+            return false;
+        }
+        if (modifiers.HasFlag(MapInputModifiers.Windows)
+            && !IsAnyKeyDown(0x5B, 0x5C))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static bool IsAnyKeyDown(params int[] keys) =>
+        keys.Any(key => (GetAsyncKeyState(key) & 0x8000) != 0);
 
     private static void EnsureDistinctBindings(params MapInputBinding[] bindings)
     {

@@ -310,6 +310,81 @@ public sealed class MapOverlayBitmapRendererTests
             MapOverlayBitmapRenderer.AnchorColor("custom"));
     }
 
+    [Fact]
+    public void Render_LineUsesArbitraryRgbAndLargeMapVisibility()
+    {
+        var imagePath = CreateSolidImage(Color.Transparent, 100, 100);
+        try
+        {
+            var line = new MapOverlayRenderAnnotation(
+                MapAnnotationType.Line,
+                0,
+                "#12AB34",
+                Bounds: null,
+                new NormalizedPoint { X = .1, Y = .5 },
+                new NormalizedPoint { X = .9, Y = .5 });
+            var map = new MapOverlayRenderMap(imagePath, 0, 0, 100, 100, [], Annotations: [line]);
+
+            using var visible = MapOverlayBitmapRenderer.Render(new MapOverlayRenderScene(
+                100, 100, 96, map, null, false, ShowLineAnnotations: true));
+            using var hidden = MapOverlayBitmapRenderer.Render(new MapOverlayRenderScene(
+                100, 100, 96, map, null, false, ShowLineAnnotations: false));
+
+            var pixel = visible.GetPixel(50, 50);
+            Assert.Equal(0x12, pixel.R);
+            Assert.Equal(0xAB, pixel.G);
+            Assert.Equal(0x34, pixel.B);
+            Assert.True(pixel.A > 0);
+            Assert.Equal(0, hidden.GetPixel(50, 50).A);
+        }
+        finally
+        {
+            File.Delete(imagePath);
+        }
+    }
+
+    [Fact]
+    public void Render_MiniMapLineHasIndependentVisibility()
+    {
+        var imagePath = CreateSolidImage(Color.Transparent, 100, 100);
+        try
+        {
+            var line = new MapOverlayRenderAnnotation(
+                MapAnnotationType.Line,
+                5,
+                "#007AFF",
+                Bounds: null,
+                new NormalizedPoint { X = .1, Y = .5 },
+                new NormalizedPoint { X = .9, Y = .5 });
+            var miniMap = new MapOverlayRenderMap(imagePath, 0, 0, 100, 100, [], Annotations: [line]);
+            var common = new MapScreenRect(0, 0, 140, 140);
+
+            using var visible = MapOverlayBitmapRenderer.Render(new MapOverlayRenderScene(
+                140, 140, 96, null, null, false,
+                MiniMap: miniMap,
+                GameScreenBounds: common,
+                MonitorWorkingArea: new MapScreenRect(0, 0, 1000, 1000),
+                ShowLineAnnotations: true,
+                ShowLineAnnotationsOnMiniMap: true,
+                MiniMapOffsetY: 0));
+            using var hidden = MapOverlayBitmapRenderer.Render(new MapOverlayRenderScene(
+                140, 140, 96, null, null, false,
+                MiniMap: miniMap,
+                GameScreenBounds: common,
+                MonitorWorkingArea: new MapScreenRect(0, 0, 1000, 1000),
+                ShowLineAnnotations: true,
+                ShowLineAnnotationsOnMiniMap: false,
+                MiniMapOffsetY: 0));
+
+            Assert.True(visible.GetPixel(62, 62).A > 0);
+            Assert.Equal(0, hidden.GetPixel(62, 62).A);
+        }
+        finally
+        {
+            File.Delete(imagePath);
+        }
+    }
+
     private static string CreateSolidImage(Color color, int width = 12, int height = 12)
     {
         var path = Path.Combine(Path.GetTempPath(), $"idvbuff-overlay-{Guid.NewGuid():N}.png");

@@ -348,7 +348,7 @@ public sealed class MapRepositoryTests
             Assert.Equal(["S1"], (await repository.GetCatalogSnapshotAsync()).Classes);
             Assert.All(migrated, map =>
             {
-                Assert.Equal(6, map.Recognition.SchemaVersion);
+                Assert.Equal(7, map.Recognition.SchemaVersion);
                 Assert.Equal(
                     3,
                     map.Recognition.FirstFloor.Anchors.Count);
@@ -366,7 +366,7 @@ public sealed class MapRepositoryTests
                 {
                     var recognition = map.GetProperty("Recognition");
                     Assert.Equal(
-                        6,
+                        7,
                         recognition.GetProperty("SchemaVersion")
                             .GetInt32());
                     Assert.True(

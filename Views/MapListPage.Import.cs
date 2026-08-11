@@ -330,7 +330,7 @@ public sealed partial class MapListPage : UserControl
             Symbol = Symbol.Add,
             Width = 56,
             Height = 56,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -338,7 +338,7 @@ public sealed partial class MapListPage : UserControl
         {
             Text = "添加楼层图片",
             FontSize = 14,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 12, 0, 0)
         };
@@ -354,7 +354,7 @@ public sealed partial class MapListPage : UserControl
         // 图片占位区域 — 匹配 CreateImagePicker 的结构
         var imagePlaceholder = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(255, 190, 190, 190)),
+            Background = FluentTheme.Brush("ControlFillColorSecondaryBrush"),
             CornerRadius = new CornerRadius(7),
             Child = iconSurface,
             Height = 205,
@@ -380,7 +380,9 @@ public sealed partial class MapListPage : UserControl
         // 外层卡片 — 背景和圆角在 Border 上，不在 Button 上
         var cardSurface = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(255, 245, 245, 245)),
+            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Child = content
@@ -509,6 +511,7 @@ public sealed partial class MapListPage : UserControl
         var nameLabel = new TextBlock
         {
             Text = entry.DisplayName,
+            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             FontSize = 14,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 10, 0, 0)
@@ -523,7 +526,7 @@ public sealed partial class MapListPage : UserControl
 
         var card = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(255, 245, 245, 245)),
+            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
             BorderBrush = new SolidColorBrush(
                 _selectedImportFloorKey == entry.FloorKey ? AccentBlue : Color.FromArgb(0, 0, 0, 0)),
             BorderThickness = new Thickness(3),

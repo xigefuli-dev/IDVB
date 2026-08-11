@@ -537,7 +537,17 @@ internal static class MapStructureScaleSearch
         var maxDim = Math.Max(targetWidth, targetHeight);
         if (maxDim > tuning.FastCoarseMaxDimension)
         {
-            var extraScale = (double)tuning.FastCoarseMaxDimension / maxDim;
+            // Capping only the long side can collapse a long, thin viewport
+            // below the minimum template dimension.  That used to make the
+            // fast path return NoCandidate without running a search at all.
+            // Preserve enough pixels on the short side even when that means
+            // allowing the long side to exceed the preferred performance cap.
+            var minDim = Math.Min(targetWidth, targetHeight);
+            var scaleForMaximum = (double)tuning.FastCoarseMaxDimension / maxDim;
+            var scaleForMinimum = minDim > 0
+                ? (double)StructureRegistrationRules.CoarseFastCoarseMinTemplateDim / minDim
+                : 1d;
+            var extraScale = Math.Min(1d, Math.Max(scaleForMaximum, scaleForMinimum));
             targetWidth = Math.Max(1, (int)Math.Round(targetWidth * extraScale));
             targetHeight = Math.Max(1, (int)Math.Round(targetHeight * extraScale));
             refTargetWidth = Math.Max(1, (int)Math.Round(refTargetWidth * extraScale));

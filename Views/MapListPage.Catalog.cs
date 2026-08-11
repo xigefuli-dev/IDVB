@@ -481,9 +481,9 @@ public sealed partial class MapListPage : UserControl
         var button = new Button
         {
             Content = text,
-            Background = new SolidColorBrush(ButtonDefaultBackground),
-            Foreground = new SolidColorBrush(ButtonDarkForeground),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 218, 218, 218)),
+            Background = FluentTheme.Brush("ControlFillColorDefaultBrush"),
+            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            BorderBrush = FluentTheme.Brush("ControlStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             FontSize = 13,
             MinWidth = 98,

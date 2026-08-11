@@ -47,7 +47,7 @@ public sealed class MapFeatureCacheRepository
                     loaded = new MapFeatureCacheDocument();
                 }
             }
-            if (loaded.SchemaVersion is not (1 or 2))
+            if (!MapFeatureCacheSchema.IsSupported(loaded.SchemaVersion))
                 loaded = new MapFeatureCacheDocument();
             loaded.Entries ??= [];
             loaded.Entries = loaded.Entries
@@ -59,6 +59,7 @@ public sealed class MapFeatureCacheRepository
                 .OrderByDescending(entry => entry.Scale.UpdatedAt)
                 .Take(1024)
                 .ToList();
+            loaded.SchemaVersion = MapFeatureCacheSchema.CurrentVersion;
             lock (_stateGate)
                 _document = loaded;
         }
@@ -97,7 +98,7 @@ public sealed class MapFeatureCacheRepository
                     .ToList();
                 snapshot = new MapFeatureCacheDocument
                 {
-                    SchemaVersion = 2,
+                    SchemaVersion = MapFeatureCacheSchema.CurrentVersion,
                     Entries = [.. _document.Entries]
                 };
             }
@@ -121,27 +122,72 @@ public sealed class MapFeatureCacheRepository
         IGrouping<MapFeatureCacheKey, MapFeatureCacheEntry> group)
     {
         var entries = group
-            .OrderByDescending(entry => entry.Scale.UpdatedAt)
+            .OrderByDescending(entry =>
+                entry.Scale.Source == MapFeatureCacheSource.Manual)
+            .ThenByDescending(entry => entry.Scale.UpdatedAt)
             .ToArray();
         if (entries.Length == 0)
             return null;
 
-        var minimum = entries.Min(entry => entry.Scale.UniformScale);
-        var maximum = entries.Max(entry => entry.Scale.UniformScale);
-        if (minimum <= 0d || ((maximum - minimum) / minimum) > 0.015d)
-            return null;
+        var isManual = entries[0].Scale.Source == MapFeatureCacheSource.Manual;
+        var consistencyEntries = isManual
+            ? entries.Where(entry =>
+                entry.Scale.Source == MapFeatureCacheSource.Manual).ToArray()
+            : entries;
+        if (!isManual)
+        {
+            var minimum = consistencyEntries.Min(entry =>
+                entry.Scale.UniformScale);
+            var maximum = consistencyEntries.Max(entry =>
+                entry.Scale.UniformScale);
+            if (minimum <= 0d || ((maximum - minimum) / minimum) > 0.015d)
+                return null;
+        }
 
         var winner = entries[0];
-        var weight = entries.Sum(entry => Math.Max(0.01d, entry.Scale.Confidence));
-        winner.SchemaVersion = 2;
-        winner.Scale.SchemaVersion = 2;
-        winner.Scale.UniformScale = entries.Sum(entry =>
-            entry.Scale.UniformScale * Math.Max(0.01d, entry.Scale.Confidence)) / weight;
-        winner.Scale.SampleCount = entries.Sum(entry => entry.Scale.SampleCount);
-        winner.Scale.Confidence = entries.Max(entry => entry.Scale.Confidence);
-        winner.Scale.LastObservedDpi = entries
-            .Select(entry => entry.Scale.LastObservedDpi)
-            .FirstOrDefault(dpi => dpi > 0);
+        if (!isManual)
+        {
+            var weight = entries.Sum(entry =>
+                Math.Max(0.01d, entry.Scale.Confidence));
+            winner.Scale.UniformScale = entries.Sum(entry =>
+                entry.Scale.UniformScale
+                * Math.Max(0.01d, entry.Scale.Confidence)) / weight;
+            winner.Scale.SampleCount = entries.Sum(entry =>
+                entry.Scale.SampleCount);
+            winner.Scale.Confidence = entries.Max(entry =>
+                entry.Scale.Confidence);
+            winner.Scale.LastObservedDpi = entries
+                .Select(entry => entry.Scale.LastObservedDpi)
+                .FirstOrDefault(dpi => dpi > 0);
+        }
+
+        var wasLegacyManual = isManual
+            && entries.Any(entry =>
+                entry.SchemaVersion <= 2 || entry.Scale.SchemaVersion <= 2);
+        var validations = entries
+            .Select(entry => entry.Scale.Validation)
+            .Where(validation => validation is not null)
+            .Select(validation => validation!)
+            .ToArray();
+        var lastValidation = validations
+            .OrderByDescending(validation => validation.LastValidatedAt)
+            .FirstOrDefault();
+        winner.SchemaVersion = MapFeatureCacheSchema.CurrentVersion;
+        winner.Scale.SchemaVersion = MapFeatureCacheSchema.CurrentVersion;
+        winner.Scale.Validation = new MapScaleCacheValidationMetadata
+        {
+            DirectlyTrusted = wasLegacyManual
+                || validations.Any(validation => validation.DirectlyTrusted),
+            SuccessfulValidationCount = validations.Sum(validation =>
+                validation.SuccessfulValidationCount),
+            FailedValidationCount = validations.Sum(validation =>
+                validation.FailedValidationCount),
+            LastLocalizationConfidence = lastValidation?
+                .LastLocalizationConfidence
+                ?? Math.Clamp(winner.Scale.Confidence, 0d, 1d),
+            LastCandidateMargin = lastValidation?.LastCandidateMargin ?? 0d,
+            LastValidatedAt = lastValidation?.LastValidatedAt ?? default
+        };
         return winner;
     }
 }

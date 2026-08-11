@@ -70,10 +70,9 @@ public sealed partial class SessionOrchestrator
     private MapStructureRegistrationTuning CreateInitialAlignmentStructureTuning()
     {
         var tuning = CreateEffectiveStructureTuning();
-        tuning.StructureFallbackBudgetMilliseconds = Math.Max(
-            3000,
-            tuning.StructureFallbackBudgetMilliseconds);
-        tuning.ScaleSearchStep = Math.Min(0.005d, tuning.ScaleSearchStep);
+        // Initial alignment participates in the same end-to-end budget as
+        // tracking and recovery. Do not silently expand the persisted 1.5s
+        // budget to the former 3s legacy fallback.
         tuning.Normalize();
         return tuning;
     }

@@ -48,6 +48,8 @@ internal static partial class MapCvRecognitionBuilders
                 Floor = fingerprint.FloorKey,
                 OrientationDegrees = 0,
                 Confidence = confidence,
+                IdentityConfidence = confidence,
+                LocalizationConfidence = confidence,
                 Source = source,
                 HasAllRequiredAnchorEvidence = true,
                 GeometryMargin = double.IsPositiveInfinity(margin) ? 1d : Math.Max(0d, margin),
@@ -179,6 +181,10 @@ internal static partial class MapCvRecognitionBuilders
                 OrientationDegrees =
                     recognition.Result.OrientationDegrees,
                 Confidence = recognition.Result.Confidence,
+                IdentityConfidence =
+                    recognition.Result.IdentityConfidence,
+                LocalizationConfidence =
+                    recognition.Result.LocalizationConfidence,
                 Source = recognition.Result.Source,
                 HasAllRequiredAnchorEvidence =
                     recognition.Result.HasAllRequiredAnchorEvidence,
@@ -227,6 +233,8 @@ internal static partial class MapCvRecognitionBuilders
                 Floor = fingerprint.FloorKey,
                 OrientationDegrees = 0,
                 Confidence = confidence,
+                IdentityConfidence = confidence,
+                LocalizationConfidence = confidence,
                 Source = source,
                 HasAllRequiredAnchorEvidence = false,
                 GeometryMargin = 0d,
@@ -254,6 +262,10 @@ internal static partial class MapCvRecognitionBuilders
                 Floor = recognition.Result.Floor,
                 OrientationDegrees = recognition.Result.OrientationDegrees,
                 Confidence = recognition.Result.Confidence,
+                IdentityConfidence =
+                    recognition.Result.IdentityConfidence,
+                LocalizationConfidence =
+                    recognition.Result.LocalizationConfidence,
                 Source = recognition.Result.Source,
                 HasAllRequiredAnchorEvidence =
                     recognition.Result.HasAllRequiredAnchorEvidence,
@@ -393,8 +405,18 @@ internal static partial class MapCvRecognitionBuilders
         MapStructureRegistrationResult structure,
         bool wasForcedBestResult,
         RuntimeMapRecognition? anchorProposal = null,
-        double? confidenceOverride = null) =>
-        new()
+        double? confidenceOverride = null)
+    {
+        var localizationConfidence = confidenceOverride
+            ?? (anchorProposal is null
+                ? structure.Confidence
+                : new MapRegistrationConfidenceEvidence
+                {
+                    AnchorGeometry =
+                        anchorProposal.Result.LocalizationConfidence,
+                    StructureQuality = structure.Confidence
+                }.Calculate());
+        return new()
         {
             Map = fingerprint.Map,
             FloorImagePath = fingerprint.OverlayImagePath,
@@ -403,15 +425,10 @@ internal static partial class MapCvRecognitionBuilders
                 MapId = fingerprint.Map.Id,
                 Floor = fingerprint.FloorKey,
                 OrientationDegrees = 0,
-                Confidence = confidenceOverride
-                    ?? (anchorProposal is null
-                        ? structure.Confidence
-                        : new MapRegistrationConfidenceEvidence
-                        {
-                            AnchorGeometry =
-                                anchorProposal.Result.Confidence,
-                            StructureQuality = structure.Confidence
-                        }.Calculate()),
+                Confidence = localizationConfidence,
+                IdentityConfidence = anchorProposal?.Result.IdentityConfidence
+                    ?? localizationConfidence,
+                LocalizationConfidence = localizationConfidence,
                 Source = anchorProposal?.Result.Source
                     ?? MapRecognitionSource.StructureMatching,
                 HasAllRequiredAnchorEvidence = false,
@@ -430,6 +447,7 @@ internal static partial class MapCvRecognitionBuilders
                 WasForcedBestResult = wasForcedBestResult
             }
         };
+    }
 
     internal static RuntimeMapRecognition BuildFloorStructureRecognition(
         MapRecord map,
@@ -448,11 +466,12 @@ internal static partial class MapCvRecognitionBuilders
                 Floor = floorKey,
                 OrientationDegrees =
                     MapFloorRules.GetFloorProfile(map, floorKey)?.OrientationDegrees ?? 0,
-                Confidence = Math.Max(
-                    structure.Confidence,
-                    double.IsFinite(identityPriorConfidence)
+                Confidence = structure.Confidence,
+                IdentityConfidence = double.IsFinite(identityPriorConfidence)
+                    && identityPriorConfidence > 0d
                         ? Math.Clamp(identityPriorConfidence, 0d, 1d)
-                        : 0d),
+                        : structure.Confidence,
+                LocalizationConfidence = structure.Confidence,
                 Source = MapRecognitionSource.StructureMatching,
                 HasAllRequiredAnchorEvidence = false,
                 UsedLocalConfirmation = true,
@@ -484,6 +503,8 @@ internal static partial class MapCvRecognitionBuilders
                 Floor = fingerprint.FloorKey,
                 OrientationDegrees = 0,
                 Confidence = session.LastConfidence,
+                IdentityConfidence = session.LastConfidence,
+                LocalizationConfidence = session.LastConfidence,
                 Source = MapRecognitionSource.ReusedLastTransform,
                 HasAllRequiredAnchorEvidence = false,
                 UsedLocalConfirmation = false,
@@ -556,6 +577,8 @@ internal static partial class MapCvRecognitionBuilders
                 Floor = result.Floor,
                 OrientationDegrees = result.OrientationDegrees,
                 Confidence = result.Confidence,
+                IdentityConfidence = result.IdentityConfidence,
+                LocalizationConfidence = result.LocalizationConfidence,
                 Source = result.Source,
                 HasAllRequiredAnchorEvidence =
                     result.HasAllRequiredAnchorEvidence,

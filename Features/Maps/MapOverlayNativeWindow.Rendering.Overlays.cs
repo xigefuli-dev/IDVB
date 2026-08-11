@@ -73,10 +73,12 @@ internal static partial class MapOverlayBitmapRenderer
         bool showAuxiliaryAnchorsOnMiniMap = false,
         bool showTextAnnotationsOnMiniMap = false,
         bool showBoxAnnotationsOnMiniMap = false,
+        bool showLineAnnotationsOnMiniMap = false,
         bool showGateMarkers = true,
         bool showAuxiliaryAnchors = true,
         bool showTextAnnotations = true,
         bool showBoxAnnotations = true,
+        bool showLineAnnotations = true,
         bool showFloorOnMiniMap = false)
     {
         if (miniMap.Width <= 0 || miniMap.Height <= 0
@@ -121,7 +123,8 @@ internal static partial class MapOverlayBitmapRenderer
                 var anyMiniMapAnnotation = showGateMarkersOnMiniMap
                     || showAuxiliaryAnchorsOnMiniMap
                     || showTextAnnotationsOnMiniMap
-                    || showBoxAnnotationsOnMiniMap;
+                    || showBoxAnnotationsOnMiniMap
+                    || showLineAnnotationsOnMiniMap;
                 if (anyMiniMapAnnotation)
                 {
                     var miniState = graphics.Save();
@@ -133,7 +136,8 @@ internal static partial class MapOverlayBitmapRenderer
                             showAuxiliaryAnchorsOnMiniMap ? showAuxiliaryAnchors : false);
                         DrawAnnotations(graphics, miniMap, dpiScale,
                             showTextAnnotationsOnMiniMap ? showTextAnnotations : false,
-                            showBoxAnnotationsOnMiniMap ? showBoxAnnotations : false);
+                            showBoxAnnotationsOnMiniMap ? showBoxAnnotations : false,
+                            showLineAnnotationsOnMiniMap ? showLineAnnotations : false);
                     }
                     finally
                     {

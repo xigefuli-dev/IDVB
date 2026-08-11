@@ -15,6 +15,13 @@ public readonly record struct MapNormalizedPoint(double X, double Y);
 /// <summary>A frozen alignment input frame: viewport pixels plus the capture context.</summary>
 public sealed class CapturedGameFrame : IDisposable
 {
+    private readonly object _derivedFeaturesGate = new();
+    private MapStructureFeatures? _defaultLiveStructureFeatures;
+    private PreprocessTiming? _defaultLiveStructureTiming;
+    private MapStructurePreprocessingProfile _defaultLiveStructureProfile;
+    private double _defaultLiveStructureExtractionMilliseconds;
+    private bool _disposed;
+
     public CapturedGameFrame(
         Mat image,
         MapScreenRect clientBounds,
@@ -33,7 +40,100 @@ public sealed class CapturedGameFrame : IDisposable
     public MapScreenRect ViewportBounds { get; }
     public IntPtr WindowHandle { get; }
 
-    public void Dispose() => Image.Dispose();
+    /// <summary>
+    /// Extracts the immutable live structure once for this frozen frame.
+    /// Structure retries, expanded searches and scale recovery all operate on
+    /// the same pixels, so recomputing AKAZE and connected components for each
+    /// attempt is both wasteful and capable of dominating alignment latency.
+    /// </summary>
+    internal MapStructureFeatures GetOrCreateDefaultLiveStructureFeatures(
+        MapStructurePreprocessor preprocessor,
+        out bool cacheHit,
+        out double extractionMilliseconds,
+        out PreprocessTiming timing) =>
+        GetOrCreateDefaultLiveStructureFeatures(
+            preprocessor,
+            MapStructurePreprocessingProfile.EdgesAndFeatures,
+            out cacheHit,
+            out extractionMilliseconds,
+            out timing);
+
+    internal MapStructureFeatures GetOrCreateDefaultLiveStructureFeatures(
+        MapStructurePreprocessor preprocessor,
+        MapStructurePreprocessingProfile requestedProfile,
+        out bool cacheHit,
+        out double extractionMilliseconds,
+        out PreprocessTiming timing)
+    {
+        ArgumentNullException.ThrowIfNull(preprocessor);
+        lock (_derivedFeaturesGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_defaultLiveStructureFeatures is { } existing
+                && _defaultLiveStructureTiming is { } existingTiming)
+            {
+                if (_defaultLiveStructureProfile.Satisfies(requestedProfile))
+                {
+                    cacheHit = true;
+                    extractionMilliseconds =
+                        _defaultLiveStructureExtractionMilliseconds;
+                    timing = existingTiming;
+                    return existing;
+                }
+
+                var upgradeStopwatch =
+                    System.Diagnostics.Stopwatch.StartNew();
+                var upgraded = MapStructurePreprocessor
+                    .UpgradeLiveRoiWithDescriptors(
+                        existing,
+                        out var upgradedTiming);
+                upgradeStopwatch.Stop();
+                _defaultLiveStructureFeatures = upgraded;
+                _defaultLiveStructureTiming = upgradedTiming;
+                _defaultLiveStructureProfile =
+                    MapStructurePreprocessingProfile.EdgesAndFeatures;
+                _defaultLiveStructureExtractionMilliseconds =
+                    upgradeStopwatch.Elapsed.TotalMilliseconds;
+                existing.Dispose();
+                cacheHit = false;
+                extractionMilliseconds =
+                    _defaultLiveStructureExtractionMilliseconds;
+                timing = upgradedTiming;
+                return upgraded;
+            }
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var created = preprocessor.ProcessLiveRoiDiagnostic(
+                Image,
+                out var createdTiming,
+                requestedProfile);
+            stopwatch.Stop();
+            _defaultLiveStructureFeatures = created;
+            _defaultLiveStructureTiming = createdTiming;
+            _defaultLiveStructureProfile = requestedProfile;
+            _defaultLiveStructureExtractionMilliseconds =
+                stopwatch.Elapsed.TotalMilliseconds;
+            cacheHit = false;
+            extractionMilliseconds =
+                _defaultLiveStructureExtractionMilliseconds;
+            timing = createdTiming;
+            return created;
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_derivedFeaturesGate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _defaultLiveStructureFeatures?.Dispose();
+            _defaultLiveStructureFeatures = null;
+            _defaultLiveStructureTiming = null;
+            Image.Dispose();
+        }
+    }
 }
 
 public enum MapOverlayAlignmentMode
@@ -144,10 +244,36 @@ public sealed class MapOverlayTransform
 
 public sealed class MapRecognitionResult
 {
+    private double? _identityConfidence;
+    private double? _localizationConfidence;
+
     public Guid MapId { get; init; }
     public string Floor { get; init; } = "1f";
     public int OrientationDegrees { get; init; }
+    /// <summary>
+    /// Compatibility confidence used by existing callers.  New recognition
+    /// code treats this as the localization confidence so an identity prior
+    /// cannot make a geometrically weak alignment look reliable.
+    /// </summary>
     public double Confidence { get; init; }
+    /// <summary>
+    /// Confidence that the selected map identity is correct.  Results created
+    /// by legacy callers inherit <see cref="Confidence"/>.
+    /// </summary>
+    public double IdentityConfidence
+    {
+        get => _identityConfidence ?? Confidence;
+        init => _identityConfidence = value;
+    }
+    /// <summary>
+    /// Confidence that the reported transform is geometrically correct.
+    /// Results created by legacy callers inherit <see cref="Confidence"/>.
+    /// </summary>
+    public double LocalizationConfidence
+    {
+        get => _localizationConfidence ?? Confidence;
+        init => _localizationConfidence = value;
+    }
     public MapRecognitionSource Source { get; init; } = MapRecognitionSource.Automatic;
     public bool HasAllRequiredAnchorEvidence { get; init; }
     public double GeometryMargin { get; init; }
@@ -226,6 +352,8 @@ public sealed class MapScanDiagnostics
     public bool StructureAccepted { get; set; }
     public string StructureFailureReason { get; set; } = string.Empty;
     public MapAlignmentEvidenceKind AlignmentEvidence { get; set; }
+    public double IdentityConfidence { get; set; }
+    public double LocalizationConfidence { get; set; }
     public int StructureCandidateCount { get; set; }
     public int StructureFeatureMatchCount { get; set; }
     public int StructureFeatureInlierCount { get; set; }
@@ -419,7 +547,7 @@ internal static class MapFloorScaleSeedRules
     // by roughly the same ratio.  A large disagreement means that the floors
     // simply have different world extents/aspect ratios; averaging those two
     // values produces a fictitious scale (for example 0.94 and 1.82 -> 1.38).
-    internal const double MaximumDimensionRatioDisagreement = 0.12d;
+    internal const double MaximumDimensionRatioDisagreement = 0.10d;
 
     public static double ResolveReferenceScaleRatio(
         FloorRecognitionProfile sourceFloor,

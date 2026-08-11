@@ -14,6 +14,7 @@
             <Setter Property="Margin" Value="4,2" />
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Template">
@@ -44,6 +45,7 @@
                 </Grid.RowDefinitions>
                 <Button Grid.Row="0"
                         Tag="{Binding}"
+                        ToolTipService.ToolTip="{Binding DisplayName}"
                         Style="{StaticResource NavigationButtonStyle}"
                         Click="Navigation_ParentClick"
                         Loaded="NavigationRow_Loaded"
@@ -56,10 +58,12 @@
                         </Grid.ColumnDefinitions>
                         <SymbolIcon Grid.Column="0"
                                     Symbol="{Binding Icon}"
+                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1"
                                    Text="{Binding DisplayName}"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                    Style="{StaticResource BodyTextBlockStyle}"
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
@@ -71,6 +75,7 @@
                                    Height="24"
                                    Margin="0,0,16,0"
                                    FontSize="18"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    TextAlignment="Center"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center"
@@ -89,6 +94,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Button Tag="{Binding}"
+                                    ToolTipService.ToolTip="{Binding DisplayName}"
                                     Style="{StaticResource NavigationButtonStyle}"
                                     Click="Navigation_ChildClick"
                                     Loaded="NavigationRow_Loaded"
@@ -96,6 +102,7 @@
                                     <Grid Height="40" Margin="38,0,0,0">
                                     <TextBlock Text="{Binding DisplayName}"
                                                Margin="24,0,0,0"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                Style="{StaticResource BodyTextBlockStyle}"
                                                VerticalAlignment="Center" />
                                 </Grid>
@@ -141,7 +148,7 @@
                         Height="40"
                         Margin="4,16,4,0"
                         VerticalAlignment="Top"
-                        Background="#DCE6F2"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
                         CornerRadius="4"
                         IsHitTestVisible="False" />
                 <Border x:Name="NavigationHoverIndicator"

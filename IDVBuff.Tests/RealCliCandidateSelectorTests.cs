@@ -18,7 +18,8 @@ public sealed class RealCliCandidateSelectorTests
             "test",
             CancellationToken.None);
 
-        Assert.Equal(1, selected);
+        Assert.Equal(MapCandidateDecisionKind.SelectKnownMap, selected.Kind);
+        Assert.Equal(1, selected.CandidateIndex);
     }
 
     [Fact]
@@ -33,7 +34,8 @@ public sealed class RealCliCandidateSelectorTests
             "test",
             CancellationToken.None);
 
-        Assert.Equal(2, selected);
+        Assert.Equal(MapCandidateDecisionKind.SelectKnownMap, selected.Kind);
+        Assert.Equal(2, selected.CandidateIndex);
     }
 
     [Fact]

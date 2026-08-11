@@ -165,10 +165,11 @@ public sealed partial class MapRepository
         string sourcePath,
         string recognitionPath,
         string overlayPath,
-        FloorRecognitionProfile profile)
+        FloorRecognitionProfile profile,
+        bool forceRecognitionPath = false)
     {
         var sourceMetadata = await ReadImageMetadataAsync(sourcePath);
-        var recognitionPathForMetadata = UsesWholeSourceImage(profile)
+        var recognitionPathForMetadata = !forceRecognitionPath && UsesWholeSourceImage(profile)
             ? sourcePath
             : recognitionPath;
         var recognitionMetadata = await ReadImageMetadataAsync(recognitionPathForMetadata);

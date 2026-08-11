@@ -393,7 +393,7 @@ public sealed class MapManualCandidateWindow
     private readonly CapturedGameFrame _frame;
     private readonly IReadOnlyList<MapRecognitionChoice> _choices;
     private readonly string _reason;
-    private readonly TaskCompletionSource<int?> _completion =
+    private readonly TaskCompletionSource<MapCandidateDecision> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private XamlWindow? _window;
     private bool _completed;
@@ -408,28 +408,26 @@ public sealed class MapManualCandidateWindow
         _reason = reason;
     }
 
-    public static async Task<int?> ShowAsync(
+    public static async Task<MapCandidateDecision> ShowAsync(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> choices,
         string reason,
         CancellationToken cancellationToken)
     {
-        if (choices.Count == 0)
-            return null;
         cancellationToken.ThrowIfCancellationRequested();
         var chooser = new MapManualCandidateWindow(frame, choices, reason);
         return await chooser.ShowCoreAsync(cancellationToken);
     }
 
-    private async Task<int?> ShowCoreAsync(
+    private async Task<MapCandidateDecision> ShowCoreAsync(
         CancellationToken cancellationToken)
     {
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         var displayArea = DisplayArea.Primary;
         var workArea = displayArea.WorkArea;
 
-        var columns = Math.Min(_choices.Count, 3);
-        var rows = (_choices.Count + columns - 1) / columns;
+        var columns = Math.Max(1, Math.Min(_choices.Count, 3));
+        var rows = Math.Max(1, (_choices.Count + columns - 1) / columns);
         var root = new Grid
         {
             Background = new SolidColorBrush(Color.FromArgb(242, 6, 10, 16)),
@@ -485,7 +483,7 @@ public sealed class MapManualCandidateWindow
                 VerticalContentAlignment = VerticalAlignment.Stretch,
                 Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255))
             };
-            button.Click += (_, _) => Complete(choiceIndex);
+            button.Click += (_, _) => Complete(MapCandidateDecision.SelectKnownMap(choiceIndex));
             var row = i / 3 + 1;
             var col = i % 3;
             Grid.SetRow(button, row);
@@ -493,13 +491,43 @@ public sealed class MapManualCandidateWindow
             root.Children.Add(button);
         }
 
+        if (_choices.Count == 0)
+        {
+            var emptyState = new TextBlock
+            {
+                Text = "未找到已记录地图",
+                FontSize = 24,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 210, 210, 210)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetRow(emptyState, 1);
+            Grid.SetColumnSpan(emptyState, 3);
+            root.Children.Add(emptyState);
+        }
+
+        var surveyButton = new Button
+        {
+            Content = "没有我想要的地图",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 0, 0, 0),
+            Padding = new Thickness(16, 9, 16, 9),
+            CornerRadius = new CornerRadius(8)
+        };
+        surveyButton.Click += (_, _) => Complete(MapCandidateDecision.StartSurvey());
+        Grid.SetRow(surveyButton, 0);
+        Grid.SetColumnSpan(surveyButton, 3);
+        Canvas.SetZIndex(surveyButton, 100);
+        root.Children.Add(surveyButton);
+
         root.Loaded += (_, _) => root.Focus(FocusState.Programmatic);
         root.KeyDown += (_, e) =>
         {
             if (e.Key == VirtualKey.Escape)
             {
                 e.Handled = true;
-                Complete(null);
+                Complete(MapCandidateDecision.Cancel());
                 return;
             }
             var index = e.Key switch
@@ -518,7 +546,7 @@ public sealed class MapManualCandidateWindow
             if (index >= 0 && index < _choices.Count)
             {
                 e.Handled = true;
-                Complete(index);
+                Complete(MapCandidateDecision.SelectKnownMap(index));
             }
         };
 
@@ -527,7 +555,7 @@ public sealed class MapManualCandidateWindow
             Content = root,
             ExtendsContentIntoTitleBar = true
         };
-        _window.Closed += (_, _) => Complete(null, closeWindow: false);
+        _window.Closed += (_, _) => Complete(MapCandidateDecision.Cancel(), closeWindow: false);
         if (_window.AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
@@ -606,7 +634,7 @@ public sealed class MapManualCandidateWindow
     }
 
     private void Complete(
-        int? result,
+        MapCandidateDecision result,
         bool closeWindow = true,
         bool restoreGameFocus = true)
     {
@@ -629,11 +657,11 @@ public sealed class MapManualCandidateWindow
     {
         if (dispatcher.HasThreadAccess)
         {
-            Complete(null, restoreGameFocus: false);
+            Complete(MapCandidateDecision.Cancel(), restoreGameFocus: false);
             return;
         }
         dispatcher.TryEnqueue(
-            () => Complete(null, restoreGameFocus: false));
+            () => Complete(MapCandidateDecision.Cancel(), restoreGameFocus: false));
     }
 
     [DllImport("user32.dll")]

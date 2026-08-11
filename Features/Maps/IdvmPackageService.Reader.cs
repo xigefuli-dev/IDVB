@@ -307,9 +307,22 @@ public sealed partial class IdvmPackageService
             {
                 Title = metadata.Map.Title,
                 ContentVersion = map.MapVersion,
+                Source = string.Equals(metadata.Map.Source, "survey", StringComparison.Ordinal)
+                    ? "survey"
+                    : "manual",
+                SourceProjectId = metadata.Map.SourceProjectId,
+                SourceProjectRevision = metadata.Map.SourceProjectRevision,
+                SourceVisualSha256 = metadata.Map.SourceVisualSha256,
+                SourceStructureSha256 = metadata.Map.SourceStructureSha256,
                 Floors = floorDefinitions,
                 FloorPaths = floorPaths,
                 FloorPreviewPaths = new Dictionary<string, string>(floorPaths, StringComparer.Ordinal),
+                FloorRecognitionSourcePaths = metadata.Floors
+                    .Where(floor => !string.IsNullOrWhiteSpace(floor.RecognitionImage))
+                    .ToDictionary(
+                        floor => floor.Key,
+                        floor => ToPhysicalPath(root, floor.RecognitionImage!),
+                        StringComparer.Ordinal),
                 FloorOnePath = floorPaths[metadata.Floors[0].Key],
                 FloorTwoPath = metadata.Floors.Count > 1 ? floorPaths[metadata.Floors[1].Key] : null,
                 Recognition = recognition,
@@ -335,6 +348,12 @@ public sealed partial class IdvmPackageService
     };
 
     private static NormalizedRectangle ToRequiredModel(RectangleDto rectangle) => ToModel(rectangle)!;
+
+    private static NormalizedPoint? ToModel(PointDto? point) => point is null ? null : new NormalizedPoint
+    {
+        X = Math.Clamp(point.X, 0d, 1d),
+        Y = Math.Clamp(point.Y, 0d, 1d)
+    };
 
     private static MapReferenceBounds ToPixelBounds(RectangleDto bounds, int width, int height) => new()
     {
@@ -370,9 +389,23 @@ public sealed partial class IdvmPackageService
     private static MapAnnotation ToModel(AnnotationDto annotation) => new()
     {
         Id = annotation.Id,
-        Type = annotation.Type == "text" ? MapAnnotationType.Text : MapAnnotationType.Outline,
+        Type = annotation.Type switch
+        {
+            "text" => MapAnnotationType.Text,
+            "outline" => MapAnnotationType.Outline,
+            "line" => MapAnnotationType.Line,
+            _ => default
+        },
         ColorIndex = annotation.ColorIndex,
-        Bounds = ToRequiredModel(annotation.Bounds),
-        Text = annotation.Text
+        ColorHex = annotation.Color,
+        Bounds = ToModel(annotation.Bounds),
+        Start = ToModel(annotation.Start),
+        End = ToModel(annotation.End),
+        Text = annotation.Text,
+        FontFamily = annotation.FontFamily,
+        FontSize = annotation.FontSize,
+        IsBold = annotation.IsBold,
+        IsItalic = annotation.IsItalic,
+        IsStrikethrough = annotation.IsStrikethrough
     };
 }

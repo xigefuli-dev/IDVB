@@ -24,17 +24,22 @@ internal static class OverlayDisplayRules
     public static double MinimapScale => _config.MinimapScale;
     public static bool PersistentMinimapEnabled => _config.PersistentMinimapEnabled;
 
+    // ── 大地图 ──
+    public static double MapOpacity => _config.MapOpacity;
+
     // ── 大地图标记可见性 ──
     public static bool ShowGateMarkers => _config.ShowGateMarkers;
     public static bool ShowAuxiliaryAnchors => _config.ShowAuxiliaryAnchors;
     public static bool ShowTextAnnotations => _config.ShowTextAnnotations;
     public static bool ShowBoxAnnotations => _config.ShowBoxAnnotations;
+    public static bool ShowLineAnnotations => _config.ShowLineAnnotations;
 
     // ── 小地图标记可见性 ──
     public static bool ShowGateMarkersOnMinimap => _config.ShowGateMarkersOnMinimap;
     public static bool ShowAuxiliaryAnchorsOnMinimap => _config.ShowAuxiliaryAnchorsOnMinimap;
     public static bool ShowTextAnnotationsOnMinimap => _config.ShowTextAnnotationsOnMinimap;
     public static bool ShowBoxAnnotationsOnMinimap => _config.ShowBoxAnnotationsOnMinimap;
+    public static bool ShowLineAnnotationsOnMinimap => _config.ShowLineAnnotationsOnMinimap;
     public static bool ShowFloorOnMinimap => _config.ShowFloorOnMinimap;
 
     // ── 其它 ──

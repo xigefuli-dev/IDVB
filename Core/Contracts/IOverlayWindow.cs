@@ -115,14 +115,17 @@ public interface IOverlayWindow : IDisposable
     void SetStatusVisible(bool visible);
     void SetReverseAlternateDisplay(bool enabled);
     void SetAllowExtend(bool allow);
+    void SetMapOpacity(double opacity);
     void SetShowGateMarkers(bool show);
     void SetShowAuxiliaryAnchors(bool show);
     void SetShowTextAnnotations(bool show);
     void SetShowBoxAnnotations(bool show);
+    void SetShowLineAnnotations(bool show);
     void SetShowGateMarkersOnMiniMap(bool show);
     void SetShowAuxiliaryAnchorsOnMiniMap(bool show);
     void SetShowTextAnnotationsOnMiniMap(bool show);
     void SetShowBoxAnnotationsOnMiniMap(bool show);
+    void SetShowLineAnnotationsOnMiniMap(bool show);
     void SetShowFloorOnMiniMap(bool show);
     void SetStatusOpacity(double opacity);
     void SetStatusOffsetX(double offsetX);

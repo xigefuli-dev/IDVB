@@ -306,6 +306,10 @@ public sealed partial class IdvmPackageService
         public Guid ClassId { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Source { get; set; } = string.Empty;
+        public Guid? SourceProjectId { get; set; }
+        public long? SourceProjectRevision { get; set; }
+        public string? SourceVisualSha256 { get; set; }
+        public string? SourceStructureSha256 { get; set; }
         public string CoordinateSystem { get; set; } = string.Empty;
     }
 
@@ -315,6 +319,7 @@ public sealed partial class IdvmPackageService
         public string DisplayName { get; set; } = string.Empty;
         public int SortOrder { get; set; }
         public string Image { get; set; } = string.Empty;
+        public string? RecognitionImage { get; set; }
         public int ImageWidth { get; set; }
         public int ImageHeight { get; set; }
         public int OrientationDegrees { get; set; }
@@ -370,7 +375,7 @@ public sealed partial class IdvmPackageService
 
     private sealed class AnchorsDto
     {
-        public int SchemaVersion { get; set; } = 1;
+        public int SchemaVersion { get; set; } = 3;
         public Dictionary<string, AnchorFloorDto> Floors { get; set; } = new(StringComparer.Ordinal);
     }
 
@@ -398,8 +403,22 @@ public sealed partial class IdvmPackageService
         public Guid Id { get; set; }
         public string Type { get; set; } = string.Empty;
         public int ColorIndex { get; set; }
-        public RectangleDto Bounds { get; set; } = new();
+        public string? Color { get; set; }
+        public RectangleDto? Bounds { get; set; }
+        public PointDto? Start { get; set; }
+        public PointDto? End { get; set; }
         public string? Text { get; set; }
+        public string? FontFamily { get; set; }
+        public double? FontSize { get; set; }
+        public bool? IsBold { get; set; }
+        public bool? IsItalic { get; set; }
+        public bool? IsStrikethrough { get; set; }
+    }
+
+    private sealed class PointDto
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     private sealed class RectangleDto

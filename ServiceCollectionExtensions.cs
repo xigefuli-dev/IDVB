@@ -6,6 +6,14 @@ using IDVBuff.Features.Maps.Adapters;
 using IDVBuff.Infrastructure.Configuration;
 using IDVBuff.Pipeline;
 using IDVBuff.Pipeline.Stages;
+using IDVBuff.Survey.Application;
+using IDVBuff.Survey.Contracts;
+using IDVBuff.Survey.Persistence.Sqlite;
+using IDVBuff.Survey.PoseGraph;
+using IDVBuff.Survey.Preprocessing.OpenCv;
+using IDVBuff.Survey.Registration.OpenCv;
+using IDVBuff.Survey.Fusion.OpenCv;
+using IDVBuff.Survey.Idvm;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 
@@ -47,6 +55,35 @@ public static class ServiceCollectionExtensions
         // ════════════════════════════════════════════════════════════
         services.AddSingleton<IMapRepository, MapRepositoryAdapter>();
         services.AddSingleton<ISettingsRepository, SettingsRepositoryAdapter>();
+        services.AddSingleton(_ => new SurveyStoragePaths(
+            Path.Combine(AppDataPaths.RootDirectory, "SurveyProjects")));
+        services.AddSingleton<ISurveyProjectRepository, SqliteSurveyProjectRepository>();
+        services.AddSingleton<ISurveyAssetStore, ContentAddressedSurveyAssetStore>();
+        var surveyCapture = configProvider.Get<SurveyCaptureTuning>("survey.capture");
+        var surveyPreprocessing = configProvider.Get<SurveyPreprocessingTuning>("survey.preprocessing");
+        var surveyRegistration = configProvider.Get<SurveyRegistrationTuning>("survey.registration");
+        var surveyStorage = configProvider.Get<SurveyStorageTuning>("survey.storage");
+        var surveyFusion = configProvider.Get<SurveyFusionTuning>("survey.fusion.visual");
+        var surveyStructureFusion = configProvider.Get<SurveyFusionTuning>("survey.fusion.structure");
+        surveyFusion.StructureBinaryThreshold = surveyStructureFusion.StructureBinaryThreshold;
+        surveyCapture.Validate();
+        surveyPreprocessing.Validate();
+        surveyRegistration.Validate();
+        surveyStorage.Validate();
+        surveyFusion.Validate();
+        services.AddSingleton(surveyCapture);
+        services.AddSingleton(surveyPreprocessing);
+        services.AddSingleton(surveyRegistration);
+        services.AddSingleton(surveyStorage);
+        services.AddSingleton(surveyFusion);
+        services.AddSingleton<ISurveyPreprocessor, OpenCvSurveyPreprocessor>();
+        services.AddSingleton<ISurveyLayerRasterEditor, OpenCvSurveyLayerRasterEditor>();
+        services.AddSingleton<ISurveyPairRegistrar, OpenCvSurveyPairRegistrar>();
+        services.AddSingleton<IPoseGraphOptimizer, RootPropagationPoseGraphOptimizer>();
+        services.AddSingleton<ISurveyVisualComposer, OpenCvSurveyVisualComposer>();
+        services.AddSingleton<ISurveyStructureFusion, OpenCvSurveyStructureFusion>();
+        services.AddSingleton<ISurveyPackageService, SurveyIdvmPackageService>();
+        services.AddSingleton<ISurveyCoordinator, SurveyCoordinator>();
 
         // ════════════════════════════════════════════════════════════
         // Infrastructure — Capture & Input
@@ -87,7 +124,9 @@ public static class ServiceCollectionExtensions
         // Services — Logging & Research
         // ════════════════════════════════════════════════════════════
         services.AddSingleton<MapLogCollector>();
-        services.AddSingleton<MapAlignmentResearchCollector>();
+        services.AddSingleton<MapAlignmentResearchCollector>(sp =>
+            new MapAlignmentResearchCollector(
+                sp.GetRequiredService<MapStructurePreprocessor>()));
 
         // ════════════════════════════════════════════════════════════
         // Pipeline Stages
@@ -125,6 +164,9 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IConfigProvider>(),
                 sp.GetRequiredService<IResolutionProfileService>(),
                 sp.GetRequiredService<PipelineFactory>(),
+                sp.GetRequiredService<MapAlignmentResearchCollector>(),
+                sp.GetRequiredService<ISurveyCoordinator>(),
+                sp.GetRequiredService<SurveyCaptureTuning>(),
                 headless: headless));
         services.AddSingleton<ISessionOrchestrator>(sp =>
             sp.GetRequiredService<SessionOrchestrator>());

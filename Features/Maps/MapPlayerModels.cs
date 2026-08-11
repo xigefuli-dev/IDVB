@@ -14,12 +14,24 @@ public enum MapMatchState
     Started
 }
 
+public enum MapRunMode
+{
+    Normal,
+    Survey
+}
+
 public readonly record struct MapMatchSnapshot(
     MapMatchState State,
     PlayerSlot? PlayerSlot,
     int Version,
-    string? MapClass = null)
+    string? MapClass = null,
+    Guid MatchId = default,
+    MapRunMode Mode = MapRunMode.Normal,
+    Guid? SurveyProjectId = null,
+    string? FloorKey = null)
 {
+    public long OperationEpoch => Version;
+
     public bool IsStarted =>
         State == MapMatchState.Started
         && PlayerSlot is { } slot
@@ -48,7 +60,40 @@ public sealed class MapMatchSession
             MapMatchState.Started,
             playerSlot,
             Snapshot.Version + 1,
-            mapClass.Trim());
+            mapClass.Trim(),
+            Guid.NewGuid(),
+            MapRunMode.Normal,
+            null,
+            null);
+        return Snapshot;
+    }
+
+    public MapMatchSnapshot SwitchToSurvey(Guid projectId)
+    {
+        if (!Snapshot.IsStarted)
+            throw new InvalidOperationException("No match is in progress.");
+        if (projectId == Guid.Empty)
+            throw new ArgumentOutOfRangeException(nameof(projectId));
+        Snapshot = Snapshot with
+        {
+            Version = Snapshot.Version + 1,
+            Mode = MapRunMode.Survey,
+            SurveyProjectId = projectId
+        };
+        return Snapshot;
+    }
+
+    public MapMatchSnapshot ChangeFloor(string floorKey)
+    {
+        if (!Snapshot.IsStarted)
+            throw new InvalidOperationException("No match is in progress.");
+        if (string.IsNullOrWhiteSpace(floorKey))
+            throw new ArgumentException("A floor key is required.", nameof(floorKey));
+        Snapshot = Snapshot with
+        {
+            Version = Snapshot.Version + 1,
+            FloorKey = floorKey.Trim().ToLowerInvariant()
+        };
         return Snapshot;
     }
 
@@ -58,6 +103,10 @@ public sealed class MapMatchSession
             MapMatchState.Ended,
             null,
             Snapshot.Version + 1,
+            null,
+            Guid.Empty,
+            MapRunMode.Normal,
+            null,
             null);
         return Snapshot;
     }
@@ -66,6 +115,10 @@ public sealed class MapMatchSession
         snapshot.Version == Snapshot.Version
         && snapshot.State == Snapshot.State
         && snapshot.PlayerSlot == Snapshot.PlayerSlot
+        && snapshot.MatchId == Snapshot.MatchId
+        && snapshot.Mode == Snapshot.Mode
+        && snapshot.SurveyProjectId == Snapshot.SurveyProjectId
+        && string.Equals(snapshot.FloorKey, Snapshot.FloorKey, StringComparison.OrdinalIgnoreCase)
         && string.Equals(
             snapshot.MapClass,
             Snapshot.MapClass,

@@ -66,6 +66,7 @@ public sealed partial class MapStatusPage : UserControl
         _confirmationAdvantage.Value = tuning.ConfirmationAdvantage;
         _forceBestResultToggle.IsOn = tuning.ForceBestRecognitionResult;
         _forceCandidateToggle.IsOn = tuning.ForceCandidateSelection;
+        _playerDecidesScaleToggle.IsOn = tuning.PlayerDecidesScale;
         _skipFloorRecognitionToggle.IsOn = _runtime.Settings.SkipFloorRecognition;
         var sessionTuning = _runtime.Settings.SessionTuning;
         _skipStabilityConfirmationToggle.IsOn =
@@ -189,8 +190,16 @@ public sealed partial class MapStatusPage : UserControl
         _playerStaleHideMilliseconds.IsEnabled = controlsEnabled;
         _allowExtendToggle.IsEnabled = controlsEnabled;
         _miniMapEnabledToggle.IsEnabled = controlsEnabled;
-        _miniMapScaleBox.IsEnabled =
-            controlsEnabled && _miniMapEnabledToggle.IsOn;
+        // Rendering scale is safe to change while scanning and does not
+        // depend on whether the mini map is configured as always visible.
+        _miniMapScaleSlider.IsEnabled = true;
+        _mapOpacitySlider.IsEnabled = true;
+        _statusOpacitySlider.IsEnabled = true;
+        _statusOffsetXSlider.IsEnabled = true;
+        _statusOffsetYSlider.IsEnabled = true;
+        _miniMapOpacitySlider.IsEnabled = true;
+        _miniMapOffsetXSlider.IsEnabled = true;
+        _miniMapOffsetYSlider.IsEnabled = true;
         _auxiliaryAnchorToggle.IsEnabled = controlsEnabled;
         _reusePreviousAlignmentToggle.IsEnabled = controlsEnabled;
         _previousAlignmentSearchRadius.IsEnabled =
@@ -238,6 +247,8 @@ public sealed partial class MapStatusPage : UserControl
         _switchFloorBinding.Text = $"当前：{_runtime.Settings.SwitchFloorBinding.DisplayName}";
         _saveMapCacheBinding.Text =
             $"当前：{_runtime.Settings.SaveMapCacheBinding.DisplayName}";
+        foreach (var target in _bindingButtons.Keys)
+            RefreshBindingButtonAppearance(target);
         _overlayState.Text = _runtime.IsOverlayVisible
             ? "正在显示（鼠标与键盘穿透）"
             : "当前隐藏";
@@ -326,21 +337,40 @@ public sealed partial class MapStatusPage : UserControl
         _reverseAlternateDisplayToggle.IsEnabled = controlsEnabled
             && !_overlayStatusToggle.IsOn;
         _showGateMarkersToggle.IsOn = _runtime.Settings.ShowGateMarkers;
+        var mapOpacityPercentage = _runtime.Settings.MapOpacity * 100d;
+        _mapOpacitySlider.Value = mapOpacityPercentage;
+        _mapOpacityValue.Text = $"当前：{mapOpacityPercentage:F0}%";
         _showAuxiliaryAnchorsToggle.IsOn = _runtime.Settings.ShowAuxiliaryAnchors;
         _showTextAnnotationsToggle.IsOn = _runtime.Settings.ShowTextAnnotations;
         _showBoxAnnotationsToggle.IsOn = _runtime.Settings.ShowBoxAnnotations;
+        _showLineAnnotationsToggle.IsOn = _runtime.Settings.ShowLineAnnotations;
         _showGateMarkersOnMiniMapToggle.IsOn = _runtime.Settings.ShowGateMarkersOnMiniMap;
         _showAuxiliaryAnchorsOnMiniMapToggle.IsOn = _runtime.Settings.ShowAuxiliaryAnchorsOnMiniMap;
         _showTextAnnotationsOnMiniMapToggle.IsOn = _runtime.Settings.ShowTextAnnotationsOnMiniMap;
         _showBoxAnnotationsOnMiniMapToggle.IsOn = _runtime.Settings.ShowBoxAnnotationsOnMiniMap;
+        _showLineAnnotationsOnMiniMapToggle.IsOn = _runtime.Settings.ShowLineAnnotationsOnMiniMap;
         _showFloorOnMiniMapToggle.IsOn = _runtime.Settings.ShowFloorOnMiniMap;
-        _miniMapScaleBox.Value = _runtime.Settings.MiniMapScale * 100d;
-        _miniMapOpacityBox.Value = _runtime.Settings.MiniMapOpacity * 100d;
-        _miniMapOffsetXBox.Value = _runtime.Settings.MiniMapOffsetX;
-        _miniMapOffsetYBox.Value = _runtime.Settings.MiniMapOffsetY;
-        _statusOpacityBox.Value = _runtime.Settings.StatusOpacity * 100d;
-        _statusOffsetXBox.Value = _runtime.Settings.StatusOffsetX;
-        _statusOffsetYBox.Value = _runtime.Settings.StatusOffsetY;
+        var miniMapScalePercentage = _runtime.Settings.MiniMapScale * 100d;
+        _miniMapScaleSlider.Value = miniMapScalePercentage;
+        _miniMapScaleValue.Text = $"当前：{miniMapScalePercentage:F0}%";
+        var miniMapOpacityPercentage = _runtime.Settings.MiniMapOpacity * 100d;
+        _miniMapOpacitySlider.Value = miniMapOpacityPercentage;
+        _miniMapOpacityValue.Text = $"当前：{miniMapOpacityPercentage:F0}%";
+        var miniMapOffsetX = _runtime.Settings.MiniMapOffsetX;
+        _miniMapOffsetXSlider.Value = miniMapOffsetX;
+        _miniMapOffsetXValue.Text = $"当前：{miniMapOffsetX:F0} px";
+        var miniMapOffsetY = _runtime.Settings.MiniMapOffsetY;
+        _miniMapOffsetYSlider.Value = miniMapOffsetY;
+        _miniMapOffsetYValue.Text = $"当前：{miniMapOffsetY:F0} px";
+        var statusOpacityPercentage = _runtime.Settings.StatusOpacity * 100d;
+        _statusOpacitySlider.Value = statusOpacityPercentage;
+        _statusOpacityValue.Text = $"当前：{statusOpacityPercentage:F0}%";
+        var statusOffsetX = _runtime.Settings.StatusOffsetX;
+        _statusOffsetXSlider.Value = statusOffsetX;
+        _statusOffsetXValue.Text = $"当前：{statusOffsetX:F0} px";
+        var statusOffsetY = _runtime.Settings.StatusOffsetY;
+        _statusOffsetYSlider.Value = statusOffsetY;
+        _statusOffsetYValue.Text = $"当前：{statusOffsetY:F0} px";
         _logState.Text = _runtime.LogCollector.IsEnabled
             ? $"正在收集 · {_runtime.LogCollector.EntryCount} 条"
             : "已关闭";
@@ -350,6 +380,7 @@ public sealed partial class MapStatusPage : UserControl
                     ?? _runtime.ResearchCollector.RootDirectory)
             : $"已关闭 · {_runtime.ResearchCollector.RootDirectory}";
         _status.Text = _runtime.StatusMessage;
+        _surveyStatusCard.Update(_runtime.SurveyStatus);
     }
 
     private static string FormatSessionSnapshot(MapSessionSnapshot snapshot)

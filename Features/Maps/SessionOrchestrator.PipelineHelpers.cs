@@ -33,10 +33,18 @@ public sealed partial class SessionOrchestrator
             _overlay.ClearMap();
             RefreshMiniMapForCurrentFloor();
             try { _overlay.Show(); } catch { }
+            if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
+            {
+                await HandleSurveyMapClosedAsync();
+                StateChanged?.Invoke(this, EventArgs.Empty);
+            }
             return;
         }
 
-        await RunMapOpenAlignmentAsync(toggle);
+        if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
+            await HandleSurveyMapOpenAsync(toggle);
+        else
+            await RunMapOpenAlignmentAsync(toggle);
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 

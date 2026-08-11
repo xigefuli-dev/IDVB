@@ -4,13 +4,13 @@ namespace IDVBuff.Features.Maps;
 
 public sealed class MapSessionTuning
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public int OpeningAnimationDelayMilliseconds { get; set; } = 10;
     public int OpeningTimeoutMilliseconds { get; set; } = 3000;
     public int StableFrameIntervalMilliseconds { get; set; } = 20;
-    public int StableFrameCount { get; set; } = 2;
-    public double StableFrameDifference { get; set; } = 0.015d;
+    public int StableFrameCount { get; set; } = 3;
+    public double StableFrameDifference { get; set; } = 0.005d;
     public int PresencePollingMilliseconds { get; set; } = 200;
     public int PlayerPollingMilliseconds { get; set; } = 100;
     public int WindowValidationMilliseconds { get; set; } = 500;
@@ -21,7 +21,7 @@ public sealed class MapSessionTuning
     public double NativeScaleChangeRatio { get; set; } =
         MapSessionRules.NativeScaleChangeRatio;
     /// <summary>设为 true 则跳过中等置信度的连续帧稳定性确认，直接锁定。</summary>
-    public bool SkipStabilityConfirmation { get; set; } = true;
+    public bool SkipStabilityConfirmation { get; set; }
     public List<NormalizedRectangle> ViewportIgnoreRegions { get; set; } = [];
 
     public MapSessionTuning Clone() => new()
@@ -57,6 +57,17 @@ public sealed class MapSessionTuning
             // while preserving any explicit value saved by newer versions.
             OpeningAnimationDelayMilliseconds = 50;
         }
+        if (previousSchema < 3
+            && StableFrameCount == 2
+            && Math.Abs(StableFrameDifference - 0.015d) < 0.0000001d
+            && SkipStabilityConfirmation)
+        {
+            // Migrate only the complete legacy default tuple. A user who
+            // changed any of these values keeps that explicit tuning.
+            StableFrameCount = 3;
+            StableFrameDifference = 0.005d;
+            SkipStabilityConfirmation = false;
+        }
         SchemaVersion = CurrentSchemaVersion;
         OpeningAnimationDelayMilliseconds = Math.Clamp(
             OpeningAnimationDelayMilliseconds,
@@ -73,7 +84,7 @@ public sealed class MapSessionTuning
         StableFrameCount = Math.Clamp(StableFrameCount, 2, 8);
         StableFrameDifference = Finite(
             StableFrameDifference,
-            0.015d,
+            0.005d,
             0.001d,
             0.10d);
         PresencePollingMilliseconds = Math.Clamp(

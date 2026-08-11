@@ -1,0 +1,307 @@
+using IDVBuff.Survey.Contracts;
+using IDVBuff.Survey.Domain;
+
+namespace IDVBuff.Survey.Application;
+
+public sealed partial class SurveyCoordinator
+{
+    public async Task<SurveyOperationResult<SurveyProjectSnapshot>> ApplyLayerBatchAsync(
+        SurveyLayerBatchEditRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyProjectSnapshot>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
+            var snapshot = await _projects.ApplyLayerBatchAsync(request, cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyProjectSnapshot>.Success(snapshot);
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyProjectSnapshot>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyProjectSnapshot>(SurveyErrorCode.StorageUnavailable, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<SurveyOperationResult<SurveyProjectSnapshot>> ToggleLayerDecontaminationAsync(
+        SurveyLayerDecontaminationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyProjectSnapshot>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
+            var layer = current.Layers.SingleOrDefault(item => item.LayerId == request.LayerId)
+                ?? throw new InvalidOperationException("测绘图层不存在。");
+            if (layer.IsDeleted || layer.IsLocked)
+                return Failure<SurveyProjectSnapshot>(SurveyErrorCode.InvalidState, "已删除或锁定的图层不能去污。");
+            var observation = current.Observations.Single(item => item.ObservationId == layer.ObservationId);
+            if (observation.DisplayAsset is not null)
+            {
+                var toggled = await _projects.ApplyLayerBatchAsync(
+                    new SurveyLayerBatchEditRequest(
+                        request.CommandId,
+                        request.ProjectId,
+                        request.ExpectedRevision,
+                        [new SurveyLayerMutation(layer.LayerId, !layer.UsesCleanedDisplay)]),
+                    cancellationToken).ConfigureAwait(false);
+                return SurveyOperationResult<SurveyProjectSnapshot>.Success(toggled);
+            }
+            if (_preprocessor is null)
+                return Failure<SurveyProjectSnapshot>(SurveyErrorCode.InvalidState, "当前运行环境没有测绘去污处理器。");
+
+            var processed = await _preprocessor.ProcessAsync(
+                new SurveyPreprocessRequest(request.ProjectId, observation),
+                cancellationToken).ConfigureAwait(false);
+            if (processed.DisplayAsset is null)
+                return Failure<SurveyProjectSnapshot>(SurveyErrorCode.PreprocessingFailed, processed.RejectionReason ?? "图层去污失败。");
+            var snapshot = await _projects.CommitProcessingAsync(
+                new SurveyProcessingCommitRequest(
+                    request.CommandId,
+                    request.ProjectId,
+                    observation.ObservationId,
+                    layer.LayerId,
+                    request.ExpectedRevision,
+                    observation.State,
+                    processed.Quality,
+                    processed.IsUsable ? observation.ErrorCode : SurveyErrorCode.PreprocessingFailed,
+                    processed.IsUsable ? observation.ErrorMessage : processed.RejectionReason,
+                    layer.AutomaticTransform,
+                    null,
+                    processed.StructureAsset,
+                    processed.FeatureAsset,
+                    processed.DisplayAsset,
+                    processed.VisibleMaskAsset,
+                    UsesCleanedDisplay: true),
+                cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyProjectSnapshot>.Success(snapshot);
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyProjectSnapshot>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyProjectSnapshot>(SurveyErrorCode.PreprocessingFailed, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> AlignLayersAsync(
+        SurveyLayerAlignmentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
+            if (_registrar is null)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "当前运行环境没有测绘配准器。");
+            var selectedIds = request.LayerIds.Distinct().ToArray();
+            if (selectedIds.Length < 2 || !selectedIds.Contains(request.AnchorLayerId))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "魔术贴至少需要两个图层，并且基准层必须位于选择中。");
+            var selected = current.Layers.Where(item => selectedIds.Contains(item.LayerId)).ToArray();
+            if (selected.Length != selectedIds.Length || selected.Any(item => item.IsDeleted))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "选择中包含不存在或已删除的图层。");
+            var anchor = selected.Single(item => item.LayerId == request.AnchorLayerId);
+            if (selected.Any(item => item.FloorId != anchor.FloorId))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "魔术贴只能对齐同一楼层的图层。");
+            var observations = current.Observations.ToDictionary(item => item.ObservationId);
+            var anchorObservation = observations[anchor.ObservationId];
+            var anchorAsset = SelectDisplayAsset(anchor, anchorObservation);
+            var items = new List<SurveyLayerOperationItem>();
+            var mutations = new List<SurveyLayerMutation>();
+            foreach (var layer in selected.Where(item => item.LayerId != anchor.LayerId))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (layer.IsLocked)
+                {
+                    items.Add(new SurveyLayerOperationItem(layer.LayerId, false, "图层已锁定。"));
+                    continue;
+                }
+                var observation = observations[layer.ObservationId];
+                var match = await _registrar.RegisterAsync(
+                    new SurveyRegistrationRequest(
+                        observation,
+                        anchorObservation,
+                        anchor,
+                        SelectDisplayAsset(layer, observation),
+                        anchorAsset),
+                    cancellationToken).ConfigureAwait(false);
+                if (!match.IsAccepted)
+                {
+                    items.Add(new SurveyLayerOperationItem(layer.LayerId, false, match.RejectionReason));
+                    continue;
+                }
+                var transform = Compose(anchor.EffectiveTransform, match.RelativeTransform);
+                mutations.Add(new SurveyLayerMutation(
+                    layer.LayerId,
+                    ManualTransformOverride: transform,
+                    ReplaceManualTransform: true,
+                    ObservationState: SurveyObservationState.Registered,
+                    ObservationErrorCode: SurveyErrorCode.None,
+                    ObservationErrorMessage: null,
+                    ReplaceObservationStatus: true));
+                items.Add(new SurveyLayerOperationItem(layer.LayerId, true, Transform: transform));
+            }
+            var snapshot = mutations.Count == 0
+                ? current
+                : await _projects.ApplyLayerBatchAsync(
+                    new SurveyLayerBatchEditRequest(
+                        request.CommandId,
+                        request.ProjectId,
+                        request.ExpectedRevision,
+                        mutations),
+                    cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(
+                new SurveyLayerOperationResult(snapshot, items));
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyLayerOperationResult>(SurveyErrorCode.RegistrationRejected, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyMaskStrokeAsync(
+        SurveyMaskStrokeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_rasterEditor is null)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "当前运行环境没有图层遮罩处理器。");
+            if (request.Points.Count == 0 || request.Size is < 1d or > 1024d || !double.IsFinite(request.Size))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "橡皮擦笔划无效。");
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
+            var requestedIds = request.LayerIds.Distinct().ToHashSet();
+            var targets = current.Layers.Where(item => requestedIds.Contains(item.LayerId)).ToArray();
+            var observations = current.Observations.ToDictionary(item => item.ObservationId);
+            var items = new List<SurveyLayerOperationItem>();
+            var mutations = new List<SurveyLayerMutation>();
+            foreach (var layer in targets)
+            {
+                if (layer.FloorId != request.FloorId || layer.IsDeleted || !layer.IsVisible || layer.IsLocked)
+                {
+                    items.Add(new SurveyLayerOperationItem(layer.LayerId, false, "图层不可见、已锁定或不属于当前楼层。"));
+                    continue;
+                }
+                var mask = await _rasterEditor.ApplyHiddenMaskAsync(
+                    request.ProjectId,
+                    layer,
+                    observations[layer.ObservationId],
+                    request.Points,
+                    request.Size,
+                    request.Shape,
+                    cancellationToken).ConfigureAwait(false);
+                if (mask is null)
+                {
+                    items.Add(new SurveyLayerOperationItem(layer.LayerId, false, "笔划没有与图层相交。"));
+                    continue;
+                }
+                mutations.Add(new SurveyLayerMutation(
+                    layer.LayerId,
+                    HiddenMaskAsset: mask,
+                    ReplaceHiddenMask: true));
+                items.Add(new SurveyLayerOperationItem(layer.LayerId, true));
+            }
+            var snapshot = mutations.Count == 0
+                ? current
+                : await _projects.ApplyLayerBatchAsync(
+                    new SurveyLayerBatchEditRequest(
+                        request.CommandId,
+                        request.ProjectId,
+                        request.ExpectedRevision,
+                        mutations),
+                    cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(
+                new SurveyLayerOperationResult(snapshot, items));
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyLayerOperationResult>(SurveyErrorCode.StorageUnavailable, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<Stream> OpenRenderedLayerAsync(
+        Guid projectId,
+        Guid layerId,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await _projects.GetAsync(projectId, cancellationToken).ConfigureAwait(false)
+            ?? throw new SurveyProjectNotFoundException(projectId);
+        var layer = snapshot.Layers.Single(item => item.LayerId == layerId);
+        var observation = snapshot.Observations.Single(item => item.ObservationId == layer.ObservationId);
+        return await OpenRenderedLayerAsync(projectId, layer, observation, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<Stream> OpenRenderedLayerAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        if (layer.ProjectId != projectId
+            || observation.ProjectId != projectId
+            || layer.ObservationId != observation.ObservationId)
+            throw new ArgumentException("Survey layer and observation identity do not match.");
+        if (_rasterEditor is null)
+            return await _assets.OpenReadAsync(projectId, SelectDisplayAsset(layer, observation), cancellationToken)
+                .ConfigureAwait(false);
+        var bytes = await _rasterEditor.RenderLayerAsync(
+            projectId, layer, observation, cancellationToken).ConfigureAwait(false);
+        return new MemoryStream(bytes.ToArray(), writable: false);
+    }
+
+    private static SurveyAssetReference SelectDisplayAsset(
+        SurveyMapLayer layer,
+        SurveyObservation observation) =>
+        layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+            ? observation.DisplayAsset
+            : observation.SourceAsset;
+}

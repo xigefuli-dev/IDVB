@@ -2,13 +2,17 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private readonly record struct CandidateSelectionResolution(
+        RuntimeMapRecognition? Recognition,
+        bool StartSurvey);
+
     private IMapCandidateSelector? _activeCandidateSelector;
     private IReadOnlyList<MapRecognitionChoice> _lastCandidateChoices = [];
 
     public IReadOnlyList<MapRecognitionChoice> LastCandidateChoices =>
         _lastCandidateChoices;
 
-    private async Task<RuntimeMapRecognition?> ResolveCandidateSelectionAsync(
+    private async Task<CandidateSelectionResolution> ResolveCandidateSelectionAsync(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> candidates,
         string reason,
@@ -29,6 +33,8 @@ public sealed partial class SessionOrchestrator
 
         if (_headless)
         {
+            if (orderedCandidates.Length == 0)
+                return new CandidateSelectionResolution(null, false);
             var best = orderedCandidates[0];
             var recognition = MapCvRecognitionService.ConfirmChoice(best);
             _statusMessage =
@@ -43,21 +49,26 @@ public sealed partial class SessionOrchestrator
                     ["confidence"] = recognition.Result.Confidence,
                     ["choiceCount"] = orderedCandidates.Length
                 });
-            return recognition;
+            return new CandidateSelectionResolution(recognition, false);
         }
 
         try
         {
-            var selectedIndex = await MapManualCandidateWindow.ShowAsync(
+            var decision = await MapManualCandidateWindow.ShowAsync(
                 frame,
                 orderedCandidates,
                 reason,
                 cancellationToken);
-            if (selectedIndex is not { } index || index >= orderedCandidates.Length)
+            if (decision.Kind == MapCandidateDecisionKind.StartSurvey)
+                return new CandidateSelectionResolution(null, true);
+            if (decision.Kind != MapCandidateDecisionKind.SelectKnownMap
+                || decision.CandidateIndex is not { } index
+                || index < 0
+                || index >= orderedCandidates.Length)
             {
                 _statusMessage = "用户取消了候选地图选择。";
                 StateChanged?.Invoke(this, EventArgs.Empty);
-                return null;
+                return new CandidateSelectionResolution(null, false);
             }
 
             var recognition = MapCvRecognitionService.ConfirmChoice(orderedCandidates[index]);
@@ -73,16 +84,16 @@ public sealed partial class SessionOrchestrator
                     ["choiceCount"] = orderedCandidates.Length,
                     ["mapId"] = recognition.Map.Id
                 });
-            return recognition;
+            return new CandidateSelectionResolution(recognition, false);
         }
         catch (OperationCanceledException)
         {
             _statusMessage = "候选地图选择被取消。";
-            return null;
+            return new CandidateSelectionResolution(null, false);
         }
     }
 
-    private async Task<RuntimeMapRecognition?> SelectCandidateWithOverrideAsync(
+    private async Task<CandidateSelectionResolution> SelectCandidateWithOverrideAsync(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> candidates,
         string reason,
@@ -90,20 +101,23 @@ public sealed partial class SessionOrchestrator
     {
         var selector = _activeCandidateSelector;
         if (selector is null)
-            return null;
+            return new CandidateSelectionResolution(null, false);
 
-        var selectedIndex = await selector.SelectAsync(
+        var decision = await selector.SelectAsync(
             frame,
             candidates,
             reason,
             cancellationToken);
-        if (selectedIndex is not { } index
+        if (decision.Kind == MapCandidateDecisionKind.StartSurvey)
+            return new CandidateSelectionResolution(null, true);
+        if (decision.Kind != MapCandidateDecisionKind.SelectKnownMap
+            || decision.CandidateIndex is not { } index
             || index < 0
             || index >= candidates.Count)
         {
             _statusMessage = "候选地图接口未返回有效选择。";
             StateChanged?.Invoke(this, EventArgs.Empty);
-            return null;
+            return new CandidateSelectionResolution(null, false);
         }
 
         var recognition = MapCvRecognitionService.ConfirmChoice(candidates[index]);
@@ -121,6 +135,6 @@ public sealed partial class SessionOrchestrator
                 ["mapId"] = recognition.Map.Id,
                 ["confidence"] = recognition.Result.Confidence
             });
-        return recognition;
+        return new CandidateSelectionResolution(recognition, false);
     }
 }

@@ -32,7 +32,7 @@ public sealed class MapModelsTests
 
         profile.EnsureStandardAnchors();
 
-        Assert.Equal(6, profile.SchemaVersion);
+        Assert.Equal(7, profile.SchemaVersion);
         Assert.Equal(RecognitionAnchorRole.Required, profile.FirstFloor.FindAnchor("main-entrance")!.Role);
         Assert.Equal(RecognitionAnchorRole.Required, profile.FirstFloor.FindAnchor("side-entrance")!.Role);
         Assert.Equal(RecognitionAnchorRole.Optional, profile.SecondFloor.FindAnchor("second-floor-primary")!.Role);
@@ -139,6 +139,56 @@ public sealed class MapModelsTests
         Assert.Equal(originalSourceBounds.Width, convertedSourceBounds.Width, 8);
         Assert.Equal(originalSourceBounds.Height, convertedSourceBounds.Height, 8);
         Assert.Null(profile.FindAnchor("outside")!.Bounds);
+    }
+
+    [Fact]
+    public void SchemaSixPaletteAnnotationMigratesToCanonicalRgbOnEveryFloor()
+    {
+        var third = new FloorRecognitionProfile
+        {
+            FloorKey = "roof",
+            Annotations =
+            [
+                new MapAnnotation
+                {
+                    Type = MapAnnotationType.Outline,
+                    ColorIndex = 6,
+                    Bounds = new NormalizedRectangle { Width = 0.2d, Height = 0.2d }
+                }
+            ]
+        };
+        var profile = new MapRecognitionProfile
+        {
+            SchemaVersion = 6,
+            Floors = new Dictionary<string, FloorRecognitionProfile> { ["roof"] = third }
+        };
+
+        profile.EnsureStandardAnchors();
+
+        Assert.Equal(7, profile.SchemaVersion);
+        Assert.Equal("#AF52DE", third.Annotations[0].ColorHex);
+        Assert.True(third.Annotations[0].IsValid);
+    }
+
+    [Fact]
+    public void DirectedLineRequiresDistinctNormalizedEndpointsAndPreservesRgb()
+    {
+        var line = new MapAnnotation
+        {
+            Type = MapAnnotationType.Line,
+            ColorHex = "#12abef",
+            Start = new NormalizedPoint { X = 0.8d, Y = 0.2d },
+            End = new NormalizedPoint { X = 0.1d, Y = 0.9d }
+        };
+
+        Assert.True(line.IsValid);
+        Assert.Equal("#12ABEF", line.EffectiveColorHex);
+        var clone = line.Clone();
+        Assert.Equal(0.8d, clone.Start!.X);
+        Assert.Equal(0.1d, clone.End!.X);
+
+        line.End = new NormalizedPoint { X = 0.8d, Y = 0.2d };
+        Assert.False(line.IsValid);
     }
 
     private static RecognitionAnchor Anchor(

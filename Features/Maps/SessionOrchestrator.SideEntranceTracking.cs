@@ -8,27 +8,21 @@ public sealed partial class SessionOrchestrator
         MapAlignmentSession session,
         MapOverlayAlignmentMode alignmentMode,
         MapRecognitionTuning tuning,
-        MapStructureRegistrationTuning structureTuning)
+        MapStructureRegistrationTuning structureTuning,
+        bool tryDirectFeature = true)
     {
-        var featureAttempt = _recognition.AlignLockedSideEntranceFeature(
-            frame,
-            locked.Map.Id,
-            session,
-            tuning);
-        if (featureAttempt.Recognition is not null)
-            return featureAttempt;
-
-        var floorFeatureAttempt = _recognition.AlignLockedFloorFeature(
-            frame,
-            locked.Map.Id,
-            session.FloorKey,
-            session.LockedTransform,
-            alignmentMode,
-            tuning,
-            structureTuning,
-            session.SideEntranceScanPriorConfidence);
-        if (floorFeatureAttempt.Recognition is not null)
-            return floorFeatureAttempt;
+        if (tryDirectFeature)
+        {
+            var featureAttempt = _recognition.AlignLockedSideEntranceFeature(
+                frame,
+                locked.Map.Id,
+                session,
+                alignmentMode,
+                tuning,
+                structureTuning);
+            if (featureAttempt.Recognition is not null)
+                return featureAttempt;
+        }
 
         var searchContext = CreateSideEntranceSearchContext(
             session,

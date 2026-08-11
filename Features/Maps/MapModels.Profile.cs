@@ -123,10 +123,11 @@ public sealed class MapRecognitionProfile
 
     public void EnsureStandardAnchors()
     {
-        SchemaVersion = Math.Max(SchemaVersion, 6);
+        SchemaVersion = Math.Max(SchemaVersion, 7);
         FirstFloor ??= new FloorRecognitionProfile { Floor = MapFloor.First };
         SecondFloor ??= new FloorRecognitionProfile { Floor = MapFloor.Second };
         WholeImage ??= new WholeImageRecognitionSettings();
+        Floors ??= [];
         FirstFloor.Floor = MapFloor.First;
         SecondFloor.Floor = MapFloor.Second;
         // Keep custom keys assigned by the V6 editor. Empty legacy profiles
@@ -143,8 +144,8 @@ public sealed class MapRecognitionProfile
         SecondFloor.WholeImageIgnoreRegions ??= [];
         FirstFloor.Annotations ??= [];
         SecondFloor.Annotations ??= [];
-        foreach (var a in FirstFloor.Annotations.Concat(SecondFloor.Annotations))
-            a.ColorIndex = Math.Clamp(a.ColorIndex, 0, 8);
+        NormalizeAnnotations(FirstFloor);
+        NormalizeAnnotations(SecondFloor);
         FirstFloor.OrientationDegrees = NormalizeOrientation(FirstFloor.OrientationDegrees);
         SecondFloor.OrientationDegrees = NormalizeOrientation(SecondFloor.OrientationDegrees);
         FirstFloor.RecognitionRegion = NormalizeRecognitionRegion(FirstFloor.RecognitionRegion);
@@ -167,6 +168,8 @@ public sealed class MapRecognitionProfile
         // V6: keep Floors dictionary in sync with FirstFloor / SecondFloor
         Floors[FirstFloor.FloorKey] = FirstFloor;
         Floors[SecondFloor.FloorKey] = SecondFloor;
+        foreach (var profile in Floors.Values.Distinct())
+            NormalizeAnnotations(profile);
     }
 
     public bool HasRequiredIdentificationData()
@@ -255,6 +258,18 @@ public sealed class MapRecognitionProfile
         anchor.Role = role;
         anchor.IsBuiltIn = true;
         anchor.Weight = role == RecognitionAnchorRole.Required ? 1d : 0.35d;
+    }
+
+    private static void NormalizeAnnotations(FloorRecognitionProfile floor)
+    {
+        floor.Annotations ??= [];
+        foreach (var annotation in floor.Annotations)
+        {
+            if (!MapAnnotationColor.TryNormalize(annotation.ColorHex, out var colorHex))
+                colorHex = MapAnnotationColor.FromLegacyIndex(annotation.ColorIndex);
+            annotation.ColorHex = colorHex;
+            annotation.ColorIndex = MapAnnotationColor.ToLegacyIndex(colorHex);
+        }
     }
 
     private static void NormalizeAnchorWeights(FloorRecognitionProfile floor)
@@ -402,7 +417,7 @@ public sealed class MapRecognitionProfileJsonConverter : JsonConverter<MapRecogn
         value.EnsureStandardAnchors();
         var inner = CreateInnerOptions(options);
         writer.WriteStartObject();
-        writer.WriteNumber("SchemaVersion", Math.Max(6, value.SchemaVersion));
+        writer.WriteNumber("SchemaVersion", Math.Max(7, value.SchemaVersion));
         writer.WritePropertyName("WholeImage");
         JsonSerializer.Serialize(writer, value.WholeImage, inner);
         writer.WritePropertyName("Floors");

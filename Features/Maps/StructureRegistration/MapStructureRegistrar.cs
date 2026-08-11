@@ -101,14 +101,31 @@ public sealed class MapStructureRegistrar
                 var fastResult = TryFastCoarseAlign(request);
                 MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration,
                     fastResult.Accepted ? MapLogLevel.Info : MapLogLevel.Warning,
-                    $"快速粗搜索{(fastResult.Accepted ? "通过" : "未通过")}",
-                    elapsedMs: fastResult.SearchMilliseconds + fastResult.RefineMilliseconds,
+                    fastResult.Accepted
+                        ? "快速粗搜索通过"
+                        : tuning.FastFallbackToLegacy
+                            ? "快速粗搜索未早停，将进入完整搜索"
+                            : "快速粗搜索未通过",
+                    elapsedMs: fastResult.PreprocessMilliseconds
+                        + fastResult.SearchMilliseconds
+                        + fastResult.RefineMilliseconds,
                     details: new()
                     {
                         ["usedFastStrategy"] = true, ["accepted"] = fastResult.Accepted,
+                        ["fallbackToLegacy"] =
+                            !fastResult.Accepted && tuning.FastFallbackToLegacy,
+                        ["preprocessMs"] = fastResult.PreprocessMilliseconds,
                         ["fastCoarseMs"] = fastResult.FastCoarseSearchMilliseconds,
                         ["fastCandidates"] = fastResult.FastCoarseCandidateCount,
-                        ["rejection"] = fastResult.RejectionReason.ToString()
+                        ["rejection"] = fastResult.RejectionReason.ToString(),
+                        ["lockedScale"] = fastResult.LockedScale,
+                        ["referenceWidth"] = fastResult.ReferenceWidth,
+                        ["referenceHeight"] = fastResult.ReferenceHeight,
+                        ["queryEdgePixels"] = fastResult.QueryEdgePixels,
+                        ["queryBoundsX"] = fastResult.QueryBoundsX,
+                        ["queryBoundsY"] = fastResult.QueryBoundsY,
+                        ["queryBoundsWidth"] = fastResult.QueryBoundsWidth,
+                        ["queryBoundsHeight"] = fastResult.QueryBoundsHeight
                     });
                 if (fastResult.Accepted) return fastResult;
                 if (!tuning.FastFallbackToLegacy) return fastResult;
@@ -153,8 +170,21 @@ public sealed class MapStructureRegistrar
             : null;
         var live = request.PreparedLive ?? ownedLive!;
         preprocessTimer.Stop();
-        MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
-            "结构预处理完成", elapsedMs: preprocessTimer.Elapsed.TotalMilliseconds);
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "结构配准输入特征就绪",
+            elapsedMs: preprocessTimer.Elapsed.TotalMilliseconds,
+            details: new()
+            {
+                ["source"] = request.PreparedLive is null
+                    ? "registrar-extraction"
+                    : "caller-prepared",
+                ["registrarExtractionMs"] =
+                    preprocessTimer.Elapsed.TotalMilliseconds,
+                ["originalFeatureExtractionMs"] =
+                    live.DiagnosticTiming?.TotalMs ?? 0d
+            });
         var debugDirectory = tuning.EnableDebugOutput
             ? MapStructureDebugOutput.ResolveDebugDirectory(request.DebugOutputDirectory) : null;
         MapStructureDebugOutput.WritePreprocessDebug(debugDirectory, request.LiveRoi, live, reference);
@@ -206,8 +236,10 @@ public sealed class MapStructureRegistrar
             {
                 if (searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
                 { ctx.TimeBudgetExceeded = true; break; }
-                if (ctx.Candidates.Count > 0 && ctx.Candidates[0].CompositeCost
-                    <= tuning.EarlyTerminationScoreThreshold)
+                if (!tuning.DisableScaleEarlyTermination
+                    && ctx.Candidates.Count > 0
+                    && ctx.Candidates[0].CompositeCost
+                        <= tuning.EarlyTerminationScoreThreshold)
                     break;
 
                 var queryTimer = Stopwatch.StartNew();
@@ -295,6 +327,15 @@ public sealed class MapStructureRegistrar
                     ["pyramidSearchMs"] = ctx.PyramidSearchMs,
                     ["localTemplateSearchMs"] = ctx.LocalTemplateSearchMs,
                     ["globalTemplateSearchMs"] = ctx.GlobalTemplateSearchMs,
+                    ["referenceWidth"] = reference.Edges.Width,
+                    ["referenceHeight"] = reference.Edges.Height,
+                    ["queryEdgePixels"] = diagnosticQuery?.EdgeCount ?? 0,
+                    ["queryBoundsX"] = diagnosticQuery?.Bounds.X ?? 0,
+                    ["queryBoundsY"] = diagnosticQuery?.Bounds.Y ?? 0,
+                    ["queryBoundsWidth"] =
+                        diagnosticQuery?.Bounds.Width ?? 0,
+                    ["queryBoundsHeight"] =
+                        diagnosticQuery?.Bounds.Height ?? 0,
                     ["visibleAwareEarlyAccepted"] = ctx.VisibleAwareEarlyAccepted,
                     ["visibleAwareFallbackReason"] = ctx.VisibleAwareFallbackReason
                 });
@@ -348,7 +389,8 @@ public sealed class MapStructureRegistrar
                 // ── 精修 ──
                 var refineTimer = Stopwatch.StartNew();
                 var forcedRefinementFallback = false;
-                var refined = MapStructureRefiner.CanSkipLocalRefinement(ranked, tuning)
+                var refined = MapStructureRefiner.CanSkipLocalRefinement(
+                        ranked, tuning, request.RestrictSearchToLockedTransform)
                     ? ranked[0]
                     : MapStructureRefiner.RefineCandidate(ranked[0], live, reference,
                         referenceDistance, request, tuning, _currentReciprocalScale);
@@ -382,7 +424,9 @@ public sealed class MapStructureRegistrar
                         / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, secondScore), 0d, 1d);
                 var requiredMargin = tuning.MinimumCandidateMargin
                     * (best.UsedGlobalSearch ? StructureRegistrationRules.GlobalSearchMarginMultiplier : 1d);
-                var rejection = MapStructureValidator.Validate(best, margin, requiredMargin, tuning);
+                var rejection = MapStructureValidator.Validate(
+                    best, margin, requiredMargin, tuning,
+                    restrictedSearch: request.RestrictSearchToLockedTransform);
                 var forcedReason = forcedRefinementFallback
                     ? MapStructureRejectionReason.RefinementFailed : rejection;
                 var confidenceBreakdown = MapStructureConfidenceCalculator.Calculate(
@@ -510,14 +554,26 @@ public sealed class MapStructureRegistrar
             {
                 return MapStructureValidator.BuildResult(
                     MapStructureRejectionReason.InsufficientStructure,
-                    preprocessMs: preprocessMs, searchMs: coarseTimer.Elapsed.TotalMilliseconds);
+                    preprocessMs: preprocessMs,
+                    searchMs: coarseTimer.Elapsed.TotalMilliseconds,
+                    lockedScale: baselineScale,
+                    referenceWidth: refEdgesForCheck.Width,
+                    referenceHeight: refEdgesForCheck.Height,
+                    queryEdgePixels: query.EdgeCount,
+                    queryBounds: query.Bounds);
             }
             if (query.Bounds.Width >= refEdgesForCheck.Width
                 || query.Bounds.Height >= refEdgesForCheck.Height)
             {
                 return MapStructureValidator.BuildResult(
                     MapStructureRejectionReason.QueryLargerThanReference,
-                    preprocessMs: preprocessMs, searchMs: coarseTimer.Elapsed.TotalMilliseconds);
+                    preprocessMs: preprocessMs,
+                    searchMs: coarseTimer.Elapsed.TotalMilliseconds,
+                    lockedScale: baselineScale,
+                    referenceWidth: refEdgesForCheck.Width,
+                    referenceHeight: refEdgesForCheck.Height,
+                    queryEdgePixels: query.EdgeCount,
+                    queryBounds: query.Bounds);
             }
 
             MapStructureScaleSearch.CollectFastCoarseCandidates(
@@ -541,11 +597,14 @@ public sealed class MapStructureRegistrar
             {
                 return MapStructureValidator.BuildResult(
                     MapStructureRejectionReason.NoCandidate, candidates: ranked,
+                    preprocessMs: preprocessMs,
                     searchMs: coarseMs, usedFastStrategy: true,
                     fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                     lockedScale: baselineScale,
-                    referenceWidth: referenceFast.Edges.Width,
-                    referenceHeight: referenceFast.Edges.Height);
+                    referenceWidth: refEdgesForCheck.Width,
+                    referenceHeight: refEdgesForCheck.Height,
+                    queryEdgePixels: query.EdgeCount,
+                    queryBounds: query.Bounds);
             }
 
             var refineTimer = Stopwatch.StartNew();
@@ -559,12 +618,15 @@ public sealed class MapStructureRegistrar
             {
                 return MapStructureValidator.BuildResult(
                     MapStructureRejectionReason.RefinementFailed, candidates: ranked,
+                    preprocessMs: preprocessMs,
                     searchMs: coarseMs, refineMs: refineTimer.Elapsed.TotalMilliseconds,
                     usedFastStrategy: true,
                     fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                     lockedScale: baselineScale,
-                    referenceWidth: referenceFast.Edges.Width,
-                    referenceHeight: referenceFast.Edges.Height);
+                    referenceWidth: refEdgesForCheck.Width,
+                    referenceHeight: refEdgesForCheck.Height,
+                    queryEdgePixels: query.EdgeCount,
+                    queryBounds: query.Bounds);
             }
 
             var finalRanked = new[] { refined }.Concat(ranked.Skip(1))
@@ -577,11 +639,29 @@ public sealed class MapStructureRegistrar
                     / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, secondScore), 0d, 1d);
             var requiredMargin = tuning.MinimumCandidateMargin
                 * (best.UsedGlobalSearch ? StructureRegistrationRules.GlobalSearchMarginMultiplier : 1d);
-            var rejection = MapStructureValidator.Validate(best, margin, requiredMargin, tuning);
+            var rejection = MapStructureValidator.Validate(
+                best, margin, requiredMargin, tuning,
+                restrictedSearch: request.RestrictSearchToLockedTransform);
             var confidenceBreakdown = MapStructureConfidenceCalculator.Calculate(
                 best, margin, tuning, rejection,
                 isTrackingMode: request.TrackingMode,
                 sideEntrancePrior: request.SideEntrancePrior);
+            if (rejection == MapStructureRejectionReason.None)
+            {
+                rejection = MapStructureValidator.ValidateFastConfidence(
+                    confidenceBreakdown,
+                    StructureRegistrationRules.FastMinimumGeometricLockConfidence);
+                if (rejection != MapStructureRejectionReason.None)
+                {
+                    // Fast coarse search is an early-accept path.  A candidate
+                    // can pass broad gates and still be the wrong corridor when
+                    // its geometry is weak. Defer it to the full legacy search.
+                    confidenceBreakdown = MapStructureConfidenceCalculator.Calculate(
+                        best, margin, tuning, rejection,
+                        isTrackingMode: request.TrackingMode,
+                        sideEntrancePrior: request.SideEntrancePrior);
+                }
+            }
             var confidence = confidenceBreakdown.FinalScore;
 
             if (rejection != MapStructureRejectionReason.None && !request.ForceBestCandidate)
@@ -589,17 +669,27 @@ public sealed class MapStructureRegistrar
                 var rd = CreateConfidenceLogDetails(confidenceBreakdown);
                 rd["fastCoarseMs"] = coarseMs; rd["fastCandidates"] = candidates.Count;
                 rd["bestScore"] = best.CompositeCost; rd["rejection"] = rejection.ToString();
+                rd["referenceWidth"] = refEdgesForCheck.Width;
+                rd["referenceHeight"] = refEdgesForCheck.Height;
+                rd["queryEdgePixels"] = query.EdgeCount;
+                rd["queryBoundsX"] = query.Bounds.X;
+                rd["queryBoundsY"] = query.Bounds.Y;
+                rd["queryBoundsWidth"] = query.Bounds.Width;
+                rd["queryBoundsHeight"] = query.Bounds.Height;
                 MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Warning,
                     $"快速粗搜索未通过验证：{rejection.ToDisplayText()}",
                     elapsedMs: coarseMs + refineTimer.Elapsed.TotalMilliseconds, details: rd);
                 return MapStructureValidator.BuildResult(rejection,
                     candidates: finalRanked,
+                    preprocessMs: preprocessMs,
                     searchMs: coarseMs, refineMs: refineTimer.Elapsed.TotalMilliseconds,
                     usedFastStrategy: true,
                     fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                     lockedScale: baselineScale,
-                    referenceWidth: referenceFast.Edges.Width,
-                    referenceHeight: referenceFast.Edges.Height,
+                    referenceWidth: refEdgesForCheck.Width,
+                    referenceHeight: refEdgesForCheck.Height,
+                    queryEdgePixels: query.EdgeCount,
+                    queryBounds: query.Bounds,
                     confidence: confidence, confidenceBreakdown: confidenceBreakdown,
                     bestScore: best.CompositeCost, secondScore: secondScore,
                     candidateMargin: margin,
@@ -610,17 +700,27 @@ public sealed class MapStructureRegistrar
             var ad = CreateConfidenceLogDetails(confidenceBreakdown);
             ad["bestScore"] = best.CompositeCost; ad["margin"] = margin;
             ad["fastCoarseMs"] = coarseMs; ad["fastCandidates"] = candidates.Count;
+            ad["referenceWidth"] = refEdgesForCheck.Width;
+            ad["referenceHeight"] = refEdgesForCheck.Height;
+            ad["queryEdgePixels"] = query.EdgeCount;
+            ad["queryBoundsX"] = query.Bounds.X;
+            ad["queryBoundsY"] = query.Bounds.Y;
+            ad["queryBoundsWidth"] = query.Bounds.Width;
+            ad["queryBoundsHeight"] = query.Bounds.Height;
             MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
                 $"快速粗搜索通过 · 置信度 {confidence:P0} · 最佳分数 {best.CompositeCost:F3} · 粗搜索 {coarseMs:F1}ms",
                 details: ad);
             return MapStructureValidator.BuildResult(MapStructureRejectionReason.None,
                 accepted: true, transform: transform, candidates: finalRanked,
+                preprocessMs: preprocessMs,
                 searchMs: coarseMs, refineMs: refineTimer.Elapsed.TotalMilliseconds,
                 usedFastStrategy: true,
                 fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                 lockedScale: baselineScale,
-                referenceWidth: referenceFast.Edges.Width,
-                referenceHeight: referenceFast.Edges.Height,
+                referenceWidth: refEdgesForCheck.Width,
+                referenceHeight: refEdgesForCheck.Height,
+                queryEdgePixels: query.EdgeCount,
+                queryBounds: query.Bounds,
                 confidence: confidence, confidenceBreakdown: confidenceBreakdown,
                 bestScore: best.CompositeCost, secondScore: secondScore,
                 candidateMargin: margin,

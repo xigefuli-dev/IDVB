@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- 引用自包含的 IDVBuff 主项目（WinExe）要求调用方也指定 RID，否则触发 NETSDK1151 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseSystemDrawing>true</UseSystemDrawing>
+    <RootNamespace>IDVBuff.RealCLI</RootNamespace>
+    <AssemblyName>IDVB.RealCLI</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <WindowsPackageType>None</WindowsPackageType>
+  </PropertyGroup>
+
+  <!-- 引用真实 IDVB 程序集（Core/Infrastructure/Pipeline）
+       注意：不能 ProjectReference 主项目 IDVBuff.csproj（WinExe，自包含）——
+       会触发 NETSDK1151 / MSIX AnyCPU 检查。改为像 Probe/Tests 一样链接 Features 源码，
+       确保走与主应用完全相同的编译产物，同时保持主程序与 RealCLI 构建互不干扰。 -->
+  <ItemGroup>
+    <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\Infrastructure\IDVBuff.Infrastructure.csproj" />
+    <ProjectReference Include="..\Pipeline\IDVBuff.Pipeline.csproj" />
+    <ProjectReference Include="..\Survey\Domain\IDVBuff.Survey.Domain.csproj" />
+    <ProjectReference Include="..\Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
+    <ProjectReference Include="..\Survey\Application\IDVBuff.Survey.Application.csproj" />
+    <ProjectReference Include="..\Survey\Persistence\IDVBuff.Survey.Persistence.Sqlite.csproj" />
+    <ProjectReference Include="..\Survey\Preprocessing\IDVBuff.Survey.Preprocessing.OpenCv.csproj" />
+    <ProjectReference Include="..\Survey\Registration\IDVBuff.Survey.Registration.OpenCv.csproj" />
+    <ProjectReference Include="..\Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
+    <ProjectReference Include="..\Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
+    <ProjectReference Include="..\Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
+  </ItemGroup>
+
+  <!-- 链接主项目源码：Features 全部（纯 Win32 窗口，无 XAML）+ 根目录必要文件 -->
+  <ItemGroup>
+    <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\ServiceCollectionExtensions.cs" Link="Production\ServiceCollectionExtensions.cs" />
+    <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Features\Maps\**\*.cs" Link="Production\Features\Maps\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.*" />
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+
+  <!-- 运行时需要的模板资产 -->
+  <ItemGroup>
+    <None Include="..\Assets\Gate.png" Link="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Assets\1F.png" Link="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Assets\2F.png" Link="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

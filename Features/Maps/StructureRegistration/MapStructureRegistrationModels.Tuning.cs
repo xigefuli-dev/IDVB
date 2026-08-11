@@ -1,11 +1,35 @@
+using System.Text.Json.Serialization;
+
 namespace IDVBuff.Features.Maps;
+
+public enum MapAuxiliaryAnchorRecognitionMode
+{
+    Off = 0,
+    AmbiguityOnly = 1,
+    Always = 2
+}
 
 public sealed class MapStructureRegistrationTuning
 {
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
 
     public int SchemaVersion { get; set; }
-    public bool UseAuxiliaryAnchorRecognition { get; set; } = false;
+    public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
+        MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
+
+    /// <summary>
+    /// Source-compatible view of the former Boolean setting. New persisted
+    /// settings use <see cref="AuxiliaryAnchorMode"/> so anchors can be
+    /// reserved for ambiguous alignments instead of running on every frame.
+    /// </summary>
+    [JsonIgnore]
+    public bool UseAuxiliaryAnchorRecognition
+    {
+        get => AuxiliaryAnchorMode != MapAuxiliaryAnchorRecognitionMode.Off;
+        set => AuxiliaryAnchorMode = value
+            ? MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly
+            : MapAuxiliaryAnchorRecognitionMode.Off;
+    }
     public bool ReusePreviousAlignmentResult { get; set; } = true;
     public int MaximumAuxiliaryTemplates { get; set; } = 4;
     public double AuxiliaryDirectLockConfidence { get; set; } = 0.82d;
@@ -20,6 +44,12 @@ public sealed class MapStructureRegistrationTuning
     public int MinimumConsistentPartitions { get; set; } = 2;
     public int TopCandidateCount { get; set; } = 6;
     public double MaximumChamferPixels { get; set; } = 3.2d;
+    /// <summary>
+    /// 受限搜索(RestrictSearchToLockedTransform=true)专用的独立 chamfer 上限。
+    /// 不受分辨率档 TOML 的 MaximumChamferPixels 放宽影响——受限窗口很小,
+    /// 真位置在窗口内时 chamfer 必然低,假候选(部分重叠)chamfer 显著偏高。
+    /// </summary>
+    public double RestrictedSearchMaximumChamferPixels { get; set; } = 3.0d;
     public double MinimumEdgeCoverage { get; set; } = 0.40d;
     public double MinimumOccupancyCoverage { get; set; } = 0.42d;
     public double MinimumCandidateMargin { get; set; } = 0.04d;
@@ -94,10 +124,16 @@ public sealed class MapStructureRegistrationTuning
     /// <summary>粗搜索目标最大边长像素。默认 120。</summary>
     public int FastCoarseMaxDimension { get; set; } = 200;
 
+    /// <summary>
+    /// 禁用单假设 scale 早停：即使首个 scale 假设产生足够好的候选，
+    /// 也继续搜索全部 scale 假设。供 seed scale 可能错误的恢复路径使用。
+    /// </summary>
+    public bool DisableScaleEarlyTermination { get; set; }
+
     public MapStructureRegistrationTuning Clone() => new()
     {
         SchemaVersion = SchemaVersion,
-        UseAuxiliaryAnchorRecognition = UseAuxiliaryAnchorRecognition,
+        AuxiliaryAnchorMode = AuxiliaryAnchorMode,
         ReusePreviousAlignmentResult = ReusePreviousAlignmentResult,
         MaximumAuxiliaryTemplates = MaximumAuxiliaryTemplates,
         AuxiliaryDirectLockConfidence = AuxiliaryDirectLockConfidence,
@@ -114,6 +150,8 @@ public sealed class MapStructureRegistrationTuning
         MinimumConsistentPartitions = MinimumConsistentPartitions,
         TopCandidateCount = TopCandidateCount,
         MaximumChamferPixels = MaximumChamferPixels,
+        RestrictedSearchMaximumChamferPixels =
+            RestrictedSearchMaximumChamferPixels,
         MinimumEdgeCoverage = MinimumEdgeCoverage,
         MinimumOccupancyCoverage = MinimumOccupancyCoverage,
         MinimumCandidateMargin = MinimumCandidateMargin,
@@ -152,7 +190,8 @@ public sealed class MapStructureRegistrationTuning
         FastCoarseDownsampleFactor = FastCoarseDownsampleFactor,
         FastCoarseTopK = FastCoarseTopK,
         FastCoarseNmsRadius = FastCoarseNmsRadius,
-        FastCoarseMaxDimension = FastCoarseMaxDimension
+        FastCoarseMaxDimension = FastCoarseMaxDimension,
+        DisableScaleEarlyTermination = DisableScaleEarlyTermination
     };
 
     public void Normalize()
@@ -175,7 +214,20 @@ public sealed class MapStructureRegistrationTuning
             EnableVisibleAwareEarlyExit = true;
             VisibleAwareEarlyTerminationMaxCompositeCost = 0.55d;
         }
+        if (SchemaVersion < 7)
+        {
+            // The former Boolean either disabled useful disambiguation or ran
+            // the comparatively expensive anchor pass on every alignment.
+            // Existing caches remain trusted; only the runtime policy changes.
+            AuxiliaryAnchorMode =
+                MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
+        }
         SchemaVersion = CurrentSchemaVersion;
+        if (!Enum.IsDefined(AuxiliaryAnchorMode))
+        {
+            AuxiliaryAnchorMode =
+                MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
+        }
         MaximumAuxiliaryTemplates = Math.Clamp(
             MaximumAuxiliaryTemplates,
             1,
@@ -217,6 +269,8 @@ public sealed class MapStructureRegistrationTuning
             0.65d,
             0.95d);
         MaximumChamferPixels = Finite(MaximumChamferPixels, 3.2d, 0.5d, 20d);
+        RestrictedSearchMaximumChamferPixels = Finite(
+            RestrictedSearchMaximumChamferPixels, 3.0d, 0.5d, 20d);
         MinimumEdgeCoverage = Finite(MinimumEdgeCoverage, 0.40d, 0.1d, 0.98d);
         MinimumOccupancyCoverage = Finite(MinimumOccupancyCoverage, 0.42d, 0.1d, 0.98d);
         MinimumCandidateMargin = Finite(MinimumCandidateMargin, 0.04d, 0.01d, 0.8d);
@@ -289,4 +343,12 @@ public sealed class MapStructureRegistrationTuning
         double minimum,
         double maximum) =>
         double.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
+
+    public bool ShouldUseAuxiliaryAnchors(bool isAmbiguous) =>
+        AuxiliaryAnchorMode switch
+        {
+            MapAuxiliaryAnchorRecognitionMode.Always => true,
+            MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly => isAmbiguous,
+            _ => false
+        };
 }

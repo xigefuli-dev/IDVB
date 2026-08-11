@@ -5,15 +5,24 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
     private async Task<CapturedGameFrame?> CaptureStableViewportAsync(
-        string operation)
+        string operation,
+        CancellationToken cancellationToken = default,
+        IDVBuff.Survey.Contracts.SurveyCaptureTuning? surveyTuning = null)
     {
         var sessionTuning = _settings!.SessionTuning;
         var viewport = ResolveMapViewportForCurrentWindow();
-        var interval = Math.Max(20, sessionTuning.StableFrameIntervalMilliseconds);
+        var interval = Math.Max(
+            20,
+            surveyTuning?.StableFrameDelayMilliseconds
+                ?? sessionTuning.StableFrameIntervalMilliseconds);
         var requiredFrames = Math.Max(2, sessionTuning.StableFrameCount);
-        var timeout = Math.Max(
-            sessionTuning.OpeningTimeoutMilliseconds,
-            interval * (requiredFrames + 2));
+        var timeout = surveyTuning is null
+            ? Math.Max(
+                sessionTuning.OpeningTimeoutMilliseconds,
+                interval * (requiredFrames + 2))
+            : Math.Max(
+                surveyTuning.MaximumCaptureMilliseconds,
+                interval * (requiredFrames + 2));
         using var tracker = new MapViewportStabilityTracker();
         var stopwatch = Stopwatch.StartNew();
         CapturedGameFrame? lastFrame = null;
@@ -23,7 +32,9 @@ public sealed partial class SessionOrchestrator
 
         try
         {
-            while (!_disposed && stopwatch.ElapsedMilliseconds <= timeout)
+            while (!_disposed
+                && !cancellationToken.IsCancellationRequested
+                && stopwatch.ElapsedMilliseconds <= timeout)
             {
                 attempts++;
                 if (_captureSvc.TryCaptureViewport(
@@ -77,7 +88,21 @@ public sealed partial class SessionOrchestrator
 
                 if (stopwatch.ElapsedMilliseconds + interval > timeout)
                     break;
-                await Task.Delay(interval);
+                try
+                {
+                    await Task.Delay(interval, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _lastStableCaptureFailureReason =
+                    "地图对齐已超过时间预算，请保持完整地图打开后重试。";
             }
 
             _logCollector.Append(

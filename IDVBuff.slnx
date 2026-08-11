@@ -2,7 +2,21 @@
     <Project Path="IDVBuff.csproj">
         <Deploy />
     </Project>
+    <Project Path="Core\IDVBuff.Core.csproj" />
+    <Project Path="Infrastructure\IDVBuff.Infrastructure.csproj" />
+    <Project Path="Services\IDVBuff.Services.csproj" />
+    <Project Path="Pipeline\IDVBuff.Pipeline.csproj" />
     <Project Path="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
+    <Project Path="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
+    <Project Path="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
+    <Project Path="Survey\Application\IDVBuff.Survey.Application.csproj" />
+    <Project Path="Survey\Persistence\IDVBuff.Survey.Persistence.Sqlite.csproj" />
+    <Project Path="Survey\Editor\IDVBuff.Survey.Editor.WinUI.csproj" />
+    <Project Path="Survey\Preprocessing\IDVBuff.Survey.Preprocessing.OpenCv.csproj" />
+    <Project Path="Survey\Registration\IDVBuff.Survey.Registration.OpenCv.csproj" />
+    <Project Path="Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
+    <Project Path="Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
+    <Project Path="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
     <Project Path="IDVBuff.Tests\IDVBuff.Tests.csproj" />
     <Project Path="IDVBuff.MapAlignment.Probe\IDVBuff.MapAlignment.Probe.csproj" />
     <Properties Name="Visual Studio">

@@ -144,14 +144,17 @@ public sealed class RecordingOverlayWindow : IOverlayWindow
     public void SetStatusVisible(bool visible) => _events.Add($"SetStatusVisible({visible})");
     public void SetReverseAlternateDisplay(bool enabled) => _events.Add($"SetReverseAlternateDisplay({enabled})");
     public void SetAllowExtend(bool allow) => _events.Add($"SetAllowExtend({allow})");
+    public void SetMapOpacity(double opacity) => _events.Add($"SetMapOpacity({opacity:F2})");
     public void SetShowGateMarkers(bool show) => _events.Add($"SetShowGateMarkers({show})");
     public void SetShowAuxiliaryAnchors(bool show) => _events.Add($"SetShowAuxiliaryAnchors({show})");
     public void SetShowTextAnnotations(bool show) => _events.Add($"SetShowTextAnnotations({show})");
     public void SetShowBoxAnnotations(bool show) => _events.Add($"SetShowBoxAnnotations({show})");
+    public void SetShowLineAnnotations(bool show) => _events.Add($"SetShowLineAnnotations({show})");
     public void SetShowGateMarkersOnMiniMap(bool show) => _events.Add($"SetShowGateMarkersOnMiniMap({show})");
     public void SetShowAuxiliaryAnchorsOnMiniMap(bool show) => _events.Add($"SetShowAuxiliaryAnchorsOnMiniMap({show})");
     public void SetShowTextAnnotationsOnMiniMap(bool show) => _events.Add($"SetShowTextAnnotationsOnMiniMap({show})");
     public void SetShowBoxAnnotationsOnMiniMap(bool show) => _events.Add($"SetShowBoxAnnotationsOnMiniMap({show})");
+    public void SetShowLineAnnotationsOnMiniMap(bool show) => _events.Add($"SetShowLineAnnotationsOnMiniMap({show})");
     public void SetShowFloorOnMiniMap(bool show) => _events.Add($"SetShowFloorOnMiniMap({show})");
     public void SetStatusOpacity(double opacity) => _events.Add($"SetStatusOpacity({opacity:F2})");
     public void SetStatusOffsetX(double offsetX) => _events.Add($"SetStatusOffsetX({offsetX:F1})");

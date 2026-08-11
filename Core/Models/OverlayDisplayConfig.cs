@@ -22,17 +22,22 @@ public sealed class OverlayDisplayConfig
     public double MinimapScale { get; set; } = 0.25;
     public bool PersistentMinimapEnabled { get; set; } = false;
 
+    // ── 大地图 ──
+    public double MapOpacity { get; set; } = 0.46;
+
     // ── 大地图标记可见性 ──
     public bool ShowGateMarkers { get; set; } = true;
     public bool ShowAuxiliaryAnchors { get; set; } = true;
     public bool ShowTextAnnotations { get; set; } = true;
     public bool ShowBoxAnnotations { get; set; } = true;
+    public bool ShowLineAnnotations { get; set; } = true;
 
     // ── 小地图标记可见性 ──
     public bool ShowGateMarkersOnMinimap { get; set; } = true;
     public bool ShowAuxiliaryAnchorsOnMinimap { get; set; } = true;
     public bool ShowTextAnnotationsOnMinimap { get; set; } = true;
     public bool ShowBoxAnnotationsOnMinimap { get; set; } = true;
+    public bool ShowLineAnnotationsOnMinimap { get; set; } = true;
     public bool ShowFloorOnMinimap { get; set; } = false;
 
     // ── 其它显示选项 ──

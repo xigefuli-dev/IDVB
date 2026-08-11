@@ -31,8 +31,16 @@ internal sealed record MapOverlayRenderAnchor(
 internal sealed record MapOverlayRenderAnnotation(
     MapAnnotationType Type,
     int ColorIndex,
-    NormalizedRectangle Bounds,
-    string? Text = null);
+    string ColorHex,
+    NormalizedRectangle? Bounds,
+    NormalizedPoint? Start,
+    NormalizedPoint? End,
+    string? Text = null,
+    string? FontFamily = null,
+    double? FontSize = null,
+    bool? IsBold = null,
+    bool? IsItalic = null,
+    bool? IsStrikethrough = null);
 
 internal sealed record MapOverlayRenderMap(
     string ImagePath,
@@ -70,10 +78,13 @@ internal sealed record MapOverlayRenderScene(
     bool ShowAuxiliaryAnchors = true,
     bool ShowTextAnnotations = true,
     bool ShowBoxAnnotations = true,
+    bool ShowLineAnnotations = true,
     bool ShowGateMarkersOnMiniMap = true,
     bool ShowAuxiliaryAnchorsOnMiniMap = true,
     bool ShowTextAnnotationsOnMiniMap = true,
     bool ShowBoxAnnotationsOnMiniMap = true,
+    bool ShowLineAnnotationsOnMiniMap = true,
+    float MapOpacity = 0.46f,
     float StatusOpacity = 1f,
     float StatusOffsetX = 0f,
     float StatusOffsetY = 0f,
@@ -85,7 +96,6 @@ internal sealed record MapOverlayRenderScene(
 internal static partial class MapOverlayBitmapRenderer
 {
     private const float DefaultDpi = 96f;
-    private const float MapOpacity = 0.46f;
     private const float MiniMapOpacity = 0.55f;
     private const float MiniMapMargin = 12f;
 
@@ -173,15 +183,18 @@ internal static partial class MapOverlayBitmapRenderer
             if (scene.Map is not null)
                 DrawMap(graphics, scene.Map, ScaleFor(scene.Dpi), scene.AllowMapExtendBeyondBounds,
                     scene.ShowGateMarkers, scene.ShowAuxiliaryAnchors,
-                    scene.ShowTextAnnotations, scene.ShowBoxAnnotations);
+                    scene.ShowTextAnnotations, scene.ShowBoxAnnotations,
+                    scene.ShowLineAnnotations, scene.MapOpacity);
             if (scene.MiniMap is not null)
                 DrawMiniMap(graphics, scene.MiniMap, ScaleFor(scene.Dpi),
                     scene.GameScreenBounds, scene.MonitorWorkingArea,
                     scene.MiniMapOpacity, scene.MiniMapOffsetX, scene.MiniMapOffsetY,
                     scene.ShowGateMarkersOnMiniMap, scene.ShowAuxiliaryAnchorsOnMiniMap,
                     scene.ShowTextAnnotationsOnMiniMap, scene.ShowBoxAnnotationsOnMiniMap,
+                    scene.ShowLineAnnotationsOnMiniMap,
                     scene.ShowGateMarkers, scene.ShowAuxiliaryAnchors,
                     scene.ShowTextAnnotations, scene.ShowBoxAnnotations,
+                    scene.ShowLineAnnotations,
                     scene.ShowFloorOnMiniMap);
             if (scene.Player is not null)
                 DrawPlayer(
@@ -227,8 +240,10 @@ internal static partial class MapOverlayBitmapRenderer
                 scene.MiniMapOpacity, scene.MiniMapOffsetX, scene.MiniMapOffsetY,
                 scene.ShowGateMarkersOnMiniMap, scene.ShowAuxiliaryAnchorsOnMiniMap,
                 scene.ShowTextAnnotationsOnMiniMap, scene.ShowBoxAnnotationsOnMiniMap,
+                scene.ShowLineAnnotationsOnMiniMap,
                 scene.ShowGateMarkers, scene.ShowAuxiliaryAnchors,
                 scene.ShowTextAnnotations, scene.ShowBoxAnnotations,
+                scene.ShowLineAnnotations,
                 scene.ShowFloorOnMiniMap);
         if (scene.Player is not null)
         {
@@ -326,6 +341,17 @@ internal static partial class MapOverlayBitmapRenderer
         7 => Color.FromArgb(255, 255, 45, 85),
         _ => Color.FromArgb(255, 242, 242, 242)
     };
+
+    internal static Color AnnotationColor(string? colorHex, int fallbackIndex)
+    {
+        if (!MapAnnotationColor.TryNormalize(colorHex, out var normalized))
+            return AnnotationColor(fallbackIndex);
+        return Color.FromArgb(
+            255,
+            Convert.ToInt32(normalized.Substring(1, 2), 16),
+            Convert.ToInt32(normalized.Substring(3, 2), 16),
+            Convert.ToInt32(normalized.Substring(5, 2), 16));
+    }
 
     internal static Color StatusColor(MapOverlayStatusLevel level) => level switch
     {

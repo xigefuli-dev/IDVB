@@ -20,6 +20,8 @@ public sealed partial class MainPage : Page
     private static readonly TimeSpan NavigationExpansionDuration = TimeSpan.FromMilliseconds(140);
     private static readonly TimeSpan MainContentEnterDuration = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DetailFeedbackDuration = TimeSpan.FromMilliseconds(100);
+    private const double CompactNavigationWidth = 68d;
+    private static readonly Color CompactNavigationIconColor = Color.FromArgb(255, 0x5B, 0x6B, 0x7A);
 
     private readonly ModuleCatalog _catalog = ModuleRegistration.CreateCatalog();
     private readonly IReadOnlyList<NavigationNode> _navigationNodes = ModuleRegistration.CreateNavigation();
@@ -29,6 +31,10 @@ public sealed partial class MainPage : Page
     private bool _selectionIndicatorPositioned;
     private bool _navigationLayoutRefreshPending;
     private NavigationEntry? _hoveredNavigationEntry;
+    private bool _navigationIsCompact;
+    private bool _hasSavedNavigationWidth;
+    private GridLength _savedNavigationWidth;
+    private readonly Dictionary<SymbolIcon, Brush?> _navigationIconForegrounds = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationRowElements = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationExpansionGlyphElements = [];
     private readonly Dictionary<NavigationEntry, ItemsControl> _navigationChildrenElements = [];
@@ -88,6 +94,7 @@ public sealed partial class MainPage : Page
             && row.Tag is NavigationEntry entry)
         {
             _navigationRowElements[entry] = row;
+            ApplyNavigationRowLayout(row);
         }
     }
 
@@ -111,6 +118,9 @@ public sealed partial class MainPage : Page
         }
 
         _navigationExpansionGlyphElements[entry] = glyph;
+        glyph.Visibility = _navigationIsCompact
+            ? Visibility.Collapsed
+            : entry.ExpansionVisibility;
         glyph.CenterPoint = new Vector3(
             (float)glyph.ActualWidth / 2f,
             (float)glyph.ActualHeight / 2f,
@@ -143,6 +153,11 @@ public sealed partial class MainPage : Page
         }
 
         _navigationChildrenElements[entry] = children;
+        children.Visibility = _navigationIsCompact
+            ? Visibility.Collapsed
+            : entry.Node.IsExpanded
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         children.OpacityTransition = null;
         children.TranslationTransition = null;
         children.Opacity = entry.Node.IsExpanded ? 1d : 0d;
@@ -193,6 +208,14 @@ public sealed partial class MainPage : Page
         if (!_navigationChildrenElements.TryGetValue(entry, out var children))
         {
             RequestNavigationLayoutRefresh();
+            return;
+        }
+
+        if (_navigationIsCompact)
+        {
+            children.Visibility = Visibility.Collapsed;
+            children.Opacity = 0d;
+            children.Translation = new Vector3(0f, -8f, 0f);
             return;
         }
 
@@ -266,6 +289,19 @@ public sealed partial class MainPage : Page
         return null;
     }
 
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T typed)
+                yield return typed;
+            foreach (var descendant in FindDescendants<T>(child))
+                yield return descendant;
+        }
+    }
+
     private void QueueInitialNavigationIndicatorPosition(NavigationEntry? entry)
     {
         if (entry is null)
@@ -308,10 +344,125 @@ public sealed partial class MainPage : Page
     private void RequestNavigationLayoutRefresh() =>
         _navigationLayoutRefreshPending = true;
 
-    private static NavigationEntry? GetVisibleNavigationEntry(NavigationEntry? entry)
+    internal void SetNavigationCompact(bool compact)
     {
-        while (entry is not null && !IsNavigationEntryVisible(entry))
+        if (_navigationIsCompact == compact)
+            return;
+
+        HideNavigationHoverIndicator();
+
+        if (compact)
+        {
+            _savedNavigationWidth = NavigationColumn.Width;
+            _hasSavedNavigationWidth = true;
+            _navigationIsCompact = true;
+
+            foreach (var row in _navigationRowElements.Values.ToArray())
+                ApplyNavigationRowLayout(row);
+            foreach (var children in _navigationChildrenElements.Values)
+            {
+                children.Visibility = Visibility.Collapsed;
+                children.Opacity = 0d;
+                children.Translation = new Vector3(0f, -8f, 0f);
+            }
+
+            NavigationColumn.Width = new GridLength(CompactNavigationWidth);
+        }
+        else
+        {
+            _navigationIsCompact = false;
+            NavigationColumn.Width = _hasSavedNavigationWidth
+                ? _savedNavigationWidth
+                : new GridLength(250d);
+            _hasSavedNavigationWidth = false;
+
+            foreach (var row in _navigationRowElements.Values.ToArray())
+                ApplyNavigationRowLayout(row);
+            foreach (var (entry, children) in _navigationChildrenElements)
+            {
+                children.Visibility = entry.Node.IsExpanded
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                children.Opacity = entry.Node.IsExpanded ? 1d : 0d;
+                children.Translation = entry.Node.IsExpanded
+                    ? Vector3.Zero
+                    : new Vector3(0f, -8f, 0f);
+            }
+        }
+
+        RequestNavigationLayoutRefresh();
+        DispatcherQueue.TryEnqueue(() => RequestNavigationLayoutRefresh());
+    }
+
+    private void ApplyNavigationRowLayout(FrameworkElement row)
+    {
+        if (row is not Button button
+            || button.Tag is not NavigationEntry entry
+            || button.Content is not Grid contentGrid)
+        {
+            return;
+        }
+
+        var compact = _navigationIsCompact;
+        contentGrid.Width = compact ? 40d : double.NaN;
+        contentGrid.HorizontalAlignment = compact
+            ? HorizontalAlignment.Center
+            : HorizontalAlignment.Stretch;
+        contentGrid.Margin = compact
+            ? new Thickness(0)
+            : entry.Parent is null
+                ? new Thickness(12, 0, 0, 0)
+                : new Thickness(38, 0, 0, 0);
+
+        if (contentGrid.ColumnDefinitions.Count >= 3)
+        {
+            contentGrid.ColumnDefinitions[0].Width = compact
+                ? new GridLength(1, GridUnitType.Star)
+                : new GridLength(26);
+            contentGrid.ColumnDefinitions[1].Width = compact
+                ? new GridLength(0)
+                : new GridLength(1, GridUnitType.Star);
+            contentGrid.ColumnDefinitions[2].Width = compact
+                ? new GridLength(0)
+                : new GridLength(34);
+        }
+
+        foreach (var icon in FindDescendants<SymbolIcon>(contentGrid))
+        {
+            if (compact)
+            {
+                if (!_navigationIconForegrounds.ContainsKey(icon))
+                    _navigationIconForegrounds[icon] = icon.Foreground;
+                icon.Foreground = new SolidColorBrush(CompactNavigationIconColor);
+            }
+            else if (_navigationIconForegrounds.Remove(icon, out var originalForeground))
+            {
+                icon.Foreground = originalForeground;
+            }
+
+            icon.HorizontalAlignment = compact
+                ? HorizontalAlignment.Center
+                : HorizontalAlignment.Left;
+        }
+
+        foreach (var textBlock in FindDescendants<TextBlock>(contentGrid))
+        {
+            textBlock.Visibility = compact
+                ? Visibility.Collapsed
+                : textBlock.Tag is NavigationEntry taggedEntry
+                    ? taggedEntry.ExpansionVisibility
+                    : Visibility.Visible;
+        }
+    }
+
+    private NavigationEntry? GetVisibleNavigationEntry(NavigationEntry? entry)
+    {
+        while (entry is not null
+            && (!IsNavigationEntryVisible(entry)
+                || (_navigationIsCompact && entry.Parent is not null)))
+        {
             entry = entry.Parent;
+        }
         return entry;
     }
 
@@ -411,6 +562,8 @@ public sealed partial class MainPage : Page
 
     private void NavigateTo(string moduleId, NavigationEntry? navigationEntry = null)
     {
+        SetNavigationCompact(false);
+
         if (navigationEntry is not null)
         {
             _selectedNavigationEntry = navigationEntry;
@@ -427,7 +580,10 @@ public sealed partial class MainPage : Page
             ModuleContentHost.Content = view;
             animateMainContent = view is not MapListPage;
             if (view is MapListPage mapListPage)
+            {
                 mapListPage.ParentScrollViewer = MainContentHost;
+                mapListPage.NavigationCompactStateChanged = SetNavigationCompact;
+            }
         }
         catch (Exception exception)
         {

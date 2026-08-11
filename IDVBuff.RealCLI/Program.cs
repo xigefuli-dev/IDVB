@@ -14,6 +14,7 @@ using IDVBuff.Infrastructure.Configuration;
 using IDVBuff.Pipeline;
 using IDVBuff.RealCLI.Output;
 using IDVBuff.RealCLI.Stubs;
+using IDVBuff.RealCLI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using System.Diagnostics;
@@ -37,6 +38,7 @@ return command switch
 {
     "run" => await RunSingleAsync(args[1..], dispatcher),
     "batch" => await RunBatchAsync(args[1..], dispatcher),
+    "survey" => await SurveyReplayCommand.RunAsync(args[1..]),
     _ => UnknownCommand(command)
 };
 
@@ -265,6 +267,9 @@ static SessionOrchestrator BuildOrchestrator(
             sp.GetRequiredService<IConfigProvider>(),
             sp.GetRequiredService<IResolutionProfileService>(),
             sp.GetRequiredService<PipelineFactory>(),
+            sp.GetRequiredService<MapAlignmentResearchCollector>(),
+            sp.GetRequiredService<IDVBuff.Survey.Contracts.ISurveyCoordinator>(),
+            sp.GetRequiredService<IDVBuff.Survey.Contracts.SurveyCaptureTuning>(),
             headless: true));
     services.AddSingleton<ISessionOrchestrator>(sp =>
         sp.GetRequiredService<SessionOrchestrator>());

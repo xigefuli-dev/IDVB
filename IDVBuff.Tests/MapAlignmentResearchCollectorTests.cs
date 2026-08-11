@@ -38,6 +38,7 @@ public sealed class MapAlignmentResearchCollectorTests
         try
         {
             await collector.SetEnabledAsync(true);
+            Assert.True(collector.IsEnabled);
             using var frame = new Mat(
                 new Size(80, 60), MatType.CV_8UC3, Scalar.Black);
             var attemptId = Guid.NewGuid();
@@ -58,6 +59,7 @@ public sealed class MapAlignmentResearchCollectorTests
                 "1f",
                 frame);
             await collector.SetEnabledAsync(false);
+            Assert.False(collector.IsEnabled);
 
             var sessionsDir = Path.Combine(root, "sessions");
             Assert.True(Directory.Exists(sessionsDir));
@@ -83,6 +85,145 @@ public sealed class MapAlignmentResearchCollectorTests
             Assert.True(File.Exists(Path.Combine(caseDirs[0], "valid-mask.png")));
             Assert.True(File.Exists(Path.Combine(caseDirs[0], "overlay.png")));
             Assert.True(File.Exists(Path.Combine(caseDirs[0], "manifest.json")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DisableFlushesAttemptsAndReenableStartsAnotherSession()
+    {
+        var root = TemporaryRoot();
+        await using var collector = new MapAlignmentResearchCollector(
+            preprocessor: null, root);
+        try
+        {
+            await collector.SetEnabledAsync(true);
+            var firstSession = collector.CurrentSessionDirectory;
+            Assert.NotNull(firstSession);
+
+            var attemptId = Guid.NewGuid();
+            var map = CreateMap();
+            using var frame = new Mat(
+                new Size(40, 30), MatType.CV_8UC3, Scalar.Black);
+            collector.RecordAttempt(
+                new MapAlignmentResearchAttempt
+                {
+                    AttemptId = attemptId,
+                    MapId = map.Id,
+                    MapUpdatedAt = map.UpdatedAt,
+                    FloorKey = "1f",
+                    Accepted = true,
+                    Confidence = 0.8d
+                },
+                map,
+                "1f",
+                frame);
+
+            await collector.SetEnabledAsync(false);
+
+            Assert.False(collector.IsEnabled);
+            Assert.NotNull(firstSession);
+            var attemptsPath = Path.Combine(firstSession!, "attempts.jsonl");
+            Assert.Contains(
+                attemptId.ToString(),
+                await File.ReadAllTextAsync(attemptsPath),
+                StringComparison.OrdinalIgnoreCase);
+
+            await collector.SetEnabledAsync(true);
+            Assert.True(collector.IsEnabled);
+            Assert.NotEqual(firstSession, collector.CurrentSessionDirectory);
+            await collector.SetEnabledAsync(false);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AttemptFactoryPersistsSuccessfulAndFailedAttempts()
+    {
+        var root = TemporaryRoot();
+        await using var collector = new MapAlignmentResearchCollector(
+            preprocessor: null, root);
+        try
+        {
+            await collector.SetEnabledAsync(true);
+            var map = CreateMap();
+            var signature = new MapWindowSignature
+            {
+                ClientWidth = 1280,
+                ClientHeight = 720,
+                ViewportWidth = 1280,
+                ViewportHeight = 720
+            };
+            var settings = new MapRuntimeSettings();
+            var session = new MapSessionSnapshot
+            {
+                Version = 7,
+                AlignmentRevision = 9
+            };
+            var successId = Guid.NewGuid();
+            var failureId = Guid.NewGuid();
+            var success = MapAlignmentResearchAttemptFactory.Create(
+                map,
+                "1f",
+                new MapRecognitionAttempt
+                {
+                    Recognition = new RuntimeMapRecognition
+                    {
+                        Map = map,
+                        Result = new MapRecognitionResult
+                        {
+                            Floor = "1f",
+                            Confidence = 0.9d,
+                            OverlayTransform = new MapOverlayTransform
+                            {
+                                ScaleX = 1d,
+                                ScaleY = 1d,
+                                ReferenceWidth = 200,
+                                ReferenceHeight = 150
+                            }
+                        }
+                    }
+                },
+                settings,
+                session,
+                signature,
+                "initial-scan") with { AttemptId = successId };
+            var failure = MapAlignmentResearchAttemptFactory.Create(
+                map,
+                "1f",
+                new MapRecognitionAttempt
+                {
+                    FailureReason = "no candidate"
+                },
+                settings,
+                session,
+                signature,
+                "initial-scan") with { AttemptId = failureId };
+
+            using var frame = new Mat(
+                new Size(80, 60), MatType.CV_8UC3, Scalar.Black);
+            collector.RecordAttempt(success, map, "1f", frame);
+            collector.RecordAttempt(failure, map, "1f", frame);
+            await collector.SetEnabledAsync(false);
+
+            var sessionDirectory = Assert.Single(
+                Directory.GetDirectories(Path.Combine(root, "sessions")));
+            var attempts = await File.ReadAllTextAsync(
+                Path.Combine(sessionDirectory, "attempts.jsonl"));
+            Assert.Contains(successId.ToString(), attempts);
+            Assert.Contains(failureId.ToString(), attempts);
+            Assert.Equal(
+                2,
+                Directory.GetDirectories(
+                    Path.Combine(sessionDirectory, map.Id.ToString("N")[..8], "1f")).Length);
         }
         finally
         {

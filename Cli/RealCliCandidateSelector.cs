@@ -9,7 +9,7 @@ namespace IDVBuff.Cli;
 internal sealed class RealCliCandidateSelector(int? requestedPosition)
     : IMapCandidateSelector
 {
-    public Task<int?> SelectAsync(
+    public Task<MapCandidateDecision> SelectAsync(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> candidates,
         string reason,
@@ -17,7 +17,7 @@ internal sealed class RealCliCandidateSelector(int? requestedPosition)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (candidates.Count == 0)
-            return Task.FromResult<int?>(null);
+            return Task.FromResult(MapCandidateDecision.Cancel());
 
         if (requestedPosition is { } position)
         {
@@ -27,7 +27,7 @@ internal sealed class RealCliCandidateSelector(int? requestedPosition)
                     nameof(requestedPosition),
                     $"--candidate 必须在 1 到 {candidates.Count} 之间。");
             }
-            return Task.FromResult<int?>(position - 1);
+            return Task.FromResult(MapCandidateDecision.SelectKnownMap(position - 1));
         }
 
         var bestIndex = 0;
@@ -39,6 +39,6 @@ internal sealed class RealCliCandidateSelector(int? requestedPosition)
                 bestIndex = index;
             }
         }
-        return Task.FromResult<int?>(bestIndex);
+        return Task.FromResult(MapCandidateDecision.SelectKnownMap(bestIndex));
     }
 }

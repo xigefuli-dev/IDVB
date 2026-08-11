@@ -71,6 +71,7 @@ public sealed partial class MapStatusPage : UserControl
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.KeyDown += Root_KeyDown;
+        _root.KeyUp += Root_KeyUp;
         _root.PointerPressed += Root_PointerPressed;
 
         var header = new StackPanel { Spacing = 4 };
@@ -163,17 +164,25 @@ public sealed partial class MapStatusPage : UserControl
         displayPanel.Children.Add(_forceBestResultToggle);
         _forceCandidateToggle.Toggled += RecognitionTuning_Changed;
         displayPanel.Children.Add(_forceCandidateToggle);
+        _playerDecidesScaleToggle.Toggled += RecognitionTuning_Changed;
+        displayPanel.Children.Add(_playerDecidesScaleToggle);
         _alignmentMode.SelectionChanged += AlignmentMode_SelectionChanged;
         displayPanel.Children.Add(_alignmentMode);
-        _statusOpacityBox.ValueChanged += StatusOpacity_Changed;
-        displayPanel.Children.Add(_statusOpacityBox);
-        _statusOffsetXBox.ValueChanged += StatusOffsetX_Changed;
-        displayPanel.Children.Add(_statusOffsetXBox);
-        _statusOffsetYBox.ValueChanged += StatusOffsetY_Changed;
-        displayPanel.Children.Add(_statusOffsetYBox);
+        _statusOpacitySlider.ValueChanged += StatusOpacity_Changed;
+        displayPanel.Children.Add(_statusOpacitySlider);
+        displayPanel.Children.Add(_statusOpacityValue);
+        _statusOffsetXSlider.ValueChanged += StatusOffsetX_Changed;
+        displayPanel.Children.Add(_statusOffsetXSlider);
+        displayPanel.Children.Add(_statusOffsetXValue);
+        _statusOffsetYSlider.ValueChanged += StatusOffsetY_Changed;
+        displayPanel.Children.Add(_statusOffsetYSlider);
+        displayPanel.Children.Add(_statusOffsetYValue);
 
         // --- 大地图 ---
         displayPanel.Children.Add(CreateCategoryHeader("大地图"));
+        _mapOpacitySlider.ValueChanged += MapOpacity_Changed;
+        displayPanel.Children.Add(_mapOpacitySlider);
+        displayPanel.Children.Add(_mapOpacityValue);
         _showGateMarkersToggle.Toggled += ShowGateMarkers_Toggled;
         displayPanel.Children.Add(_showGateMarkersToggle);
         _showAuxiliaryAnchorsToggle.Toggled += ShowAuxiliaryAnchors_Toggled;
@@ -182,6 +191,8 @@ public sealed partial class MapStatusPage : UserControl
         displayPanel.Children.Add(_showTextAnnotationsToggle);
         _showBoxAnnotationsToggle.Toggled += ShowBoxAnnotations_Toggled;
         displayPanel.Children.Add(_showBoxAnnotationsToggle);
+        _showLineAnnotationsToggle.Toggled += ShowLineAnnotations_Toggled;
+        displayPanel.Children.Add(_showLineAnnotationsToggle);
 
         // --- 小地图 ---
         displayPanel.Children.Add(CreateCategoryHeader("小地图"));
@@ -193,16 +204,22 @@ public sealed partial class MapStatusPage : UserControl
         displayPanel.Children.Add(_showTextAnnotationsOnMiniMapToggle);
         _showBoxAnnotationsOnMiniMapToggle.Toggled += ShowBoxAnnotationsOnMiniMap_Toggled;
         displayPanel.Children.Add(_showBoxAnnotationsOnMiniMapToggle);
+        _showLineAnnotationsOnMiniMapToggle.Toggled += ShowLineAnnotationsOnMiniMap_Toggled;
+        displayPanel.Children.Add(_showLineAnnotationsOnMiniMapToggle);
         _showFloorOnMiniMapToggle.Toggled += ShowFloorOnMiniMap_Toggled;
         displayPanel.Children.Add(_showFloorOnMiniMapToggle);
-        _miniMapScaleBox.ValueChanged += MiniMapScaleBox_Changed;
-        displayPanel.Children.Add(_miniMapScaleBox);
-        _miniMapOpacityBox.ValueChanged += MiniMapOpacity_Changed;
-        displayPanel.Children.Add(_miniMapOpacityBox);
-        _miniMapOffsetXBox.ValueChanged += MiniMapOffsetX_Changed;
-        displayPanel.Children.Add(_miniMapOffsetXBox);
-        _miniMapOffsetYBox.ValueChanged += MiniMapOffsetY_Changed;
-        displayPanel.Children.Add(_miniMapOffsetYBox);
+        _miniMapScaleSlider.ValueChanged += MiniMapScale_Changed;
+        displayPanel.Children.Add(_miniMapScaleSlider);
+        displayPanel.Children.Add(_miniMapScaleValue);
+        _miniMapOpacitySlider.ValueChanged += MiniMapOpacity_Changed;
+        displayPanel.Children.Add(_miniMapOpacitySlider);
+        displayPanel.Children.Add(_miniMapOpacityValue);
+        _miniMapOffsetXSlider.ValueChanged += MiniMapOffsetX_Changed;
+        displayPanel.Children.Add(_miniMapOffsetXSlider);
+        displayPanel.Children.Add(_miniMapOffsetXValue);
+        _miniMapOffsetYSlider.ValueChanged += MiniMapOffsetY_Changed;
+        displayPanel.Children.Add(_miniMapOffsetYSlider);
+        displayPanel.Children.Add(_miniMapOffsetYValue);
 
         content.Children.Add(new Expander
         {
@@ -293,6 +310,8 @@ public sealed partial class MapStatusPage : UserControl
         };
         actions.Children.Add(openResearchButton);
         content.Children.Add(actions);
+        _surveyStatusCard.PauseRequested += SurveyStatusCard_PauseRequested;
+        content.Children.Add(_surveyStatusCard);
 
         var recognitionParametersHeader = new TextBlock
         {
@@ -556,13 +575,15 @@ public sealed partial class MapStatusPage : UserControl
         Grid.SetRow(diagnostics, 2);
         _root.Children.Add(diagnostics);
 
-        Content = new ScrollViewer
+        var scrollViewer = new ScrollViewer
         {
             Content = _root,
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
+        scrollViewer.PointerWheelChanged += BindingScrollViewer_PointerWheelChanged;
+        Content = scrollViewer;
     }
 
     private UIElement CreateBindingRow(
@@ -597,12 +618,25 @@ public sealed partial class MapStatusPage : UserControl
             Content = "设置按键",
             MinWidth = 98,
             MinHeight = 38,
-            Background = new SolidColorBrush(Color.FromArgb(255, 242, 242, 242)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 218, 218, 218)),
+            Background = new SolidColorBrush(Color.FromArgb(255, 46, 132, 225)),
+            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 30, 105, 180)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7)
         };
-        button.Click += (_, _) => BeginRecording(target);
+        button.Click += (_, _) => BindingButton_Click(target);
+        button.PointerEntered += (_, _) =>
+        {
+            _bindingButtonHovered[target] = true;
+            RefreshBindingButtonAppearance(target);
+        };
+        button.PointerExited += (_, _) =>
+        {
+            _bindingButtonHovered[target] = false;
+            RefreshBindingButtonAppearance(target);
+        };
+        _bindingButtons[target] = button;
+        _bindingButtonHovered[target] = false;
         Grid.SetColumn(button, 1);
         panel.Children.Add(button);
         return panel;
@@ -676,9 +710,38 @@ public sealed partial class MapStatusPage : UserControl
             Width = 260
         };
 
+    private static Slider CreatePercentageSlider(string header) => new()
+    {
+        Header = header,
+        Minimum = 0,
+        Maximum = 100,
+        StepFrequency = 1,
+        TickFrequency = 10,
+        IsThumbToolTipEnabled = true,
+        MinWidth = 300,
+        HorizontalAlignment = HorizontalAlignment.Left
+    };
+
+    private static Slider CreateOffsetSlider(string header) => new()
+    {
+        Header = header,
+        Minimum = -500,
+        Maximum = 500,
+        StepFrequency = 1,
+        TickFrequency = 100,
+        IsThumbToolTipEnabled = true,
+        MinWidth = 300,
+        HorizontalAlignment = HorizontalAlignment.Left
+    };
+
     private void BeginRecording(MapRuntimeBindingTarget target)
     {
+        var previousTarget = _recording;
         _recording = target;
+        _recordingModifiers = MapInputModifiers.None;
+        if (previousTarget is { } previous && previous != target)
+            RefreshBindingButtonAppearance(previous);
+        RefreshBindingButtonAppearance(target);
         _status.Text = target switch
         {
             MapRuntimeBindingTarget.GameMapToggle => "请按下游戏中用于打开/关闭地图的键盘或鼠标按键。",
@@ -692,53 +755,4 @@ public sealed partial class MapStatusPage : UserControl
         _root?.Focus(FocusState.Programmatic);
     }
 
-    private async void Root_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (_recording is null)
-            return;
-        e.Handled = true;
-        await SaveRecordedBindingAsync(new MapInputBinding
-        {
-            Kind = MapInputBindingKind.Keyboard,
-            VirtualKey = (uint)e.Key
-        });
-    }
-
-    private async void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (_recording is null)
-            return;
-        var properties = e.GetCurrentPoint(_root).Properties;
-        var button = properties.IsLeftButtonPressed
-            ? MapMouseButton.Left
-            : properties.IsRightButtonPressed
-                ? MapMouseButton.Right
-                : properties.IsMiddleButtonPressed
-                    ? MapMouseButton.Middle
-                    : properties.IsXButton1Pressed
-                        ? MapMouseButton.XButton1
-                        : MapMouseButton.XButton2;
-        e.Handled = true;
-        await SaveRecordedBindingAsync(new MapInputBinding
-        {
-            Kind = MapInputBindingKind.Mouse,
-            MouseButton = button
-        });
-    }
-
-    private async Task SaveRecordedBindingAsync(MapInputBinding binding)
-    {
-        if (_recording is not { } target)
-            return;
-        _recording = null;
-        try
-        {
-            await _runtime.SetBindingAsync(target, binding);
-        }
-        catch (Exception exception)
-        {
-            _status.Text = exception.Message;
-        }
-        Refresh();
-    }
 }

@@ -43,7 +43,8 @@ public sealed partial class MapCvRecognitionService
         MapOverlayAlignmentMode alignmentMode,
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
-        double identityPriorConfidence)
+        double identityPriorConfidence,
+        bool includeSiftFallback = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(
@@ -72,6 +73,8 @@ public sealed partial class MapCvRecognitionService
         LockedFloorFeatureFit? fit = null;
         MapScaleEstimationEvidence? scaleEvidence = null;
         var usedVpsg = false;
+        var liveFrameCacheHit = false;
+        var liveStructureExtractionMilliseconds = 0d;
         string rejectionReason;
         try
         {
@@ -81,8 +84,14 @@ public sealed partial class MapCvRecognitionService
                 reference,
                 profile.WholeImageIgnoreRegions,
                 floorKey);
-            using var preparedLive =
-                _structurePreprocessor.ProcessLiveRoiAkaze(frame.Image);
+            var preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
+                _structurePreprocessor,
+                out liveFrameCacheHit,
+                out var originalLiveStructureExtractionMilliseconds,
+                out _);
+            liveStructureExtractionMilliseconds = liveFrameCacheHit
+                ? 0d
+                : originalLiveStructureExtractionMilliseconds;
             var scaleGraph = _vpsgScaleGraphCache.GetOrCreate(
                 map,
                 floorKey,
@@ -111,17 +120,25 @@ public sealed partial class MapCvRecognitionService
                     estimate.Confidence);
                 rejectionReason = string.Empty;
             }
-            else
+            else if (includeSiftFallback)
             {
                 // VPSG does not use the previous floor as a hard scale gate.
                 // The legacy feature route remains as a compatibility fallback,
-                // also without the old +/-18% prior rejection.
+                // also without the old +/-18% prior rejection. Default off in
+                // the pipeline: it is the most expensive stage (full-image
+                // SIFT + O(n^2) clustering) and the pipeline already has a
+                // structured fallback chain (global recovery).
                 fit = TryFitLockedFloorFeature(
                     reference,
                     frame.Image,
                     double.NaN,
                     out var siftRejection);
                 rejectionReason = $"VPSG: {vpsgRejection}; SIFT: {siftRejection}";
+            }
+            else
+            {
+                fit = null;
+                rejectionReason = vpsgRejection;
             }
         }
         catch (OpenCVException exception)
@@ -147,6 +164,9 @@ public sealed partial class MapCvRecognitionService
                     ["referenceHeight"] = reference.Height,
                     ["liveWidth"] = frame.Image.Width,
                     ["liveHeight"] = frame.Image.Height,
+                    ["liveFrameCacheHit"] = liveFrameCacheHit,
+                    ["liveStructureExtractionMs"] =
+                        liveStructureExtractionMilliseconds,
                     ["rejection"] = rejectionReason
                 });
             return MapCvRecognitionDiagnostics.Failure(
@@ -179,6 +199,10 @@ public sealed partial class MapCvRecognitionService
         validation.Diagnostics.ScaleBootstrapResidualPixels = fit.Residual;
         validation.Diagnostics.ScaleBootstrapRelativeMad =
             scaleEvidence?.RelativeMedianAbsoluteDeviation ?? 0d;
+        validation.Diagnostics.LiveStructurePreprocessMilliseconds +=
+            liveStructureExtractionMilliseconds;
+        validation.Diagnostics.StructurePreprocessMilliseconds +=
+            liveStructureExtractionMilliseconds;
         MapLogCollector.Instance.Append(
             MapLogCategory.StructureRegistration,
             validation.Recognition is null
@@ -207,6 +231,9 @@ public sealed partial class MapCvRecognitionService
                 ["pairVotes"] = scaleEvidence?.PairVotes ?? 0,
                 ["relativeMad"] =
                     scaleEvidence?.RelativeMedianAbsoluteDeviation ?? 0d,
+                ["liveFrameCacheHit"] = liveFrameCacheHit,
+                ["liveStructureExtractionMs"] =
+                    liveStructureExtractionMilliseconds,
                 ["structureValidationAccepted"] =
                     validation.Recognition is not null,
                 ["structureValidationFailure"] = validation.FailureReason

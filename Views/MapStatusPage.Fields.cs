@@ -10,6 +10,11 @@ namespace IDVBuff.Views;
 
 public sealed partial class MapStatusPage : UserControl
 {
+    private sealed class SliderSaveState
+    {
+        public CancellationTokenSource? Cancellation { get; set; }
+    }
+
     private readonly SessionOrchestrator _runtime = App.Session;
     private readonly ToggleSwitch _enabledToggle = new()
     {
@@ -96,6 +101,14 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "隐藏",
         OnContent = "显示"
     };
+    private readonly ToggleSwitch _showLineAnnotationsToggle = new()
+    {
+        Header = "直线标注",
+        OffContent = "隐藏",
+        OnContent = "显示"
+    };
+    private readonly Slider _mapOpacitySlider = CreatePercentageSlider("大地图不透明度");
+    private readonly TextBlock _mapOpacityValue = CreateMutedText();
     private readonly ToggleSwitch _showGateMarkersOnMiniMapToggle = new()
     {
         Header = "大门与侧门标记",
@@ -120,19 +133,50 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "隐藏",
         OnContent = "显示"
     };
+    private readonly ToggleSwitch _showLineAnnotationsOnMiniMapToggle = new()
+    {
+        Header = "直线标注",
+        OffContent = "隐藏",
+        OnContent = "显示"
+    };
     private readonly ToggleSwitch _showFloorOnMiniMapToggle = new()
     {
         Header = "显示所在楼层",
         OffContent = "隐藏",
         OnContent = "显示"
     };
-    private readonly NumberBox _statusOpacityBox = CreatePercentageBox("状态不透明度", 0, 100);
-    private readonly NumberBox _statusOffsetXBox = CreateDecimalBox("状态 X 偏移 (px)", -500, 500, 1);
-    private readonly NumberBox _statusOffsetYBox = CreateDecimalBox("状态 Y 偏移 (px)", -500, 500, 1);
-    private readonly NumberBox _miniMapOpacityBox = CreatePercentageBox("小地图不透明度", 0, 100);
-    private readonly NumberBox _miniMapOffsetXBox = CreateDecimalBox("小地图 X 偏移 (px)", -500, 500, 1);
-    private readonly NumberBox _miniMapOffsetYBox = CreateDecimalBox("小地图 Y 偏移 (px)", -500, 500, 1);
-    private readonly NumberBox _miniMapScaleBox = CreatePercentageBox("小地图缩放", 10, 100);
+    private readonly Slider _statusOpacitySlider = CreatePercentageSlider("状态不透明度");
+    private readonly TextBlock _statusOpacityValue = CreateMutedText();
+    private readonly Slider _statusOffsetXSlider = CreateOffsetSlider("状态 X 偏移 (px)");
+    private readonly TextBlock _statusOffsetXValue = CreateMutedText();
+    private readonly Slider _statusOffsetYSlider = CreateOffsetSlider("状态 Y 偏移 (px)");
+    private readonly TextBlock _statusOffsetYValue = CreateMutedText();
+    private readonly Slider _miniMapOpacitySlider = CreatePercentageSlider("小地图不透明度");
+    private readonly TextBlock _miniMapOpacityValue = CreateMutedText();
+    private readonly Slider _miniMapOffsetXSlider = CreateOffsetSlider("小地图 X 偏移 (px)");
+    private readonly TextBlock _miniMapOffsetXValue = CreateMutedText();
+    private readonly Slider _miniMapOffsetYSlider = CreateOffsetSlider("小地图 Y 偏移 (px)");
+    private readonly TextBlock _miniMapOffsetYValue = CreateMutedText();
+    private readonly Slider _miniMapScaleSlider = new()
+    {
+        Header = "小地图缩放",
+        Minimum = 10,
+        Maximum = 100,
+        StepFrequency = 1,
+        TickFrequency = 10,
+        IsThumbToolTipEnabled = true,
+        MinWidth = 300,
+        HorizontalAlignment = HorizontalAlignment.Left
+    };
+    private readonly TextBlock _miniMapScaleValue = CreateMutedText();
+    private CancellationTokenSource? _miniMapScaleSaveCancellation;
+    private readonly SliderSaveState _statusOpacitySave = new();
+    private readonly SliderSaveState _statusOffsetXSave = new();
+    private readonly SliderSaveState _statusOffsetYSave = new();
+    private readonly SliderSaveState _mapOpacitySave = new();
+    private readonly SliderSaveState _miniMapOpacitySave = new();
+    private readonly SliderSaveState _miniMapOffsetXSave = new();
+    private readonly SliderSaveState _miniMapOffsetYSave = new();
     private readonly ComboBox _alignmentMode = new()
     {
         Header = "图层对齐模式",
@@ -326,6 +370,12 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "算法确定时自动用最高分地图",
         OnContent = "无论如何都弹出候选供玩家选择"
     };
+    private readonly ToggleSwitch _playerDecidesScaleToggle = new()
+    {
+        Header = "由玩家决定缩放值",
+        OffContent = "扫描后直接使用算法缩放",
+        OnContent = "每次扫描后弹出窗口由玩家调整"
+    };
     private readonly ToggleSwitch _skipFloorRecognitionToggle = new()
     {
         Header = "跳过楼层识别（使用手动楼层）",
@@ -354,13 +404,13 @@ public sealed partial class MapStatusPage : UserControl
     {
         Header = "使用辅助锚点识别",
         OffContent = "关闭（不搜索用户辅助锚点）",
-        OnContent = "开启（仅为结构搜索提供提示）"
+        OnContent = "开启（仅在结构候选歧义时自动消歧）"
     };
     private readonly ToggleSwitch _reusePreviousAlignmentToggle = new()
     {
         Header = "优先复用上次对齐结果",
         OffContent = "关闭（每次从全图开始搜索）",
-        OnContent = "开启（局部失败后自动回退全图）"
+        OnContent = "开启（按楼层局部跟踪，失败后单次全图恢复）"
     };
     private readonly NumberBox _previousAlignmentSearchRadius =
         CreateDecimalBox(
@@ -477,6 +527,9 @@ public sealed partial class MapStatusPage : UserControl
     };
     private Grid? _root;
     private MapRuntimeBindingTarget? _recording;
+    private MapInputModifiers _recordingModifiers;
+    private readonly Dictionary<MapRuntimeBindingTarget, Button> _bindingButtons = [];
+    private readonly Dictionary<MapRuntimeBindingTarget, bool> _bindingButtonHovered = [];
     private bool _refreshing;
     private bool _subscribedToRuntime;
     private bool _viewBuilt;

@@ -71,14 +71,17 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public void SetStatusVisible(bool visible) => _window.SetStatusVisible(visible);
     public void SetReverseAlternateDisplay(bool enabled) => _window.SetReverseAlternateDisplay(enabled);
     public void SetAllowExtend(bool allow) => _window.SetAllowExtend(allow);
+    public void SetMapOpacity(double opacity) => _window.SetMapOpacity(opacity);
     public void SetShowGateMarkers(bool show) => _window.SetShowGateMarkers(show);
     public void SetShowAuxiliaryAnchors(bool show) => _window.SetShowAuxiliaryAnchors(show);
     public void SetShowTextAnnotations(bool show) => _window.SetShowTextAnnotations(show);
     public void SetShowBoxAnnotations(bool show) => _window.SetShowBoxAnnotations(show);
+    public void SetShowLineAnnotations(bool show) => _window.SetShowLineAnnotations(show);
     public void SetShowGateMarkersOnMiniMap(bool show) => _window.SetShowGateMarkersOnMiniMap(show);
     public void SetShowAuxiliaryAnchorsOnMiniMap(bool show) => _window.SetShowAuxiliaryAnchorsOnMiniMap(show);
     public void SetShowTextAnnotationsOnMiniMap(bool show) => _window.SetShowTextAnnotationsOnMiniMap(show);
     public void SetShowBoxAnnotationsOnMiniMap(bool show) => _window.SetShowBoxAnnotationsOnMiniMap(show);
+    public void SetShowLineAnnotationsOnMiniMap(bool show) => _window.SetShowLineAnnotationsOnMiniMap(show);
     public void SetShowFloorOnMiniMap(bool show) => _window.SetShowFloorOnMiniMap(show);
     public void SetStatusOpacity(double opacity) => _window.SetStatusOpacity(opacity);
     public void SetStatusOffsetX(double offsetX) => _window.SetStatusOffsetX(offsetX);

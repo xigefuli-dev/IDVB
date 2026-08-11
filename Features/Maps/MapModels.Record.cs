@@ -17,6 +17,21 @@ public sealed class NormalizedRectangle
     public NormalizedRectangle Clone() => new() { X = X, Y = Y, Width = Width, Height = Height };
 }
 
+/// <summary>A point expressed as a fraction of the original image dimensions.</summary>
+public sealed class NormalizedPoint
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+
+    [JsonIgnore]
+    public bool IsValid => double.IsFinite(X)
+        && double.IsFinite(Y)
+        && X is >= 0d and <= 1d
+        && Y is >= 0d and <= 1d;
+
+    public NormalizedPoint Clone() => new() { X = X, Y = Y };
+}
+
 public enum MapFloor
 {
     First = 1,
@@ -180,6 +195,11 @@ public sealed class MapRecord
     public string FloorOneFileName { get; set; } = string.Empty;
     public string FloorTwoFileName { get; set; } = string.Empty;
     public MapRecognitionProfile Recognition { get; set; } = new();
+    public string Source { get; set; } = "manual";
+    public Guid? SourceProjectId { get; set; }
+    public long? SourceProjectRevision { get; set; }
+    public string? SourceVisualSha256 { get; set; }
+    public string? SourceStructureSha256 { get; set; }
 
     /// <summary>Portable title. Empty legacy values use the local sequence label.</summary>
     public string Title { get; set; } = string.Empty;
@@ -252,6 +272,11 @@ public sealed class MapRecord
             FloorOneFileName = FloorOneFileName,
             FloorTwoFileName = FloorTwoFileName,
             Recognition = Recognition.Clone(),
+            Source = Source,
+            SourceProjectId = SourceProjectId,
+            SourceProjectRevision = SourceProjectRevision,
+            SourceVisualSha256 = SourceVisualSha256,
+            SourceStructureSha256 = SourceStructureSha256,
             Title = Title,
             ContentVersion = ContentVersion,
             PortableGates = PortableGates.Select(gate => gate.Clone()).ToList(),
@@ -305,12 +330,18 @@ public sealed class MapDraft
     public Dictionary<string, string> FloorPaths { get; set; } = [];
     /// <summary>Preview paths keyed by floor. Existing maps use the selected recognition region when available.</summary>
     public Dictionary<string, string> FloorPreviewPaths { get; set; } = [];
+    public Dictionary<string, string> FloorRecognitionSourcePaths { get; set; } = [];
     /// <summary>V6: ordered floor definitions carrying key, display name, and sort order.</summary>
     public List<FloorDefinition> Floors { get; set; } = [];
     /// <summary>V6: map classification label.</summary>
     public string Class { get; set; } = "S1";
     public string Title { get; set; } = string.Empty;
     public int ContentVersion { get; set; } = 1;
+    public string Source { get; set; } = "manual";
+    public Guid? SourceProjectId { get; set; }
+    public long? SourceProjectRevision { get; set; }
+    public string? SourceVisualSha256 { get; set; }
+    public string? SourceStructureSha256 { get; set; }
     public List<MapGateDefinition> PortableGates { get; set; } = [];
     internal bool CreateAsImportedCopy { get; set; }
     public MapRecognitionProfile Recognition { get; set; } = new();

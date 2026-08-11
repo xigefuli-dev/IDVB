@@ -83,8 +83,12 @@ public sealed partial class SessionOrchestrator
 
     private void RefreshMiniMapForCurrentFloor()
     {
+        // A map may be confidently identified before a usable screen
+        // transform is available. The persistent mini-map only needs the
+        // map identity and floor image, so it must not wait for alignment.
+        var lockedRecognition = _lastRecognition ?? _pendingAlignmentIdentity;
         if (!Settings.PersistentMiniMapEnabled
-            || _lastRecognition?.Map is not { } map)
+            || lockedRecognition?.Map is not { } map)
         {
             _overlay.ClearPersistentMiniMap();
             return;
@@ -93,7 +97,7 @@ public sealed partial class SessionOrchestrator
         MapOverlayTransform? transform = null;
         string effectiveFloorKey;
 
-        if (_lastRecognition is { } recognition
+        if (lockedRecognition is { } recognition
             && recognition.Result.OverlayTransform is { } existingTransform
             && string.Equals(
                 recognition.Result.Floor,
@@ -163,8 +167,16 @@ public sealed partial class SessionOrchestrator
             .Select(a => new MapOverlayRenderAnnotation(
                 a.Type,
                 a.ColorIndex,
-                a.Bounds.Clone(),
-                a.Text))
+                a.EffectiveColorHex,
+                a.Bounds?.Clone(),
+                a.Start?.Clone(),
+                a.End?.Clone(),
+                a.Text,
+                a.FontFamily,
+                a.FontSize,
+                a.IsBold,
+                a.IsItalic,
+                a.IsStrikethrough))
             .ToArray();
         var floorLabel = MapFloorRules.GetFloorDisplayName(map, effectiveFloorKey);
         _overlay.SetPersistentMiniMapState(

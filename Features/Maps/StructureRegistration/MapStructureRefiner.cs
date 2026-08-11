@@ -77,7 +77,8 @@ internal static class MapStructureRefiner
 
     internal static bool CanSkipLocalRefinement(
         IReadOnlyList<MapStructureCandidate> ranked,
-        MapStructureRegistrationTuning tuning)
+        MapStructureRegistrationTuning tuning,
+        bool restrictedSearch = false)
     {
         if (tuning.EnableEccRefinement || ranked.Count == 0)
             return false;
@@ -94,10 +95,16 @@ internal static class MapStructureRefiner
                 1d);
         var requiredMargin = tuning.MinimumCandidateMargin
             * (best.UsedGlobalSearch ? StructureRegistrationRules.GlobalSearchMarginMultiplier : 1d);
-        return MapStructureValidator.Validate(best, margin, requiredMargin, tuning)
+        var chamferLimit = restrictedSearch
+            ? Math.Min(
+                tuning.MaximumChamferPixels,
+                tuning.RestrictedSearchMaximumChamferPixels)
+            : tuning.MaximumChamferPixels;
+        return MapStructureValidator.Validate(
+                    best, margin, requiredMargin, tuning, restrictedSearch)
                 == MapStructureRejectionReason.None
             && best.ChamferPixels
-                <= tuning.MaximumChamferPixels
+                <= chamferLimit
                     * StructureRegistrationRules.StrictChamferFactor
             && best.EdgeCoverage
                 >= tuning.MinimumEdgeCoverage

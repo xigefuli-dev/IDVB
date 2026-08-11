@@ -1,7 +1,9 @@
 using IDVBuff.Features.Maps;
 using OpenCvSharp;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace IDVBuff.Tests;
 
@@ -71,7 +73,20 @@ public sealed class IdvmPackageServiceTests
             var importedProfile = imported.ImportedMaps[0].Recognition.FirstFloor;
             Assert.True(importedProfile.FindAnchor("custom-anchor")!.IsMarked);
             Assert.Single(importedProfile.WholeImageIgnoreRegions);
-            Assert.Single(importedProfile.Annotations);
+            Assert.Equal(2, importedProfile.Annotations.Count);
+            var importedText = importedProfile.Annotations.Single(
+                annotation => annotation.Type == MapAnnotationType.Text);
+            Assert.Equal("#18A0FB", importedText.ColorHex);
+            Assert.Equal("Arial", importedText.FontFamily);
+            Assert.Equal(20d, importedText.FontSize);
+            Assert.True(importedText.IsBold);
+            Assert.True(importedText.IsItalic);
+            Assert.True(importedText.IsStrikethrough);
+            var importedLine = importedProfile.Annotations.Single(
+                annotation => annotation.Type == MapAnnotationType.Line);
+            Assert.Equal("#C040FF", importedLine.ColorHex);
+            Assert.Equal(0.85d, importedLine.Start!.X);
+            Assert.Equal(0.15d, importedLine.End!.X);
             var importedGate = imported.ImportedMaps[0].PortableGates.Single(gate => gate.Role == "mainEntrance");
             Assert.Equal(123, importedGate.DirectionDegrees);
             Assert.False(importedGate.Enabled);
@@ -134,6 +149,13 @@ public sealed class IdvmPackageServiceTests
             draft.Recognition.SecondFloor.OrientationDegrees = 90;
             draft.Recognition.SecondFloor.RecognitionRegion =
                 new NormalizedRectangle { X = 0.1, Y = 0.1, Width = 0.8, Height = 0.8 };
+            draft.Recognition.SecondFloor.Annotations.Add(new MapAnnotation
+            {
+                Type = MapAnnotationType.Line,
+                ColorHex = "#8BC34A",
+                Start = new NormalizedPoint { X = .75, Y = .1 },
+                End = new NormalizedPoint { X = .2, Y = .9 }
+            });
 
             var source = new MapRepository(Path.Combine(root, "source"));
             await source.SaveAsync(draft);
@@ -147,8 +169,88 @@ public sealed class IdvmPackageServiceTests
             Assert.Equal(["1f", "2f"], map.Floors.OrderBy(floor => floor.SortOrder).Select(floor => floor.Key));
             Assert.Equal(90, map.Recognition.GetFloor("2f")!.OrientationDegrees);
             Assert.False(map.Recognition.GetFloor("2f")!.FindAnchor("second-floor-primary")!.IsMarked);
+            var secondFloorLine = Assert.Single(map.Recognition.GetFloor("2f")!.Annotations);
+            Assert.Equal("#8BC34A", secondFloorLine.ColorHex);
+            Assert.Equal(.75, secondFloorLine.Start!.X);
+            Assert.Equal(.2, secondFloorLine.End!.X);
             Assert.True(File.Exists(target.GetFloorImagePath(map, "1f")));
             Assert.True(File.Exists(target.GetFloorImagePath(map, "2f")));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task SchemaOneAnnotationsRemainReadableAndUseLegacyRgbMapping()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "legacy.png", "S1", "旧版标注"));
+            var package = Path.Combine(root, "legacy.idvm");
+            await new IdvmPackageService(source).ExportAsync(IdvmExportScope.AllClasses, null, package);
+            RewriteAnchorsDocument(package, anchors =>
+            {
+                anchors["schemaVersion"] = 1;
+                foreach (var floor in anchors["floors"]!.AsObject())
+                {
+                    var annotations = floor.Value!["annotations"]!.AsArray();
+                    for (var index = annotations.Count - 1; index >= 0; index--)
+                    {
+                        var annotation = annotations[index]!.AsObject();
+                        if (annotation["type"]!.GetValue<string>() == "line")
+                        {
+                            annotations.RemoveAt(index);
+                            continue;
+                        }
+                        annotation.Remove("color");
+                        annotation.Remove("start");
+                        annotation.Remove("end");
+                    }
+                }
+            });
+
+            var target = new MapRepository(Path.Combine(root, "target"));
+            var service = new IdvmPackageService(target);
+            var imported = await service.ImportAsync(await service.InspectAsync(package));
+            var annotation = Assert.Single(Assert.Single(imported.ImportedMaps).Recognition.FirstFloor.Annotations);
+            Assert.Equal(MapAnnotationType.Text, annotation.Type);
+            Assert.Equal(MapAnnotationColor.FromLegacyIndex(annotation.ColorIndex), annotation.ColorHex);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SchemaTwoRejectsInvalidColorAndDegenerateLine(bool degenerateLine)
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "invalid-annotation.png", "S1", "非法标注"));
+            var package = Path.Combine(root, "invalid-annotation.idvm");
+            await new IdvmPackageService(source).ExportAsync(IdvmExportScope.AllClasses, null, package);
+            RewriteAnchorsDocument(package, anchors =>
+            {
+                var annotations = anchors["floors"]!["1f"]!["annotations"]!.AsArray();
+                var annotation = degenerateLine ? annotations[1]!.AsObject() : annotations[0]!.AsObject();
+                if (degenerateLine)
+                    annotation["end"] = annotation["start"]!.DeepClone();
+                else
+                    annotation["color"] = "rgb(1,2,3)";
+            });
+
+            var target = new MapRepository(Path.Combine(root, "target"));
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                new IdvmPackageService(target).InspectAsync(package));
         }
         finally
         {
@@ -318,8 +420,21 @@ public sealed class IdvmPackageServiceTests
         {
             Type = MapAnnotationType.Text,
             ColorIndex = 3,
+            ColorHex = "#18A0FB",
             Bounds = new NormalizedRectangle { X = 0.2, Y = 0.2, Width = 0.1, Height = 0.1 },
-            Text = "测试"
+            Text = "测试",
+            FontFamily = "Arial",
+            FontSize = 20d,
+            IsBold = true,
+            IsItalic = true,
+            IsStrikethrough = true
+        });
+        recognition.FirstFloor.Annotations.Add(new MapAnnotation
+        {
+            Type = MapAnnotationType.Line,
+            ColorHex = "#C040FF",
+            Start = new NormalizedPoint { X = 0.85, Y = 0.25 },
+            End = new NormalizedPoint { X = 0.15, Y = 0.75 }
         });
         return recognition;
     }
@@ -329,6 +444,58 @@ public sealed class IdvmPackageServiceTests
         var root = Path.Combine(Path.GetTempPath(), $"IDVBuff.IdvmTests.{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         return root;
+    }
+
+    private static void RewriteAnchorsDocument(string package, Action<JsonObject> mutate)
+    {
+        var staging = Path.Combine(Path.GetDirectoryName(package)!, $"rewrite-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(staging);
+        try
+        {
+            ZipFile.ExtractToDirectory(package, staging);
+            var anchorsPath = Directory.EnumerateFiles(staging, "anchors.json", SearchOption.AllDirectories).Single();
+            var anchors = JsonNode.Parse(File.ReadAllText(anchorsPath))!.AsObject();
+            mutate(anchors);
+            File.WriteAllText(anchorsPath, anchors.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+            var manifestPath = Path.Combine(staging, "manifest.json");
+            var manifest = JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
+            var relative = Path.GetRelativePath(staging, anchorsPath).Replace('\\', '/');
+            var manifestFile = manifest["files"]!.AsArray()
+                .Select(item => item!.AsObject())
+                .Single(item => item["path"]!.GetValue<string>() == relative);
+            var anchorsBytes = File.ReadAllBytes(anchorsPath);
+            manifestFile["size"] = anchorsBytes.LongLength;
+            manifestFile["sha256"] = Convert.ToHexString(SHA256.HashData(anchorsBytes)).ToLowerInvariant();
+            var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllBytes(manifestPath, manifestBytes);
+
+            var headerPath = Path.Combine(staging, "header");
+            var header = File.ReadAllBytes(headerPath);
+            SHA256.HashData(manifestBytes).CopyTo(header, 36);
+            File.WriteAllBytes(headerPath, header);
+
+            File.Delete(package);
+            using var stream = new FileStream(package, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
+            var ordered = new[] { headerPath, manifestPath }.Concat(
+                Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories)
+                    .Where(path => path != headerPath && path != manifestPath)
+                    .OrderBy(path => Path.GetRelativePath(staging, path), StringComparer.Ordinal));
+            foreach (var path in ordered)
+            {
+                var entryName = Path.GetRelativePath(staging, path).Replace('\\', '/');
+                var entry = archive.CreateEntry(entryName,
+                    entryName == "header" ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
+                using var input = File.OpenRead(path);
+                using var output = entry.Open();
+                input.CopyTo(output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(staging, true);
+        }
     }
 
     private static void DeleteRoot(string root)

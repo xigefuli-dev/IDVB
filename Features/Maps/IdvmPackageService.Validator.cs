@@ -129,7 +129,8 @@ public sealed partial class IdvmPackageService
         if (metadata.Map is null || metadata.Floors is null || metadata.Recognition?.WholeImage is null
             || gates.Gates is null || anchors.Floors is null)
             throw new InvalidDataException("地图数据文件缺少必需对象或数组。");
-        if (metadata.SchemaVersion != 1 || gates.SchemaVersion != 1 || anchors.SchemaVersion != 1)
+        if (metadata.SchemaVersion != 1 || gates.SchemaVersion != 1
+            || anchors.SchemaVersion is not (1 or 2 or 3))
             throw new InvalidDataException("不支持的数据 schemaVersion。");
         if (metadata.Map.Id != map.MapId || metadata.Map.ClassId != map.ClassId
             || metadata.Map.CoordinateSystem != "normalized-top-left-y-down"
@@ -151,6 +152,16 @@ public sealed partial class IdvmPackageService
             }
             ValidateRectangle(floor.RecognitionRegion, allowNull: true, "recognitionRegion");
             ValidateRectangle(floor.ValidMapBounds, allowNull: false, "validMapBounds");
+            if (!string.IsNullOrWhiteSpace(floor.RecognitionImage))
+            {
+                ValidateLogicalPath(floor.RecognitionImage);
+                if (!floor.RecognitionImage.StartsWith($"{map.Root}/data/", StringComparison.Ordinal)
+                    || !MapRepository.IsSupportedImage(floor.RecognitionImage))
+                {
+                    throw new InvalidDataException(
+                        $"Floor {floor.Key} has an invalid recognition image path.");
+                }
+            }
             var anchorFloor = anchors.Floors[floor.Key];
             foreach (var region in anchorFloor.WholeImageIgnoreRegions)
                 ValidateRectangle(region, allowNull: false, "wholeImageIgnoreRegions");
@@ -174,10 +185,9 @@ public sealed partial class IdvmPackageService
             }
             foreach (var annotation in anchorFloor.Annotations)
             {
-                if (annotation.Id == Guid.Empty || annotation.Type is not ("text" or "outline")
-                    || annotation.ColorIndex is < 0 or > 8)
+                if (!IsValidAnnotation(annotation, anchors.SchemaVersion))
                     throw new InvalidDataException($"楼层 {floor.Key} 包含无效标注。");
-                ValidateRectangle(annotation.Bounds, allowNull: false, "annotation.bounds");
+                ValidateAnnotationGeometry(annotation);
             }
         }
         if (anchors.Floors.Count != metadata.Floors.Count)
@@ -287,6 +297,69 @@ public sealed partial class IdvmPackageService
         Width = rectangle.Width,
         Height = rectangle.Height
     };
+
+    private static PointDto? ToDto(NormalizedPoint? point) => point is null ? null : new PointDto
+    {
+        X = point.X,
+        Y = point.Y
+    };
+
+    private static bool IsValidAnnotation(AnnotationDto annotation, int schemaVersion)
+    {
+        if (annotation.Id == Guid.Empty)
+            return false;
+        if (schemaVersion == 1)
+        {
+            return annotation.Type is "text" or "outline"
+                && annotation.ColorIndex is >= 0 and <= 8;
+        }
+        return annotation.Type is "text" or "outline" or "line"
+            && MapAnnotationColor.TryNormalize(annotation.Color, out _);
+    }
+
+    private static void ValidateAnnotationGeometry(AnnotationDto annotation)
+    {
+        if (annotation.Type == "text")
+            ValidateTextStyle(annotation);
+        if (annotation.Type != "line")
+        {
+            ValidateRectangle(annotation.Bounds, allowNull: false, "annotation.bounds");
+            if (annotation.Start is not null || annotation.End is not null)
+                throw new InvalidDataException("非直线标注不能包含端点。");
+            return;
+        }
+
+        ValidatePoint(annotation.Start, "annotation.start");
+        ValidatePoint(annotation.End, "annotation.end");
+        if (Math.Abs(annotation.Start!.X - annotation.End!.X) <= 0.000001d
+            && Math.Abs(annotation.Start.Y - annotation.End.Y) <= 0.000001d)
+        {
+            throw new InvalidDataException("直线标注的两个端点不能重合。");
+        }
+        ValidateRectangle(annotation.Bounds, allowNull: true, "annotation.bounds");
+    }
+
+    private static void ValidateTextStyle(AnnotationDto annotation)
+    {
+        if (annotation.FontFamily is { Length: > 256 }
+            || annotation.FontFamily?.Any(char.IsControl) is true
+            || annotation.FontSize is { } size && (!double.IsFinite(size) || size is < 1d or > 256d))
+        {
+            throw new InvalidDataException("文字标注样式无效。");
+        }
+    }
+
+    private static void ValidatePoint(PointDto? point, string name)
+    {
+        if (point is null
+            || !double.IsFinite(point.X)
+            || !double.IsFinite(point.Y)
+            || point.X is < 0d or > 1d
+            || point.Y is < 0d or > 1d)
+        {
+            throw new InvalidDataException($"{name} 包含超出 0..1 的坐标。");
+        }
+    }
 
     private static RectangleDto NormalizeBounds(MapReferenceBounds? bounds, int width, int height)
     {

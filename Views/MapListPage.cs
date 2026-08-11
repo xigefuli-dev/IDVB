@@ -1,4 +1,5 @@
 using IDVBuff.Features.Maps;
+using IDVBuff.Survey.Domain;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -35,10 +36,6 @@ public sealed partial class MapListPage : UserControl
     private static readonly Color RecognitionRegionRed = Color.FromArgb(255, 235, 55, 55);
     private static readonly Color DeleteRed = Color.FromArgb(255, 222, 45, 50);
     private static readonly Color DisabledGray = Color.FromArgb(255, 210, 210, 210);
-    // TODO: 适配深色主题 — 当前硬编码为浅色主题色调
-    private static readonly Color PageSurfaceColor = Color.FromArgb(255, 238, 238, 238);
-    private static readonly Color ButtonDefaultBackground = Color.FromArgb(255, 242, 242, 242);
-    private static readonly Color ButtonDarkForeground = Color.FromArgb(255, 43, 43, 43);
     private static readonly Color[] AnnotationColors =
     [
         Color.FromArgb(255, 255, 59, 48),   // 0: 红
@@ -59,6 +56,7 @@ public sealed partial class MapListPage : UserControl
     private readonly IdvmPackageService _idvmPackageService;
     private readonly ContentPresenter _workflowHost = new();
     internal ScrollViewer? ParentScrollViewer { get; set; }
+    internal Action<bool>? NavigationCompactStateChanged { get; set; }
     private readonly Dictionary<Guid, Border> _cardBorders = [];
     private readonly Dictionary<string, BitmapImage> _previewImages =
         new(StringComparer.OrdinalIgnoreCase);
@@ -67,6 +65,7 @@ public sealed partial class MapListPage : UserControl
     private HashSet<Guid> _selectedMapIds = [];
     private Guid? _lastClickedMapId;
     private IReadOnlyList<MapRecord> _loadedMaps = [];
+    private IReadOnlyList<SurveyProjectSummary> _surveyProjects = [];
     private IReadOnlyList<string> _classes = ["S1"];
     private string _selectedClass = "S1";
     private bool _isClassDeleteMode;
@@ -260,6 +259,9 @@ public sealed partial class MapListPage : UserControl
 
     private void MapListPage_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (HandleModernMarkerEditorKeyDown(e))
+            return;
+
         if (e.Key == Windows.System.VirtualKey.A
             && (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
                 & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0)
@@ -277,6 +279,7 @@ public sealed partial class MapListPage : UserControl
         var snapshot = await _repository.GetCatalogSnapshotAsync();
         _classes = snapshot.Classes;
         _loadedMaps = snapshot.Maps;
+        _surveyProjects = await App.Session.GetSurveyProjectsAsync();
         _previewImages.Clear();
         if (!_classes.Any(name => string.Equals(name, _selectedClass, StringComparison.OrdinalIgnoreCase)))
             _selectedClass = _classes[0];
@@ -364,6 +367,7 @@ public sealed partial class MapListPage : UserControl
 
         // Spacer BELOW the frozen operation bar (increased + root margin) to prevent clipping of maps/ScrollBar
         scrollContent.Children.Add(new Border { Height = 80 });
+        scrollContent.Children.Add(CreateSurveyProjectsSection());
 
         UIElement mapContent;
         if (maps.Count == 0)
@@ -400,7 +404,7 @@ public sealed partial class MapListPage : UserControl
 
         var mapSurface = new Border
         {
-            Background = new SolidColorBrush(PageSurfaceColor),
+            Background = FluentTheme.Brush("LayerFillColorDefaultBrush"),
             CornerRadius = new CornerRadius(14),
             MinHeight = 459,
             Child = mapContent
@@ -420,16 +424,35 @@ public sealed partial class MapListPage : UserControl
         };
         root.Children.Add(pageScroller);
 
-        // Top layer: frozen button bar (now matches page background, reduced height)
+        // Top layer: transparent frozen controls, inset 5% from both sides.
         var buttonBar = new Border
         {
-            Background = new SolidColorBrush(PageSurfaceColor),
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
             VerticalAlignment = VerticalAlignment.Top,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(0, 8, 0, 12),
             Child = actionRow
         };
-        root.Children.Add(buttonBar);
+        var buttonBarLayout = new Grid
+        {
+            VerticalAlignment = VerticalAlignment.Top,
+            Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
+        };
+        buttonBarLayout.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(5, GridUnitType.Star)
+        });
+        buttonBarLayout.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(90, GridUnitType.Star)
+        });
+        buttonBarLayout.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(5, GridUnitType.Star)
+        });
+        Grid.SetColumn(buttonBar, 1);
+        buttonBarLayout.Children.Add(buttonBar);
+        root.Children.Add(buttonBarLayout);
 
         root.Children.Add(teachingTip);
 
@@ -449,6 +472,7 @@ public sealed partial class MapListPage : UserControl
         {
             Width = 205,
             MinHeight = 45,
+            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Left
         };
         _classComboBox = picker;
@@ -513,15 +537,15 @@ public sealed partial class MapListPage : UserControl
     {
         var button = new Button
         {
-            Background = new SolidColorBrush(ButtonDefaultBackground),
-            Foreground = new SolidColorBrush(ButtonDarkForeground),
+            Background = FluentTheme.Brush("ControlFillColorDefaultBrush"),
+            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             MinWidth = 0,
             MinHeight = 0,
             Padding = new Thickness(8),
             CornerRadius = new CornerRadius(4)
         };
         var icon = new SymbolIcon(Symbol.Edit);
-        icon.Foreground = new SolidColorBrush(ButtonDarkForeground);
+        icon.Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush");
         button.Content = icon;
         AttachHoverFeedback(button);
         return button;
@@ -535,6 +559,7 @@ public sealed partial class MapListPage : UserControl
         row.Children.Add(new TextBlock
         {
             Text = className,
+            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
@@ -558,7 +583,13 @@ public sealed partial class MapListPage : UserControl
             Grid.SetColumn(remove, 1);
             row.Children.Add(remove);
         }
-        return new ComboBoxItem { Content = row, Tag = className, MinHeight = 38 };
+        return new ComboBoxItem
+        {
+            Content = row,
+            Tag = className,
+            MinHeight = 38,
+            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+        };
     }
 
     private static Button CreateClassUtilityButton(Symbol symbol, Color color) => new()
@@ -641,217 +672,4 @@ public sealed partial class MapListPage : UserControl
         }
     }
 
-    private Border CreateMapCard(MapRecord map)
-    {
-        var card = new Border
-        {
-            Margin = new Thickness(11),
-            Padding = new Thickness(11),
-            Background = new SolidColorBrush(Color.FromArgb(255, 245, 245, 245)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
-            BorderThickness = new Thickness(3),
-            CornerRadius = new CornerRadius(9)
-        };
-        _cardBorders[map.Id] = card;
-        AttachCardInteractionFeedback(card);
-
-        var content = new Grid();
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-        var previews = new Grid { Margin = new Thickness(11, 0, 11, 0), Height = 160 };
-        previews.SizeChanged += (_, _) =>
-        {
-            if (previews.ActualWidth > 0)
-                previews.Height = Math.Round(previews.ActualWidth / 1.6);
-        };
-        var orderedFloors = MapFloorRules.GetOrderedFloors(map);
-        var firstFloorKey = orderedFloors.FirstOrDefault()?.Key ?? map.Recognition.FirstFloor.FloorKey;
-        var secondFloorKey = orderedFloors.Skip(1).FirstOrDefault()?.Key ?? map.Recognition.SecondFloor.FloorKey;
-        previews.Children.Add(CreatePreviewLayer(GetMapPreviewPath(map, secondFloorKey), new Thickness(16, 0, 0, 14)));
-        previews.Children.Add(CreatePreviewLayer(GetMapPreviewPath(map, firstFloorKey), new Thickness(0, 14, 16, 0)));
-        content.Children.Add(previews);
-
-        var label = new TextBlock
-        {
-            Text = map.DisplayName,
-            FontSize = 15,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 10, 0, 0)
-        };
-        Grid.SetRow(label, 1);
-        content.Children.Add(label);
-        var readiness = new TextBlock
-        {
-            Text = BuildRecognitionSummary(map),
-            FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 104, 104, 104)),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            TextAlignment = TextAlignment.Center,
-            Margin = new Thickness(0, 4, 0, 0)
-        };
-        Grid.SetRow(readiness, 2);
-        content.Children.Add(readiness);
-        card.Child = content;
-
-        card.Tapped += (_, _) => SelectMap(map);
-        card.DoubleTapped += async (_, _) =>
-        {
-            SelectMap(map);
-            await ImportMapAsync(map);
-        };
-        return card;
-    }
-
-    private Border CreatePreviewLayer(string path, Thickness margin)
-    {
-        var border = new Border
-        {
-            Margin = margin,
-            Background = new SolidColorBrush(Color.FromArgb(255, 196, 196, 196)),
-            CornerRadius = new CornerRadius(6)
-        };
-        if (File.Exists(path))
-        {
-            var image = new Image
-            {
-                Stretch = Stretch.UniformToFill
-            };
-            image.Loaded += (_, _) => image.Source ??= GetPreviewBitmap(path);
-            border.Child = image;
-        }
-        return border;
-    }
-
-    private string GetMapPreviewPath(MapRecord map, string floorKey)
-    {
-        if (MapFloorRules.GetOrderedFloors(map).All(floor => !string.Equals(floor.Key, floorKey, StringComparison.Ordinal)))
-            return string.Empty;
-        var thumbnailPath = _repository.GetFloorThumbnailPath(map, floorKey);
-        return File.Exists(thumbnailPath)
-            ? thumbnailPath
-            : _repository.GetFloorRecognitionPath(map, floorKey);
-    }
-
-    private BitmapImage GetPreviewBitmap(string path)
-    {
-        if (_previewImages.TryGetValue(path, out var bitmap))
-            return bitmap;
-        bitmap = CreateBitmap(path, decodePixelWidth: 400);
-        _previewImages[path] = bitmap;
-        return bitmap;
-    }
-
-    private void SelectMap(MapRecord map)
-    {
-        var isCtrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
-            Windows.System.VirtualKey.Control) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-        var isShift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
-            Windows.System.VirtualKey.Shift) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-
-        if (isCtrl)
-        {
-            // Ctrl+Click: toggle selection
-            if (_selectedMapIds.Contains(map.Id))
-                _selectedMapIds.Remove(map.Id);
-            else
-                _selectedMapIds.Add(map.Id);
-            _lastClickedMapId = map.Id;
-        }
-        else if (isShift && _lastClickedMapId is { } lastId)
-        {
-            // Shift+Click: range select from last clicked to this item
-            var orderedIds = _loadedMaps.Select(m => m.Id).ToList();
-            var lastIndex = orderedIds.IndexOf(lastId);
-            var currentIndex = orderedIds.IndexOf(map.Id);
-            if (lastIndex >= 0 && currentIndex >= 0)
-            {
-                var start = Math.Min(lastIndex, currentIndex);
-                var end = Math.Max(lastIndex, currentIndex);
-                for (var i = start; i <= end; i++)
-                    _selectedMapIds.Add(orderedIds[i]);
-            }
-            // Don't update _lastClickedMapId on shift-click to allow extending range
-        }
-        else
-        {
-            // Plain click: single select
-            _selectedMapIds = [map.Id];
-            _lastClickedMapId = map.Id;
-        }
-
-        UpdateSelectedCardVisuals();
-    }
-
-    private void UpdateSelectedCardVisuals()
-    {
-        foreach (var (id, card) in _cardBorders)
-        {
-            var selected = _selectedMapIds.Contains(id);
-            card.Background = new SolidColorBrush(selected
-                ? Color.FromArgb(255, 232, 242, 255)
-                : Color.FromArgb(255, 245, 245, 245));
-            card.BorderBrush = new SolidColorBrush(selected ? AccentBlue : Color.FromArgb(0, 0, 0, 0));
-        }
-
-        if (_editButton is not null)
-            _editButton.IsEnabled = HasSelection;
-        if (_deleteButton is not null)
-            _deleteButton.IsEnabled = HasSelection;
-    }
-
-    private async Task EditMapAsync(MapRecord map)
-    {
-        try
-        {
-            var draft = await _repository.CreateDraftAsync(map.Id);
-            if (draft is null)
-            {
-                await ShowMessageAsync("地图不存在", "该地图已被删除，请刷新列表。");
-                await ShowListAsync();
-                return;
-            }
-            _activeFloorKey = "1f";
-            _activeAnchorId = null;
-            if (!IsBatchOperation)
-                ResetBatchImport();
-            _draft = draft;
-            _draft.Recognition.EnsureStandardAnchors();
-            ShowMarkerEditor();
-        }
-        catch (Exception exception)
-        {
-            await ShowMessageAsync("无法编辑地图", exception.Message);
-        }
-    }
-
-    private async Task DeleteSelectedMapAsync(MapRecord map)
-    {
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "删除地图？",
-            Content = $"将永久删除 {map.DisplayName} 及其两张图片和识别标记数据。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-            return;
-
-        try
-        {
-            await _repository.DeleteAsync(map.Id);
-            await App.Session.RefreshMapCacheAsync(map.Id);
-            _selectedMapIds.Remove(map.Id);
-            if (_lastClickedMapId == map.Id)
-                _lastClickedMapId = null;
-            await ShowListAsync();
-        }
-        catch (Exception exception)
-        {
-            await ShowMessageAsync("删除失败", exception.Message);
-        }
-    }
 }

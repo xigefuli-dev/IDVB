@@ -15,35 +15,99 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.cs" Link="Production\MapSessionModels.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Coordinates.cs" Link="Production\MapSessionModels.Coordinates.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Bounds.cs" Link="Production\MapSessionModels.Bounds.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Transform.cs" Link="Production\MapSessionModels.Transform.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Enums.cs" Link="Production\MapSessionModels.Enums.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.WindowSignature.cs" Link="Production\MapSessionModels.WindowSignature.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Calibrations.cs" Link="Production\MapSessionModels.Calibrations.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.PlayerState.cs" Link="Production\MapSessionModels.PlayerState.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Session.cs" Link="Production\MapSessionModels.Session.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Confidence.cs" Link="Production\MapSessionModels.Confidence.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Stability.cs" Link="Production\MapSessionModels.Stability.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.Rules.cs" Link="Production\MapSessionModels.Rules.cs" />
     <Compile Include="..\Features\Maps\MapGameToggleState.cs" Link="Production\MapGameToggleState.cs" />
     <Compile Include="..\Features\Maps\MapPlayerModels.cs" Link="Production\MapPlayerModels.cs" />
     <Compile Include="..\Features\Maps\MapModels.cs" Link="Production\MapModels.cs" />
+    <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
+    <Compile Include="..\Features\Maps\MapModels.Anchor.cs" Link="Production\MapModels.Anchor.cs" />
+    <Compile Include="..\Features\Maps\MapModels.Catalog.cs" Link="Production\MapModels.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionCoordinates.cs" Link="Production\MapRecognitionCoordinates.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentConfidence.cs" Link="Production\MapAlignmentConfidence.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionScript.cs" Link="Production\MapCvRecognitionScript.cs" />
+    <Compile Include="..\Features\Maps\MapRecognitionModels.cs" Link="Production\MapRecognitionModels.cs" />
+    <Compile Include="..\Features\Maps\MapAlignmentSession.cs" Link="Production\MapAlignmentSession.cs" />
+    <Compile Include="..\Features\Maps\MapGeometryFingerprint.cs" Link="Production\MapGeometryFingerprint.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayTransformSolver.cs" Link="Production\MapOverlayTransformSolver.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettings.cs" Link="Production\MapRuntimeSettings.cs" />
+    <Compile Include="..\Features\Maps\MapRuntimeSettings.Enums.cs" Link="Production\MapRuntimeSettings.Enums.cs" />
+    <Compile Include="..\Features\Maps\MapRuntimeSettings.Input.cs" Link="Production\MapRuntimeSettings.Input.cs" />
+    <Compile Include="..\Features\Maps\MapRuntimeSettings.Models.cs" Link="Production\MapRuntimeSettings.Models.cs" />
+    <Compile Include="..\Features\Maps\MapDisplayCalibrationProfiles.cs" Link="Production\MapDisplayCalibrationProfiles.cs" />
+    <Compile Include="..\Features\Maps\MapRuntimeSettings.Tuning.cs" Link="Production\MapRuntimeSettings.Tuning.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettingsRules.cs" Link="Production\MapRuntimeSettingsRules.cs" />
     <Compile Include="..\Features\Maps\GateTemplateRules.cs" Link="Production\GateTemplateRules.cs" />
+    <Compile Include="..\Features\Maps\GateConfig.cs" Link="Production\GateConfig.cs" />
+    <Compile Include="..\Features\Maps\RecognitionConfig.cs" Link="Production\RecognitionConfig.cs" />
     <Compile Include="..\Features\Maps\FloorRecognitionRules.cs" Link="Production\FloorRecognitionRules.cs" />
     <Compile Include="..\Features\Maps\PlayerTrackingRules.cs" Link="Production\PlayerTrackingRules.cs" />
     <Compile Include="..\Features\Maps\GateTemplateDetector.cs" Link="Production\GateTemplateDetector.cs" />
+    <Compile Include="..\Features\Maps\GateTemplateDetector.Types.cs" Link="Production\GateTemplateDetector.Types.cs" />
+    <Compile Include="..\Features\Maps\GateTemplateDetector.Assets.cs" Link="Production\GateTemplateDetector.Assets.cs" />
     <Compile Include="..\Features\Maps\DwrGameWindowCaptureService.cs" Link="Production\DwrGameWindowCaptureService.cs" />
     <Compile Include="..\Features\Maps\MapRepository.cs" Link="Production\MapRepository.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Assets.cs" Link="Production\MapRepository.Assets.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.FloorBindings.cs" Link="Production\MapRepository.FloorBindings.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.SideEntrance.cs" Link="Production\MapRepository.SideEntrance.cs" />
     <Compile Include="..\Features\Maps\SideEntranceFeaturePreprocessor.cs" Link="Production\SideEntranceFeaturePreprocessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.cs" Link="Production\SideEntranceScanPipeline.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorCaptureService.cs" Link="Production\FloorIndicatorCaptureService.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.cs" Link="Production\FloorIndicatorRecognizer.cs" />
+    <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.Processing.cs" Link="Production\FloorIndicatorRecognizer.Processing.cs" />
     <Compile Include="..\Features\Maps\MapFloorRecognitionModels.cs" Link="Production\MapFloorRecognitionModels.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.cs" Link="Production\MapStructureRegistrationModels.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Enums.cs" Link="Production\MapStructureRegistrationModels.Enums.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Tuning.cs" Link="Production\MapStructureRegistrationModels.Tuning.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Request.cs" Link="Production\MapStructureRegistrationModels.Request.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Result.cs" Link="Production\MapStructureRegistrationModels.Result.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Detail.cs" Link="Production\MapStructureRegistrationModels.Detail.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationConfig.cs" Link="Production\StructureRegistrationConfig.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationRules.cs" Link="Production\StructureRegistrationRules.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.cs" Link="Production\MapStructurePreprocessor.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Processing.cs" Link="Production\MapStructurePreprocessor.Processing.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Features.cs" Link="Production\MapStructurePreprocessor.Features.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.cs" Link="Production\MapStructureRegistrar.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureQueryGeometry.cs" Link="Production\MapStructureQueryGeometry.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.cs" Link="Production\MapStructureScaleSearch.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.cs" Link="Production\MapStructureCandidateCollector.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureFeatureVoting.cs" Link="Production\MapStructureFeatureVoting.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePyramidSearch.cs" Link="Production\MapStructurePyramidSearch.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureVisibleAwareSearch.cs" Link="Production\MapStructureVisibleAwareSearch.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureValidator.cs" Link="Production\MapStructureValidator.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRefiner.cs" Link="Production\MapStructureRefiner.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureDebugOutput.cs" Link="Production\MapStructureDebugOutput.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
     <Compile Include="..\Features\Maps\MapLogModels.cs" Link="Production\MapLogModels.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.cs" Link="Production\MapLogCollector.cs" />
     <Compile Include="..\Features\Maps\MapLogRepository.cs" Link="Production\MapLogRepository.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayNativeWindow.cs" Link="Production\MapOverlayNativeWindow.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.cs" Link="Production\MapOverlayNativeWindow.Rendering.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.Map.cs" Link="Production\MapOverlayNativeWindow.Rendering.Map.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.Overlays.cs" Link="Production\MapOverlayNativeWindow.Rendering.Overlays.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Input.cs" Link="Production\MapOverlayNativeWindow.Input.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayWindowStyles.cs" Link="Production\MapOverlayWindowStyles.cs" />
   </ItemGroup>
 
   <ItemGroup>

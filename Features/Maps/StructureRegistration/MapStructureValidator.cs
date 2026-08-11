@@ -8,13 +8,19 @@ internal static class MapStructureValidator
         MapStructureCandidate best,
         double margin,
         double requiredMargin,
-        MapStructureRegistrationTuning tuning)
+        MapStructureRegistrationTuning tuning,
+        bool restrictedSearch = false)
     {
         if (!best.IsWithinValidBounds)
             return MapStructureRejectionReason.OutsideValidBounds;
         if (best.PriorAgreement <= StructureRegistrationRules.MinimumPriorAgreement)
             return MapStructureRejectionReason.PlayerPriorMismatch;
-        if (best.ChamferPixels > tuning.MaximumChamferPixels
+        var chamferLimit = restrictedSearch
+            ? Math.Min(
+                tuning.MaximumChamferPixels,
+                tuning.RestrictedSearchMaximumChamferPixels)
+            : tuning.MaximumChamferPixels;
+        if (best.ChamferPixels > chamferLimit
             || best.EdgeCoverage < tuning.MinimumEdgeCoverage)
         {
             return MapStructureRejectionReason.WeakAbsoluteScore;
@@ -23,6 +29,13 @@ internal static class MapStructureValidator
             return MapStructureRejectionReason.AmbiguousCandidates;
         return MapStructureRejectionReason.None;
     }
+
+    internal static MapStructureRejectionReason ValidateFastConfidence(
+        MapStructureConfidenceBreakdown confidence,
+        double minimumGeometricLockConfidence) =>
+        confidence.GeometricLockConfidence >= minimumGeometricLockConfidence
+            ? MapStructureRejectionReason.None
+            : MapStructureRejectionReason.WeakAbsoluteScore;
 
     /// <summary>
     /// Phase 5: 提前终止安全检查。条件比 <see cref="MapStructureRefiner.CanSkipLocalRefinement"/>

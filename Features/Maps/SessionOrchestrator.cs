@@ -6,6 +6,7 @@ using IDVBuff.Pipeline;
 using Microsoft.UI.Dispatching;
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Survey.Contracts;
 
 namespace IDVBuff.Features.Maps;
 
@@ -25,6 +26,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private readonly IConfigProvider _config;
     private readonly IResolutionProfileService _profileService;
     private readonly PipelineFactory _pipelineFactory;
+    private readonly ISurveyCoordinator _surveyCoordinator;
+    private readonly SurveyCaptureTuning _surveyCaptureTuning;
 
     // Internal concrete services
     private readonly MapRepository _mapRepository;
@@ -93,6 +96,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         IConfigProvider config,
         IResolutionProfileService profileService,
         PipelineFactory pipelineFactory,
+        MapAlignmentResearchCollector researchCollector,
+        ISurveyCoordinator surveyCoordinator,
+        SurveyCaptureTuning? surveyCaptureTuning = null,
         bool headless = false)
     {
         _dispatcher = dispatcher;
@@ -109,6 +115,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _config = config;
         _profileService = profileService;
         _pipelineFactory = pipelineFactory;
+        _surveyCoordinator = surveyCoordinator;
+        _surveyCaptureTuning = surveyCaptureTuning ?? new SurveyCaptureTuning();
+        _surveyCaptureTuning.Validate();
+        _surveyCoordinator.StatusChanged += SurveyCoordinator_StatusChanged;
         _headless = headless;
 
         // Create internal concrete services
@@ -116,7 +126,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _rtSettingsRepo = new MapRuntimeSettingsRepository();
         _recognition = new MapCvRecognitionService(_mapRepository);
         _playerMarkerDetector = new MapPlayerMarkerDetector();
-        _researchCollector = new MapAlignmentResearchCollector();
+        _researchCollector = researchCollector;
         _logCollector = new MapLogCollector();
         // Recognition helpers use the process-wide collector for structured
         // diagnostics.  RealCLI creates one orchestrator per input image, so
@@ -137,7 +147,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 GetMapClassesAsync,
                 () => _settings?.AllowAutomaticMapCache is true,
                 saveAutomaticMapCache =>
-                    EndMatchAsync(saveAutomaticMapCache));
+                    EndMatchAsync(saveAutomaticMapCache),
+                () => _surveyCoordinator.Status);
         }
 
         // 全局输入事件仅在 GUI 模式订阅（headless CLI 无输入设备）
@@ -172,6 +183,24 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             var settingsObj = await _settingsRepo.LoadAsync();
             _settings = settingsObj is MapRuntimeSettings s ? s : new MapRuntimeSettings();
             _logCollector.IsEnabled = _settings.CollectLogs;
+            try
+            {
+                await _researchCollector.SetEnabledAsync(
+                    _settings.CollectAlignmentResearchData);
+            }
+            catch (Exception exception)
+            {
+                _logCollector.Append(
+                    MapLogCategory.System,
+                    MapLogLevel.Warning,
+                    "研究数据采集器初始化失败，保留已保存设置并继续启动。",
+                    details: new()
+                    {
+                        ["enabled"] = _settings.CollectAlignmentResearchData,
+                        ["exceptionType"] = exception.GetType().FullName,
+                        ["exception"] = exception.ToString()
+                    });
+            }
 
             // 从 TOML 预设合并分辨率专属默认值（仅当用户未自定义时生效）
             // 不同分辨率预设提供不同的 VectorErrorTolerance / AmbiguityMargin 等默认值
@@ -184,6 +213,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 
             await _recognition.RefreshCacheAsync();
             await _mapFeatureCacheRepository.InitializeAsync();
+            await _surveyCoordinator.InitializeAsync(_lifetimeCts.Token);
 
             _logCollector.Append(
                 MapLogCategory.System,
@@ -253,6 +283,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public string StatusMessage => _statusMessage;
     public MapLogCollector LogCollector => _logCollector;
     public MapAlignmentResearchCollector ResearchCollector => _researchCollector;
+    public ISurveyCoordinator SurveyCoordinator => _surveyCoordinator;
     public MapMatchSnapshot MatchSnapshot => _matchSession.Snapshot;
     public MapSessionSnapshot SessionSnapshot => _mapOpenSession.Snapshot;
     public RuntimeMapRecognition? LastRecognition => _lastRecognition;
@@ -326,17 +357,23 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             // running may finish native work, but can no longer commit state.
             _matchSession.End();
             CancelMatchOperations();
-            _statusMessage = saveAutomaticMapCache
-                ? "正在结束对局并保存地图缓存……"
-                : "正在结束对局并丢弃本局地图缓存样本……";
+            var isSurvey = endingMatch.Mode == MapRunMode.Survey;
+            _statusMessage = isSurvey
+                ? "正在结束测绘对局并保存测绘项目……"
+                : saveAutomaticMapCache
+                    ? "正在结束对局并保存地图缓存……"
+                    : "正在结束对局并丢弃本局地图缓存样本……";
             StateChanged?.Invoke(this, EventArgs.Empty);
 
             await DrainMatchOperationsAsync();
             await DrainMapCacheWritesAsync();
-            if (saveAutomaticMapCache)
+            if (!isSurvey && saveAutomaticMapCache)
                 await FlushAutomaticMapCacheAsync();
             else
-                DiscardAutomaticMapCacheSamples("用户选择不保存或退出路径无法确认");
+                DiscardAutomaticMapCacheSamples(isSurvey
+                    ? "测绘对局不使用普通地图缓存样本"
+                    : "用户选择不保存或退出路径无法确认");
+            await EndSurveyMatchAsync(endingMatch);
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
 
             _statusMessage = "对局已结束。";
@@ -344,7 +381,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 MapLogCategory.Session,
                 MapLogLevel.Info,
                 $"退出对局完成 · version={endingMatch.Version} · "
-                + (saveAutomaticMapCache
+                + (isSurvey
+                    ? "测绘项目已保存，普通地图缓存样本已静默丢弃"
+                    : saveAutomaticMapCache
                     ? "本局任务已排空，自动地图缓存已完成确认落盘阶段"
                     : "本局任务已排空，自动地图缓存样本未保存"));
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -429,553 +468,4 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         }
     }
 
-    private async Task<IReadOnlyList<string>> GetMapClassesAsync()
-    {
-        var snapshot = await _mapRepo.GetCatalogSnapshotAsync();
-        return snapshot is MapCatalogSnapshot cs ? cs.Classes : Array.Empty<string>();
-    }
-
-    // ════════════════ Public Methods ════════════════
-
-    public async Task RefreshMapCacheAsync(Guid? changedMapId = null)
-    {
-        await _recognition.RefreshCacheAsync(changedMapId);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    public Task RunQuickScanAsync() => RunQuickScanAsync(candidateSelector: null);
-
-    public async Task RunQuickScanAsync(
-        IMapCandidateSelector? candidateSelector)
-    {
-        _lastCandidateChoices = [];
-        if (_disposed)
-            return;
-        _lastScanPhaseTimings = null;
-        if (!_initialized || _settings is null)
-        {
-            ReportCliGuardFailure("地图运行时尚未初始化。", MapLogCategory.Session);
-            return;
-        }
-        if (!_settings.IsEnabled)
-        {
-            ReportCliGuardFailure("地图识别功能已禁用。", MapLogCategory.Session);
-            return;
-        }
-        if (!_matchSession.Snapshot.IsStarted)
-        {
-            _statusMessage = "请先在对局控件中点击“进入对局”，再执行扫描。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-        var operationMatch = _matchSession.Snapshot;
-        if (!_captureSvc.TryGetForegroundClientBounds(
-                out _, out _, out var failureReason))
-        {
-            ReportCliCaptureFailure(failureReason);
-            return;
-        }
-
-        _activeCandidateSelector = candidateSelector;
-        _statusMessage = "快速扫描中……";
-        StateChanged?.Invoke(this, EventArgs.Empty);
-
-        Interlocked.Increment(ref _activeScanOperations);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-        var restoreOverlay = _overlay.IsVisible;
-        if (restoreOverlay)
-            _overlay.Hide();
-        try
-        {
-            await RunRecognitionPipelineAsync();
-        }
-        finally
-        {
-            if (restoreOverlay
-                && IsCurrentMatchOperation(operationMatch)
-                && !_overlay.IsVisible)
-                _overlay.Show();
-            _activeCandidateSelector = null;
-            Interlocked.Decrement(ref _activeScanOperations);
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
-    }
-
-    /// <summary>
-    /// Runs the existing map-open alignment entry point against the locked
-    /// recognition result.  It never invokes the scan/identification pipeline.
-    /// </summary>
-    public async Task RunAlignmentAsync()
-    {
-        if (_disposed)
-            return;
-        _lastAlignmentPhaseTimings = null;
-        if (!_initialized || _settings is null)
-        {
-            ReportCliGuardFailure("地图运行时尚未初始化。", MapLogCategory.Session);
-            return;
-        }
-        if (!_settings.IsEnabled)
-        {
-            ReportCliGuardFailure("地图识别功能已禁用。", MapLogCategory.Session);
-            return;
-        }
-
-        if (!_matchSession.Snapshot.IsStarted)
-        {
-            _statusMessage = "请先在对局控件中点击“进入对局”，再执行对齐。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        if (_lastRecognition is null && _pendingAlignmentIdentity is null)
-        {
-            _statusMessage = "尚未锁定地图，请先按快捷扫描键确认地图。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        if (!_gameMapToggleState.IsOpen)
-        {
-            _statusMessage = "游戏地图未打开，请先打开游戏地图后再执行对齐。";
-            _logCollector.Append(
-                MapLogCategory.Session,
-                MapLogLevel.Warning,
-                _statusMessage);
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        if (!_captureSvc.TryGetForegroundClientBounds(
-                out _, out _, out var failureReason))
-        {
-            ReportCliCaptureFailure(failureReason);
-            return;
-        }
-
-        var transition = new MapGameToggleTransition(
-            IsOpen: true,
-            Version: _gameMapToggleState.Version);
-        Interlocked.Increment(ref _activeScanOperations);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-        try
-        {
-            await RunMapOpenAlignmentAsync(transition);
-        }
-        finally
-        {
-            Interlocked.Decrement(ref _activeScanOperations);
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
-    }
-
-    /// <summary>Synchronizes the external game's map state without running a scan.</summary>
-    public void SynchronizeExternalGameMapState(bool isOpen)
-    {
-        if (_gameMapToggleState.IsOpen == isOpen)
-            return;
-        _gameMapToggleState.SetOpenForExternalController(isOpen);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    public void ReportCliCaptureFailure(string failureReason)
-    {
-        _statusMessage = string.IsNullOrWhiteSpace(failureReason)
-            ? "地图截图失败。"
-            : failureReason;
-        _logCollector.Append(
-            MapLogCategory.ViewportCapture,
-            MapLogLevel.Warning,
-            _statusMessage);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    public bool TryValidateCliCaptureTarget()
-    {
-        if (_captureSvc.TryGetForegroundClientBounds(
-                out _, out _, out var failureReason))
-            return true;
-
-        ReportCliCaptureFailure(failureReason);
-        return false;
-    }
-
-    private void ReportCliGuardFailure(string message, MapLogCategory category)
-    {
-        _statusMessage = message;
-        _logCollector.Append(category, MapLogLevel.Warning, message);
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private static IReadOnlyDictionary<string, double> BuildAlignmentPhaseTimings(
-        MapScanDiagnostics? diagnostics,
-        double wallClockMilliseconds)
-    {
-        if (diagnostics is null)
-            return new Dictionary<string, double>
-            {
-                ["wall_clock"] = wallClockMilliseconds
-            };
-
-        return new Dictionary<string, double>
-        {
-            ["input_to_alignment_start"] = diagnostics.InputToAlignmentStartMilliseconds,
-            ["opening_animation_wait"] = diagnostics.OpeningAnimationWaitMilliseconds,
-            ["stable_viewport_wait"] = diagnostics.StableViewportWaitMilliseconds,
-            ["stable_viewport_capture"] = diagnostics.StableViewportCaptureMilliseconds,
-            ["alignment_capture"] = diagnostics.AlignmentCaptureMilliseconds,
-            ["alignment_dispatch"] = diagnostics.AlignmentDispatchMilliseconds,
-            ["reference_image_load"] = diagnostics.ReferenceImageLoadMilliseconds,
-            ["reference_cache"] = diagnostics.ReferenceCacheMilliseconds,
-            ["gate_detection"] = diagnostics.GateDetectionMilliseconds,
-            ["live_structure_preprocess"] = diagnostics.LiveStructurePreprocessMilliseconds,
-            ["structure_preprocess"] = diagnostics.StructurePreprocessMilliseconds,
-            ["structure_search"] = diagnostics.StructureSearchMilliseconds,
-            ["structure_refine"] = diagnostics.StructureRefineMilliseconds,
-            ["session_commit"] = diagnostics.SessionCommitMilliseconds,
-            ["overlay"] = diagnostics.OverlayMilliseconds,
-            ["alignment_pipeline"] = diagnostics.AlignmentPipelineMilliseconds,
-            ["algorithm_total"] = diagnostics.TotalMilliseconds,
-            ["wall_clock"] = wallClockMilliseconds
-        };
-    }
-
-    public async Task RunManualRecognitionAsync()
-    {
-        if (_disposed || !_settings!.IsEnabled)
-            return;
-        var operationMatch = _matchSession.Snapshot;
-        if (!operationMatch.IsStarted || IsMatchEnding)
-            return;
-        var cancellationToken = CurrentMatchCancellationToken;
-        if (!_captureSvc.TryGetForegroundClientBounds(out _, out _, out _))
-            return;
-
-        if (!await _scanGate.WaitAsync(0))
-        {
-            _statusMessage = "已有扫描正在进行，请稍候。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        try
-        {
-            await RunManualRecognitionCoreAsync(
-                operationMatch,
-                cancellationToken);
-        }
-        catch (OperationCanceledException) when (
-            cancellationToken.IsCancellationRequested)
-        {
-            _logCollector.Append(
-                MapLogCategory.Session,
-                MapLogLevel.Info,
-                $"手动识别已取消 · matchVersion={operationMatch.Version}");
-        }
-        finally
-        {
-            _scanGate.Release();
-        }
-    }
-
-    /// <summary>
-    /// 手动识别：冻结游戏画面 → 弹窗框选大门/侧门 → 手动几何排名 →
-    /// 若有歧义弹候选窗口供玩家选择 → 应用结果到 Overlay。
-    /// 该链路恢复自旧 MapRuntimeService.ManualRecognition.cs 的完整交互。
-    /// </summary>
-    private async Task RunManualRecognitionCoreAsync(
-        MapMatchSnapshot operationMatch,
-        CancellationToken cancellationToken)
-    {
-        // 冻结画面：捕获整个客户区，让玩家在拖框窗口内框选双门
-        if (!_captureSvc.TryCaptureClient(out var frameObj, out _)
-            || frameObj is not CapturedGameFrame frame)
-        {
-            _statusMessage = "手动识别截图失败，请保持游戏在前台并打开地图。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        using (frame)
-        {
-            var viewportBounds = DwrGameWindowCaptureService.GetViewportBounds(
-                frame.ClientBounds,
-                _settings!.ResolveMapViewportRegion(
-                    (int)Math.Round(frame.ClientBounds.Width),
-                    (int)Math.Round(frame.ClientBounds.Height))
-                    ?? new NormalizedRectangle { X = 0, Y = 0, Width = 1, Height = 1 });
-            if (!viewportBounds.IsValid)
-            {
-                _statusMessage = "已校准的地图区域无效，请重新校准。";
-                StateChanged?.Invoke(this, EventArgs.Empty);
-                return;
-            }
-
-            _statusMessage = "手动识别中……请框选大门和侧门。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-
-            ManualGateSelectionResult? selection;
-            _manualSelectionActive = true;
-            try
-            {
-                selection = await MapManualRecognitionWindow.ShowAsync(
-                    frame,
-                    viewportBounds,
-                    cancellationToken);
-            }
-            finally
-            {
-                _manualSelectionActive = false;
-            }
-
-            if (selection is null)
-            {
-                _statusMessage = "已取消手动识别。";
-                StateChanged?.Invoke(this, EventArgs.Empty);
-                return;
-            }
-
-            var attempt = await Task.Run(
-                () => _recognition.RecognizeManual(
-                    viewportBounds,
-                    selection.MainGateBounds,
-                    selection.SideGateBounds,
-                    _settings.OverlayAlignmentMode,
-                    _settings.RecognitionTuning.Clone(),
-                    mapClass: operationMatch.MapClass));
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentMatchOperation(operationMatch))
-                return;
-
-            _lastDiagnostics = attempt.Diagnostics;
-
-            RuntimeMapRecognition? recognition = attempt.Recognition;
-            if (recognition is null && attempt.Choices.Count > 0)
-            {
-                var selectedIndex = await MapManualCandidateWindow.ShowAsync(
-                    frame,
-                    attempt.Choices,
-                    attempt.FailureReason,
-                    cancellationToken);
-                if (selectedIndex is null)
-                {
-                    _statusMessage = "已取消候选确认。";
-                    StateChanged?.Invoke(this, EventArgs.Empty);
-                    return;
-                }
-                recognition = MapCvRecognitionService.ConfirmChoice(
-                    attempt.Choices[selectedIndex.Value]);
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentMatchOperation(operationMatch))
-                return;
-
-            if (recognition is null)
-            {
-                _statusMessage = $"手动识别失败：{attempt.FailureReason}";
-                StateChanged?.Invoke(this, EventArgs.Empty);
-                return;
-            }
-
-            RecordSuccessfulAlignment(recognition, frame);
-            await PersistPreprocessedScaleAsync(
-                recognition,
-                frame,
-                attempt.Diagnostics);
-            _lastRecognition = recognition;
-            _lastAlignmentSession = UpdateAlignmentSession(
-                _lastAlignmentSession,
-                recognition);
-            RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
-            _lastGameBounds = frame.ClientBounds;
-            _lastGameWindowHandle = frame.WindowHandle;
-            _statusMessage =
-                $"手动识别：{recognition.Map.DisplayName} · {recognition.Result.Floor.ToUpperInvariant()}";
-            _logCollector.Append(
-                MapLogCategory.Session,
-                MapLogLevel.Info,
-                $"手动识别完成 · map={recognition.Map.Id} · floor={recognition.Result.Floor}",
-                details: new()
-                {
-                    ["mapId"] = recognition.Map.Id,
-                    ["floor"] = recognition.Result.Floor,
-                    ["confidence"] = recognition.Result.Confidence
-                });
-            _overlay.UpdateMap(
-                recognition,
-                frame.ClientBounds,
-                frame.WindowHandle,
-                _settings.ShowOverlayStatus);
-            ShowTransientAlignmentSuccess(
-                recognition,
-                frame.ClientBounds,
-                frame.WindowHandle,
-                attempt.Diagnostics);
-            _overlay.Show();
-            RefreshMiniMapForCurrentFloor();
-            StateChanged?.Invoke(this, EventArgs.Empty);
-        }
-    }
-    public void ToggleOverlay()
-    {
-        if (_disposed || _settings is null || !_settings.IsEnabled)
-            return;
-
-        if (_overlay.HasMap || _overlay.IsVisible)
-        {
-            _overlay.Toggle();
-            _logCollector.Append(
-                MapLogCategory.Overlay,
-                MapLogLevel.Info,
-                $"Overlay 已切换 · visible={_overlay.IsVisible} · hasMap={_overlay.HasMap}");
-            return;
-        }
-
-        if (!_captureSvc.TryGetForegroundClientBounds(
-                out var clientBoundsObj,
-                out var windowHandle,
-                out var failureReason)
-            || clientBoundsObj is not MapScreenRect gameBounds)
-        {
-            _statusMessage = $"Overlay 无法显示：{failureReason}";
-            _logCollector.Append(
-                MapLogCategory.Overlay,
-                MapLogLevel.Warning,
-                _statusMessage);
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        const string title = "Overlay 已响应 F5";
-        const string message = "当前尚未加载地图。请打开游戏地图后再按地图键，或等待识别完成。";
-        _overlayStatus.Show(
-            new MapOverlayStatus(
-                MapOverlayStatusLevel.Warning,
-                title,
-                message,
-                $"窗口句柄 0x{windowHandle.ToInt64():X}"),
-            gameBounds,
-            windowHandle,
-            showStatusPreference: true,
-            transient: true);
-        _overlay.Show();
-        _logCollector.Append(
-            MapLogCategory.Overlay,
-            MapLogLevel.Info,
-            $"F5 已响应，但当前没有地图内容 · visible={_overlay.IsVisible}",
-            details: new()
-            {
-                ["hasMap"] = _overlay.HasMap,
-                ["windowHandle"] = $"0x{windowHandle.ToInt64():X}",
-                ["bounds"] = $"{gameBounds.X:F0},{gameBounds.Y:F0},{gameBounds.Width:F0}x{gameBounds.Height:F0}"
-            });
-    }
-
-    public void ToggleControlPanel()
-    {
-        if (_disposed || !_settings!.IsEnabled || _controlPanel is null) return;
-        if (_controlPanel.IsVisible)
-        {
-            _controlPanel.Hide();
-            _statusMessage = "外置控件层已隐藏。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-        if (_manualSelectionActive) return;
-        _ = ToggleControlPanelAsync();
-    }
-
-    private async Task ToggleControlPanelAsync()
-    {
-        if (_controlPanel is null) return;
-        try
-        {
-            if (!_captureSvc.TryGetForegroundClientBounds(
-                out var clientBoundsObj, out var hwnd, out _))
-                return;
-            if (clientBoundsObj is not MapScreenRect gameBounds)
-                return;
-            await _controlPanel.ShowAsync(gameBounds, hwnd, _matchSession.Snapshot);
-        }
-        catch { /* 控制面板显示失败不阻塞 */ }
-    }
-
-    public bool TryCaptureCalibrationFrame(
-        out CapturedGameFrame? frame, out string failureReason)
-    {
-        if (_captureSvc.TryCaptureClient(out var frameObj, out failureReason))
-        {
-            frame = frameObj as CapturedGameFrame;
-            return frame != null;
-        }
-        frame = null;
-        return false;
-    }
-
-    public bool TryRestartElevated(out string failureReason) =>
-        GameProcessIntegrityService.TryRestartElevated(out failureReason);
-
-    private void NotifyStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
-
-    private void CheckIntegrityAndNotify()
-    {
-        IntegrityStatus = GameProcessIntegrityService.Check();
-        if (IntegrityStatus.RequiresElevation && !_elevationEventRaised)
-        {
-            _elevationEventRaised = true;
-            ElevationRequiredDetected?.Invoke(this, EventArgs.Empty);
-        }
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    // ════════════════ Dispose ════════════════
-
-    public void Dispose() { _ = DisposeAsync(); }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        await _matchLifecycleGate.WaitAsync();
-        try
-        {
-            // Stop producing new match-scoped work before draining anything
-            // already queued. Keep the lifecycle gate alive after disposal so
-            // a cache hotkey callback queued just before ClearBindings can
-            // acquire it, observe the ended match, and return safely.
-            _input.ClearBindings();
-            Volatile.Write(ref _matchEnding, 1);
-            if (_matchSession.Snapshot.IsStarted)
-                _matchSession.End();
-            _lifetimeCts.Cancel();
-            CancelMatchOperations();
-            await DrainMatchOperationsAsync();
-            await DrainMapCacheWritesAsync();
-            ResetMatchTransientState(resetAutomaticCacheSamples: true);
-        }
-        finally
-        {
-            _matchLifecycleGate.Release();
-        }
-        _input.Dispose();
-        _overlayStatus.Dispose();
-        _overlay.Dispose();
-        _gateDetector.Dispose();
-        _floorRecognizer.Dispose();
-        _playerMarkerSvc.Dispose();
-        _recognition.Dispose();
-        _playerMarkerDetector.Dispose();
-        _controlPanel?.Dispose();
-        await _researchCollector.DisposeAsync();
-        await _logCollector.DisposeAsync();
-        _initializeGate.Dispose();
-        _scanGate.Dispose();
-        _matchCancellation?.Dispose();
-        _mapCacheWriteGate.Dispose();
-        _lifetimeCts.Dispose();
-        MapLogCollector.Instance = null!;
-        StateChanged = null;
-        ElevationRequiredDetected = null;
-    }
 }

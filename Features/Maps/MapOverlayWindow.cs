@@ -29,11 +29,14 @@ public sealed class MapOverlayWindow : IDisposable
     private bool _showAuxiliaryAnchors = true;
     private bool _showTextAnnotations = true;
     private bool _showBoxAnnotations = true;
+    private bool _showLineAnnotations = true;
     private bool _showGateMarkersOnMiniMap = true;
     private bool _showAuxiliaryAnchorsOnMiniMap = true;
     private bool _showTextAnnotationsOnMiniMap = true;
     private bool _showBoxAnnotationsOnMiniMap = true;
+    private bool _showLineAnnotationsOnMiniMap = true;
     private bool _showFloorOnMiniMap;
+    private float _mapOpacity = 0.46f;
     private float _statusOpacity = 1f;
     private float _statusOffsetX;
     private float _statusOffsetY;
@@ -144,8 +147,16 @@ public sealed class MapOverlayWindow : IDisposable
             .Select(a => new MapOverlayRenderAnnotation(
                 a.Type,
                 a.ColorIndex,
-                a.Bounds.Clone(),
-                a.Text))
+                a.EffectiveColorHex,
+                a.Bounds?.Clone(),
+                a.Start?.Clone(),
+                a.End?.Clone(),
+                a.Text,
+                a.FontFamily,
+                a.FontSize,
+                a.IsBold,
+                a.IsItalic,
+                a.IsStrikethrough))
             .ToArray();
         _map = new MapOverlayRenderMap(
             recognition.FloorImagePath,
@@ -335,10 +346,13 @@ public sealed class MapOverlayWindow : IDisposable
             ShowAuxiliaryAnchors: _showAuxiliaryAnchors,
             ShowTextAnnotations: _showTextAnnotations,
             ShowBoxAnnotations: _showBoxAnnotations,
+            ShowLineAnnotations: _showLineAnnotations,
             ShowGateMarkersOnMiniMap: _showGateMarkersOnMiniMap,
             ShowAuxiliaryAnchorsOnMiniMap: _showAuxiliaryAnchorsOnMiniMap,
             ShowTextAnnotationsOnMiniMap: _showTextAnnotationsOnMiniMap,
             ShowBoxAnnotationsOnMiniMap: _showBoxAnnotationsOnMiniMap,
+            ShowLineAnnotationsOnMiniMap: _showLineAnnotationsOnMiniMap,
+            MapOpacity: _mapOpacity,
             StatusOpacity: _statusOpacity,
             StatusOffsetX: _statusOffsetX,
             StatusOffsetY: _statusOffsetY,
@@ -422,6 +436,14 @@ public sealed class MapOverlayWindow : IDisposable
             Present();
     }
 
+    public void SetMapOpacity(double opacity)
+    {
+        _mapOpacity = (float)opacity;
+        InvalidateLockedBackground();
+        if (IsVisible)
+            Present();
+    }
+
     public void SetShowGateMarkers(bool show)
     {
         _showGateMarkers = show;
@@ -454,6 +476,14 @@ public sealed class MapOverlayWindow : IDisposable
             Present();
     }
 
+    public void SetShowLineAnnotations(bool show)
+    {
+        _showLineAnnotations = show;
+        InvalidateLockedBackground();
+        if (IsVisible)
+            Present();
+    }
+
     public void SetShowGateMarkersOnMiniMap(bool show)
     {
         _showGateMarkersOnMiniMap = show;
@@ -478,6 +508,13 @@ public sealed class MapOverlayWindow : IDisposable
     public void SetShowBoxAnnotationsOnMiniMap(bool show)
     {
         _showBoxAnnotationsOnMiniMap = show;
+        if (IsVisible)
+            Present();
+    }
+
+    public void SetShowLineAnnotationsOnMiniMap(bool show)
+    {
+        _showLineAnnotationsOnMiniMap = show;
         if (IsVisible)
             Present();
     }
@@ -574,6 +611,8 @@ public sealed class MapOverlayWindow : IDisposable
             annotations,
             floorLabel);
         InvalidateLockedBackground();
+        if (IsVisible)
+            Present();
     }
 
     public void ClearPersistentMiniMap()

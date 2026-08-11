@@ -267,6 +267,36 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
             IntPtr.Zero);
     }
 
+    /// <summary>
+    /// 把楼层参考图按给定比例整体缩放后作为 live 帧，用于构造
+    /// "真实 scale ≠ 跨楼层 seed scale" 的 VPSG 引导场景。
+    /// </summary>
+    public CapturedGameFrame FloorFrameScaled(
+        string floorKey,
+        double scale,
+        MapScreenRect viewport)
+    {
+        var source = floorKey switch
+        {
+            UpperFloor => _upperImage,
+            BasementFloor => _basementImage,
+            _ => throw new ArgumentOutOfRangeException(nameof(floorKey))
+        };
+        using var resized = new Mat();
+        Cv2.Resize(
+            source,
+            resized,
+            new Size(
+                (int)Math.Round(source.Width * scale),
+                (int)Math.Round(source.Height * scale)),
+            interpolation: InterpolationFlags.Linear);
+        return new CapturedGameFrame(
+            resized.Clone(),
+            DisplayTestMatrix.Baseline.PhysicalBounds,
+            viewport,
+            IntPtr.Zero);
+    }
+
     public MapOverlayTransform FloorScaleSeed(string floorKey)
     {
         var profile = MapFloorRules.GetFloorProfile(Map, floorKey)

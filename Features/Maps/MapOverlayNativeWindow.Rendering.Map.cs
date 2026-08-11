@@ -11,7 +11,8 @@ internal static partial class MapOverlayBitmapRenderer
     private static void DrawMap(Graphics graphics, MapOverlayRenderMap map,
         float dpiScale, bool allowExtendBeyondBounds = false,
         bool showGateMarkers = true, bool showAuxiliaryAnchors = true,
-        bool showTextAnnotations = true, bool showBoxAnnotations = true)
+        bool showTextAnnotations = true, bool showBoxAnnotations = true,
+        bool showLineAnnotations = true, float mapOpacity = 0.46f)
     {
         if (map.Width <= 0 || map.Height <= 0 || !File.Exists(map.ImagePath))
             return;
@@ -35,7 +36,7 @@ internal static partial class MapOverlayBitmapRenderer
             {
                 var source = GetOrLoadMapImage(map.ImagePath);
                 using var attributes = new ImageAttributes();
-                var colorMatrix = new ColorMatrix { Matrix33 = MapOpacity };
+                var colorMatrix = new ColorMatrix { Matrix33 = mapOpacity };
                 attributes.SetColorMatrix(colorMatrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
                 graphics.DrawImage(
                     source,
@@ -71,7 +72,8 @@ internal static partial class MapOverlayBitmapRenderer
                     DrawAnchorLabel(graphics, anchor.DisplayName, color, rectangle, map.Top, dpiScale);
                 }
 
-                DrawAnnotations(graphics, map, dpiScale, showTextAnnotations, showBoxAnnotations);
+                DrawAnnotations(graphics, map, dpiScale, showTextAnnotations,
+                    showBoxAnnotations, showLineAnnotations);
             }
         }
         finally
@@ -118,7 +120,8 @@ internal static partial class MapOverlayBitmapRenderer
         MapOverlayRenderMap map,
         float dpiScale,
         bool showTextAnnotations,
-        bool showBoxAnnotations)
+        bool showBoxAnnotations,
+        bool showLineAnnotations)
     {
         if (map.Annotations is not { Count: > 0 })
             return;
@@ -126,7 +129,30 @@ internal static partial class MapOverlayBitmapRenderer
         var strokeWidth = Math.Max(1f, 2f * dpiScale);
         foreach (var annotation in map.Annotations)
         {
-            var color = AnnotationColor(annotation.ColorIndex);
+            var color = AnnotationColor(annotation.ColorHex, annotation.ColorIndex);
+            if (annotation.Type == MapAnnotationType.Line)
+            {
+                if (!showLineAnnotations
+                    || annotation.Start?.IsValid is not true
+                    || annotation.End?.IsValid is not true)
+                {
+                    continue;
+                }
+                using var linePen = new Pen(color, strokeWidth)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round
+                };
+                graphics.DrawLine(
+                    linePen,
+                    map.Left + ((float)annotation.Start.X * map.Width),
+                    map.Top + ((float)annotation.Start.Y * map.Height),
+                    map.Left + ((float)annotation.End.X * map.Width),
+                    map.Top + ((float)annotation.End.Y * map.Height));
+                continue;
+            }
+            if (annotation.Bounds?.IsValid is not true)
+                continue;
             var rect = new RectangleF(
                 map.Left + ((float)annotation.Bounds.X * map.Width),
                 map.Top + ((float)annotation.Bounds.Y * map.Height),
@@ -145,7 +171,7 @@ internal static partial class MapOverlayBitmapRenderer
                 };
                 graphics.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
                 if (!string.IsNullOrWhiteSpace(annotation.Text))
-                    DrawAnnotationText(graphics, annotation.Text, color, rect, dpiScale);
+                    DrawAnnotationText(graphics, annotation, color, rect, dpiScale, map.Width);
             }
             else if (annotation.Type == MapAnnotationType.Outline)
             {
@@ -159,11 +185,13 @@ internal static partial class MapOverlayBitmapRenderer
 
     private static void DrawAnnotationText(
         Graphics graphics,
-        string text,
+        MapOverlayRenderAnnotation annotation,
         Color color,
         RectangleF bounds,
-        float dpiScale)
+        float dpiScale,
+        float mapWidth)
     {
+        var text = annotation.Text;
         if (string.IsNullOrWhiteSpace(text) || bounds.Width <= 0 || bounds.Height <= 0)
             return;
 
@@ -175,17 +203,31 @@ internal static partial class MapOverlayBitmapRenderer
             FormatFlags = StringFormatFlags.NoWrap
         };
 
-        // Start with the largest candidate: 85 % of box height, capped at 48 px.
+        var legacyStyle = annotation.FontFamily is null && annotation.FontSize is null
+            && annotation.IsBold is null && annotation.IsItalic is null && annotation.IsStrikethrough is null;
+        var fontStyle = FontStyle.Regular;
+        if (legacyStyle || annotation.IsBold is true)
+            fontStyle |= FontStyle.Bold;
+        if (annotation.IsItalic is true)
+            fontStyle |= FontStyle.Italic;
+        if (annotation.IsStrikethrough is true)
+            fontStyle |= FontStyle.Strikeout;
+
+        // Legacy annotations preserve the historical auto-fit behavior. New text
+        // starts from the selected reference size and only shrinks when necessary.
         var maxByHeight = bounds.Height * 0.85f;
-        // Budget ~0.82 em per CJK character.
         var maxByWidth = bounds.Width / (text.Length * 0.82f);
-        var fontSize = Math.Clamp(Math.Min(maxByHeight, maxByWidth), 8f * dpiScale, 48f * dpiScale);
+        var requestedSize = annotation.FontSize is { } configured
+            ? (float)(configured * Math.Max(1f, mapWidth) / 1280f) * dpiScale
+            : Math.Min(maxByHeight, maxByWidth);
+        var fontSize = Math.Clamp(Math.Min(requestedSize, Math.Min(maxByHeight, maxByWidth)),
+            8f * dpiScale, 48f * dpiScale);
 
         // Shrink iteratively until the text fits (binary-search style, but capped at
         // 4 iterations — almost always converges in 1-2).
         for (var attempt = 0; attempt < 4; attempt++)
         {
-            using var font = CreateFont(fontSize, FontStyle.Bold);
+            using var font = CreateAnnotationFont(annotation.FontFamily, fontSize, fontStyle);
             var measured = graphics.MeasureString(text, font, new SizeF(bounds.Width, bounds.Height), format);
             if (measured.Width <= bounds.Width && measured.Height <= bounds.Height)
             {
@@ -200,7 +242,7 @@ internal static partial class MapOverlayBitmapRenderer
             if (fontSize < 8f * dpiScale)
             {
                 fontSize = 8f * dpiScale;
-                using var fontMin = CreateFont(fontSize, FontStyle.Bold);
+                using var fontMin = CreateAnnotationFont(annotation.FontFamily, fontSize, fontStyle);
                 using var brush = new SolidBrush(color);
                 graphics.DrawString(text, fontMin, brush, bounds, format);
                 return;
@@ -208,10 +250,24 @@ internal static partial class MapOverlayBitmapRenderer
         }
 
         // Final fallback
-        using (var fontFallback = CreateFont(fontSize, FontStyle.Bold))
+        using (var fontFallback = CreateAnnotationFont(annotation.FontFamily, fontSize, fontStyle))
         using (var brushFallback = new SolidBrush(color))
         {
             graphics.DrawString(text, fontFallback, brushFallback, bounds, format);
+        }
+    }
+
+    private static Font CreateAnnotationFont(string? familyName, float pixelSize, FontStyle style)
+    {
+        if (string.IsNullOrWhiteSpace(familyName))
+            return CreateFont(pixelSize, style);
+        try
+        {
+            return new Font(familyName, pixelSize, style, GraphicsUnit.Pixel);
+        }
+        catch (ArgumentException)
+        {
+            return CreateFont(pixelSize, style);
         }
     }
 }

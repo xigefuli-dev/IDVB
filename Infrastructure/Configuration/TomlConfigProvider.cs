@@ -107,6 +107,17 @@ public sealed class TomlConfigProvider : IConfigProvider, IDisposable
             MergeTable(merged, table);
         }
 
+        // Survey settings live in an independent file so they can evolve without
+        // weakening the semantics of the established map-recognition settings.
+        var surveyPath = Path.Combine(_rootDir, "IDVB_survey.toml");
+        if (!File.Exists(surveyPath))
+            surveyPath = Path.Combine(AppContext.BaseDirectory, "IDVB_survey.toml");
+        if (File.Exists(surveyPath))
+        {
+            using var reader = new StreamReader(surveyPath);
+            MergeTable(merged, TOML.Parse(reader));
+        }
+
         // 2. 覆盖分辨率预设（先查 AppData，后回退到构建输出目录）
         var presetPath = ResolvePresetDirectory(_activePreset);
         if (Directory.Exists(presetPath))

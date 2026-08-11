@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 using Windows.UI;
+using IDVBuff.Survey.Domain;
 using XamlWindow = Microsoft.UI.Xaml.Window;
 
 namespace IDVBuff.Features.Maps;
@@ -20,6 +21,7 @@ public sealed class MapControlPanelWindow : IDisposable
     private readonly Func<Task<IReadOnlyList<string>>> _getMapClasses;
     private readonly Func<bool> _isAutomaticMapCacheEnabled;
     private readonly Func<bool, Task> _endMatch;
+    private readonly Func<SurveyStatusSnapshot> _getSurveyStatus;
     private readonly Dictionary<PlayerSlot, Button> _slotButtons = [];
     private readonly TextBlock _stateText = new()
     {
@@ -68,12 +70,14 @@ public sealed class MapControlPanelWindow : IDisposable
         Func<PlayerSlot, string, Task> beginMatch,
         Func<Task<IReadOnlyList<string>>> getMapClasses,
         Func<bool> isAutomaticMapCacheEnabled,
-        Func<bool, Task> endMatch)
+        Func<bool, Task> endMatch,
+        Func<SurveyStatusSnapshot> getSurveyStatus)
     {
         _beginMatch = beginMatch;
         _getMapClasses = getMapClasses;
         _isAutomaticMapCacheEnabled = isAutomaticMapCacheEnabled;
         _endMatch = endMatch;
+        _getSurveyStatus = getSurveyStatus;
         _beginButton.Click += BeginButton_Click;
         _endButton.Click += EndButton_Click;
     }
@@ -176,6 +180,21 @@ public sealed class MapControlPanelWindow : IDisposable
             : _pendingSlot is null
                 ? "请选择本局自己的玩家序号。"
                 : $"已选择 {(int)_pendingSlot.Value} 号玩家 · 模式 {_pendingClass}，可以开始对局。";
+        ApplySurveyState(snapshot);
+    }
+
+    private void ApplySurveyState(MapMatchSnapshot snapshot)
+    {
+        if (snapshot.Mode != MapRunMode.Survey)
+            return;
+        var status = _getSurveyStatus();
+        if (status.ProjectId is null)
+            return;
+        _stateText.Text = $"测绘中 · {status.ProjectName} · {status.FloorKey?.ToUpperInvariant()} · "
+            + $"{status.ObservationCount} 个图层（{status.UnregisteredCount} 个未对齐）";
+        _messageText.Text = status.RuntimeState == SurveyRuntimeState.Paused
+            ? "测绘已暂停，可在地图状态页继续。"
+            : status.LastMessage ?? "打开地图后，按“保存地图缓存”绑定收集一个持久图层。";
     }
 
     public void Reset(MapMatchSnapshot snapshot)
@@ -334,7 +353,8 @@ public sealed class MapControlPanelWindow : IDisposable
         SetActionsEnabled(false);
         try
         {
-            var saveAutomaticMapCache = _isAutomaticMapCacheEnabled()
+            var saveAutomaticMapCache = _snapshot.Mode != MapRunMode.Survey
+                && _isAutomaticMapCacheEnabled()
                 && await ConfirmAutomaticMapCacheSaveAsync();
             await _endMatch(saveAutomaticMapCache);
             _pendingSlot = null;

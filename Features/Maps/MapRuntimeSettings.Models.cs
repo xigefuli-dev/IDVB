@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 10;
+    public const int CurrentSchemaVersion = 12;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -31,14 +31,17 @@ public sealed partial class MapRuntimeSettings
     public bool PlayerTrackingEnabled { get; set; } = false;
     public bool AllowAutomaticMapCache { get; set; }
     public bool ReverseAlternateDisplay { get; set; }
+    public double MapOpacity { get; set; } = 0.46d;
     public bool ShowGateMarkers { get; set; } = true;
     public bool ShowAuxiliaryAnchors { get; set; } = true;
     public bool ShowTextAnnotations { get; set; } = true;
     public bool ShowBoxAnnotations { get; set; } = true;
+    public bool ShowLineAnnotations { get; set; } = true;
     public bool ShowGateMarkersOnMiniMap { get; set; } = true;
     public bool ShowAuxiliaryAnchorsOnMiniMap { get; set; } = true;
     public bool ShowTextAnnotationsOnMiniMap { get; set; } = true;
     public bool ShowBoxAnnotationsOnMiniMap { get; set; } = true;
+    public bool ShowLineAnnotationsOnMiniMap { get; set; } = true;
     public bool ShowFloorOnMiniMap { get; set; } = true;
     public double StatusOpacity { get; set; } = 1.0d;
     public double StatusOffsetX { get; set; }
@@ -90,14 +93,17 @@ public sealed partial class MapRuntimeSettings
         PlayerTrackingEnabled = false,
         AllowAutomaticMapCache = false,
         ReverseAlternateDisplay = false,
+        MapOpacity = 0.46d,
         ShowGateMarkers = true,
         ShowAuxiliaryAnchors = true,
         ShowTextAnnotations = true,
         ShowBoxAnnotations = true,
+        ShowLineAnnotations = true,
         ShowGateMarkersOnMiniMap = true,
         ShowAuxiliaryAnchorsOnMiniMap = true,
         ShowTextAnnotationsOnMiniMap = true,
         ShowBoxAnnotationsOnMiniMap = true,
+        ShowLineAnnotationsOnMiniMap = true,
         ShowFloorOnMiniMap = true,
         StatusOpacity = 1.0d,
         StatusOffsetX = 0d,
@@ -133,7 +139,8 @@ public sealed partial class MapRuntimeSettings
         StructureRegistrationTuning = new MapStructureRegistrationTuning
         {
             SchemaVersion = MapStructureRegistrationTuning.CurrentSchemaVersion,
-            UseAuxiliaryAnchorRecognition = false,
+            AuxiliaryAnchorMode =
+                MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly,
             ReusePreviousAlignmentResult = true,
             MaximumAuxiliaryTemplates = 4,
             AuxiliaryDirectLockConfidence = 0.82d,
@@ -192,8 +199,8 @@ public sealed partial class MapRuntimeSettings
             OpeningAnimationDelayMilliseconds = 10,
             OpeningTimeoutMilliseconds = 3000,
             StableFrameIntervalMilliseconds = 20,
-            StableFrameCount = 2,
-            StableFrameDifference = 0.015d,
+            StableFrameCount = 3,
+            StableFrameDifference = 0.005d,
             PresencePollingMilliseconds = 200,
             PlayerPollingMilliseconds = 100,
             WindowValidationMilliseconds = 500,
@@ -202,7 +209,7 @@ public sealed partial class MapRuntimeSettings
             MediumConfidenceFrames = 2,
             CandidateStabilityPixels = 3d,
             NativeScaleChangeRatio = 0.03d,
-            SkipStabilityConfirmation = true,
+            SkipStabilityConfirmation = false,
             ViewportIgnoreRegions = []
         },
         FloorRecognitionTuning = new MapFloorRecognitionTuning
@@ -309,14 +316,17 @@ public sealed partial class MapRuntimeSettings
         PlayerTrackingEnabled = PlayerTrackingEnabled,
         ReverseAlternateDisplay = ReverseAlternateDisplay,
         MiniMapScale = MiniMapScale,
+        MapOpacity = MapOpacity,
         ShowGateMarkers = ShowGateMarkers,
         ShowAuxiliaryAnchors = ShowAuxiliaryAnchors,
         ShowTextAnnotations = ShowTextAnnotations,
         ShowBoxAnnotations = ShowBoxAnnotations,
+        ShowLineAnnotations = ShowLineAnnotations,
         ShowGateMarkersOnMiniMap = ShowGateMarkersOnMiniMap,
         ShowAuxiliaryAnchorsOnMiniMap = ShowAuxiliaryAnchorsOnMiniMap,
         ShowTextAnnotationsOnMiniMap = ShowTextAnnotationsOnMiniMap,
         ShowBoxAnnotationsOnMiniMap = ShowBoxAnnotationsOnMiniMap,
+        ShowLineAnnotationsOnMiniMap = ShowLineAnnotationsOnMiniMap,
         ShowFloorOnMiniMap = ShowFloorOnMiniMap,
         StatusOpacity = StatusOpacity,
         StatusOffsetX = StatusOffsetX,
@@ -505,6 +515,8 @@ public sealed partial class MapRuntimeSettings
         MiniMapScale = double.IsFinite(MiniMapScale)
             ? Math.Clamp(MiniMapScale, 0.10d, 1.0d)
             : 0.25d;
+        MapOpacity = double.IsFinite(MapOpacity)
+            ? Math.Clamp(MapOpacity, 0d, 1.0d) : 0.46d;
         StatusOpacity = double.IsFinite(StatusOpacity)
             ? Math.Clamp(StatusOpacity, 0d, 1.0d) : 1.0d;
         StatusOffsetX = double.IsFinite(StatusOffsetX) ? StatusOffsetX : 0d;
@@ -519,8 +531,15 @@ public sealed partial class MapRuntimeSettings
     {
         if (binding.Kind == MapInputBindingKind.Keyboard && binding.VirtualKey == 0)
             binding.Kind = MapInputBindingKind.None;
+        if (binding.Kind == MapInputBindingKind.Keyboard)
+            binding.Modifiers &= MapInputModifiers.Control
+                | MapInputModifiers.Alt
+                | MapInputModifiers.Shift
+                | MapInputModifiers.Windows;
         if (binding.Kind == MapInputBindingKind.Mouse && !Enum.IsDefined(binding.MouseButton))
             binding.Kind = MapInputBindingKind.None;
+        if (binding.Kind != MapInputBindingKind.Keyboard)
+            binding.Modifiers = MapInputModifiers.None;
         if (!Enum.IsDefined(binding.Kind))
             binding.Kind = MapInputBindingKind.None;
     }

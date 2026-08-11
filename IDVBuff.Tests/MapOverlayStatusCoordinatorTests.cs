@@ -128,14 +128,17 @@ public sealed class MapOverlayStatusCoordinatorTests
         public void SetStatusVisible(bool value) { }
         public void SetReverseAlternateDisplay(bool value) { }
         public void SetAllowExtend(bool value) { }
+        public void SetMapOpacity(double value) { }
         public void SetShowGateMarkers(bool value) { }
         public void SetShowAuxiliaryAnchors(bool value) { }
         public void SetShowTextAnnotations(bool value) { }
         public void SetShowBoxAnnotations(bool value) { }
+        public void SetShowLineAnnotations(bool value) { }
         public void SetShowGateMarkersOnMiniMap(bool value) { }
         public void SetShowAuxiliaryAnchorsOnMiniMap(bool value) { }
         public void SetShowTextAnnotationsOnMiniMap(bool value) { }
         public void SetShowBoxAnnotationsOnMiniMap(bool value) { }
+        public void SetShowLineAnnotationsOnMiniMap(bool value) { }
         public void SetShowFloorOnMiniMap(bool value) { }
         public void SetStatusOpacity(double value) { }
         public void SetStatusOffsetX(double value) { }

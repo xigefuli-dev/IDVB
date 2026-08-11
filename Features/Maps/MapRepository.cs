@@ -1,3 +1,5 @@
+using OpenCvSharp;
+
 namespace IDVBuff.Features.Maps;
 
 public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Length)
@@ -86,6 +88,12 @@ public sealed partial class MapRepository
                 FloorTwoPath = GetFloorTwoPath(record),
                 FloorPaths = floorPaths,
                 FloorPreviewPaths = floorPreviewPaths,
+                FloorRecognitionSourcePaths = string.Equals(record.Source, "survey", StringComparison.Ordinal)
+                    ? record.Floors.ToDictionary(
+                        floor => floor.Key,
+                        floor => GetFloorRecognitionPath(record, floor.Key),
+                        StringComparer.Ordinal)
+                    : [],
                 Floors = record.Floors.Select(f => new FloorDefinition
                 {
                     Key = f.Key,
@@ -95,6 +103,11 @@ public sealed partial class MapRepository
                 Class = record.Class,
                 Title = record.Title,
                 ContentVersion = record.ContentVersion,
+                Source = record.Source,
+                SourceProjectId = record.SourceProjectId,
+                SourceProjectRevision = record.SourceProjectRevision,
+                SourceVisualSha256 = record.SourceVisualSha256,
+                SourceStructureSha256 = record.SourceStructureSha256,
                 PortableGates = record.PortableGates.Select(gate => gate.Clone()).ToList(),
                 Recognition = record.Recognition.Clone()
             };
@@ -134,6 +147,13 @@ public sealed partial class MapRepository
             };
             isNewRecord = existing is null;
             record.Title = draft.Title?.Trim() ?? string.Empty;
+            record.Source = string.Equals(draft.Source, "survey", StringComparison.Ordinal)
+                ? "survey"
+                : "manual";
+            record.SourceProjectId = draft.SourceProjectId;
+            record.SourceProjectRevision = draft.SourceProjectRevision;
+            record.SourceVisualSha256 = draft.SourceVisualSha256;
+            record.SourceStructureSha256 = draft.SourceStructureSha256;
             record.ContentVersion = existing is null
                 ? Math.Max(1, draft.ContentVersion)
                 : Math.Max(1, existing.ContentVersion + 1);
@@ -237,17 +257,37 @@ public sealed partial class MapRepository
                 var profile = record.Recognition.GetFloor(key)!;
                 var recognitionFileName = GetFloorRecognitionFileName(key);
                 var overlayFileName = GetFloorOverlayFileName(key);
-                CreateRecognitionAssets(
-                    sourcePath,
-                    Path.Combine(stagingDirectory, recognitionFileName),
-                    profile,
-                    Path.Combine(stagingDirectory, overlayFileName));
+                var recognitionPath = Path.Combine(stagingDirectory, recognitionFileName);
+                var overlayPath = Path.Combine(stagingDirectory, overlayFileName);
+                var hasSurveyStructure = draft.FloorRecognitionSourcePaths.TryGetValue(
+                    key,
+                    out var surveyStructurePath)
+                    && IsSupportedImage(surveyStructurePath)
+                    && File.Exists(surveyStructurePath);
+                if (hasSurveyStructure)
+                {
+                    await CopyRecognitionSourceAsync(surveyStructurePath!, recognitionPath);
+                    using var recognitionImage = Cv2.ImRead(recognitionPath, ImreadModes.Unchanged);
+                    if (recognitionImage.Empty())
+                        throw new InvalidOperationException("测绘识别结构无法解码。");
+                    profile.RecognitionPixelWidth = recognitionImage.Width;
+                    profile.RecognitionPixelHeight = recognitionImage.Height;
+                    profile.ValidMapBounds ??= MapReferenceBounds.FullImage(
+                        recognitionImage.Width,
+                        recognitionImage.Height);
+                    CreateWhiteKeyOverlay(recognitionImage, overlayPath);
+                }
+                else
+                {
+                    CreateRecognitionAssets(sourcePath, recognitionPath, profile, overlayPath);
+                }
                 await PopulateDerivedImageMetadataAsync(
                     floor,
                     sourcePath,
-                    Path.Combine(stagingDirectory, recognitionFileName),
-                    Path.Combine(stagingDirectory, overlayFileName),
-                    profile);
+                    recognitionPath,
+                    overlayPath,
+                    profile,
+                    forceRecognitionPath: hasSurveyStructure);
 
                 // 侧门特征预处理：若侧门锚点已标注，生成特征图
                 // IDVM 导入时优先复制包内预计算特征；普通编辑时重新生成
@@ -294,11 +334,30 @@ public sealed partial class MapRepository
                     && (!string.Equals(recognitionFileName, compatibilityRecognitionFileName, StringComparison.Ordinal)
                         || !string.Equals(overlayFileName, compatibilityOverlayFileName, StringComparison.Ordinal)))
                 {
-                    CreateRecognitionAssets(
-                        sourcePath,
-                        Path.Combine(stagingDirectory, compatibilityRecognitionFileName),
-                        profile,
-                        Path.Combine(stagingDirectory, compatibilityOverlayFileName));
+                    var compatibilityRecognitionPath = Path.Combine(
+                        stagingDirectory,
+                        compatibilityRecognitionFileName);
+                    var compatibilityOverlayPath = Path.Combine(
+                        stagingDirectory,
+                        compatibilityOverlayFileName);
+                    if (hasSurveyStructure)
+                    {
+                        await CopyRecognitionSourceAsync(
+                            recognitionPath,
+                            compatibilityRecognitionPath);
+                        using var compatibilityImage = Cv2.ImRead(
+                            compatibilityRecognitionPath,
+                            ImreadModes.Unchanged);
+                        CreateWhiteKeyOverlay(compatibilityImage, compatibilityOverlayPath);
+                    }
+                    else
+                    {
+                        CreateRecognitionAssets(
+                            sourcePath,
+                            compatibilityRecognitionPath,
+                            profile,
+                            compatibilityOverlayPath);
+                    }
                 }
             }
             targetDirectory = GetMapDirectory(record.Id);
@@ -343,6 +402,26 @@ public sealed partial class MapRepository
                 Directory.Delete(stagingDirectory, recursive: true);
             Gate.Release();
         }
+    }
+
+    private static async Task CopyRecognitionSourceAsync(string source, string destination)
+    {
+        await using var input = new FileStream(
+            source,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var output = new FileStream(
+            destination,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            64 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await input.CopyToAsync(output);
+        await output.FlushAsync();
     }
 
     public async Task DeleteAsync(Guid id)

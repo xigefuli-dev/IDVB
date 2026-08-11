@@ -76,6 +76,35 @@ public sealed class SideEntranceStrategyCompleteAlignmentTests
     }
 
     [Fact]
+    public async Task LockedSideFeature_IsOnlyASeedAndRequiresStructureAcceptance()
+    {
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        using var frame = scenario.MainFrame(VisibleGates.SideOnly);
+        var session = SeedWithSideEntranceStrategy(scenario, frame);
+        using var alignmentBudget = MapNoDoorAlignmentBudgetContext.Enter(
+            () => 1500);
+
+        var attempt = scenario.Service.AlignLockedSideEntranceFeature(
+            frame,
+            scenario.Map.Id,
+            session,
+            MapOverlayAlignmentMode.Uniform,
+            CompleteAlignmentTestScenario.RecognitionTuning,
+            CompleteAlignmentTestScenario.StructureTuning);
+
+        var recognition = Assert.IsType<RuntimeMapRecognition>(
+            attempt.Recognition);
+        Assert.True(attempt.StructureAttempted);
+        Assert.True(attempt.StructureAccepted, attempt.StructureFailureReason);
+        Assert.False(attempt.Diagnostics.SkippedStructureValidation);
+        Assert.Equal(0d, attempt.Diagnostics.GateDetectionMilliseconds);
+        Assert.Equal(0d, attempt.Diagnostics.AuxiliaryAnchorMilliseconds);
+        Assert.Equal(
+            MapRecognitionSource.StructureMatching,
+            recognition.Result.Source);
+    }
+
+    [Fact]
     public async Task SideScan_UsesOnlyPrimaryFloorAndCurrentMapClass()
     {
         await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();

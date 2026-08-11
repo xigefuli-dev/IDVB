@@ -54,6 +54,63 @@ public sealed class MapVpsgScaleEstimatorTests
     }
 
     [Fact]
+    public void AkazeScaleGraphPriorScaleDoesNotGateScale()
+    {
+        const double expectedScale = 1.3375d;
+        var referencePoints = Enumerable.Range(0, 24)
+            .Select(index => new KeyPoint(
+                90f + ((index % 6) * 150f),
+                80f + ((index / 6) * 140f),
+                12f,
+                response: 1f))
+            .ToArray();
+        var livePoints = referencePoints
+            .Select(point => new KeyPoint(
+                (float)((point.Pt.X * expectedScale) + 73d),
+                (float)((point.Pt.Y * expectedScale) + 41d),
+                point.Size,
+                response: point.Response))
+            .ToArray();
+        var descriptors = CreateUniqueDescriptors(referencePoints.Length);
+        using var reference = CreateFeatures(
+            new Size(1000, 650),
+            referencePoints,
+            descriptors);
+        using var live = CreateFeatures(
+            new Size(1421, 1249),
+            livePoints,
+            descriptors);
+        var graph = MapVpsgScaleGraphCache.Build(
+            reference.Edges.Size(),
+            referencePoints);
+
+        var estimator = new MapVpsgScaleEstimator();
+        Assert.True(estimator.TryEstimate(
+            reference,
+            live,
+            graph,
+            priorScale: 1.0d,
+            out var lowPrior,
+            out var lowRejection), lowRejection);
+        Assert.True(estimator.TryEstimate(
+            reference,
+            live,
+            graph,
+            priorScale: 2.0d,
+            out var highPrior,
+            out var highRejection), highRejection);
+
+        Assert.InRange(
+            lowPrior!.Scale,
+            expectedScale - 0.002d,
+            expectedScale + 0.002d);
+        Assert.InRange(
+            highPrior!.Scale,
+            expectedScale - 0.002d,
+            expectedScale + 0.002d);
+    }
+
+    [Fact]
     public void AkazeScaleGraphRejectsInsufficientMatches()
     {
         var points = Enumerable.Range(0, 8)

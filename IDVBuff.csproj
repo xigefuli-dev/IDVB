@@ -22,11 +22,11 @@
         <PackageId>IdentityVisionBridge</PackageId>
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
-        <IDVBProductVersion>1.4.0</IDVBProductVersion>
+        <IDVBProductVersion>1.4.1</IDVBProductVersion>
         <IDVBReleaseLine>b01.4</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
-        <AssemblyVersion>1.4.0.0</AssemblyVersion>
-        <FileVersion>1.4.0.0</FileVersion>
+        <AssemblyVersion>1.4.1.0</AssemblyVersion>
+        <FileVersion>1.4.1.0</FileVersion>
         <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>

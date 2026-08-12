@@ -174,7 +174,8 @@ public sealed partial class SurveyIdvmPackageService
             UsesCleanedDisplay = legacy11
                 ? observationsById[item.ObservationId].DisplayAsset is not null
                 : item.UsesCleanedDisplay,
-            HiddenMaskAsset = MapOptional(item.HiddenMaskAsset)
+            HiddenMaskAsset = MapOptional(item.HiddenMaskAsset),
+            ColorFilterAsset = MapOptional(item.ColorFilterAsset)
         }).ToArray();
         var constraints = source.Constraints.Select(item => item with { ProjectId = projectId }).ToArray();
         return new SurveyProjectSnapshot(project, source.Floors, observations, layers, constraints);

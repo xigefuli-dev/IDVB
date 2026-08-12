@@ -1,4 +1,5 @@
 using Microsoft.UI.Dispatching;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -22,6 +23,8 @@ public sealed class MapGlobalInputService : IDisposable
     private const uint WmRButtonDown = 0x0204;
     private const uint WmMButtonDown = 0x0207;
     private const uint WmXButtonDown = 0x020B;
+    private const uint WmQuit = 0x0012;
+    private const uint PmNoRemove = 0x0000;
     private const uint LlkhfInjected = 0x00000010;
     private const uint InputKeyboard = 1;
     private const uint InputMouse = 0;
@@ -39,10 +42,13 @@ public sealed class MapGlobalInputService : IDisposable
     private readonly LowLevelKeyboardProc _keyboardProc;
     private readonly LowLevelMouseProc _mouseProc;
     private readonly object _keyboardStateLock = new();
+    private readonly object _hookLifecycleLock = new();
     private readonly HashSet<uint> _pressedKeys = [];
     private readonly Dictionary<uint, long> _lastKeyDownAt = [];
     private IntPtr _keyboardHook;
     private IntPtr _mouseHook;
+    private Thread? _hookThread;
+    private uint _hookThreadId;
     private Timer? _keyboardPoller;
     private int _keyboardPollGeneration;
     private bool _keyboardBindingsActive;
@@ -98,30 +104,22 @@ public sealed class MapGlobalInputService : IDisposable
         _saveMapCache = saveMapCache.Clone();
         try
         {
-            if (_quickScan.Kind == MapInputBindingKind.Keyboard
+            var needsKeyboardHook = _quickScan.Kind == MapInputBindingKind.Keyboard
                 || _overlayToggle.Kind == MapInputBindingKind.Keyboard
                 || _manualRecognition.Kind == MapInputBindingKind.Keyboard
                 || _gameMapToggle.Kind == MapInputBindingKind.Keyboard
                 || _controlPanelToggle.Kind == MapInputBindingKind.Keyboard
                 || _switchFloor.Kind == MapInputBindingKind.Keyboard
-                || _saveMapCache.Kind == MapInputBindingKind.Keyboard)
-            {
-                _keyboardHook = SetWindowsHookEx(WhKeyboardLl, _keyboardProc, GetModuleHandle(null), 0);
-                if (_keyboardHook == IntPtr.Zero)
-                    throw new InvalidOperationException("无法注册全局键盘监听。");
-            }
-            if (_quickScan.Kind == MapInputBindingKind.Mouse
+                || _saveMapCache.Kind == MapInputBindingKind.Keyboard;
+            var needsMouseHook = _quickScan.Kind == MapInputBindingKind.Mouse
                 || _overlayToggle.Kind == MapInputBindingKind.Mouse
                 || _manualRecognition.Kind == MapInputBindingKind.Mouse
                 || _gameMapToggle.Kind == MapInputBindingKind.Mouse
                 || _controlPanelToggle.Kind == MapInputBindingKind.Mouse
                 || _switchFloor.Kind == MapInputBindingKind.Mouse
-                || _saveMapCache.Kind == MapInputBindingKind.Mouse)
-            {
-                _mouseHook = SetWindowsHookEx(WhMouseLl, _mouseProc, GetModuleHandle(null), 0);
-                if (_mouseHook == IntPtr.Zero)
-                    throw new InvalidOperationException("无法注册全局鼠标按键监听。");
-            }
+                || _saveMapCache.Kind == MapInputBindingKind.Mouse;
+
+            StartHookThread(needsKeyboardHook, needsMouseHook);
             StartKeyboardPolling();
         }
         catch
@@ -451,6 +449,80 @@ public sealed class MapGlobalInputService : IDisposable
         return true;
     }
 
+    private void StartHookThread(bool installKeyboardHook, bool installMouseHook)
+    {
+        if (!installKeyboardHook && !installMouseHook)
+            return;
+
+        using var started = new ManualResetEventSlim();
+        Exception? startupException = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                _hookThreadId = GetCurrentThreadId();
+                // Force creation of this thread's Win32 message queue before
+                // publishing its ID. This makes immediate reconfiguration or
+                // disposal able to deliver WM_QUIT reliably.
+                PeekMessage(out _, IntPtr.Zero, 0, 0, PmNoRemove);
+                var module = GetModuleHandle(null);
+                if (installKeyboardHook)
+                {
+                    _keyboardHook = SetWindowsHookEx(
+                        WhKeyboardLl, _keyboardProc, module, 0);
+                    if (_keyboardHook == IntPtr.Zero)
+                        throw new Win32Exception(Marshal.GetLastWin32Error(),
+                            "无法注册全局键盘监听。");
+                }
+                if (installMouseHook)
+                {
+                    _mouseHook = SetWindowsHookEx(
+                        WhMouseLl, _mouseProc, module, 0);
+                    if (_mouseHook == IntPtr.Zero)
+                        throw new Win32Exception(Marshal.GetLastWin32Error(),
+                            "无法注册全局鼠标按键监听。");
+                }
+
+                started.Set();
+                while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
+                {
+                    TranslateMessage(ref message);
+                    DispatchMessage(ref message);
+                }
+            }
+            catch (Exception exception)
+            {
+                startupException = exception;
+                started.Set();
+            }
+            finally
+            {
+                if (_keyboardHook != IntPtr.Zero)
+                    UnhookWindowsHookEx(_keyboardHook);
+                if (_mouseHook != IntPtr.Zero)
+                    UnhookWindowsHookEx(_mouseHook);
+                _keyboardHook = IntPtr.Zero;
+                _mouseHook = IntPtr.Zero;
+                _hookThreadId = 0;
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "IDVB global input hooks"
+        };
+
+        lock (_hookLifecycleLock)
+            _hookThread = thread;
+        thread.Start();
+        if (!started.Wait(TimeSpan.FromSeconds(5)))
+            throw new TimeoutException("全局输入监听线程启动超时。");
+        if (startupException is not null)
+        {
+            thread.Join();
+            throw startupException;
+        }
+    }
+
     private static bool IsAnyKeyDown(params int[] keys) =>
         keys.Any(key => (GetAsyncKeyState(key) & 0x8000) != 0);
 
@@ -532,15 +604,20 @@ public sealed class MapGlobalInputService : IDisposable
             _lastKeyDownAt.Clear();
         }
         keyboardPoller?.Dispose();
-        if (_keyboardHook != IntPtr.Zero)
+        Thread? hookThread;
+        uint hookThreadId;
+        lock (_hookLifecycleLock)
         {
-            UnhookWindowsHookEx(_keyboardHook);
-            _keyboardHook = IntPtr.Zero;
+            hookThread = _hookThread;
+            hookThreadId = _hookThreadId;
+            _hookThread = null;
         }
-        if (_mouseHook != IntPtr.Zero)
+        if (hookThread is not null)
         {
-            UnhookWindowsHookEx(_mouseHook);
-            _mouseHook = IntPtr.Zero;
+            if (hookThreadId != 0)
+                PostThreadMessage(hookThreadId, WmQuit, IntPtr.Zero, IntPtr.Zero);
+            if (hookThread != Thread.CurrentThread)
+                hookThread.Join(TimeSpan.FromSeconds(2));
         }
     }
 
@@ -656,6 +733,18 @@ public sealed class MapGlobalInputService : IDisposable
         public int Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeMessage
+    {
+        public IntPtr Window;
+        public uint Message;
+        public IntPtr WParam;
+        public IntPtr LParam;
+        public uint Time;
+        public NativePoint Point;
+        public uint Private;
+    }
+
     private delegate IntPtr LowLevelKeyboardProc(int code, IntPtr wParam, IntPtr lParam);
     private delegate IntPtr LowLevelMouseProc(int code, IntPtr wParam, IntPtr lParam);
 
@@ -676,4 +765,19 @@ public sealed class MapGlobalInputService : IDisposable
         int inputSize);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string? name);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostThreadMessage(
+        uint threadId, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    private static extern int GetMessage(
+        out NativeMessage message, IntPtr window, uint min, uint max);
+    [DllImport("user32.dll")]
+    private static extern bool PeekMessage(
+        out NativeMessage message, IntPtr window, uint min, uint max, uint remove);
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref NativeMessage message);
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref NativeMessage message);
 }

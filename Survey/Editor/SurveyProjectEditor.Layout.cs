@@ -110,6 +110,9 @@ public sealed partial class SurveyProjectEditor
         var properties = CreateHeaderButton("项目属性");
         properties.Click += async (_, _) => await ShowProjectPropertiesAsync();
         actions.Children.Add(properties);
+        var exportPng = CreateHeaderButton("导出为 PNG");
+        exportPng.Click += async (_, _) => await ExportCurrentFloorPngAsync();
+        actions.Children.Add(exportPng);
         Grid.SetColumn(actions, 2);
         header.Children.Add(actions);
         return header;
@@ -122,6 +125,7 @@ public sealed partial class SurveyProjectEditor
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Pan, "\uE7C2", "拖动"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Decontaminate, "\uE790", "去污"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Align, "\uE73E", "魔术贴"));
+        tools.Children.Add(CreateToolButton(SurveyEditorTool.NormalizeColors, "\uE790", "融色"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Eraser, "\uE75C", "橡皮擦"));
         return new Border
         {
@@ -227,6 +231,7 @@ public sealed partial class SurveyProjectEditor
             SurveyEditorTool.Pan => "拖动工具：可向任意方向拖动画布视图，不会修改图层位置。",
             SurveyEditorTool.Decontaminate => "去污工具：点击一个已选且未锁定图层，在原图与去污图之间切换。",
             SurveyEditorTool.Align => "魔术贴工具：多选图层后，在画布点击其中一层作为固定基准。",
+            SurveyEditorTool.NormalizeColors => "融色工具：多选图层后，点击其中一层作为颜色基准。",
             SurveyEditorTool.Eraser => _eraseMode == SurveyEraseMode.Eraser
                 ? "橡皮擦：在主选图层拖动以隐藏区域；再次点击工具可打开属性。"
                 : "砂纸：在当前楼层全部可见未锁定图层上隐藏区域；再次点击工具可打开属性。",

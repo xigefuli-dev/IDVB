@@ -41,6 +41,14 @@ public interface ISurveyPreprocessor
 
 public interface ISurveyLayerRasterEditor
 {
+    Task<SurveyAssetReference> NormalizeColorsAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        SurveyMapLayer anchorLayer,
+        SurveyObservation anchorObservation,
+        CancellationToken cancellationToken = default);
+
     Task<SurveyAssetReference?> ApplyHiddenMaskAsync(
         Guid projectId,
         SurveyMapLayer layer,

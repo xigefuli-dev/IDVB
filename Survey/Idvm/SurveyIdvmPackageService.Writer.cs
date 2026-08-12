@@ -103,6 +103,8 @@ public sealed partial class SurveyIdvmPackageService
         {
             if (layer.HiddenMaskAsset is { } hiddenMask)
                 yield return hiddenMask;
+            if (layer.ColorFilterAsset is { } colorFilter)
+                yield return colorFilter;
         }
     }
 

@@ -130,13 +130,13 @@ internal static class SqliteSurveyCommands
         command.CommandText = """
             INSERT INTO layers(
                 layer_id, project_id, floor_id, observation_id, name, z_order,
-                is_visible, is_locked, is_deleted, opacity, blend_mode,
+                is_visible, is_locked, is_deleted, opacity, brightness, blend_mode,
                 auto_tx, auto_ty, auto_rotation, auto_sx, auto_sy,
                 manual_tx, manual_ty, manual_rotation, manual_sx, manual_sy,
                 auto_revision, manual_revision)
             VALUES(
                 $layer_id, $project_id, $floor_id, $observation_id, $name, $z_order,
-                $is_visible, $is_locked, $is_deleted, $opacity, $blend_mode,
+                $is_visible, $is_locked, $is_deleted, $opacity, $brightness, $blend_mode,
                 $auto_tx, $auto_ty, $auto_rotation, $auto_sx, $auto_sy,
                 $manual_tx, $manual_ty, $manual_rotation, $manual_sx, $manual_sy,
                 $auto_revision, $manual_revision);
@@ -150,13 +150,22 @@ internal static class SqliteSurveyCommands
             INSERT INTO layer_edit_state(
                 layer_id, project_id, uses_cleaned_display, hidden_sha256,
                 hidden_path, hidden_media_type, hidden_byte_length,
-                hidden_pixel_width, hidden_pixel_height)
-            VALUES($layer, $project, $cleaned, $sha, $path, $media, $bytes, $width, $height);
+                hidden_pixel_width, hidden_pixel_height,
+                color_sha256, color_path, color_media_type, color_byte_length,
+                color_pixel_width, color_pixel_height)
+            VALUES($layer, $project, $cleaned, $sha, $path, $media, $bytes, $width, $height,
+                $color_sha, $color_path, $color_media, $color_bytes, $color_width, $color_height);
             """;
         editorState.Parameters.AddWithValue("$layer", layer.LayerId.ToString("N"));
         editorState.Parameters.AddWithValue("$project", layer.ProjectId.ToString("N"));
         editorState.Parameters.AddWithValue("$cleaned", layer.UsesCleanedDisplay);
         AddAssetParameters(editorState, layer.HiddenMaskAsset);
+        editorState.Parameters.AddWithValue("$color_sha", (object?)layer.ColorFilterAsset?.Sha256 ?? DBNull.Value);
+        editorState.Parameters.AddWithValue("$color_path", (object?)layer.ColorFilterAsset?.RelativePath ?? DBNull.Value);
+        editorState.Parameters.AddWithValue("$color_media", (object?)layer.ColorFilterAsset?.MediaType ?? DBNull.Value);
+        editorState.Parameters.AddWithValue("$color_bytes", (object?)layer.ColorFilterAsset?.ByteLength ?? DBNull.Value);
+        editorState.Parameters.AddWithValue("$color_width", (object?)layer.ColorFilterAsset?.PixelWidth ?? DBNull.Value);
+        editorState.Parameters.AddWithValue("$color_height", (object?)layer.ColorFilterAsset?.PixelHeight ?? DBNull.Value);
         await editorState.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -203,7 +212,7 @@ internal static class SqliteSurveyCommands
         command.Transaction = transaction;
         command.CommandText = """
             SELECT floor_id, observation_id, name, z_order, is_visible, is_locked,
-                   is_deleted, opacity, blend_mode, auto_tx, auto_ty, auto_rotation,
+                   is_deleted, opacity, brightness, blend_mode, auto_tx, auto_ty, auto_rotation,
                    auto_sx, auto_sy, manual_tx, manual_ty, manual_rotation, manual_sx,
                    manual_sy, auto_revision, manual_revision
             FROM layers WHERE project_id = $project_id AND layer_id = $layer_id;
@@ -224,11 +233,12 @@ internal static class SqliteSurveyCommands
             reader.GetBoolean(5),
             reader.GetBoolean(6),
             reader.GetDouble(7),
-            (SurveyBlendMode)reader.GetInt32(8),
-            ReadTransform(reader, 9),
-            reader.IsDBNull(14) ? null : ReadTransform(reader, 14),
-            reader.GetInt64(19),
-            reader.GetInt64(20));
+            (SurveyBlendMode)reader.GetInt32(9),
+            ReadTransform(reader, 10),
+            reader.IsDBNull(15) ? null : ReadTransform(reader, 15),
+            reader.GetInt64(20),
+            reader.GetInt64(21),
+            Brightness: reader.GetDouble(8));
     }
 
     public static SurveyMapLayer ApplyEdit(
@@ -238,6 +248,8 @@ internal static class SqliteSurveyCommands
     {
         if (request.Opacity is { } opacity && (opacity < 0d || opacity > 1d || !double.IsFinite(opacity)))
             throw new ArgumentOutOfRangeException(nameof(request), "Layer opacity must be between 0 and 1.");
+        if (request.Brightness is { } brightness && (brightness < 0d || brightness > 2d || !double.IsFinite(brightness)))
+            throw new ArgumentOutOfRangeException(nameof(request), "Layer brightness must be between 0 and 2.");
         if (request.ManualTransformOverride is { IsValid: false })
             throw new ArgumentException("Manual layer transform is invalid.", nameof(request));
 
@@ -253,6 +265,7 @@ internal static class SqliteSurveyCommands
             IsLocked = request.IsLocked ?? current.IsLocked,
             IsDeleted = request.IsDeleted ?? current.IsDeleted,
             Opacity = request.Opacity ?? current.Opacity,
+            Brightness = request.Brightness ?? current.Brightness,
             ManualTransformOverride = manual,
             ManualTransformRevision = manualChanged ? revision : current.ManualTransformRevision
         };
@@ -269,7 +282,7 @@ internal static class SqliteSurveyCommands
         command.CommandText = """
             UPDATE layers SET name = $name, z_order = $z_order,
                 is_visible = $is_visible, is_locked = $is_locked,
-                is_deleted = $is_deleted, opacity = $opacity,
+                is_deleted = $is_deleted, opacity = $opacity, brightness = $brightness,
                 manual_tx = $manual_tx, manual_ty = $manual_ty,
                 manual_rotation = $manual_rotation, manual_sx = $manual_sx,
                 manual_sy = $manual_sy, manual_revision = $manual_revision
@@ -350,6 +363,7 @@ internal static class SqliteSurveyCommands
         command.Parameters.AddWithValue("$is_locked", layer.IsLocked);
         command.Parameters.AddWithValue("$is_deleted", layer.IsDeleted);
         command.Parameters.AddWithValue("$opacity", layer.Opacity);
+        command.Parameters.AddWithValue("$brightness", layer.Brightness);
         command.Parameters.AddWithValue("$blend_mode", (int)layer.BlendMode);
         AddTransform(command, "auto", layer.AutomaticTransform);
         AddNullableTransform(command, "manual", layer.ManualTransformOverride);

@@ -66,6 +66,12 @@ public sealed partial class SqliteSurveyProjectRepository
                     hidden_byte_length = CASE WHEN $replace_hidden THEN $bytes ELSE hidden_byte_length END,
                     hidden_pixel_width = CASE WHEN $replace_hidden THEN $width ELSE hidden_pixel_width END,
                     hidden_pixel_height = CASE WHEN $replace_hidden THEN $height ELSE hidden_pixel_height END
+                    ,color_sha256 = CASE WHEN $replace_color THEN $color_sha ELSE color_sha256 END
+                    ,color_path = CASE WHEN $replace_color THEN $color_path ELSE color_path END
+                    ,color_media_type = CASE WHEN $replace_color THEN $color_media ELSE color_media_type END
+                    ,color_byte_length = CASE WHEN $replace_color THEN $color_bytes ELSE color_byte_length END
+                    ,color_pixel_width = CASE WHEN $replace_color THEN $color_width ELSE color_pixel_width END
+                    ,color_pixel_height = CASE WHEN $replace_color THEN $color_height ELSE color_pixel_height END
                 WHERE project_id = $project AND layer_id = $layer;
                 """;
             state.Parameters.AddWithValue("$cleaned", (object?)mutation.UsesCleanedDisplay ?? DBNull.Value);
@@ -76,6 +82,13 @@ public sealed partial class SqliteSurveyProjectRepository
             state.Parameters.AddWithValue("$bytes", (object?)mutation.HiddenMaskAsset?.ByteLength ?? DBNull.Value);
             state.Parameters.AddWithValue("$width", (object?)mutation.HiddenMaskAsset?.PixelWidth ?? DBNull.Value);
             state.Parameters.AddWithValue("$height", (object?)mutation.HiddenMaskAsset?.PixelHeight ?? DBNull.Value);
+            state.Parameters.AddWithValue("$replace_color", mutation.ReplaceColorFilter);
+            state.Parameters.AddWithValue("$color_sha", (object?)mutation.ColorFilterAsset?.Sha256 ?? DBNull.Value);
+            state.Parameters.AddWithValue("$color_path", (object?)mutation.ColorFilterAsset?.RelativePath ?? DBNull.Value);
+            state.Parameters.AddWithValue("$color_media", (object?)mutation.ColorFilterAsset?.MediaType ?? DBNull.Value);
+            state.Parameters.AddWithValue("$color_bytes", (object?)mutation.ColorFilterAsset?.ByteLength ?? DBNull.Value);
+            state.Parameters.AddWithValue("$color_width", (object?)mutation.ColorFilterAsset?.PixelWidth ?? DBNull.Value);
+            state.Parameters.AddWithValue("$color_height", (object?)mutation.ColorFilterAsset?.PixelHeight ?? DBNull.Value);
             state.Parameters.AddWithValue("$project", request.ProjectId.ToString("N"));
             state.Parameters.AddWithValue("$layer", mutation.LayerId.ToString("N"));
             if (await state.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)

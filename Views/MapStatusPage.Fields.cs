@@ -31,6 +31,7 @@ public sealed partial class MapStatusPage : UserControl
     private readonly ComboBox _presetSelector = new()
     {
         Header = "使用配置文件",
+        PlaceholderText = "自动",
         MinWidth = 300,
         HorizontalAlignment = HorizontalAlignment.Left,
         DisplayMemberPath = "Name"

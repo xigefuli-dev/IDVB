@@ -41,7 +41,9 @@ public sealed record SurveyMapLayer(
     long AutomaticTransformRevision,
     long ManualTransformRevision,
     bool UsesCleanedDisplay = false,
-    SurveyAssetReference? HiddenMaskAsset = null)
+    SurveyAssetReference? HiddenMaskAsset = null,
+    SurveyAssetReference? ColorFilterAsset = null,
+    double Brightness = 1d)
 {
     public SurveyLayerTransform EffectiveTransform =>
         ManualTransformOverride ?? AutomaticTransform;

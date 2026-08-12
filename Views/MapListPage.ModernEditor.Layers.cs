@@ -107,6 +107,13 @@ public sealed partial class MapListPage : UserControl
             });
         }
 
+        if (_modernLayerGroups.TryGetValue(key, out var existing))
+        {
+            existing.Header = header;
+            existing.Content = rows;
+            return existing;
+        }
+
         var expander = new Expander
         {
             Header = header,
@@ -116,6 +123,7 @@ public sealed partial class MapListPage : UserControl
         };
         expander.Expanding += (_, _) => _editorGroupExpansion[key] = true;
         expander.Collapsed += (_, _) => _editorGroupExpansion[key] = false;
+        _modernLayerGroups[key] = expander;
         return expander;
     }
 

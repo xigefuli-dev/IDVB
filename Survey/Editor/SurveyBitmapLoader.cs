@@ -18,12 +18,14 @@ internal static class SurveyBitmapLoader
         using (var writer = new DataWriter(randomAccess))
         {
             writer.WriteBytes(memory.ToArray());
-            await writer.StoreAsync();
+            await writer.StoreAsync().AsTask(cancellationToken);
             writer.DetachStream();
         }
+        cancellationToken.ThrowIfCancellationRequested();
         randomAccess.Seek(0);
         var bitmap = new BitmapImage();
-        await bitmap.SetSourceAsync(randomAccess);
+        await bitmap.SetSourceAsync(randomAccess).AsTask(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return bitmap;
     }
 
@@ -40,14 +42,16 @@ internal static class SurveyBitmapLoader
         using (var writer = new DataWriter(randomAccess))
         {
             writer.WriteBytes(memory.ToArray());
-            await writer.StoreAsync();
+            await writer.StoreAsync().AsTask(cancellationToken);
             writer.DetachStream();
         }
+        cancellationToken.ThrowIfCancellationRequested();
         randomAccess.Seek(0);
         var bitmap = new BitmapImage();
         if (decodePixelWidth is > 0)
             bitmap.DecodePixelWidth = decodePixelWidth.Value;
-        await bitmap.SetSourceAsync(randomAccess);
+        await bitmap.SetSourceAsync(randomAccess).AsTask(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         return bitmap;
     }
 }

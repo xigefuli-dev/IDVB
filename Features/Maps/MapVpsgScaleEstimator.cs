@@ -23,7 +23,7 @@ public sealed class MapVpsgScaleEstimator
     public const double MaximumResidualPixels = 3d;
     public const double MaximumRotationDegrees = 2d;
     public const double MaximumRelativeMad = 0.015d;
-    private const double RatioThreshold = 0.72d;
+    private const double RatioThreshold = 0.85d;
     private const double LogScaleBinRatio = 1.005d;
     private const double ClusterScaleTolerance = 0.015d;
 
@@ -181,35 +181,81 @@ public sealed class MapVpsgScaleEstimator
             .ToArray();
     }
 
+    // 用匹配点之间的动态最近邻边投票, 而不是预建图边。真实画面中匹配点往往
+    // 聚集在参考图同一 4x4 网格 cell 内, 预建图"同 cell 不连边"规则会把聚集区
+    // 内的边全部丢弃, 导致 votes 恒为 0(VPSG 退化为每次全尺度搜索)。动态边
+    // 不受该限制: 在已匹配的参考点上按参考坐标取最近邻成边, 对局部聚集的匹配
+    // 同样有效。graph 仅用于 TryEstimate 顶部的兼容性检查, 此处不再遍历。
     private static List<PairVote> BuildVotes(
         MapVpsgScaleGraph graph,
         IReadOnlyDictionary<int, DMatch> matches,
         IReadOnlyList<KeyPoint> referencePoints,
         IReadOnlyList<KeyPoint> livePoints)
     {
+        const int nearestNeighborCount = 5;
+        const double minimumReferenceDistance = 30d;
+
         var votes = new List<PairVote>();
-        foreach (var edge in graph.Edges)
+        if (matches.Count < 4)
+            return votes;
+
+        var matched = matches.Values
+            .OrderBy(match => match.QueryIdx)
+            .ToArray();
+        var referenceCoords = matched
+            .Select(match => referencePoints[match.QueryIdx].Pt)
+            .ToArray();
+
+        for (var first = 0; first < matched.Length; first++)
         {
-            if (!matches.TryGetValue(edge.FirstIndex, out var first)
-                || !matches.TryGetValue(edge.SecondIndex, out var second)
-                || first.TrainIdx == second.TrainIdx)
+            var firstReference = referenceCoords[first];
+            // 在参考距离 >= minimumReferenceDistance 的匹配点里取最近邻:
+            // 密集分布下最近邻往往不足 30px(亚像素误差会被放大), 直接先滤掉。
+            var nearest = Enumerable.Range(0, matched.Length)
+                .Where(index => index != first)
+                .Select(index => (Index: index, ReferenceDistance: SquaredDistance(
+                    referenceCoords[index], firstReference)))
+                .Where(candidate => candidate.ReferenceDistance
+                    >= minimumReferenceDistance * minimumReferenceDistance)
+                .OrderBy(candidate => candidate.ReferenceDistance)
+                .Take(nearestNeighborCount)
+                .Select(candidate => candidate.Index);
+            foreach (var second in nearest)
             {
-                continue;
+                var refDx = referenceCoords[second].X - firstReference.X;
+                var refDy = referenceCoords[second].Y - firstReference.Y;
+                var referenceDistance = Math.Sqrt((refDx * refDx) + (refDy * refDy));
+
+                var firstLive = livePoints[matched[first].TrainIdx].Pt;
+                var secondLive = livePoints[matched[second].TrainIdx].Pt;
+                var dx = secondLive.X - firstLive.X;
+                var dy = secondLive.Y - firstLive.Y;
+                var liveDistance = Math.Sqrt((dx * dx) + (dy * dy));
+                var scale = liveDistance / referenceDistance;
+                if (scale is < MinimumScale or > MaximumScale)
+                {
+                    continue;
+                }
+                var liveAngle = Math.Atan2(dy, dx) * 180d / Math.PI;
+                var referenceAngle = Math.Atan2(refDy, refDx) * 180d / Math.PI;
+                var rotation = NormalizeAngle(liveAngle - referenceAngle);
+                if (Math.Abs(rotation) > 5d)
+                {
+                    continue;
+                }
+                var weight = 1d / (1d + matched[first].Distance + matched[second].Distance);
+                votes.Add(new PairVote(
+                    new MapVpsgScaleGraphEdge(
+                        matched[first].QueryIdx,
+                        matched[second].QueryIdx,
+                        referenceDistance,
+                        referenceAngle),
+                    matched[first],
+                    matched[second],
+                    scale,
+                    rotation,
+                    weight));
             }
-            var firstLive = livePoints[first.TrainIdx].Pt;
-            var secondLive = livePoints[second.TrainIdx].Pt;
-            var dx = secondLive.X - firstLive.X;
-            var dy = secondLive.Y - firstLive.Y;
-            var liveDistance = Math.Sqrt((dx * dx) + (dy * dy));
-            var scale = liveDistance / edge.ReferenceDistance;
-            if (scale is < MinimumScale or > MaximumScale)
-                continue;
-            var liveAngle = Math.Atan2(dy, dx) * 180d / Math.PI;
-            var rotation = NormalizeAngle(liveAngle - edge.ReferenceAngleDegrees);
-            if (Math.Abs(rotation) > 5d)
-                continue;
-            var weight = 1d / (1d + first.Distance + second.Distance);
-            votes.Add(new PairVote(edge, first, second, scale, rotation, weight));
         }
         return votes;
     }
@@ -415,6 +461,13 @@ public sealed class MapVpsgScaleEstimator
         var width = array.Max(point => point.X) - array.Min(point => point.X);
         var height = array.Max(point => point.Y) - array.Min(point => point.Y);
         return Math.Sqrt((width * width) + (height * height));
+    }
+
+    private static double SquaredDistance(Point2f a, Point2f b)
+    {
+        var dx = a.X - b.X;
+        var dy = a.Y - b.Y;
+        return (dx * dx) + (dy * dy);
     }
 
     private static double NormalizeAngle(double angle)

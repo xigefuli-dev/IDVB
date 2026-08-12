@@ -49,7 +49,8 @@ public sealed partial class SurveyCoordinator
                 source.Layers.Select(layer => layer with
                 {
                     ProjectId = duplicateId,
-                    HiddenMaskAsset = RemapOptionalAsset(layer.HiddenMaskAsset, assets)
+                    HiddenMaskAsset = RemapOptionalAsset(layer.HiddenMaskAsset, assets),
+                    ColorFilterAsset = RemapOptionalAsset(layer.ColorFilterAsset, assets)
                 }).ToArray(),
                 source.Constraints.Select(constraint => constraint with
                 {
@@ -99,6 +100,7 @@ public sealed partial class SurveyCoordinator
             .Cast<SurveyAssetReference>()
             .Concat(source.Layers
                 .Select(layer => layer.HiddenMaskAsset)
+                .Concat(source.Layers.Select(layer => layer.ColorFilterAsset))
                 .Where(asset => asset is not null)
                 .Cast<SurveyAssetReference>())
             .GroupBy(asset => asset.Sha256, StringComparer.OrdinalIgnoreCase)

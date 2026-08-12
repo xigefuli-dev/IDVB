@@ -32,15 +32,16 @@ public sealed class OpenCvSurveyVisualComposer : ISurveyVisualComposer
             throw new InvalidOperationException("The floor has no visible survey layers to compose.");
         var layout = SurveyFusionGeometry.Calculate(layers, observations, _tuning.MaximumOutputPixels);
         using var canvas = new Mat(layout.CanvasSize, MatType.CV_8UC3, Scalar.Black);
+        using var coverage = new Mat(layout.CanvasSize, MatType.CV_8UC1, Scalar.Black);
         foreach (var layer in layers)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var observation = observations[layer.ObservationId];
             using var encoded = await _assets.ReadAsync(
                 project.Project.ProjectId,
-                layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+                layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
                     ? observation.DisplayAsset
-                    : observation.SourceAsset,
+                    : observation.SourceAsset),
                 ImreadModes.Unchanged,
                 cancellationToken);
             using var source = new Mat();
@@ -76,6 +77,8 @@ public sealed class OpenCvSurveyVisualComposer : ISurveyVisualComposer
                 maskSource.Create(encoded.Size(), MatType.CV_8UC1);
                 maskSource.SetTo(Scalar.White);
             }
+            if (Math.Abs(layer.Brightness - 1d) >= 0.000001d)
+                source.ConvertTo(source, MatType.CV_8UC3, layer.Brightness);
             if (layer.HiddenMaskAsset is { } hiddenAsset)
             {
                 using var hidden = await _assets.ReadAsync(
@@ -92,6 +95,7 @@ public sealed class OpenCvSurveyVisualComposer : ISurveyVisualComposer
             using var mask = new Mat(layout.CanvasSize, MatType.CV_8UC1, Scalar.Black);
             Cv2.WarpAffine(source, warped, matrix, layout.CanvasSize, InterpolationFlags.Linear);
             Cv2.WarpAffine(maskSource, mask, matrix, layout.CanvasSize, InterpolationFlags.Nearest);
+            Cv2.BitwiseOr(coverage, mask, coverage);
             if (layer.Opacity >= 0.999d)
             {
                 warped.CopyTo(canvas, mask);
@@ -101,6 +105,12 @@ public sealed class OpenCvSurveyVisualComposer : ISurveyVisualComposer
             Cv2.AddWeighted(warped, layer.Opacity, canvas, 1d - layer.Opacity, 0d, blended);
             blended.CopyTo(canvas, mask);
         }
+        var dominant = FindDominantColor(canvas, coverage);
+        using (var uncovered = new Mat())
+        {
+            Cv2.BitwiseNot(coverage, uncovered);
+            canvas.SetTo(dominant, uncovered);
+        }
         var capture = observations[layers[0].ObservationId].Capture;
         var asset = await _assets.WritePngAsync(
             project.Project.ProjectId,
@@ -108,5 +118,40 @@ public sealed class OpenCvSurveyVisualComposer : ISurveyVisualComposer
             capture,
             cancellationToken);
         return new SurveyRenderedAsset(asset, layout.Bounds, layout.Origin);
+    }
+
+    private static unsafe Scalar FindDominantColor(Mat image, Mat coverage)
+    {
+        // A fixed 24-bit histogram gives the exact most frequent BGR color without
+        // letting the initially empty canvas influence the result.
+        var counts = new int[1 << 24];
+        var bestKey = 0;
+        var bestCount = 0;
+        var rows = image.Rows;
+        var columns = image.Cols;
+        for (var y = 0; y < rows; y++)
+        {
+            var pixels = (byte*)image.Ptr(y);
+            var mask = (byte*)coverage.Ptr(y);
+            for (var x = 0; x < columns; x++)
+            {
+                if (mask[x] == 0)
+                    continue;
+                var offset = x * 3;
+                var key = pixels[offset]
+                    | (pixels[offset + 1] << 8)
+                    | (pixels[offset + 2] << 16);
+                var count = ++counts[key];
+                if (count > bestCount)
+                {
+                    bestCount = count;
+                    bestKey = key;
+                }
+            }
+        }
+        return new Scalar(
+            bestKey & 0xff,
+            (bestKey >> 8) & 0xff,
+            (bestKey >> 16) & 0xff);
     }
 }

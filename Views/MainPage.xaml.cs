@@ -350,6 +350,9 @@ public sealed partial class MainPage : Page
             return;
 
         HideNavigationHoverIndicator();
+        // Ignore intermediate LayoutUpdated notifications while rows are being
+        // hidden/shown. Child rows do not have their final arranged position yet.
+        _navigationLayoutRefreshPending = false;
 
         if (compact)
         {
@@ -390,8 +393,24 @@ public sealed partial class MainPage : Page
             }
         }
 
-        RequestNavigationLayoutRefresh();
-        DispatcherQueue.TryEnqueue(() => RequestNavigationLayoutRefresh());
+        QueueNavigationLayoutRefreshAfterCompactChange();
+    }
+
+    private void QueueNavigationLayoutRefreshAfterCompactChange()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // Compact mode changes both the navigation width and child visibility.
+            // Force that layout to settle before reading TransformToVisual; otherwise
+            // a selected child can retain the compact parent row's/stale Y position.
+            NavigationSurface.UpdateLayout();
+
+            var selectionTarget = GetVisibleNavigationEntry(_selectedNavigationEntry);
+            if (selectionTarget is not null)
+                QueueSelectionIndicatorAnimation(selectionTarget);
+
+            RequestNavigationLayoutRefresh();
+        });
     }
 
     private void ApplyNavigationRowLayout(FrameworkElement row)

@@ -31,6 +31,7 @@ namespace IDVBuff
         private bool elevationDialogOpen;
         private bool shutdownInProgress;
         private bool shutdownComplete;
+        private bool applicationExitRequested;
         private ServiceProvider? _serviceProvider;
         private IdvbControlServer? _idvbControlServer;
 
@@ -389,8 +390,15 @@ namespace IDVBuff
                 return;
 
             shutdownInProgress = true;
+            var closingWindow = window;
             try
             {
+                // Detach the active page tree first.  Both map editors own image
+                // decode operations and native XAML surfaces; their Unloaded
+                // handlers cancel that work before the runtime services go away.
+                if (closingWindow is not null)
+                    closingWindow.Content = null;
+
                 // 释放新架构 SessionOrchestrator 及所有子资源
                 if (_idvbControlServer is not null)
                 {
@@ -410,7 +418,9 @@ namespace IDVBuff
                     await sp.DisposeAsync()
                         .AsTask()
                         .WaitAsync(TimeSpan.FromSeconds(8));
+                    _serviceProvider = null;
                 }
+
             }
             catch (Exception exception)
             {
@@ -419,15 +429,57 @@ namespace IDVBuff
             }
             finally
             {
+                _serviceProvider = null;
+                // These two caches contain native image allocations.  They are
+                // process-wide, so disposing the DI graph alone cannot release
+                // them when a WinUI window has kept the process alive.  Keep
+                // this cleanup in finally so a timed-out service cannot skip it.
+                MapStructurePreprocessor.ClearReferenceCache();
+                MapOverlayBitmapRenderer.InvalidateImageCache();
                 shutdownComplete = true;
                 shutdownInProgress = false;
-                window?.Close();
+                try
+                {
+                    if (closingWindow is not null)
+                        closingWindow.Close();
+                    else
+                        CompleteApplicationExit();
+                }
+                catch (Exception exception)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Main window close failed: {exception}");
+                    CompleteApplicationExit();
+                }
             }
         }
 
-        private static void Window_Closed(object sender, WindowEventArgs args)
+        private void Window_Closed(object sender, WindowEventArgs args)
         {
+            if (sender is Window closedWindow)
+            {
+                closedWindow.AppWindow.Closing -= AppWindow_Closing;
+                closedWindow.Closed -= Window_Closed;
+                closedWindow.Content = null;
+            }
+            window = null;
+            CompleteApplicationExit();
+        }
+
+        private void CompleteApplicationExit()
+        {
+            if (applicationExitRequested)
+                return;
+
+            applicationExitRequested = true;
             OutputLog.Shutdown();
+            if (ReferenceEquals(_currentApp, this))
+                _currentApp = null;
+
+            // A WinUI desktop process can remain alive when another hidden
+            // XAML window or dispatcher is still registered.  Closing the main
+            // HWND is therefore followed by an explicit application exit.
+            Exit();
         }
 
         private async void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)

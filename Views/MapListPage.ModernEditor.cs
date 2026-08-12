@@ -32,6 +32,7 @@ public sealed partial class MapListPage : UserControl
     private readonly HashSet<string> _hiddenEditorGroups = new(StringComparer.Ordinal);
     private readonly HashSet<string> _hiddenEditorItems = new(StringComparer.Ordinal);
     private readonly Dictionary<string, bool> _editorGroupExpansion = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Expander> _modernLayerGroups = new(StringComparer.Ordinal);
     private readonly Dictionary<MapEditorTool, Button> _editorToolButtons = [];
     private readonly MapEditorPreferencesRepository _editorPreferences = new(
         System.IO.Path.Combine(AppDataPaths.RootDirectory, "MapEditor", "preferences.json"));
@@ -199,6 +200,7 @@ public sealed partial class MapListPage : UserControl
         };
         paneHeader.Children.Add(_modernStatusText);
         pane.Children.Add(paneHeader);
+        _modernLayerGroups.Clear();
         _modernLayerList = new StackPanel { Spacing = 3 };
         var listScroller = new ScrollViewer
         {
@@ -220,7 +222,7 @@ public sealed partial class MapListPage : UserControl
             await ShowListAsync();
         };
         actions.Children.Add(cancel);
-        _markerConfirmButton = CreateEditorActionButton("确认", DisabledGray);
+        _markerConfirmButton = CreateEditorActionButton("确认", EditorPanelRaised);
         _markerConfirmButton.Click += async (_, _) => await SaveDraftAsync();
         Grid.SetColumn(_markerConfirmButton, 1);
         actions.Children.Add(_markerConfirmButton);
@@ -284,6 +286,12 @@ public sealed partial class MapListPage : UserControl
         if (!_modernEditorActive)
             return;
         CancelModernInteraction(restoreGeometry: true);
+        if (_modernImage is not null)
+            _modernImage.Source = null;
+        if (_modernScene is not null)
+            _modernScene.Children.Clear();
+        if (_modernEditorRoot is not null)
+            _modernEditorRoot.Children.Clear();
         _modernEditorActive = false;
         NavigationCompactStateChanged?.Invoke(false);
         if (_editorThemeRoot is not null)

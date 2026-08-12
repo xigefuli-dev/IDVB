@@ -15,6 +15,7 @@ internal enum SurveyEditorTool
     Pan,
     Decontaminate,
     Align,
+    NormalizeColors,
     Eraser
 }
 
@@ -51,6 +52,7 @@ internal sealed partial class SurveyCanvasView
     private bool _isMasking;
     private readonly List<SurveyWorldPoint> _maskPoints = [];
     private Shape? _brushPreview;
+    private readonly List<Shape> _liveMaskPreview = [];
     private double _brushSize = 64d;
     private SurveyBrushShape _brushShape = SurveyBrushShape.Circle;
 
@@ -87,6 +89,8 @@ internal sealed partial class SurveyCanvasView
         }
         UpdateBrushPreviewSize();
     }
+
+    public void ClearMaskPreview() => ClearLiveMaskPreview();
 
     public void ChangeZoom(double multiplier) => SetZoomPercent(ZoomPercent * multiplier);
 
@@ -214,6 +218,7 @@ internal sealed partial class SurveyCanvasView
         _isPanning = false;
         _isMasking = false;
         _maskPoints.Clear();
+        ClearLiveMaskPreview();
         ReleasePointerCapture(e.Pointer);
     }
 
@@ -224,7 +229,33 @@ internal sealed partial class SurveyCanvasView
         var world = new SurveyWorldPoint(point.X - _originX, point.Y - _originY);
         if (_maskPoints.Count == 0
             || Distance(_maskPoints[^1], world) >= Math.Max(1d, _brushSize / 8d))
+        {
             _maskPoints.Add(world);
+            AddLiveMaskPreview(point);
+        }
+    }
+
+    private void AddLiveMaskPreview(Point point)
+    {
+        Shape mark = _brushShape == SurveyBrushShape.Circle ? new Ellipse() : new Rectangle();
+        mark.Width = _brushSize;
+        mark.Height = _brushSize;
+        mark.Fill = new SolidColorBrush(Color.FromArgb(205, 5, 10, 16));
+        mark.Stroke = new SolidColorBrush(Color.FromArgb(180, 255, 110, 80));
+        mark.StrokeThickness = 1d;
+        mark.IsHitTestVisible = false;
+        Canvas.SetLeft(mark, point.X - (_brushSize / 2d));
+        Canvas.SetTop(mark, point.Y - (_brushSize / 2d));
+        Canvas.SetZIndex(mark, 999_999);
+        _liveMaskPreview.Add(mark);
+        _canvas.Children.Add(mark);
+    }
+
+    private void ClearLiveMaskPreview()
+    {
+        foreach (var mark in _liveMaskPreview)
+            _canvas.Children.Remove(mark);
+        _liveMaskPreview.Clear();
     }
 
     private void RecreateBrushPreview()

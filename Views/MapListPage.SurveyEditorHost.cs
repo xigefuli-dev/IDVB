@@ -54,6 +54,12 @@ public sealed partial class MapListPage
     {
         if (ParentScrollViewer is not null)
             ParentScrollViewer.SizeChanged -= SurveyEditorParent_SizeChanged;
+        var editor = _surveyProjectEditor;
         _surveyProjectEditor = null;
+        if (editor is null)
+            return;
+        editor.Dispose();
+        if (ReferenceEquals(_workflowHost.Content, editor))
+            _workflowHost.Content = null;
     }
 }

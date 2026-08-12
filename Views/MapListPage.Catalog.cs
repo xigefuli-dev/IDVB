@@ -25,7 +25,10 @@ public sealed partial class MapListPage : UserControl
             return;
         var canConfirm = _draft.Recognition.HasFirstFloorGateMarkers();
         _markerConfirmButton.IsEnabled = canConfirm;
-        _markerConfirmButton.Background = new SolidColorBrush(canConfirm ? AccentBlue : DisabledGray);
+        _markerConfirmButton.Background = new SolidColorBrush(
+            canConfirm ? AccentBlue : _modernEditorActive ? EditorPanelRaised : DisabledGray);
+        if (_modernEditorActive)
+            _markerConfirmButton.Foreground = new SolidColorBrush(canConfirm ? EditorText : EditorMuted);
     }
 
     private async Task SaveDraftAsync()

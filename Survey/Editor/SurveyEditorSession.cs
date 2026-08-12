@@ -3,13 +3,14 @@ using IDVBuff.Survey.Domain;
 
 namespace IDVBuff.Survey.Editor.WinUI;
 
-internal sealed class SurveyEditorSession
+internal sealed class SurveyEditorSession : IDisposable
 {
     private readonly ISurveyCoordinator _coordinator;
     private readonly Stack<SurveyEditorHistoryEntry> _undo = [];
     private readonly Stack<SurveyEditorHistoryEntry> _redo = [];
     private readonly object _renderCacheGate = new();
-    private readonly Dictionary<(Guid LayerId, long Revision), byte[]> _renderCache = [];
+    private readonly Dictionary<(Guid LayerId, string ContentKey), byte[]> _renderCache = [];
+    private bool _disposed;
 
     public SurveyEditorSession(ISurveyCoordinator coordinator, Guid projectId)
     {
@@ -27,6 +28,7 @@ internal sealed class SurveyEditorSession
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         Snapshot = await _coordinator.GetProjectAsync(ProjectId, cancellationToken)
             ?? throw new InvalidOperationException("测绘项目不存在或已被移除。");
         SnapshotChanged?.Invoke(this, EventArgs.Empty);
@@ -41,17 +43,21 @@ internal sealed class SurveyEditorSession
         Guid layerId,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var snapshot = Snapshot
             ?? throw new InvalidOperationException("测绘项目尚未加载。");
-        var key = (layerId, snapshot.Project.Revision);
+        var layer = snapshot.Layers.Single(item => item.LayerId == layerId);
+        var observation = snapshot.Observations.Single(item => item.ObservationId == layer.ObservationId);
+        var displayAsset = layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+            ? observation.DisplayAsset
+            : observation.SourceAsset);
+        var key = (layerId, $"{displayAsset.Sha256}:{layer.HiddenMaskAsset?.Sha256}:{layer.Brightness:R}");
         lock (_renderCacheGate)
         {
             if (_renderCache.TryGetValue(key, out var cached))
                 return new MemoryStream(cached, writable: false);
         }
 
-        var layer = snapshot.Layers.Single(item => item.LayerId == layerId);
-        var observation = snapshot.Observations.Single(item => item.ObservationId == layer.ObservationId);
         await using var rendered = await _coordinator.OpenRenderedLayerAsync(
             ProjectId,
             layer,
@@ -116,6 +122,33 @@ internal sealed class SurveyEditorSession
         return result.Value;
     }
 
+    public async Task<SurveyLayerOperationResult?> NormalizeLayerColorsAsync(
+        IReadOnlyList<Guid> layerIds,
+        Guid anchorLayerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (Snapshot is null)
+            return null;
+        var before = SnapshotState(layerIds);
+        var result = await _coordinator.NormalizeLayerColorsAsync(
+            new SurveyLayerColorNormalizationRequest(
+                Guid.NewGuid(), ProjectId, Snapshot.Project.Revision, anchorLayerId, layerIds),
+            cancellationToken);
+        if (!result.Succeeded || result.Value is null)
+        {
+            Error?.Invoke(this, result.Message ?? "图层融色失败。");
+            return null;
+        }
+        Snapshot = result.Value.Snapshot;
+        var succeeded = result.Value.Items.Where(item => item.Succeeded).Select(item => item.LayerId).ToArray();
+        if (succeeded.Length > 0)
+            PushBatchHistory(FilterState(before, succeeded), SnapshotState(succeeded));
+        lock (_renderCacheGate)
+            _renderCache.Clear();
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+        return result.Value;
+    }
+
     public async Task<SurveyLayerOperationResult?> ApplyMaskStrokeAsync(
         Guid floorId,
         IReadOnlyList<Guid> layerIds,
@@ -164,6 +197,40 @@ internal sealed class SurveyEditorSession
             _redo.Clear();
         }
     }
+
+    public async Task EditManyAsync(
+        IReadOnlyCollection<Guid> layerIds,
+        Func<SurveyEditorLayerState, SurveyEditorLayerState> update,
+        CancellationToken cancellationToken = default)
+    {
+        if (Snapshot is null || layerIds.Count == 0)
+            return;
+        var before = SnapshotState(layerIds);
+        foreach (var layerId in layerIds)
+        {
+            var current = SnapshotState([layerId]).GetValueOrDefault(layerId);
+            if (current is null)
+                continue;
+            var after = update(current);
+            if (after == current)
+                continue;
+            var result = await _coordinator.EditLayerAsync(
+                CreateRequest(layerId, after, Snapshot.Project.Revision), cancellationToken);
+            if (!result.Succeeded || result.Value is null)
+            {
+                Error?.Invoke(this, result.Message ?? "批量修改未能保存。");
+                return;
+            }
+            Snapshot = result.Value;
+        }
+        var afterStates = SnapshotState(layerIds);
+        PushBatchHistory(before, afterStates);
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public Task<SurveyOperationResult<SurveyDualOutput>> RenderOutputsAsync(
+        string floorKey, CancellationToken cancellationToken = default) =>
+        _coordinator.RenderOutputsAsync(ProjectId, floorKey, cancellationToken);
 
     public async Task UndoAsync(CancellationToken cancellationToken = default)
     {
@@ -375,6 +442,8 @@ internal sealed class SurveyEditorSession
                     pair.Value.UsesCleanedDisplay,
                     pair.Value.HiddenMaskAsset,
                     ReplaceHiddenMask: true,
+                    ColorFilterAsset: pair.Value.ColorFilterAsset,
+                    ReplaceColorFilter: true,
                     ManualTransformOverride: pair.Value.ManualTransform,
                     ReplaceManualTransform: true,
                     ObservationState: pair.Value.ObservationState,
@@ -442,7 +511,8 @@ internal sealed class SurveyEditorSession
             state.IsVisible,
             state.IsLocked,
             state.IsDeleted,
-            state.Name);
+            state.Name,
+            Brightness: state.Brightness);
 
     private Dictionary<Guid, SurveyEditorLayerState> SnapshotState(IEnumerable<Guid> layerIds)
     {
@@ -474,5 +544,19 @@ internal sealed class SurveyEditorSession
             return;
         _undo.Push(new SurveyEditorBatchHistoryEntry(before, after));
         _redo.Clear();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        lock (_renderCacheGate)
+            _renderCache.Clear();
+        _undo.Clear();
+        _redo.Clear();
+        Snapshot = null;
+        SnapshotChanged = null;
+        Error = null;
     }
 }

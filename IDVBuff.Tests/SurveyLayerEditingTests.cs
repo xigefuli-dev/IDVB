@@ -22,6 +22,100 @@ public sealed class SurveyLayerEditingTestCollection
 public sealed class SurveyLayerEditingTests
 {
     [Fact]
+    public async Task ColorNormalizationIsVisibleAndKeepsOriginalAssets()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var paths = new SurveyStoragePaths(root);
+            var repository = new SqliteSurveyProjectRepository(paths);
+            var assets = new ContentAddressedSurveyAssetStore(paths);
+            await using var coordinator = new SurveyCoordinator(
+                repository, assets, null, null, null, new SurveyRegistrationTuning(),
+                null, null, new OpenCvSurveyLayerRasterEditor(assets));
+            var matchId = Guid.NewGuid();
+            var started = (await coordinator.StartAsync(new SurveyStartRequest(
+                Guid.NewGuid(), matchId, 1, "S1", "1f", "color test",
+                new string('a', 64), "test"))).Value!;
+            var anchor = (await coordinator.AddObservationAsync(CreateObservation(
+                started, CreateSolidPng(64, 64, new Scalar(40, 100, 210)), matchId, 1, 1))).Value!;
+            var target = (await coordinator.AddObservationAsync(CreateObservation(
+                anchor.Snapshot, CreateSolidPng(64, 64, new Scalar(190, 80, 30)), matchId, 1, 2))).Value!;
+            var targetSource = target.Observation.SourceAsset;
+
+            var result = (await coordinator.NormalizeLayerColorsAsync(
+                new SurveyLayerColorNormalizationRequest(
+                    Guid.NewGuid(), target.Snapshot.Project.ProjectId,
+                    target.Snapshot.Project.Revision, anchor.Layer.LayerId,
+                    [anchor.Layer.LayerId, target.Layer.LayerId]))).Value!;
+
+            var normalizedLayer = result.Snapshot.Layers.Single(layer => layer.LayerId == target.Layer.LayerId);
+            var normalizedObservation = result.Snapshot.Observations.Single(
+                observation => observation.ObservationId == target.Observation.ObservationId);
+            Assert.NotNull(normalizedLayer.ColorFilterAsset);
+            Assert.Equal(targetSource.Sha256, normalizedObservation.SourceAsset.Sha256);
+            Assert.NotEqual(targetSource.Sha256, normalizedLayer.ColorFilterAsset!.Sha256);
+            using var rendered = await ReadRenderedLayerAsync(
+                coordinator, result.Snapshot.Project.ProjectId, target.Layer.LayerId);
+            var pixel = rendered.At<Vec4b>(32, 32);
+            Assert.InRange(pixel.Item0, (byte)35, (byte)45);
+            Assert.InRange(pixel.Item1, (byte)95, (byte)105);
+            Assert.InRange(pixel.Item2, (byte)205, (byte)215);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StaleColorNormalizationIsRejectedBeforeRasterWorkStarts()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var paths = new SurveyStoragePaths(root);
+            var repository = new SqliteSurveyProjectRepository(paths);
+            var assets = new ContentAddressedSurveyAssetStore(paths);
+            var rasterEditor = new RecordingRasterEditor();
+            await using var coordinator = new SurveyCoordinator(
+                repository, assets, null, null, null, new SurveyRegistrationTuning(),
+                null, null, rasterEditor);
+            var matchId = Guid.NewGuid();
+            var started = (await coordinator.StartAsync(new SurveyStartRequest(
+                Guid.NewGuid(), matchId, 1, "S1", "1f", "stale color test",
+                new string('a', 64), "test"))).Value!;
+            var anchor = (await coordinator.AddObservationAsync(CreateObservation(
+                started, CreateSolidPng(64, 64, Scalar.White), matchId, 1, 1))).Value!;
+            var target = (await coordinator.AddObservationAsync(CreateObservation(
+                anchor.Snapshot, CreateSolidPng(64, 64, new Scalar(128, 128, 128)), matchId, 1, 2))).Value!;
+            var staleRevision = target.Snapshot.Project.Revision;
+            var advanced = (await coordinator.EditLayerAsync(new SurveyLayerEditRequest(
+                Guid.NewGuid(),
+                target.Snapshot.Project.ProjectId,
+                target.Layer.LayerId,
+                staleRevision,
+                Name: "revision advanced"))).Value!;
+
+            var result = await coordinator.NormalizeLayerColorsAsync(
+                new SurveyLayerColorNormalizationRequest(
+                    Guid.NewGuid(),
+                    advanced.Project.ProjectId,
+                    staleRevision,
+                    anchor.Layer.LayerId,
+                    [anchor.Layer.LayerId, target.Layer.LayerId]));
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(SurveyErrorCode.RevisionConflict, result.ErrorCode);
+            Assert.Equal(0, rasterEditor.NormalizeCallCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task BrushMasksAreAtomicNonDestructiveAndRoundTripThroughIdvm12()
     {
         var root = CreateTempRoot();
@@ -143,7 +237,8 @@ public sealed class SurveyLayerEditingTests
             using (var image = await ReadAssetAsync(
                 assets, edited.Project.ProjectId, visual.Asset, ImreadModes.Color))
             {
-                Assert.Equal(new Vec3b(0, 0, 0), image.At<Vec3b>(32, 32));
+                Assert.Equal(3, image.Channels());
+                Assert.Equal(new Vec3b(240, 240, 240), image.At<Vec3b>(32, 32));
                 Assert.NotEqual(new Vec3b(0, 0, 0), image.At<Vec3b>(2, 2));
             }
             using (var image = await ReadAssetAsync(
@@ -347,6 +442,41 @@ public sealed class SurveyLayerEditingTests
             SurveyPreprocessRequest request,
             CancellationToken cancellationToken = default) => Task.FromResult(new SurveyPreprocessResult(
             null, null, 1, true, null, DisplayAsset));
+    }
+
+    private sealed class RecordingRasterEditor : ISurveyLayerRasterEditor
+    {
+        public int NormalizeCallCount { get; private set; }
+
+        public Task<SurveyAssetReference> NormalizeColorsAsync(
+            Guid projectId,
+            SurveyMapLayer layer,
+            SurveyObservation observation,
+            SurveyMapLayer anchorLayer,
+            SurveyObservation anchorObservation,
+            CancellationToken cancellationToken = default)
+        {
+            NormalizeCallCount++;
+            return Task.FromException<SurveyAssetReference>(
+                new InvalidOperationException("Stale work should have been rejected."));
+        }
+
+        public Task<SurveyAssetReference?> ApplyHiddenMaskAsync(
+            Guid projectId,
+            SurveyMapLayer layer,
+            SurveyObservation observation,
+            IReadOnlyList<SurveyWorldPoint> worldPoints,
+            double size,
+            SurveyBrushShape shape,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ReadOnlyMemory<byte>> RenderLayerAsync(
+            Guid projectId,
+            SurveyMapLayer layer,
+            SurveyObservation observation,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RecordingRegistrar : ISurveyPairRegistrar

@@ -48,6 +48,10 @@ public interface ISurveyCoordinator : ISurveyStatusSource, IAsyncDisposable
         SurveyLayerAlignmentRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<SurveyOperationResult<SurveyLayerOperationResult>> NormalizeLayerColorsAsync(
+        SurveyLayerColorNormalizationRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyMaskStrokeAsync(
         SurveyMaskStrokeRequest request,
         CancellationToken cancellationToken = default);

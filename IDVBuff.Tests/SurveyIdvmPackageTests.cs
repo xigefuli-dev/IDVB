@@ -65,6 +65,7 @@ public sealed class SurveyIdvmPackageTests : IAsyncLifetime
             committed.Snapshot.Project.Revision,
             ManualTransformOverride: transform,
             Opacity: 0.37,
+            Brightness: 0.65,
             ZOrder: 17,
             IsVisible: false,
             IsLocked: true));
@@ -82,6 +83,7 @@ public sealed class SurveyIdvmPackageTests : IAsyncLifetime
         var layer = Assert.Single(imported.Layers);
         Assert.Equal(transform, layer.ManualTransformOverride);
         Assert.Equal(0.37, layer.Opacity, 6);
+        Assert.Equal(0.65, layer.Brightness, 6);
         Assert.Equal(17, layer.ZOrder);
         Assert.False(layer.IsVisible);
         Assert.True(layer.IsLocked);

@@ -52,6 +52,20 @@ public sealed class ReleaseVersioningPolicyTests
     }
 
     [Fact]
+    public void NumericVersionHonorsProductPatch()
+    {
+        var modulePath = Path.Combine(RepositoryRoot, "installer", "ReleaseVersion.psm1")
+            .Replace("'", "''");
+        var output = RunPowerShell(
+            "Import-Module '" + modulePath + "' -Force -DisableNameChecking; "
+            + "$numeric = ConvertTo-IDVBNumericVersion "
+            + "-PublicVersion 'b01.4-26.08.12.0001' -Patch 1; "
+            + "Write-Output $numeric");
+
+        Assert.Equal("1.4.1.1", output.Trim());
+    }
+
+    [Fact]
     public void InvalidCalendarTimestampIsRejected()
     {
         var modulePath = Path.Combine(RepositoryRoot, "installer", "ReleaseVersion.psm1")
@@ -73,10 +87,10 @@ public sealed class ReleaseVersioningPolicyTests
         var buildTargets = File.ReadAllText(Path.Combine(RepositoryRoot, "Directory.Build.targets"));
         var about = File.ReadAllText(Path.Combine(RepositoryRoot, "Views", "SettingsPage.cs"));
 
-        Assert.Contains("<IDVBProductVersion>1.4.0</IDVBProductVersion>", project);
+        Assert.Contains("<IDVBProductVersion>1.4.1</IDVBProductVersion>", project);
         Assert.Contains("<IDVBReleaseLine>b01.4</IDVBReleaseLine>", project);
         Assert.Contains("b01.4", installer);
-        Assert.Contains("1.4.0.0", installer);
+        Assert.Contains("1.4.1.0", installer);
         Assert.Contains("ConvertTo-IDVBNumericVersion", build);
         Assert.Contains("BuildVersionInfo.ProductVersion", about);
         Assert.Contains("BuildVersionInfo.BuildVersion", about);

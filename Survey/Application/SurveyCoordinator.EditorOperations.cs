@@ -15,6 +15,13 @@ public sealed partial class SurveyCoordinator
         {
             var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
                 ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.Revision != request.ExpectedRevision)
+            {
+                throw new SurveyRevisionConflictException(
+                    request.ProjectId,
+                    request.ExpectedRevision,
+                    current.Project.Revision);
+            }
             if (current.Project.State == SurveyProjectState.Archived)
                 return Failure<SurveyProjectSnapshot>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
             var snapshot = await _projects.ApplyLayerBatchAsync(request, cancellationToken).ConfigureAwait(false);
@@ -192,6 +199,81 @@ public sealed partial class SurveyCoordinator
         }
     }
 
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> NormalizeLayerColorsAsync(
+        SurveyLayerColorNormalizationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            // Reject queued/re-entrant commands before decoding and processing
+            // every selected image.  Previously the conflict was discovered
+            // only at the final database commit, after all native work had run.
+            if (current.Project.Revision != request.ExpectedRevision)
+            {
+                throw new SurveyRevisionConflictException(
+                    request.ProjectId,
+                    request.ExpectedRevision,
+                    current.Project.Revision);
+            }
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
+            if (_rasterEditor is null)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "当前运行环境没有图层颜色处理器。");
+            var ids = request.LayerIds.Distinct().ToArray();
+            if (ids.Length < 2 || !ids.Contains(request.AnchorLayerId))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "融色至少需要两个图层，并且基准层必须位于选择中。");
+            var selected = current.Layers.Where(layer => ids.Contains(layer.LayerId)).ToArray();
+            if (selected.Length != ids.Length || selected.Any(layer => layer.IsDeleted))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "选择中包含不存在或已删除的图层。");
+            var anchor = selected.Single(layer => layer.LayerId == request.AnchorLayerId);
+            if (selected.Any(layer => layer.FloorId != anchor.FloorId))
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "融色只能处理同一楼层的图层。");
+            var observations = current.Observations.ToDictionary(item => item.ObservationId);
+            var anchorObservation = observations[anchor.ObservationId];
+            var items = new List<SurveyLayerOperationItem>();
+            var mutations = new List<SurveyLayerMutation>();
+            foreach (var layer in selected.Where(layer => layer.LayerId != anchor.LayerId))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (layer.IsLocked)
+                {
+                    items.Add(new SurveyLayerOperationItem(layer.LayerId, false, "图层已锁定。"));
+                    continue;
+                }
+                var observation = observations[layer.ObservationId];
+                var normalized = await _rasterEditor.NormalizeColorsAsync(
+                    request.ProjectId, layer, observation, anchor, anchorObservation, cancellationToken)
+                    .ConfigureAwait(false);
+                mutations.Add(new SurveyLayerMutation(
+                    layer.LayerId,
+                    ColorFilterAsset: normalized,
+                    ReplaceColorFilter: true));
+                items.Add(new SurveyLayerOperationItem(layer.LayerId, true, "颜色已匹配到基准层。"));
+            }
+            if (mutations.Count > 0)
+                current = await _projects.ApplyLayerBatchAsync(new SurveyLayerBatchEditRequest(
+                    request.CommandId, request.ProjectId, request.ExpectedRevision, mutations), cancellationToken)
+                    .ConfigureAwait(false);
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(new(current, items));
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyLayerOperationResult>(SurveyErrorCode.PreprocessingFailed, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyMaskStrokeAsync(
         SurveyMaskStrokeRequest request,
         CancellationToken cancellationToken = default)
@@ -301,7 +383,7 @@ public sealed partial class SurveyCoordinator
     private static SurveyAssetReference SelectDisplayAsset(
         SurveyMapLayer layer,
         SurveyObservation observation) =>
-        layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+        layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
             ? observation.DisplayAsset
-            : observation.SourceAsset;
+            : observation.SourceAsset);
 }

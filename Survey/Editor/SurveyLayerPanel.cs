@@ -13,7 +13,7 @@ internal sealed class SurveyLayerSelectionEventArgs : EventArgs
     public Guid? PrimaryLayerId { get; init; }
 }
 
-internal sealed class SurveyLayerPanel : Grid
+internal sealed class SurveyLayerPanel : Grid, IDisposable
 {
     private static readonly Color Panel = Color.FromArgb(255, 18, 27, 39);
     private static readonly Color Raised = Color.FromArgb(255, 25, 36, 50);
@@ -24,6 +24,9 @@ internal sealed class SurveyLayerPanel : Grid
     private readonly StackPanel _layerItems = new() { Spacing = 6 };
     private readonly StackPanel _properties = new() { Spacing = 8 };
     private readonly SemaphoreSlim _thumbnailGate = new(4, 4);
+    private readonly Dictionary<(Guid LayerId, string ContentKey), Microsoft.UI.Xaml.Media.Imaging.BitmapImage>
+        _thumbnailCache = [];
+    private CancellationTokenSource? _thumbnailCancellation;
     private string _floorKey = "1f";
     private readonly HashSet<Guid> _selectedLayerIds = [];
     private Guid? _primaryLayerId;
@@ -32,6 +35,7 @@ internal sealed class SurveyLayerPanel : Grid
     private int _rebuildGeneration;
     private bool _keepAspectRatio = true;
     private Guid? _draggedLayerId;
+    private bool _disposed;
 
     public SurveyLayerPanel(SurveyEditorSession session)
     {
@@ -103,6 +107,12 @@ internal sealed class SurveyLayerPanel : Grid
 
     public void Rebuild()
     {
+        if (_disposed)
+            return;
+        var previousCancellation = _thumbnailCancellation;
+        var thumbnailCancellation = new CancellationTokenSource();
+        _thumbnailCancellation = thumbnailCancellation;
+        previousCancellation?.Cancel();
         var generation = ++_rebuildGeneration;
         if (_session.Snapshot is not { } snapshot)
             return;
@@ -114,6 +124,19 @@ internal sealed class SurveyLayerPanel : Grid
                 .Where(item => item.FloorId == floor.FloorId && !item.IsDeleted)
                 .OrderByDescending(item => item.ZOrder)
                 .ToArray();
+        var observations = snapshot.Observations.ToDictionary(item => item.ObservationId);
+        var validThumbnailKeys = layers
+            .Where(layer => observations.ContainsKey(layer.ObservationId))
+            .Select(layer => (
+                layer.LayerId,
+                ThumbnailContentKey(layer, observations[layer.ObservationId])))
+            .ToHashSet();
+        foreach (var staleKey in _thumbnailCache.Keys
+                     .Where(key => !validThumbnailKeys.Contains(key))
+                     .ToArray())
+        {
+            _thumbnailCache.Remove(staleKey);
+        }
         _selectedLayerIds.RemoveWhere(id => layers.All(item => item.LayerId != id));
         if (_selectedLayerIds.Count == 0 && layers.FirstOrDefault() is { } first)
         {
@@ -123,14 +146,13 @@ internal sealed class SurveyLayerPanel : Grid
         }
         if (_primaryLayerId is null || !_selectedLayerIds.Contains(_primaryLayerId.Value))
             _primaryLayerId = _selectedLayerIds.Count == 0 ? null : _selectedLayerIds.First();
-        var observations = snapshot.Observations.ToDictionary(item => item.ObservationId);
-
         _layerItems.Children.Clear();
         foreach (var layer in layers)
             _layerItems.Children.Add(CreateLayerRow(
                 layer,
                 observations.GetValueOrDefault(layer.ObservationId),
-                generation));
+                generation,
+                thumbnailCancellation.Token));
         if (layers.Length == 0)
         {
             _layerItems.Children.Add(new TextBlock
@@ -148,7 +170,8 @@ internal sealed class SurveyLayerPanel : Grid
     private FrameworkElement CreateLayerRow(
         SurveyMapLayer layer,
         SurveyObservation? observation,
-        int generation)
+        int generation,
+        CancellationToken cancellationToken)
     {
         var root = new Grid
         {
@@ -189,7 +212,18 @@ internal sealed class SurveyLayerPanel : Grid
             Opacity = layer.IsVisible ? 1d : 0.45d
         };
         if (observation is not null)
-            _ = LoadThumbnailAsync(thumbnail, layer.LayerId, generation);
+        {
+            var thumbnailKey = (layer.LayerId, ThumbnailContentKey(layer, observation));
+            if (_thumbnailCache.TryGetValue(thumbnailKey, out var cached))
+                thumbnail.Source = cached;
+            else
+                _ = LoadThumbnailAsync(
+                    thumbnail,
+                    layer.LayerId,
+                    thumbnailKey,
+                    generation,
+                    cancellationToken);
+        }
         Grid.SetColumn(thumbnail, 1);
         root.Children.Add(thumbnail);
 
@@ -235,17 +269,27 @@ internal sealed class SurveyLayerPanel : Grid
     private async Task LoadThumbnailAsync(
         Image target,
         Guid layerId,
-        int generation)
+        (Guid LayerId, string ContentKey) thumbnailKey,
+        int generation,
+        CancellationToken cancellationToken)
     {
-        await _thumbnailGate.WaitAsync();
+        var entered = false;
         try
         {
+            await _thumbnailGate.WaitAsync(cancellationToken);
+            entered = true;
             var bitmap = await SurveyBitmapLoader.LoadLayerAsync(
                 _session,
                 layerId,
-                decodePixelWidth: 100);
-            if (generation == _rebuildGeneration)
+                decodePixelWidth: 100,
+                cancellationToken: cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            _thumbnailCache[thumbnailKey] = bitmap;
+            if (!_disposed && generation == _rebuildGeneration)
                 target.Source = bitmap;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch
         {
@@ -253,8 +297,20 @@ internal sealed class SurveyLayerPanel : Grid
         }
         finally
         {
-            _thumbnailGate.Release();
+            if (entered)
+                _thumbnailGate.Release();
         }
+    }
+
+    private static string ThumbnailContentKey(
+        SurveyMapLayer layer,
+        SurveyObservation observation)
+    {
+        var displayAsset = layer.ColorFilterAsset
+            ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+                ? observation.DisplayAsset
+                : observation.SourceAsset);
+        return $"{displayAsset.Sha256}:{layer.HiddenMaskAsset?.Sha256}:{layer.Brightness:R}";
     }
 
     private void BuildProperties(SurveyMapLayer? layer)
@@ -311,22 +367,31 @@ internal sealed class SurveyLayerPanel : Grid
                 : transform with { ScaleY = value },
             0.01d);
 
-        var opacity = CreateNumberField("不透明度（%）", layer.Opacity * 100d, 0d, 100d);
-        opacity.ValueChanged += async (_, args) =>
-        {
-            if (!_updating && double.IsFinite(args.NewValue))
-                await _session.EditAsync(layer.LayerId, state => state with { Opacity = args.NewValue / 100d });
-        };
-        _properties.Children.Add(opacity);
+        _properties.Children.Add(CreateLayerSlider(
+            "明度",
+            layer.Brightness * 100d,
+            0d,
+            200d,
+            async value => await _session.EditManyAsync(
+                _selectedLayerIds,
+                state => state with { Brightness = value / 100d })));
+        _properties.Children.Add(CreateLayerSlider(
+            "不透明度",
+            layer.Opacity * 100d,
+            0d,
+            100d,
+            async value => await _session.EditManyAsync(
+                _selectedLayerIds,
+                state => state with { Opacity = value / 100d })));
 
         var switches = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
         var visible = new CheckBox { Content = "可见", IsChecked = layer.IsVisible };
         visible.Click += async (_, _) =>
-            await _session.EditAsync(layer.LayerId, state => state with { IsVisible = visible.IsChecked == true });
+            await _session.EditManyAsync(_selectedLayerIds, state => state with { IsVisible = visible.IsChecked == true });
         switches.Children.Add(visible);
         var locked = new CheckBox { Content = "锁定", IsChecked = layer.IsLocked };
         locked.Click += async (_, _) =>
-            await _session.EditAsync(layer.LayerId, state => state with { IsLocked = locked.IsChecked == true });
+            await _session.EditManyAsync(_selectedLayerIds, state => state with { IsLocked = locked.IsChecked == true });
         switches.Children.Add(locked);
         _properties.Children.Add(switches);
 
@@ -441,6 +506,49 @@ internal sealed class SurveyLayerPanel : Grid
         SmallChange = label.Contains("Scale", StringComparison.Ordinal) ? 0.01d : 1d
     };
 
+    private FrameworkElement CreateLayerSlider(
+        string label,
+        double value,
+        double minimum,
+        double maximum,
+        Func<double, Task> update)
+    {
+        var valueText = new TextBlock
+        {
+            Text = $"{value:F0}%",
+            Foreground = new SolidColorBrush(Muted),
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        var slider = new Slider
+        {
+            Header = label,
+            Value = value,
+            Minimum = minimum,
+            Maximum = maximum,
+            StepFrequency = 1d
+        };
+        slider.ValueChanged += (_, args) =>
+        {
+            valueText.Text = $"{args.NewValue:F0}%";
+        };
+        var lastSubmitted = value;
+        async Task SubmitAsync()
+        {
+            var current = slider.Value;
+            if (_updating || !double.IsFinite(current) || Math.Abs(current - lastSubmitted) < 0.000001d)
+                return;
+            lastSubmitted = current;
+            await update(current);
+        }
+        slider.PointerCaptureLost += async (_, _) => await SubmitAsync();
+        slider.KeyUp += async (_, _) => await SubmitAsync();
+        slider.LostFocus += async (_, _) => await SubmitAsync();
+        var panel = new StackPanel { Spacing = 2 };
+        panel.Children.Add(slider);
+        panel.Children.Add(valueText);
+        return panel;
+    }
+
     private static Button SmallButton(string text, string tooltip)
     {
         var button = new Button
@@ -468,4 +576,32 @@ internal sealed class SurveyLayerPanel : Grid
         observation?.State == SurveyObservationState.Registered
             ? Color.FromArgb(255, 38, 145, 85)
             : Color.FromArgb(255, 205, 116, 25);
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        ++_rebuildGeneration;
+        _thumbnailCancellation?.Cancel();
+        _thumbnailCancellation = null;
+        ClearImageSources(_layerItems);
+        ClearImageSources(_properties);
+        _thumbnailCache.Clear();
+        _layerItems.Children.Clear();
+        _properties.Children.Clear();
+        Children.Clear();
+        _selectedLayerIds.Clear();
+        _primaryLayerId = null;
+        _rangeAnchorLayerId = null;
+        SelectionChanged = null;
+    }
+
+    private static void ClearImageSources(DependencyObject root)
+    {
+        if (root is Image image)
+            image.Source = null;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            ClearImageSources(VisualTreeHelper.GetChild(root, index));
+    }
 }

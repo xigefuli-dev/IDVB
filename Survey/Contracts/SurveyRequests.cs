@@ -40,7 +40,8 @@ public sealed record SurveyLayerEditRequest(
     bool? IsLocked = null,
     bool? IsDeleted = null,
     string? Name = null,
-    bool SetAsFloorRoot = false);
+    bool SetAsFloorRoot = false,
+    double? Brightness = null);
 
 public sealed record SurveyProcessingCommitRequest(
     Guid CommandId,
@@ -117,6 +118,8 @@ public sealed record SurveyLayerMutation(
     bool? UsesCleanedDisplay = null,
     SurveyAssetReference? HiddenMaskAsset = null,
     bool ReplaceHiddenMask = false,
+    SurveyAssetReference? ColorFilterAsset = null,
+    bool ReplaceColorFilter = false,
     SurveyLayerTransform? ManualTransformOverride = null,
     bool ReplaceManualTransform = false,
     SurveyObservationState? ObservationState = null,
@@ -137,6 +140,13 @@ public sealed record SurveyLayerDecontaminationRequest(
     long ExpectedRevision);
 
 public sealed record SurveyLayerAlignmentRequest(
+    Guid CommandId,
+    Guid ProjectId,
+    long ExpectedRevision,
+    Guid AnchorLayerId,
+    IReadOnlyList<Guid> LayerIds);
+
+public sealed record SurveyLayerColorNormalizationRequest(
     Guid CommandId,
     Guid ProjectId,
     long ExpectedRevision,

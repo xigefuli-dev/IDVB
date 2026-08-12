@@ -10,6 +10,151 @@ public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
 
     public OpenCvSurveyLayerRasterEditor(ISurveyAssetStore assets) => _assets = assets;
 
+    public async Task<SurveyAssetReference> NormalizeColorsAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        SurveyMapLayer anchorLayer,
+        SurveyObservation anchorObservation,
+        CancellationToken cancellationToken = default)
+    {
+        var sourceAsset = layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+            ? observation.DisplayAsset : observation.SourceAsset;
+        var anchorAsset = anchorLayer.ColorFilterAsset ?? (anchorLayer.UsesCleanedDisplay && anchorObservation.DisplayAsset is not null
+            ? anchorObservation.DisplayAsset : anchorObservation.SourceAsset);
+        using var source = await ReadImageAsync(projectId, sourceAsset, ImreadModes.Unchanged, cancellationToken)
+            .ConfigureAwait(false);
+        using var reference = await ReadImageAsync(projectId, anchorAsset, ImreadModes.Unchanged, cancellationToken)
+            .ConfigureAwait(false);
+        using var sourceBgr = ToBgr(source);
+        using var referenceBgr = ToBgr(reference);
+        using var sourceLab = new Mat();
+        using var alignedReference = AlignReferenceToSource(
+            referenceBgr, sourceBgr.Size(), layer.EffectiveTransform, anchorLayer.EffectiveTransform);
+        using var alignedReferenceLab = new Mat();
+        Cv2.CvtColor(sourceBgr, sourceLab, ColorConversionCodes.BGR2Lab);
+        Cv2.CvtColor(alignedReference, alignedReferenceLab, ColorConversionCodes.BGR2Lab);
+        using var sourceMask = CreateContentMask(source);
+        using var referenceMask = CreateContentMask(reference);
+        using var alignedReferenceMask = AlignReferenceToSource(
+            referenceMask, sourceBgr.Size(), layer.EffectiveTransform, anchorLayer.EffectiveTransform,
+            InterpolationFlags.Nearest);
+        using var overlapMask = new Mat();
+        Cv2.BitwiseAnd(sourceMask, alignedReferenceMask, overlapMask);
+        var minimumOverlap = Math.Max(64, (source.Width * source.Height) / 1000);
+        Scalar sourceMean;
+        Scalar sourceStd;
+        Scalar referenceMean;
+        Scalar referenceStd;
+        if (Cv2.CountNonZero(overlapMask) >= minimumOverlap)
+        {
+            Cv2.MeanStdDev(sourceLab, out sourceMean, out sourceStd, overlapMask);
+            Cv2.MeanStdDev(alignedReferenceLab, out referenceMean, out referenceStd, overlapMask);
+        }
+        else
+        {
+            using var referenceLab = new Mat();
+            Cv2.CvtColor(referenceBgr, referenceLab, ColorConversionCodes.BGR2Lab);
+            Cv2.MeanStdDev(sourceLab, out sourceMean, out sourceStd, sourceMask);
+            Cv2.MeanStdDev(referenceLab, out referenceMean, out referenceStd, referenceMask);
+        }
+
+        var channels = Cv2.Split(sourceLab);
+        try
+        {
+            for (var index = 0; index < 3; index++)
+            {
+                var scale = referenceStd[index] / Math.Max(1d, sourceStd[index]);
+                scale = Math.Clamp(scale, 0.5d, 2d);
+                channels[index].ConvertTo(
+                    channels[index], MatType.CV_8UC1, scale,
+                    referenceMean[index] - (sourceMean[index] * scale));
+            }
+            using var adjustedLab = new Mat();
+            using var adjustedBgr = new Mat();
+            Cv2.Merge(channels, adjustedLab);
+            Cv2.CvtColor(adjustedLab, adjustedBgr, ColorConversionCodes.Lab2BGR);
+            using var output = new Mat();
+            if (source.Channels() == 4)
+            {
+                var originalChannels = Cv2.Split(source);
+                try { Cv2.CvtColor(adjustedBgr, output, ColorConversionCodes.BGR2BGRA); Cv2.InsertChannel(originalChannels[3], output, 3); }
+                finally { foreach (var channel in originalChannels) channel.Dispose(); }
+            }
+            else
+                adjustedBgr.CopyTo(output);
+            Cv2.ImEncode(".png", output, out var bytes);
+            return await _assets.PutAsync(projectId, new SurveyEncodedFrame(
+                bytes, ".png", "image/png", output.Width, output.Height, observation.Capture), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var channel in channels) channel.Dispose();
+        }
+    }
+
+    private static Mat ToBgr(Mat image)
+    {
+        var result = new Mat();
+        if (image.Channels() == 4) Cv2.CvtColor(image, result, ColorConversionCodes.BGRA2BGR);
+        else if (image.Channels() == 3) image.CopyTo(result);
+        else if (image.Channels() == 1) Cv2.CvtColor(image, result, ColorConversionCodes.GRAY2BGR);
+        else if (image.Channels() == 2)
+        {
+            using var gray = new Mat();
+            Cv2.ExtractChannel(image, gray, 0);
+            Cv2.CvtColor(gray, result, ColorConversionCodes.GRAY2BGR);
+        }
+        else throw new InvalidDataException($"Unsupported survey color-filter channel count: {image.Channels()}.");
+        return result;
+    }
+
+    private static Mat CreateContentMask(Mat image)
+    {
+        var mask = new Mat();
+        using var bgr = ToBgr(image);
+        using var gray = new Mat();
+        Cv2.CvtColor(bgr, gray, ColorConversionCodes.BGR2GRAY);
+        Cv2.Threshold(gray, mask, 4d, 255d, ThresholdTypes.Binary);
+        if (image.Channels() is 2 or 4)
+        {
+            using var alpha = new Mat();
+            Cv2.ExtractChannel(image, alpha, image.Channels() - 1);
+            Cv2.BitwiseAnd(mask, alpha, mask);
+        }
+        return mask;
+    }
+
+    private static Mat AlignReferenceToSource(
+        Mat reference,
+        Size sourceSize,
+        SurveyLayerTransform sourceTransform,
+        SurveyLayerTransform referenceTransform,
+        InterpolationFlags interpolation = InterpolationFlags.Linear)
+    {
+        var origin = referenceTransform.InverseTransform(sourceTransform.Transform(new SurveyWorldPoint(0d, 0d)));
+        var xBasis = referenceTransform.InverseTransform(sourceTransform.Transform(new SurveyWorldPoint(1d, 0d)));
+        var yBasis = referenceTransform.InverseTransform(sourceTransform.Transform(new SurveyWorldPoint(0d, 1d)));
+        using var matrix = new Mat(2, 3, MatType.CV_64FC1);
+        matrix.Set(0, 0, xBasis.X - origin.X);
+        matrix.Set(0, 1, yBasis.X - origin.X);
+        matrix.Set(0, 2, origin.X);
+        matrix.Set(1, 0, xBasis.Y - origin.Y);
+        matrix.Set(1, 1, yBasis.Y - origin.Y);
+        matrix.Set(1, 2, origin.Y);
+        var aligned = new Mat();
+        Cv2.WarpAffine(
+            reference,
+            aligned,
+            matrix,
+            sourceSize,
+            interpolation | InterpolationFlags.WarpInverseMap,
+            BorderTypes.Constant,
+            Scalar.Black);
+        return aligned;
+    }
+
     public async Task<SurveyAssetReference?> ApplyHiddenMaskAsync(
         Guid projectId,
         SurveyMapLayer layer,
@@ -61,9 +206,9 @@ public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
         SurveyObservation observation,
         CancellationToken cancellationToken = default)
     {
-        var selected = layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+        var selected = layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
             ? observation.DisplayAsset
-            : observation.SourceAsset;
+            : observation.SourceAsset);
         using var source = await ReadImageAsync(projectId, selected, ImreadModes.Unchanged, cancellationToken)
             .ConfigureAwait(false);
         using var bgra = new Mat();
@@ -90,6 +235,7 @@ public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
         {
             throw new InvalidDataException($"Unsupported survey layer channel count: {source.Channels()}.");
         }
+        ApplyBrightness(bgra, layer.Brightness);
         if (layer.HiddenMaskAsset is not null)
         {
             using var hidden = await ReadMaskAsync(
@@ -114,6 +260,24 @@ public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
         }
         Cv2.ImEncode(".png", bgra, out var bytes);
         return bytes;
+    }
+
+    private static void ApplyBrightness(Mat bgra, double brightness)
+    {
+        if (Math.Abs(brightness - 1d) < 0.000001d)
+            return;
+        var channels = Cv2.Split(bgra);
+        try
+        {
+            for (var index = 0; index < 3; index++)
+                channels[index].ConvertTo(channels[index], MatType.CV_8UC1, brightness);
+            Cv2.Merge(channels, bgra);
+        }
+        finally
+        {
+            foreach (var channel in channels)
+                channel.Dispose();
+        }
     }
 
     private async Task<Mat> ReadMaskAsync(

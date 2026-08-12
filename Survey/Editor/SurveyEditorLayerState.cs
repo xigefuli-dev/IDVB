@@ -5,6 +5,7 @@ namespace IDVBuff.Survey.Editor.WinUI;
 internal sealed record SurveyEditorLayerState(
     SurveyLayerTransform? ManualTransform,
     double Opacity,
+    double Brightness,
     int ZOrder,
     bool IsVisible,
     bool IsLocked,
@@ -12,6 +13,7 @@ internal sealed record SurveyEditorLayerState(
     string Name,
     bool UsesCleanedDisplay,
     SurveyAssetReference? HiddenMaskAsset,
+    SurveyAssetReference? ColorFilterAsset,
     SurveyObservationState ObservationState,
     SurveyErrorCode ObservationErrorCode,
     string? ObservationErrorMessage)
@@ -21,6 +23,7 @@ internal sealed record SurveyEditorLayerState(
         SurveyObservation observation) => new(
         layer.ManualTransformOverride,
         layer.Opacity,
+        layer.Brightness,
         layer.ZOrder,
         layer.IsVisible,
         layer.IsLocked,
@@ -28,6 +31,7 @@ internal sealed record SurveyEditorLayerState(
         layer.Name,
         layer.UsesCleanedDisplay,
         layer.HiddenMaskAsset,
+        layer.ColorFilterAsset,
         observation.State,
         observation.ErrorCode,
         observation.ErrorMessage);

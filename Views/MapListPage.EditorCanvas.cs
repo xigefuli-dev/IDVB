@@ -509,7 +509,9 @@ public sealed partial class MapListPage : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        ResetModernMarkerEditorSession();
+        ResetMarkerEditorSession();
+        _previewImages.Clear();
+        _workflowHost.Content = null;
         DetachMarkerHostScroller();
         if (ParentScrollViewer is not null)
             ParentScrollViewer.SizeChanged -= OnParentScrollViewerSizeChanged;

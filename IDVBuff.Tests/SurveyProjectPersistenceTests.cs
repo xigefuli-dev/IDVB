@@ -63,6 +63,7 @@ public sealed class SurveyProjectPersistenceTests : IAsyncLifetime
             committed.Snapshot.Project.Revision,
             ManualTransformOverride: transform,
             Opacity: 0.42,
+            Brightness: 1.35,
             ZOrder: 9,
             IsVisible: false));
         Assert.True(edited.Succeeded);
@@ -75,6 +76,7 @@ public sealed class SurveyProjectPersistenceTests : IAsyncLifetime
         Assert.Equal(transform, layer.ManualTransformOverride);
         Assert.Equal(transform, layer.EffectiveTransform);
         Assert.Equal(0.42, layer.Opacity, 6);
+        Assert.Equal(1.35, layer.Brightness, 6);
         Assert.Equal(9, layer.ZOrder);
         Assert.False(layer.IsVisible);
     }
@@ -331,7 +333,7 @@ public sealed class SurveyProjectPersistenceTests : IAsyncLifetime
         await verification.OpenAsync();
         var schema = verification.CreateCommand();
         schema.CommandText = "SELECT value FROM meta WHERE key = 'survey_schema_version';";
-        Assert.Equal("5", Convert.ToString(await schema.ExecuteScalarAsync()));
+        Assert.Equal("7", Convert.ToString(await schema.ExecuteScalarAsync()));
         var tables = verification.CreateCommand();
         tables.CommandText = """
             SELECT COUNT(*) FROM sqlite_master

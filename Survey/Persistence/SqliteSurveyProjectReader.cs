@@ -190,12 +190,14 @@ internal static class SqliteSurveyProjectReader
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT l.layer_id, l.floor_id, l.observation_id, l.name, l.z_order, l.is_visible,
-                   l.is_locked, l.is_deleted, l.opacity, l.blend_mode, l.auto_tx, l.auto_ty,
+                   l.is_locked, l.is_deleted, l.opacity, l.brightness, l.blend_mode, l.auto_tx, l.auto_ty,
                    l.auto_rotation, l.auto_sx, l.auto_sy, l.manual_tx, l.manual_ty,
                    l.manual_rotation, l.manual_sx, l.manual_sy, l.auto_revision, l.manual_revision,
                    COALESCE(e.uses_cleaned_display, 0), e.hidden_sha256,
                    e.hidden_path, e.hidden_media_type, e.hidden_byte_length,
-                   e.hidden_pixel_width, e.hidden_pixel_height
+                   e.hidden_pixel_width, e.hidden_pixel_height,
+                   e.color_sha256, e.color_path, e.color_media_type, e.color_byte_length,
+                   e.color_pixel_width, e.color_pixel_height
             FROM layers l
             LEFT JOIN layer_edit_state e ON e.layer_id = l.layer_id
             WHERE l.project_id = $project_id ORDER BY z_order DESC, l.layer_id;
@@ -204,19 +206,23 @@ internal static class SqliteSurveyProjectReader
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            var automatic = ReadTransform(reader, 10);
-            SurveyLayerTransform? manual = reader.IsDBNull(15)
+            var automatic = ReadTransform(reader, 11);
+            SurveyLayerTransform? manual = reader.IsDBNull(16)
                 ? null
-                : ReadTransform(reader, 15);
-            SurveyAssetReference? hiddenMask = reader.IsDBNull(23)
+                : ReadTransform(reader, 16);
+            SurveyAssetReference? hiddenMask = reader.IsDBNull(24)
                 ? null
                 : new SurveyAssetReference(
-                    reader.GetString(23),
                     reader.GetString(24),
                     reader.GetString(25),
-                    reader.GetInt64(26),
-                    reader.GetInt32(27),
-                    reader.GetInt32(28));
+                    reader.GetString(26),
+                    reader.GetInt64(27),
+                    reader.GetInt32(28),
+                    reader.GetInt32(29));
+            SurveyAssetReference? colorFilter = reader.IsDBNull(30)
+                ? null
+                : new SurveyAssetReference(reader.GetString(30), reader.GetString(31), reader.GetString(32),
+                    reader.GetInt64(33), reader.GetInt32(34), reader.GetInt32(35));
             result.Add(new SurveyMapLayer(
                 ParseGuid(reader.GetString(0)),
                 projectId,
@@ -228,13 +234,15 @@ internal static class SqliteSurveyProjectReader
                 reader.GetBoolean(6),
                 reader.GetBoolean(7),
                 reader.GetDouble(8),
-                (SurveyBlendMode)reader.GetInt32(9),
+                (SurveyBlendMode)reader.GetInt32(10),
                 automatic,
                 manual,
-                reader.GetInt64(20),
                 reader.GetInt64(21),
-                reader.GetBoolean(22),
-                hiddenMask));
+                reader.GetInt64(22),
+                reader.GetBoolean(23),
+                hiddenMask,
+                colorFilter,
+                reader.GetDouble(9)));
         }
         return result;
     }

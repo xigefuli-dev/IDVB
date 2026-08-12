@@ -4,7 +4,7 @@ namespace IDVBuff.Survey.Persistence.Sqlite;
 
 internal static class SurveyDatabaseSchema
 {
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 7;
 
     public static async Task<int> ReadStoredVersionAsync(
         string databasePath,
@@ -145,6 +145,7 @@ internal static class SurveyDatabaseSchema
                 is_locked INTEGER NOT NULL,
                 is_deleted INTEGER NOT NULL,
                 opacity REAL NOT NULL,
+                brightness REAL NOT NULL DEFAULT 1.0,
                 blend_mode INTEGER NOT NULL,
                 auto_tx REAL NOT NULL,
                 auto_ty REAL NOT NULL,
@@ -169,7 +170,13 @@ internal static class SurveyDatabaseSchema
                 hidden_media_type TEXT NULL,
                 hidden_byte_length INTEGER NULL,
                 hidden_pixel_width INTEGER NULL,
-                hidden_pixel_height INTEGER NULL
+                hidden_pixel_height INTEGER NULL,
+                color_sha256 TEXT NULL,
+                color_path TEXT NULL,
+                color_media_type TEXT NULL,
+                color_byte_length INTEGER NULL,
+                color_pixel_width INTEGER NULL,
+                color_pixel_height INTEGER NULL
             );
 
             CREATE TABLE IF NOT EXISTS constraints (
@@ -247,6 +254,19 @@ internal static class SurveyDatabaseSchema
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
+        if (storedVersion < 6)
+        {
+            await EnsureColumnAsync(connection, "color_sha256", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "color_path", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "color_media_type", "TEXT NULL", cancellationToken).ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "color_byte_length", "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "color_pixel_width", "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+            await EnsureColumnAsync(connection, "color_pixel_height", "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+        }
+
+        if (storedVersion < 7)
+            await EnsureLayerColumnAsync(connection, "brightness", "REAL NOT NULL DEFAULT 1.0", cancellationToken).ConfigureAwait(false);
+
         var versionCommand = connection.CreateCommand();
         versionCommand.CommandText = """
             INSERT INTO meta(key, value) VALUES('survey_schema_version', $version)
@@ -254,6 +274,46 @@ internal static class SurveyDatabaseSchema
             """;
         versionCommand.Parameters.AddWithValue("$version", CurrentVersion.ToString());
         await versionCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureColumnAsync(
+        SqliteConnection connection,
+        string name,
+        string definition,
+        CancellationToken cancellationToken)
+    {
+        var columns = connection.CreateCommand();
+        columns.CommandText = "PRAGMA table_info(layer_edit_state);";
+        await using var reader = await columns.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (string.Equals(reader.GetString(1), name, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+        await reader.DisposeAsync().ConfigureAwait(false);
+        var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE layer_edit_state ADD COLUMN {name} {definition};";
+        await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EnsureLayerColumnAsync(
+        SqliteConnection connection,
+        string name,
+        string definition,
+        CancellationToken cancellationToken)
+    {
+        var columns = connection.CreateCommand();
+        columns.CommandText = "PRAGMA table_info(layers);";
+        await using var reader = await columns.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (string.Equals(reader.GetString(1), name, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+        await reader.DisposeAsync().ConfigureAwait(false);
+        var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE layers ADD COLUMN {name} {definition};";
+        await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<int> ReadVersionFromOpenConnectionAsync(

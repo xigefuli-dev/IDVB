@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using IDVBuff.Core.Models;
 
 namespace IDVBuff.Features.Maps;
 
@@ -138,14 +139,33 @@ public sealed partial class SessionOrchestrator
                 out _)
             && clientBounds is MapScreenRect physicalBounds)
         {
-            var resolved = _settings!.ResolveMapViewportRegion(
+            return ResolveViewportRegion(
                 (int)Math.Round(physicalBounds.Width),
                 (int)Math.Round(physicalBounds.Height));
-            if (resolved?.IsValid is true)
-                return resolved;
         }
 
-        return _settings!.MapViewportRegion
+        return ResolveViewportRegion(0, 0);
+    }
+
+    /// <summary>
+    /// 解析地图视口区域：活跃预设的 viewport.toml 优先，
+    /// 缺失则回退 settings.json 的按分辨率 / 全局校准，最后整帧。
+    /// </summary>
+    private NormalizedRectangle ResolveViewportRegion(int width, int height)
+    {
+        var toml = _config.Get<ViewportCalibrationConfig>("viewport");
+        if (toml.MapRegionWidth >= 0.01 && toml.MapRegionHeight >= 0.01)
+        {
+            return new NormalizedRectangle
+            {
+                X = toml.MapRegionX,
+                Y = toml.MapRegionY,
+                Width = toml.MapRegionWidth,
+                Height = toml.MapRegionHeight
+            };
+        }
+
+        return _settings!.ResolveMapViewportRegion(width, height)
             ?? new NormalizedRectangle { X = 0, Y = 0, Width = 1, Height = 1 };
     }
 }

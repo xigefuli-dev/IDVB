@@ -139,20 +139,19 @@ public sealed partial class MapStatusPage : UserControl
         _firstScanStrategyToggle.IsOn =
             _runtime.Settings.FirstScanStrategy == FirstScanStrategy.SideEntrance;
 
-        // 预设选择器
+        // 预设选择器（「自动」+ 各分辨率预设）
         if (_presetSelector.Items.Count == 0)
         {
-            _presetSelector.ItemsSource = _runtime.GetAvailablePresets();
-            var activePreset = _runtime.GetActivePreset();
-            foreach (IDVBuff.Core.Models.ResolutionTuningProfile p in _presetSelector.Items)
-            {
-                if (p.Name == activePreset)
-                {
-                    _presetSelector.SelectedItem = p;
-                    break;
-                }
-            }
+            var items = new List<PresetSelectionItem> { PresetSelectionItem.Auto };
+            items.AddRange(_runtime.GetAvailablePresets()
+                .Select(profile => new PresetSelectionItem(profile.Name, profile.Name)));
+            _presetSelector.ItemsSource = items;
         }
+        var selectedPreset = _runtime.GetSelectedResolutionPreset();
+        _presetSelector.SelectedItem = _presetSelector.Items
+            .OfType<PresetSelectionItem>()
+            .FirstOrDefault(item => item.ProfileName == selectedPreset)
+            ?? PresetSelectionItem.Auto;
         _sideEntranceFeatureRadius.Value = tuning.SideEntranceFeatureRadius;
         var controlsEnabled = !_runtime.IsScanning;
         _allowAutomaticMapCacheToggle.IsEnabled = controlsEnabled;
@@ -289,7 +288,8 @@ public sealed partial class MapStatusPage : UserControl
                     + $" · 端到端 {floorResult.EndToEndMilliseconds:F1}ms"
             : "尚无楼层识别结果";
         _mapReadiness.Text =
-            $"{_runtime.ReadyMapCount}/{_runtime.TotalMapCount} 张地图已完成一楼区域与双门标记";
+            $"主识别 {_runtime.ReadyMapCount}/{_runtime.TotalMapCount} · "
+            + $"侧门扫描 {_runtime.SideEntranceReadyMapCount}/{_runtime.TotalMapCount} 就绪";
         _selectedMapState.Text = _runtime.SelectedMap is { } selectedMap
             ? selectedMap.DisplayName
             : "尚未快捷扫描或手动选择地图";

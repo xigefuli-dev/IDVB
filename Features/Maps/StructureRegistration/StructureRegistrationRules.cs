@@ -18,6 +18,7 @@ internal static class StructureRegistrationRules
     public static double RotationTolerance => _structure.RotationTolerance;
     public static double MinimumUsableScale => _structure.MinimumUsableScale;
     public static double ScaleAgreementTolerance => _structure.ScaleAgreementTolerance;
+    public static double MaximumScaleChangeRatio => _structure.MaximumScaleChangeRatio;
     public static double ScaleDuplicateTolerance => _structure.ScaleDuplicateTolerance;
     public static double SpatialDuplicateTolerance => _structure.SpatialDuplicateTolerance;
     public static double CandidateDuplicateRadius => _structure.CandidateDuplicateRadius;

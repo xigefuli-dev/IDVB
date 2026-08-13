@@ -7,6 +7,9 @@
     <Project Path="Services\IDVBuff.Services.csproj" />
     <Project Path="Pipeline\IDVBuff.Pipeline.csproj" />
     <Project Path="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
+    <Project Path="UpdateCore\IDVBuff.UpdateCore.csproj" />
+    <Project Path="Updater\IDVBuff.Updater.csproj" />
+    <Project Path="release\IDVBuff.ReleaseTool\IDVBuff.ReleaseTool.csproj" />
     <Project Path="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
     <Project Path="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
     <Project Path="Survey\Application\IDVBuff.Survey.Application.csproj" />

@@ -133,16 +133,6 @@ internal static partial class MapCvAlignmentService
             // features. Structure validation only needs edge geometry.
             structureSearchTuning.EnableFeatureVoting = false;
         }
-        var hasReliableCurrentSideSeed =
-            searchCtx?.UseInitialHighPrecisionRecovery == true
-            && session.SideEntranceScanPriorConfidence >= 0.80d;
-        if (hasReliableCurrentSideSeed)
-        {
-            // The side-feature match already selected one location basin in
-            // this exact frame. Nearby corridor candidates are therefore not
-            // independent map choices and must not reintroduce ambiguity.
-            structureSearchTuning.MinimumCandidateMargin = 0d;
-        }
         if (!isSideEntranceStructureRoute)
         {
             structureSearchTuning.TopCandidateCount = Math.Min(
@@ -170,7 +160,10 @@ internal static partial class MapCvAlignmentService
                 ? MapScaleSearchPolicy.Search
                 : MapScaleSearchPolicy.Fixed,
             RestrictSearchToLockedTransform = restrictStructureSearch,
-            TrackingMode = true,
+            // 侧门初次配准的 seed 是扫描种子（不可靠），不应卡在 tracking 窄窗
+            // （±0.5% scale / 48px）。非 tracking 改用 ScaleSearchRadius / 96px，
+            // 给 seed 的尺度偏差更多纠正空间；非侧门路由仍保持 tracking。
+            TrackingMode = !isSideEntranceStructureRoute,
             ForceBestCandidate = false,
             PreparedReference = preparedReference,
             PreparedLive = preparedLive,
@@ -188,7 +181,14 @@ internal static partial class MapCvAlignmentService
             && restrictStructureSearch
             && !structure.Accepted)
         {
-            var globalRecoveryTuning = structureSearchTuning.Clone();
+            // A global recovery is a new identity search, so start from the
+            // caller's complete tuning instead of inheriting local-search
+            // mutations. Initial identity callers cap both normal and
+            // restricted Chamfer ceilings at 3 px, so switching search modes
+            // cannot weaken acceptance.
+            var globalRecoveryTuning = structureTuning.Clone();
+            globalRecoveryTuning.EnableFeatureVoting =
+                structureSearchTuning.EnableFeatureVoting;
             if (TryApplyNoDoorBudgetBeforeGlobalSearch(
                     globalRecoveryTuning,
                     structure))

@@ -219,6 +219,8 @@ public sealed partial class SessionOrchestrator
             return;
         }
         var cancellationToken = CurrentMatchCancellationToken;
+        var toggleVersion = 0;
+        var restoreOverlay = false;
         if (!await _scanGate.WaitAsync(0, cancellationToken))
         {
             _statusMessage = "已有测绘采集正在进行，请稍候。";
@@ -227,13 +229,25 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        var toggleVersion = _gameMapToggleState.Version;
-        var restoreOverlay = _overlay.IsVisible;
-        ShowSurveyCaptureStatus(MapOverlayStatusLevel.Warning, "正在采集测绘画面", "请保持游戏地图稳定。" );
-        if (restoreOverlay)
-            _overlay.Hide();
         try
         {
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Info,
+                "Survey capture lock acquired",
+                details: new()
+                {
+                    ["outcome"] = "scan-gate-acquired",
+                    ["operationEpoch"] = operationMatch.OperationEpoch
+                });
+            toggleVersion = _gameMapToggleState.Version;
+            restoreOverlay = TryGetSurveyOverlayVisibility();
+            ShowSurveyCaptureStatus(
+                MapOverlayStatusLevel.Warning,
+                "正在采集测绘画面",
+                "请保持游戏地图稳定。");
+            if (restoreOverlay)
+                TrySurveyOverlayOperation("overlay-hide", _overlay.Hide);
             await _surveyCoordinator.SetRuntimeStateAsync(
                 operationMatch.SurveyProjectId.Value,
                 SurveyRuntimeState.WaitingForStableFrame,
@@ -278,6 +292,22 @@ public sealed partial class SessionOrchestrator
                 toggleVersion,
                 snapshot.Project.Revision,
                 cancellationToken);
+            _logCollector.Append(
+                MapLogCategory.Session,
+                result.Succeeded ? MapLogLevel.Info : MapLogLevel.Warning,
+                result.Succeeded
+                    ? "Survey observation committed"
+                    : "Survey observation commit rejected",
+                details: new()
+                {
+                    ["outcome"] = result.Succeeded
+                        ? "observation-commit-succeeded"
+                        : "observation-commit-failed",
+                    ["projectId"] = operationMatch.SurveyProjectId,
+                    ["operationEpoch"] = operationMatch.OperationEpoch,
+                    ["mapToggleVersion"] = toggleVersion,
+                    ["message"] = result.Message
+                });
             _statusMessage = result.Message
                 ?? (result.Succeeded ? "测绘图层已记录。" : "测绘图层记录失败。");
             ShowSurveyCaptureStatus(
@@ -317,12 +347,76 @@ public sealed partial class SessionOrchestrator
         }
         finally
         {
-            if (restoreOverlay
-                && IsCurrentMatchOperation(operationMatch)
-                && !_overlay.IsVisible)
-                _overlay.Show();
-            _scanGate.Release();
-            StateChanged?.Invoke(this, EventArgs.Empty);
+            SurveyCaptureCleanup.Complete(
+                _scanGate,
+                () =>
+                {
+                    if (restoreOverlay
+                        && IsCurrentMatchOperation(operationMatch)
+                        && !TryGetSurveyOverlayVisibility())
+                    {
+                        _overlay.Show();
+                    }
+                },
+                () => StateChanged?.Invoke(this, EventArgs.Empty),
+                LogSurveyCleanupFailure);
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Info,
+                "Survey capture lock released",
+                details: new()
+                {
+                    ["outcome"] = "scan-gate-released",
+                    ["operationEpoch"] = operationMatch.OperationEpoch
+                });
+        }
+    }
+
+    private bool TryGetSurveyOverlayVisibility()
+    {
+        try
+        {
+            return _overlay.IsVisible;
+        }
+        catch (Exception exception)
+        {
+            LogSurveyCleanupFailure("overlay-visibility", exception);
+            return false;
+        }
+    }
+
+    private void TrySurveyOverlayOperation(string operation, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            LogSurveyCleanupFailure(operation, exception);
+        }
+    }
+
+    private void LogSurveyCleanupFailure(
+        string operation,
+        Exception exception)
+    {
+        try
+        {
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Warning,
+                $"Survey UI cleanup failed: {operation}",
+                details: new()
+                {
+                    ["outcome"] = "overlay-operation-failed",
+                    ["operation"] = operation,
+                    ["exceptionType"] = exception.GetType().FullName,
+                    ["exception"] = exception.ToString()
+                });
+        }
+        catch
+        {
         }
     }
 

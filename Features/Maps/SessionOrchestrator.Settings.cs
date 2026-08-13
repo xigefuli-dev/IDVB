@@ -258,6 +258,10 @@ public sealed partial class SessionOrchestrator
             clientHeight,
             observedDpi);
         await SaveSettingsAsync();
+        await WriteViewportCalibrationToPresetAsync(
+            clientWidth,
+            clientHeight,
+            observedDpi);
     }
 
     public async Task SetFloorDisplayRegionAsync(
@@ -302,7 +306,75 @@ public sealed partial class SessionOrchestrator
     public async Task SetFirstScanStrategyAsync(FirstScanStrategy s)
     { _settings!.FirstScanStrategy = s; await SaveSettingsAsync(); }
 
+    /// <summary>
+    /// 记录「使用配置文件」的用户选择（null/空 = 自动）并持久化。
+    /// 仅保存选择，不即时重载 TOML——实际预设在对局控件激活时解析生效。
+    /// </summary>
+    public async Task SetSelectedResolutionPresetAsync(string? presetNameOrNull)
+    {
+        var normalized = string.IsNullOrWhiteSpace(presetNameOrNull)
+            ? null
+            : presetNameOrNull.Trim();
+        if (_settings!.SelectedResolutionPreset == normalized)
+            return;
+        _settings.SelectedResolutionPreset = normalized;
+        await SaveSettingsAsync();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     // ════════════════ TOML Write-back ════════════════
+
+    /// <summary>
+    /// 将当前校准地图区域写回目标预设目录的 viewport.toml。
+    /// 目标预设由用户选择解析：指定配置→该配置；自动→按窗口实际分辨率匹配。
+    /// </summary>
+    private async Task WriteViewportCalibrationToPresetAsync(
+        int clientWidth,
+        int clientHeight,
+        uint observedDpi)
+    {
+        var region = _settings!.MapViewportRegion;
+        if (region?.IsValid is not true)
+            return;
+
+        try
+        {
+            var target = ResolutionPresetResolver.ResolveEffectivePreset(
+                _settings.SelectedResolutionPreset,
+                GetAvailablePresets(),
+                clientWidth,
+                clientHeight,
+                observedDpi > 0 ? (int)observedDpi : 120);
+            if (string.IsNullOrWhiteSpace(target))
+                target = _config.ActiveResolutionPreset;
+            if (string.IsNullOrWhiteSpace(target))
+                return;
+
+            var presetDir = _config.ResolvePresetDirectory(target);
+            await ViewportCalibrationTomlWriter.WriteAsync(presetDir, region);
+
+            // 写回目标正是当前活跃预设时，需重载合并表，否则下一次
+            // ResolveViewportRegion 仍会读到旧的 viewport.toml（同名切换会因
+            // SetActivePreset 的早期返回而不触发重载）。
+            var activeGeometry = _config.ActiveResolutionPreset.Split(' ')[0];
+            var targetGeometry = target.Split(' ')[0];
+            if (string.Equals(
+                activeGeometry,
+                targetGeometry,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                _config.Reload();
+            }
+        }
+        catch (Exception ex)
+        {
+            // viewport.toml 写回失败不应影响主流程
+            _logCollector.Append(
+                MapLogCategory.System,
+                MapLogLevel.Warning,
+                $"viewport.toml 写回失败：{ex.Message}");
+        }
+    }
 
     /// <summary>将当前显示设置写回活跃预设的 overlay.toml。</summary>
     private async Task SaveOverlayConfigToPresetAsync()

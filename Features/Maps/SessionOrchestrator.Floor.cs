@@ -4,7 +4,7 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
-    public void SwitchFloor() => HandleSwitchFloor();
+    public void SwitchFloor() => HandleSwitchFloorSafely();
 
     /// <summary>
     /// Selects an exact user-visible floor position. RealCLI uses this after
@@ -13,40 +13,46 @@ public sealed partial class SessionOrchestrator
     /// </summary>
     public bool SelectFloorPosition(int position)
     {
-        if (position < 1 || _lastRecognition is not { } recognition)
-            return false;
-
-        var floorKey = MapFloorRules.GetFloorKeyAtPosition(
-            recognition.Map,
-            position);
-        if (floorKey is null)
-            return false;
-
-        _currentFloorKey = floorKey;
-        if (!string.Equals(
-                recognition.Result.Floor,
-                floorKey,
-                StringComparison.Ordinal))
+        try
         {
-            _overlay.ClearMap();
-        }
-        RefreshMiniMapForCurrentFloor();
-        var floorLabel = MapFloorRules.GetFloorDisplayName(
-            recognition.Map,
-            floorKey);
-        _statusMessage = $"已手动切换到{floorLabel}；下次开图将按该楼层对齐。";
-        _logCollector.Append(
-            MapLogCategory.FloorRecognition,
-            MapLogLevel.Info,
-            $"RealCLI 楼层同步：{floorLabel}",
-            details: new()
+            if (!TryGetFloorSwitchIdentity(
+                    out var recognition,
+                    out var identityState,
+                    out var matchVersion))
             {
-                ["floor"] = floorKey,
-                ["position"] = position
-            });
-        try { _overlay.Show(); } catch { }
-        NotifyStateChanged();
-        return true;
+                return false;
+            }
+
+            var decision = MapFloorSwitchDecision.AtPosition(
+                recognition.Map,
+                _currentFloorKey ?? recognition.Result.Floor,
+                position);
+            if (!decision.Succeeded || decision.ToFloorKey is null)
+            {
+                ReportFloorSwitchRejected(
+                    decision.Failure,
+                    identityState,
+                    matchVersion,
+                    recognition.Map.Id,
+                    decision.FromFloorKey,
+                    requestedPosition: position);
+                return false;
+            }
+
+            ApplyFloorSwitch(
+                recognition,
+                identityState,
+                matchVersion,
+                decision,
+                source: "real-cli-position",
+                requestedPosition: position);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ReportFloorSwitchException(exception, "real-cli-position");
+            return false;
+        }
     }
 
     /// <summary>
@@ -55,12 +61,121 @@ public sealed partial class SessionOrchestrator
     /// </summary>
     private void HandleSwitchFloor()
     {
-        if (_lastRecognition is not { } recognition)
+        if (!TryGetFloorSwitchIdentity(
+                out var recognition,
+                out var identityState,
+                out var matchVersion))
+        {
             return;
-        var nextFloorKey = MapFloorRules.GetNextFloorKey(
-            recognition.Map, _currentFloorKey ?? recognition.Result.Floor);
-        if (nextFloorKey is null)
+        }
+
+        var decision = MapFloorSwitchDecision.Next(
+            recognition.Map,
+            _currentFloorKey ?? recognition.Result.Floor);
+        if (!decision.Succeeded || decision.ToFloorKey is null)
+        {
+            ReportFloorSwitchRejected(
+                decision.Failure,
+                identityState,
+                matchVersion,
+                recognition.Map.Id,
+                decision.FromFloorKey);
             return;
+        }
+
+        ApplyFloorSwitch(
+            recognition,
+            identityState,
+            matchVersion,
+            decision,
+            source: "hotkey");
+    }
+
+    private void HandleSwitchFloorSafely()
+    {
+        try
+        {
+            HandleSwitchFloor();
+        }
+        catch (Exception exception)
+        {
+            ReportFloorSwitchException(exception, "hotkey");
+        }
+    }
+
+    private bool TryGetFloorSwitchIdentity(
+        out RuntimeMapRecognition recognition,
+        out string identityState,
+        out long matchVersion)
+    {
+        recognition = null!;
+        identityState = "none";
+        var match = _matchSession.Snapshot;
+        matchVersion = match.Version;
+
+        if (_disposed || !_initialized || !match.IsStarted)
+        {
+            _statusMessage = !match.IsStarted
+                ? "请先进入对局，再切换小地图楼层。"
+                : "地图运行时尚未就绪。";
+            _logCollector.Append(
+                MapLogCategory.FloorRecognition,
+                MapLogLevel.Warning,
+                $"楼层切换被拒绝：{_statusMessage}",
+                details: new()
+                {
+                    ["outcome"] = "rejected",
+                    ["reason"] = !match.IsStarted
+                        ? "match-not-started"
+                        : "runtime-not-ready",
+                    ["matchVersion"] = matchVersion,
+                    ["identityState"] = identityState
+                });
+            NotifyStateChanged();
+            return false;
+        }
+
+        var identity = MapFloorIdentityRules.Resolve(
+            _lastRecognition,
+            _pendingAlignmentIdentity);
+        if (identity.Identity is { } available)
+        {
+            recognition = available;
+            identityState = identity.State switch
+            {
+                MapFloorIdentityState.Aligned => "aligned",
+                MapFloorIdentityState.PendingAlignment => "pending-alignment",
+                _ => "none"
+            };
+            return true;
+        }
+
+        _statusMessage = "尚未锁定地图，无法切换楼层；请先执行快捷扫描。";
+        _logCollector.Append(
+            MapLogCategory.FloorRecognition,
+            MapLogLevel.Warning,
+            $"楼层切换被拒绝：{_statusMessage}",
+            details: new()
+            {
+                ["outcome"] = "rejected",
+                ["reason"] = "map-identity-unavailable",
+                ["matchVersion"] = matchVersion,
+                ["identityState"] = identityState
+            });
+        NotifyStateChanged();
+        return false;
+    }
+
+    private void ApplyFloorSwitch(
+        RuntimeMapRecognition recognition,
+        string identityState,
+        long matchVersion,
+        MapFloorSwitchDecision decision,
+        string source,
+        int? requestedPosition = null)
+    {
+        CancelOrbTracking("floor changed");
+        var nextFloorKey = decision.ToFloorKey!;
         _currentFloorKey = nextFloorKey;
         if (!string.Equals(
                 recognition.Result.Floor,
@@ -76,8 +191,67 @@ public sealed partial class SessionOrchestrator
             MapLogCategory.FloorRecognition,
             MapLogLevel.Info,
             $"手动楼层切换：{floorLabel}",
-            details: new() { ["floor"] = nextFloorKey });
-        try { _overlay.Show(); } catch { }
+            details: new()
+            {
+                ["outcome"] = "switched",
+                ["source"] = source,
+                ["matchVersion"] = matchVersion,
+                ["identityState"] = identityState,
+                ["mapId"] = recognition.Map.Id,
+                ["fromFloor"] = decision.FromFloorKey,
+                ["toFloor"] = nextFloorKey,
+                ["requestedPosition"] = requestedPosition
+            });
+        _overlay.Show();
+        NotifyStateChanged();
+    }
+
+    private void ReportFloorSwitchRejected(
+        MapFloorSwitchFailure failure,
+        string identityState,
+        long matchVersion,
+        Guid mapId,
+        string? fromFloor,
+        int? requestedPosition = null)
+    {
+        _statusMessage = failure switch
+        {
+            MapFloorSwitchFailure.NoFloors => "当前地图没有可用楼层。",
+            MapFloorSwitchFailure.NoOtherFloor => "当前地图只有一个楼层，无需切换。",
+            MapFloorSwitchFailure.InvalidPosition => "请求的楼层位置无效。",
+            _ => "当前无法切换楼层。"
+        };
+        _logCollector.Append(
+            MapLogCategory.FloorRecognition,
+            MapLogLevel.Warning,
+            $"楼层切换被拒绝：{_statusMessage}",
+            details: new()
+            {
+                ["outcome"] = "rejected",
+                ["reason"] = failure.ToString(),
+                ["matchVersion"] = matchVersion,
+                ["identityState"] = identityState,
+                ["mapId"] = mapId,
+                ["fromFloor"] = fromFloor,
+                ["requestedPosition"] = requestedPosition
+            });
+        NotifyStateChanged();
+    }
+
+    private void ReportFloorSwitchException(Exception exception, string source)
+    {
+        _statusMessage = $"楼层切换异常：{exception.Message}";
+        _logCollector.Append(
+            MapLogCategory.FloorRecognition,
+            MapLogLevel.Error,
+            _statusMessage,
+            details: new()
+            {
+                ["outcome"] = "error",
+                ["source"] = source,
+                ["exceptionType"] = exception.GetType().FullName,
+                ["exception"] = exception.ToString()
+            });
         NotifyStateChanged();
     }
 

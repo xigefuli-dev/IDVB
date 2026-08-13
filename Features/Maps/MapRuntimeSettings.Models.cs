@@ -65,6 +65,11 @@ public sealed partial class MapRuntimeSettings
     public List<MapAlignmentCalibration> AlignmentCalibrations { get; set; } = [];
     public List<MapFloorScaleCalibration> FloorScaleCalibrations { get; set; } = [];
     public List<ResolutionTuningProfile> ResolutionTuningProfiles { get; set; } = [];
+    /// <summary>
+    /// 「使用配置文件」的用户选择；null/空 表示「自动」。
+    /// 仅在下次对局激活时解析生效，不即时重载 TOML。
+    /// </summary>
+    public string? SelectedResolutionPreset { get; set; }
     public NormalizedRectangle? MapViewportRegion { get; set; }
     public int CalibrationClientWidth { get; set; }
     public int CalibrationClientHeight { get; set; }
@@ -303,6 +308,7 @@ public sealed partial class MapRuntimeSettings
             .Where(profile => profile is not null)
             .Select(profile => profile.Clone())
             .ToList() ?? [],
+        SelectedResolutionPreset = SelectedResolutionPreset,
         MapViewportRegion = MapViewportRegion?.Clone(),
         CalibrationClientWidth = CalibrationClientWidth,
         CalibrationClientHeight = CalibrationClientHeight,
@@ -342,6 +348,9 @@ public sealed partial class MapRuntimeSettings
         SchemaVersion = CurrentSchemaVersion;
         if (SelectedMapId == Guid.Empty)
             SelectedMapId = null;
+        SelectedResolutionPreset = string.IsNullOrWhiteSpace(SelectedResolutionPreset)
+            ? null
+            : SelectedResolutionPreset.Trim();
         if (!Enum.IsDefined(FirstScanStrategy))
             FirstScanStrategy = FirstScanStrategy.DoubleGate;
         QuickScanBinding ??= new MapInputBinding();

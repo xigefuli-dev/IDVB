@@ -60,8 +60,8 @@ public sealed partial class SessionOrchestrator
             if (!_pendingAutomaticMapCacheEntries.TryGetValue(
                     entry.Key,
                     out var existing)
-                || entry.Scale.Source == MapFeatureCacheSource.Recovery
-                    && existing.Scale.Source != MapFeatureCacheSource.Recovery
+                || AutomaticStagePriority(entry.Scale.Source)
+                    > AutomaticStagePriority(existing.Scale.Source)
                 || entry.Scale.Source == existing.Scale.Source
                     && entry.Scale.Confidence > existing.Scale.Confidence)
             {
@@ -69,6 +69,16 @@ public sealed partial class SessionOrchestrator
             }
         }
     }
+
+    private static int AutomaticStagePriority(MapFeatureCacheSource source) =>
+        source switch
+        {
+            MapFeatureCacheSource.Recovery => 4,
+            MapFeatureCacheSource.CrossResolutionValidated => 3,
+            MapFeatureCacheSource.PreprocessedEstimate => 2,
+            MapFeatureCacheSource.Automatic => 1,
+            _ => 0
+        };
 
     private static bool TryGetUniformScale(
         MapOverlayTransform transform,
@@ -107,9 +117,10 @@ public sealed partial class SessionOrchestrator
                 EstimationEvidence = estimationEvidence,
                 Validation = validation ?? new MapScaleCacheValidationMetadata
                 {
-                    DirectlyTrusted = source == MapFeatureCacheSource.Manual,
-                    SuccessfulValidationCount = source
-                        == MapFeatureCacheSource.Manual
+                    DirectlyTrusted = source is MapFeatureCacheSource.Manual
+                        or MapFeatureCacheSource.Player,
+                    SuccessfulValidationCount = source is
+                        MapFeatureCacheSource.Manual or MapFeatureCacheSource.Player
                             ? 0
                             : sampleCount,
                     LastLocalizationConfidence =
@@ -118,12 +129,46 @@ public sealed partial class SessionOrchestrator
                         candidateMargin,
                         0d,
                         1d),
-                    LastValidatedAt = source == MapFeatureCacheSource.Manual
+                    LastValidatedAt = source is
+                        MapFeatureCacheSource.Manual or MapFeatureCacheSource.Player
                         ? default
                         : updatedAt
                 },
                 UpdatedAt = updatedAt
             }
+        };
+    }
+
+    /// <summary>
+    /// Returns a shallow copy of the cache entry with the validation metadata
+    /// replaced. The entry/payload are classes, not records, so the payload
+    /// fields are copied individually; estimation evidence is shared by
+    /// reference (immutable after write).
+    /// </summary>
+    private static MapFeatureCacheEntry CopyEntryWithValidation(
+        MapFeatureCacheEntry source,
+        MapScaleCacheValidationMetadata validation)
+    {
+        var scale = source.Scale;
+        var copiedScale = new MapScaleCachePayload
+        {
+            SchemaVersion = scale.SchemaVersion,
+            UniformScale = scale.UniformScale,
+            Source = scale.Source,
+            SampleCount = scale.SampleCount,
+            Confidence = scale.Confidence,
+            RelativeMedianAbsoluteDeviation =
+                scale.RelativeMedianAbsoluteDeviation,
+            LastObservedDpi = scale.LastObservedDpi,
+            EstimationEvidence = scale.EstimationEvidence,
+            Validation = validation,
+            UpdatedAt = scale.UpdatedAt
+        };
+        return new MapFeatureCacheEntry
+        {
+            SchemaVersion = source.SchemaVersion,
+            Key = source.Key,
+            Scale = copiedScale
         };
     }
 

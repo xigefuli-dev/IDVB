@@ -33,7 +33,9 @@ public enum MapLogCategory
     /// <summary>叠加层渲染。</summary>
     Overlay,
     /// <summary>玩家位置追踪。</summary>
-    PlayerTracking
+    PlayerTracking,
+    /// <summary>Post-alignment ORB frame tracking.</summary>
+    OrbTracking
 }
 
 /// <summary>结构化日志条目。</summary>

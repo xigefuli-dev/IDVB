@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>IDVB.UpdateCore</AssemblyName>
+    <RootNamespace>IDVBuff.UpdateCore</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Keep the SDK version identical to the vpk CLI version used by release/Invoke-IDVBRelease.ps1. -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
+</Project>

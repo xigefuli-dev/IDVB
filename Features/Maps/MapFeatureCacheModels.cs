@@ -36,7 +36,8 @@ public sealed record MapCacheResolutionSignature(
         ViewportWidth > 0
         && ViewportHeight > 0
         && (ClientWidth, ClientHeight) is
-            (1920, 1080) or (2560, 1440) or (2560, 1600);
+            (1920, 1080) or (2560, 1440) or (2560, 1600)
+            or (3440, 1440) or (2560, 1080);
 
     public static MapCacheResolutionSignature FromBounds(
         MapScreenRect clientBounds,
@@ -61,6 +62,235 @@ public sealed record MapFeatureCacheKey(
         && !string.IsNullOrWhiteSpace(MapContentFingerprint)
         && !string.IsNullOrWhiteSpace(FloorKey)
         && Resolution.IsSupported;
+}
+
+internal enum MapScaleSeedSource
+{
+    ExactCache,
+    CrossResolution,
+    Vpsg,
+    SideTemplate
+}
+
+internal sealed record ResolvedMapScaleSeed(
+    double Scale,
+    MapScaleSeedSource Source,
+    MapFeatureCacheSource CacheSource,
+    MapCacheResolutionSignature SourceResolution,
+    MapCacheResolutionSignature TargetResolution,
+    bool IsProjected,
+    MapFeatureCacheEntry CacheEntry);
+
+/// <summary>
+/// Pure cache-selection and cross-resolution projection logic. A resolved
+/// value is only a search seed; callers must still run structure validation.
+/// </summary>
+internal static class MapScaleSeedResolver
+{
+    public const double MaximumAxisScaleDisagreement = 0.03d;
+
+    public static bool TryResolve(
+        IEnumerable<MapFeatureCacheEntry> entries,
+        Guid mapId,
+        string contentFingerprint,
+        string floorKey,
+        MapCacheResolutionSignature targetResolution,
+        double minimumLocalizationConfidence,
+        double minimumCandidateMargin,
+        out ResolvedMapScaleSeed? resolved,
+        out string rejectionReason)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        resolved = null;
+        rejectionReason = "no-trusted-cache";
+
+        var trusted = entries
+            .Where(entry => IsTrustedScaleEntry(
+                entry,
+                mapId,
+                contentFingerprint,
+                floorKey,
+                minimumLocalizationConfidence,
+                minimumCandidateMargin))
+            .ToArray();
+        var exact = OrderByTrust(trusted
+                .Where(entry => entry.Key.Resolution == targetResolution))
+            .FirstOrDefault();
+        if (exact is not null)
+        {
+            resolved = new ResolvedMapScaleSeed(
+                exact.Scale.UniformScale,
+                MapScaleSeedSource.ExactCache,
+                exact.Scale.Source,
+                exact.Key.Resolution,
+                targetResolution,
+                IsProjected: false,
+                exact);
+            rejectionReason = string.Empty;
+            return true;
+        }
+
+        var projectable = OrderByTrust(trusted
+                .Where(entry => entry.Key.Resolution != targetResolution))
+            .Select(entry => new
+            {
+                Entry = entry,
+                Projection = TryProjectScale(
+                    entry.Scale.UniformScale,
+                    entry.Key.Resolution,
+                    targetResolution,
+                    out var scale,
+                    out var reason)
+                    ? (Scale: scale, Reason: string.Empty)
+                    : (Scale: double.NaN, Reason: reason)
+            })
+            .ToArray();
+        var projected = projectable.FirstOrDefault(candidate =>
+            double.IsFinite(candidate.Projection.Scale));
+        if (projected is null)
+        {
+            rejectionReason = projectable.Length == 0
+                ? "no-trusted-cache"
+                : string.Join(",", projectable
+                    .Select(candidate => candidate.Projection.Reason)
+                    .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                    .Distinct(StringComparer.Ordinal));
+            return false;
+        }
+
+        resolved = new ResolvedMapScaleSeed(
+            projected.Projection.Scale,
+            MapScaleSeedSource.CrossResolution,
+            projected.Entry.Scale.Source,
+            projected.Entry.Key.Resolution,
+            targetResolution,
+            IsProjected: true,
+            projected.Entry);
+        rejectionReason = string.Empty;
+        return true;
+    }
+
+    public static bool TryProjectScale(
+        double sourceScale,
+        MapCacheResolutionSignature sourceResolution,
+        MapCacheResolutionSignature targetResolution,
+        out double projectedScale,
+        out string rejectionReason)
+    {
+        projectedScale = double.NaN;
+        rejectionReason = string.Empty;
+        if (!double.IsFinite(sourceScale)
+            || sourceScale <= 0.05d
+            || sourceResolution.ViewportWidth <= 0
+            || sourceResolution.ViewportHeight <= 0
+            || targetResolution.ViewportWidth <= 0
+            || targetResolution.ViewportHeight <= 0)
+        {
+            rejectionReason = "invalid-scale-or-viewport";
+            return false;
+        }
+
+        var widthRatio = (double)targetResolution.ViewportWidth
+            / sourceResolution.ViewportWidth;
+        var heightRatio = (double)targetResolution.ViewportHeight
+            / sourceResolution.ViewportHeight;
+        var axisDisagreement = Math.Abs(widthRatio - heightRatio)
+            / Math.Max(widthRatio, heightRatio);
+        if (axisDisagreement > MaximumAxisScaleDisagreement + 1e-12d)
+        {
+            rejectionReason = "viewport-axis-scale-disagreement";
+            return false;
+        }
+
+        projectedScale = sourceScale * Math.Sqrt(
+            ((double)targetResolution.ViewportWidth
+                * targetResolution.ViewportHeight)
+            / ((double)sourceResolution.ViewportWidth
+                * sourceResolution.ViewportHeight));
+        if (!double.IsFinite(projectedScale) || projectedScale <= 0.05d)
+        {
+            projectedScale = double.NaN;
+            rejectionReason = "invalid-projected-scale";
+            return false;
+        }
+        return true;
+    }
+
+    public static MapStructureRegistrationTuning CreateStrictInitialIdentityValidationTuning(
+        MapStructureRegistrationTuning source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var strict = source.Clone();
+        strict.MaximumChamferPixels = Math.Min(
+            strict.MaximumChamferPixels,
+            Math.Min(strict.RestrictedSearchMaximumChamferPixels, 3.0d));
+        strict.RestrictedSearchMaximumChamferPixels = Math.Min(
+            strict.RestrictedSearchMaximumChamferPixels,
+            3.0d);
+        return strict;
+    }
+
+    public static MapStructureRegistrationTuning CreateStrictVpsgValidationTuning(
+        MapStructureRegistrationTuning source) =>
+        CreateStrictInitialIdentityValidationTuning(source);
+
+    private static bool IsTrustedScaleEntry(
+        MapFeatureCacheEntry entry,
+        Guid mapId,
+        string contentFingerprint,
+        string floorKey,
+        double minimumLocalizationConfidence,
+        double minimumCandidateMargin)
+    {
+        if (!entry.IsValid
+            || !MapFeatureCacheRules.IsCacheEntryTrusted(entry)
+            || entry.Key.MapId != mapId
+            || !string.Equals(
+                entry.Key.MapContentFingerprint,
+                contentFingerprint,
+                StringComparison.Ordinal)
+            || !string.Equals(entry.Key.FloorKey, floorKey, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (entry.Scale.Source is MapFeatureCacheSource.Manual
+            or MapFeatureCacheSource.Player)
+        {
+            return true;
+        }
+
+        if (entry.Scale.Source is not (
+                MapFeatureCacheSource.Recovery
+                or MapFeatureCacheSource.PreprocessedEstimate
+                or MapFeatureCacheSource.CrossResolutionValidated))
+        {
+            return false;
+        }
+
+        var validation = entry.Scale.Validation;
+        return validation is
+        {
+            SuccessfulValidationCount: > 0
+        }
+        && validation.LastLocalizationConfidence
+            >= Math.Clamp(minimumLocalizationConfidence, 0d, 1d)
+        && validation.LastCandidateMargin
+            >= Math.Max(0d, minimumCandidateMargin);
+    }
+
+    private static IOrderedEnumerable<MapFeatureCacheEntry> OrderByTrust(
+        IEnumerable<MapFeatureCacheEntry> entries) =>
+        entries
+            .OrderByDescending(entry => entry.Scale.Source is
+                MapFeatureCacheSource.Manual or MapFeatureCacheSource.Player)
+            .ThenByDescending(entry =>
+                entry.Scale.Validation?.SuccessfulValidationCount ?? 0)
+            .ThenByDescending(entry =>
+                entry.Scale.Validation?.LastLocalizationConfidence ?? 0d)
+            .ThenByDescending(entry =>
+                entry.Scale.Validation?.LastCandidateMargin ?? 0d)
+            .ThenByDescending(entry => entry.Scale.UpdatedAt);
 }
 
 public sealed class MapScaleCachePayload
@@ -332,6 +562,75 @@ public static class MapFeatureCacheRules
 {
     public const int MinimumRepairValidationSamples =
         MapCacheRepairSampleAggregator.RequiredConsecutiveSamples;
+    // 失败计数达到该值即视为"不可信任"，命中缓存时跳过该条目。
+    public const int MaximumFailedValidationCountBeforeDistrust = 2;
+
+    /// <summary>
+    /// 缓存条目是否仍被无条件信任。失败计数达到门槛即降级，
+    /// 即使 DirectlyTrusted（Manual/Player）也会降级——这正是错误玩家缩放被淘汰的前提。
+    /// null Validation 视为可信（向后兼容无验证元数据的历史条目）。
+    /// </summary>
+    public static bool IsCacheEntryTrusted(MapFeatureCacheEntry? entry) =>
+        entry is not null
+        && entry.Scale is { } scale
+        && scale.Validation is not
+        {
+            FailedValidationCount: >= MaximumFailedValidationCountBeforeDistrust
+        };
+
+    /// <summary>
+    /// 记录一次缓存验证结果。succeeded=true 且存在失败历史时重置失败计数
+    /// （正向证据恢复信任）；succeeded=false 时失败计数 +1。返回 null 表示无需落盘
+    /// （成功且无失败历史，快乐路径零写）。
+    /// </summary>
+    public static MapScaleCacheValidationMetadata? RecordValidationOutcome(
+        MapScaleCacheValidationMetadata? current,
+        bool succeeded,
+        DateTimeOffset validatedAt)
+    {
+        if (succeeded)
+        {
+            if (current is null || current.FailedValidationCount == 0)
+                return null;
+            return new MapScaleCacheValidationMetadata
+            {
+                DirectlyTrusted = current.DirectlyTrusted,
+                SuccessfulValidationCount =
+                    current.SuccessfulValidationCount + 1,
+                FailedValidationCount = 0,
+                LastLocalizationConfidence = current.LastLocalizationConfidence,
+                LastCandidateMargin = current.LastCandidateMargin,
+                LastValidatedAt = validatedAt
+            };
+        }
+
+        return new MapScaleCacheValidationMetadata
+        {
+            DirectlyTrusted = current?.DirectlyTrusted ?? false,
+            SuccessfulValidationCount = current?.SuccessfulValidationCount ?? 0,
+            FailedValidationCount = (current?.FailedValidationCount ?? 0) + 1,
+            LastLocalizationConfidence =
+                current?.LastLocalizationConfidence ?? 0d,
+            LastCandidateMargin = current?.LastCandidateMargin ?? 0d,
+            LastValidatedAt = validatedAt
+        };
+    }
+
+    /// <summary>
+    /// 语义修正 C：三次一致修复完成时生成全新验证元数据，失败计数清零，
+    /// 避免携带毒缓存的失败历史导致新 Recovery 条目立即被降级。
+    /// </summary>
+    public static MapScaleCacheValidationMetadata CreateRepairValidation(
+        MapCacheRepairAggregate aggregate) =>
+        new()
+        {
+            DirectlyTrusted = false,
+            SuccessfulValidationCount = aggregate.SampleCount,
+            FailedValidationCount = 0,
+            LastLocalizationConfidence = aggregate.LocalizationConfidence,
+            LastCandidateMargin = aggregate.CandidateMargin,
+            LastValidatedAt = DateTimeOffset.UtcNow
+        };
 
     public static double GetCandidateMargin(MapRecognitionResult result) =>
         result.EvidenceKind == MapAlignmentEvidenceKind.Structure

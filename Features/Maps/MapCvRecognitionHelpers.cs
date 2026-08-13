@@ -324,14 +324,15 @@ internal static class MapCvRecognitionHelpers
             {
                 var profile = MapFloorRules.GetFloorProfile(map, floorDef.Key);
                 if (profile is null
-                    || string.IsNullOrWhiteSpace(profile.SideEntranceFeatureFileName))
+                    || !repository.TryGetValidSideEntranceFeaturePath(
+                        map,
+                        floorDef.Key,
+                        out var path,
+                        out _))
                     continue;
 
                 try
                 {
-                    var path = repository.GetSideEntranceFeaturePath(map, floorDef.Key);
-                    if (!File.Exists(path))
-                        continue;
                     var mat = Cv2.ImRead(path, ImreadModes.Grayscale);
                     if (mat.Empty())
                     {

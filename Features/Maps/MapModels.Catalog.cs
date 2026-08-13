@@ -2,7 +2,7 @@ namespace IDVBuff.Features.Maps;
 
 internal sealed class MapCatalogDocument
 {
-    /// <summary>Local catalog storage schema. Version 10 adds file stamps for fast validation.</summary>
+    /// <summary>Local catalog storage schema. Version 14 canonicalizes floor recognition profiles.</summary>
     public int StorageSchemaVersion { get; set; }
     public int NextSequenceNumber { get; set; } = 1;
     /// <summary>

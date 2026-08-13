@@ -48,6 +48,69 @@ public sealed class MapAlignmentSession
         }
     }
 
+    /// <summary>
+    /// Replaces only the uniform scale of a side-entrance seed. The observed
+    /// gate remains at the same screen center, so the translation is recomputed
+    /// from the existing reference/screen-center pair instead of being copied
+    /// from a different resolution.
+    /// </summary>
+    internal MapAlignmentSession WithUniformScale(double scale)
+    {
+        if (!double.IsFinite(scale) || scale <= 0.05d)
+            throw new ArgumentOutOfRangeException(nameof(scale));
+
+        var transform = LockedTransform;
+        var scaledTransform = new MapOverlayTransform
+        {
+            ScaleX = scale,
+            ScaleY = scale,
+            OffsetX = transform.ScreenCenterX
+                - (transform.ReferenceCenterX * scale),
+            OffsetY = transform.ScreenCenterY
+                - (transform.ReferenceCenterY * scale),
+            ReferenceCenterX = transform.ReferenceCenterX,
+            ReferenceCenterY = transform.ReferenceCenterY,
+            ScreenCenterX = transform.ScreenCenterX,
+            ScreenCenterY = transform.ScreenCenterY,
+            ReferenceWidth = transform.ReferenceWidth,
+            ReferenceHeight = transform.ReferenceHeight,
+            OrientationDegrees = transform.OrientationDegrees,
+            AlignmentMode = transform.AlignmentMode,
+            MaximumResidualPixels = transform.MaximumResidualPixels,
+            UsedDegenerateAxisFallback = transform.UsedDegenerateAxisFallback
+        };
+        return new MapAlignmentSession
+        {
+            MapId = MapId,
+            MapUpdatedAt = MapUpdatedAt,
+            FloorKey = FloorKey,
+            LockedTransform = scaledTransform,
+            LockedGateEvidence = LockedGateEvidence,
+            Mode = Mode,
+            BaselineGateScale = scale,
+            LastConfidence = LastConfidence,
+            LastBestScore = LastBestScore,
+            LastSecondScore = LastSecondScore,
+            LastCandidateMargin = LastCandidateMargin,
+            LastRejectionReason = LastRejectionReason,
+            LastObservationConfidence = LastObservationConfidence,
+            LastObservationBestScore = LastObservationBestScore,
+            LastObservationSecondScore = LastObservationSecondScore,
+            LastObservationCandidateMargin = LastObservationCandidateMargin,
+            LastObservationRejectionReason = LastObservationRejectionReason,
+            LastObservationAt = LastObservationAt,
+            ConsecutiveRejections = ConsecutiveRejections,
+            LastSuccessfulAt = LastSuccessfulAt,
+            HasGatePairLock = HasGatePairLock,
+            LastStructureAttempted = LastStructureAttempted,
+            LastStructureAccepted = LastStructureAccepted,
+            LastStructureFailureReason = LastStructureFailureReason,
+            ConsecutiveStructureFailures = ConsecutiveStructureFailures,
+            LastSearchStage = LastSearchStage,
+            SideEntranceScanPriorConfidence = SideEntranceScanPriorConfidence
+        };
+    }
+
     public static MapAlignmentSession FromRecognition(
         MapRecord map,
         MapRecognitionResult result)
@@ -101,6 +164,7 @@ public sealed class MapAlignmentSession
                 MapRecognitionSource.SingleGateTracking => MapAlignmentTrackingMode.SingleGateTracking,
                 MapRecognitionSource.AuxiliaryAnchorTracking => MapAlignmentTrackingMode.AuxiliaryAnchorTracking,
                 MapRecognitionSource.StructureMatching => MapAlignmentTrackingMode.StructureMatched,
+                MapRecognitionSource.OrbTracking => MapAlignmentTrackingMode.OrbTracking,
                 _ => MapAlignmentTrackingMode.GatePairLocked
             }
         };
@@ -127,7 +191,8 @@ public sealed class MapAlignmentSession
         if (result.Source is not (
                 MapRecognitionSource.SingleGateTracking
                 or MapRecognitionSource.AuxiliaryAnchorTracking
-                or MapRecognitionSource.StructureMatching))
+                or MapRecognitionSource.StructureMatching
+                or MapRecognitionSource.OrbTracking))
         {
             throw new InvalidOperationException(
                 "Only tracking observations can advance an existing alignment lock.");
@@ -197,6 +262,8 @@ public sealed class MapAlignmentSession
                     MapAlignmentTrackingMode.SingleGateTracking,
                 MapRecognitionSource.StructureMatching =>
                     MapAlignmentTrackingMode.StructureMatched,
+                MapRecognitionSource.OrbTracking =>
+                    MapAlignmentTrackingMode.OrbTracking,
                 _ => MapAlignmentTrackingMode.AuxiliaryAnchorTracking
             }
         };

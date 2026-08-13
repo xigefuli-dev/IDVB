@@ -121,6 +121,92 @@ public sealed class MapLogCollectorTests
         }
     }
 
+    [Fact]
+    public async Task NonFiniteDiagnosticValuesDoNotBlockLaterLogEntries()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var repository = new MapLogRepository(root);
+            await using var collector = new MapLogCollector(repository);
+            collector.IsEnabled = true;
+            collector.Append(
+                MapLogCategory.GateDetection,
+                MapLogLevel.Warning,
+                "non-finite-diagnostics",
+                details: new Dictionary<string, object?>
+                {
+                    ["positiveInfinity"] = double.PositiveInfinity,
+                    ["negativeInfinity"] = double.NegativeInfinity,
+                    ["notANumber"] = double.NaN
+                });
+            collector.Append(
+                MapLogCategory.ScanLifecycle,
+                MapLogLevel.Info,
+                "entry-after-non-finite-diagnostics");
+
+            collector.IsEnabled = false;
+            await collector.DisposeAsync();
+
+            var path = Assert.Single(Directory.GetFiles(root, "scan-log-*.json"));
+            var rawJson = await File.ReadAllTextAsync(path);
+            using var document = JsonDocument.Parse(rawJson);
+            var entries = await repository.ReadSessionAsync(path);
+
+            Assert.Contains(entries, entry => entry.Message == "non-finite-diagnostics");
+            Assert.Contains(entries, entry => entry.Message == "entry-after-non-finite-diagnostics");
+            Assert.Contains("\"Infinity\"", rawJson, StringComparison.Ordinal);
+            Assert.Contains("\"-Infinity\"", rawJson, StringComparison.Ordinal);
+            Assert.Contains("\"NaN\"", rawJson, StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(root, "flush-errors.log")));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task SerializationFailureDisablesPersistenceAndBoundsTheBacklog()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var collector = new MapLogCollector(new MapLogRepository(root));
+            collector.IsEnabled = true;
+            collector.Append(
+                MapLogCategory.System,
+                MapLogLevel.Warning,
+                "unsupported-diagnostic-value",
+                details: new Dictionary<string, object?>
+                {
+                    ["unsupported"] = new Func<int>(() => 1)
+                });
+
+            // Wait for the poisoned batch to trip the persistence circuit breaker.
+            await collector.GetCompleteEntriesAsync();
+            for (var index = 0; index < 2_000; index++)
+            {
+                collector.Append(
+                    MapLogCategory.ScanLifecycle,
+                    MapLogLevel.Info,
+                    $"entry-after-failure-{index}");
+            }
+
+            Assert.InRange(collector.BufferedEntryCount, 1, 500);
+            await collector.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+            var errorPath = Path.Combine(root, "flush-errors.log");
+            Assert.True(File.Exists(errorPath));
+            var errors = await File.ReadAllTextAsync(errorPath);
+            Assert.Equal(1, errors.Split("[flush]", StringSplitOptions.None).Length - 1);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
     private static async Task<List<MapLogEntry>> ReadEntriesAsync(string path)
     {
         await using var stream = File.OpenRead(path);

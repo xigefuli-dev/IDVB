@@ -347,6 +347,93 @@ public sealed partial class SurveyCoordinator
         }
     }
 
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> CorrectLayerVignetteAsync(
+        SurveyLayerVignetteCorrectionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_rasterEditor is null)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "当前运行环境没有晕影校正处理器。");
+            if (request.LayerIds.Count == 0
+                || !double.IsFinite(request.CompensationStart)
+                || request.CompensationStart is < 0d or > 1d
+                || !double.IsFinite(request.CompensationStrength)
+                || request.CompensationStrength is < 0d or > 1d)
+            {
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "晕影校正参数无效。");
+            }
+
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.Revision != request.ExpectedRevision)
+            {
+                throw new SurveyRevisionConflictException(
+                    request.ProjectId,
+                    request.ExpectedRevision,
+                    current.Project.Revision);
+            }
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.ProjectArchived, "已归档的测绘项目为只读。");
+
+            var requestedIds = request.LayerIds.Distinct().ToArray();
+            var requestedSet = requestedIds.ToHashSet();
+            var layers = current.Layers.Where(item => requestedSet.Contains(item.LayerId)).ToArray();
+            var observations = current.Observations.ToDictionary(item => item.ObservationId);
+            var items = new List<SurveyLayerOperationItem>();
+            var mutations = new List<SurveyLayerMutation>();
+            foreach (var layer in layers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (layer.IsDeleted || !layer.IsVisible || layer.IsLocked)
+                {
+                    items.Add(new SurveyLayerOperationItem(layer.LayerId, false, "图层不可见、已锁定或已删除。"));
+                    continue;
+                }
+                var corrected = await _rasterEditor.CorrectVignetteAsync(
+                    request.ProjectId,
+                    layer,
+                    observations[layer.ObservationId],
+                    request.CompensationStart,
+                    request.CompensationStrength,
+                    cancellationToken).ConfigureAwait(false);
+                mutations.Add(new SurveyLayerMutation(
+                    layer.LayerId,
+                    ColorFilterAsset: corrected,
+                    ReplaceColorFilter: true));
+                items.Add(new SurveyLayerOperationItem(layer.LayerId, true, "晕影校正已应用。"));
+            }
+            foreach (var missing in requestedIds.Where(id => layers.All(layer => layer.LayerId != id)))
+                items.Add(new SurveyLayerOperationItem(missing, false, "图层不存在。"));
+
+            if (mutations.Count > 0)
+            {
+                current = await _projects.ApplyLayerBatchAsync(
+                    new SurveyLayerBatchEditRequest(
+                        request.CommandId,
+                        request.ProjectId,
+                        request.ExpectedRevision,
+                        mutations),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(new(current, items));
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyLayerOperationResult>(SurveyErrorCode.PreprocessingFailed, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<Stream> OpenRenderedLayerAsync(
         Guid projectId,
         Guid layerId,

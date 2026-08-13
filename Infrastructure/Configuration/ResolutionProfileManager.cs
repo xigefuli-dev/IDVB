@@ -152,6 +152,30 @@ public sealed class ResolutionProfileManager : IResolutionProfileService, IDispo
             },
             new ResolutionTuningProfile
             {
+                Name = "3440x1440 @ 120 DPI",
+                ClientWidth = 3440,
+                ClientHeight = 1440,
+                Dpi = 120,
+                // 复用 2560x1440 参数（21:9 高度相同，宽度差异由 clientWidth 自适应）
+                MaximumChamferPixels = 3.5,
+                MinimumEdgeCoverage = 0.40,
+                MinimumCandidateMargin = 0.04,
+                FastCoarseMaxDimension = 160,
+            },
+            new ResolutionTuningProfile
+            {
+                Name = "2560x1080 @ 120 DPI",
+                ClientWidth = 2560,
+                ClientHeight = 1080,
+                Dpi = 120,
+                // 21:9 宽度 2560 与 2560x1440 相同，结构配准参数复用
+                MaximumChamferPixels = 3.5,
+                MinimumEdgeCoverage = 0.40,
+                MinimumCandidateMargin = 0.04,
+                FastCoarseMaxDimension = 160,
+            },
+            new ResolutionTuningProfile
+            {
                 Name = "2560x1600 @ 120 DPI",
                 ClientWidth = 2560,
                 ClientHeight = 1600,

@@ -489,6 +489,15 @@ public sealed partial class MapRepository
                             changed = true;
                         }
 
+                        // Side-entrance features are derived from the recognition
+                        // image as well. Missing, stale, or legacy features must
+                        // be regenerated before the recognition cache is built.
+                        changed |= EnsureCurrentSideEntranceFeature(
+                            map,
+                            floor.Key,
+                            profile,
+                            recognitionPath);
+
                         changed |= previousWidth != profile.RecognitionPixelWidth
                             || previousHeight != profile.RecognitionPixelHeight;
                     }
@@ -516,6 +525,20 @@ public sealed partial class MapRepository
                         storedProfile.RecognitionPixelWidth = sourceProfile.RecognitionPixelWidth;
                         storedProfile.RecognitionPixelHeight = sourceProfile.RecognitionPixelHeight;
                         storedProfile.ValidMapBounds = sourceProfile.ValidMapBounds?.Clone();
+                        storedProfile.SideEntranceFeatureFileName =
+                            sourceProfile.SideEntranceFeatureFileName;
+                        storedProfile.SideEntranceFeatureSha256 =
+                            sourceProfile.SideEntranceFeatureSha256;
+                        storedProfile.SideEntranceFeatureSourceSha256 =
+                            sourceProfile.SideEntranceFeatureSourceSha256;
+                        storedProfile.SideEntranceFeatureAlgorithmVersion =
+                            sourceProfile.SideEntranceFeatureAlgorithmVersion;
+                        storedProfile.SideEntranceFeatureCenterX =
+                            sourceProfile.SideEntranceFeatureCenterX;
+                        storedProfile.SideEntranceFeatureCenterY =
+                            sourceProfile.SideEntranceFeatureCenterY;
+                        storedProfile.SideEntranceFeatureRadius =
+                            sourceProfile.SideEntranceFeatureRadius;
 
                         var storedFloor = stored.Floors.FirstOrDefault(
                             candidate => string.Equals(
@@ -611,7 +634,18 @@ public sealed partial class MapRepository
                 ValidateReadableImage(path, "Map source image");
         }
 
-        draft.Recognition.EnsureStandardAnchors();
+        if (draft.Floors.Count > 0)
+        {
+            draft.Recognition.NormalizeForFloors(
+                draft.Floors
+                    .OrderBy(floor => floor.SortOrder)
+                    .ThenBy(floor => floor.Key, StringComparer.Ordinal)
+                    .ToArray());
+        }
+        else
+        {
+            draft.Recognition.EnsureStandardAnchors();
+        }
         var primaryFloorKey = draft.Floors
             .OrderBy(floor => floor.SortOrder)
             .ThenBy(floor => floor.Key, StringComparer.Ordinal)

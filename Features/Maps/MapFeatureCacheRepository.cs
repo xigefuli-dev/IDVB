@@ -78,6 +78,27 @@ public sealed class MapFeatureCacheRepository
         }
     }
 
+    internal IReadOnlyList<MapFeatureCacheEntry> GetSnapshot(
+        Guid mapId,
+        string contentFingerprint,
+        string floorKey)
+    {
+        lock (_stateGate)
+        {
+            return _document.Entries
+                .Where(entry => entry.Key.MapId == mapId
+                    && string.Equals(
+                        entry.Key.MapContentFingerprint,
+                        contentFingerprint,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        entry.Key.FloorKey,
+                        floorKey,
+                        StringComparison.Ordinal))
+                .ToArray();
+        }
+    }
+
     public async Task UpsertAsync(MapFeatureCacheEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);

@@ -1,10 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.Storage.Pickers;
 using OpenCvSharp;
-using Windows.Storage.Streams;
 using Windows.UI;
 
 namespace IDVBuff.Views;
@@ -21,6 +19,8 @@ public sealed partial class MapListPage : UserControl
         int CompressionLevel,
         Color BackgroundColor);
 
+    private readonly record struct ModernPngPixelRegion(int Left, int Top, int Width, int Height);
+
     private async Task ShowModernPngExportDialogAsync()
     {
         if (_modernExportInProgress)
@@ -33,18 +33,22 @@ public sealed partial class MapListPage : UserControl
         }
 
         CancelModernInteraction(restoreGeometry: true);
-        var sourceWidth = Math.Max(1, (int)Math.Round(_modernCanvas.Width));
-        var sourceHeight = Math.Max(1, (int)Math.Round(_modernCanvas.Height));
+        var canvasWidth = Math.Max(1, (int)Math.Round(_modernCanvas.Width));
+        var canvasHeight = Math.Max(1, (int)Math.Round(_modernCanvas.Height));
+        var profile = GetActiveFloorProfile();
+        var cropRegion = ModernPngPixelRegionOf(profile.GetEffectiveRecognitionRegion(), canvasWidth, canvasHeight);
+        var sourceWidth = Math.Max(1, cropRegion.Width);
+        var sourceHeight = Math.Max(1, cropRegion.Height);
         var aspectRatio = sourceWidth / (double)sourceHeight;
         var panel = new StackPanel { Spacing = 12, Width = 430 };
         panel.Children.Add(new TextBlock
         {
-            Text = $"当前楼层：{GetModernFloorDisplayName(_activeFloorKey)} · 原始分辨率 {sourceWidth} × {sourceHeight}",
+            Text = $"当前楼层：{GetModernFloorDisplayName(_activeFloorKey)} · 裁剪区域 {sourceWidth} × {sourceHeight}",
             TextWrapping = TextWrapping.Wrap
         });
         panel.Children.Add(new TextBlock
         {
-            Text = "PNG 只包含图层管理器中当前可见的元素；编辑网格、选中框、控制点和未完成的绘制不会导出。",
+            Text = "导出区域为当前裁剪范围；PNG 只包含图层管理器中当前可见的元素；编辑网格、选中框、控制点和未完成的绘制不会导出。",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12,
             Foreground = new SolidColorBrush(EditorMuted)
@@ -291,59 +295,18 @@ public sealed partial class MapListPage : UserControl
 
     private async Task ExportModernPngAsync(string destination, ModernPngExportOptions options)
     {
-        if (_modernScene is null || _modernCanvas is null)
-            throw new InvalidOperationException("当前地图画布已经关闭。");
+        if (_draft is null)
+            throw new InvalidOperationException("当前没有可编辑的地图。");
+        var profile = GetActiveFloorProfile();
+        var imagePath = GetActiveFloorImagePath();
+        if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+            throw new InvalidOperationException("当前楼层没有可导出的地图图片。");
+        var isVisible = IsModernItemVisible;
 
-        var previousSceneBackground = _modernScene.Background;
-        var previousCanvasBackground = _modernCanvas.Background;
-        var previousImageVisibility = _modernImage?.Visibility;
-        try
-        {
-            _modernExportRendering = true;
-            _modernScene.Background = new SolidColorBrush(options.BackgroundColor);
-            _modernCanvas.Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
-            if (_modernImage is not null)
-            {
-                _modernImage.Visibility = IsModernItemVisible("image", "image")
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-            }
-            RenderModernEditor();
-
-            var renderTarget = new RenderTargetBitmap();
-            await renderTarget.RenderAsync(_modernScene, options.Width, options.Height);
-            if (renderTarget.PixelWidth != options.Width || renderTarget.PixelHeight != options.Height)
-            {
-                throw new InvalidOperationException(
-                    $"渲染器未能生成请求的分辨率（实际为 {renderTarget.PixelWidth} × {renderTarget.PixelHeight}）。");
-            }
-            var pixelBuffer = await renderTarget.GetPixelsAsync();
-            var expectedByteCount = checked((long)options.Width * options.Height * 4);
-            if (pixelBuffer.Length != expectedByteCount)
-                throw new InvalidOperationException("渲染器返回了不完整的 PNG 像素数据。");
-            var pixels = new byte[checked((int)pixelBuffer.Length)];
-            using (var reader = DataReader.FromBuffer(pixelBuffer))
-                reader.ReadBytes(pixels);
-            UnPremultiplyModernPngPixels(pixels);
-
-            var encoded = await Task.Run(() => EncodeModernPng(
-                pixels,
-                options.Width,
-                options.Height,
-                options.CompressionLevel));
-            await File.WriteAllBytesAsync(destination, encoded);
-        }
-        finally
-        {
-            _modernExportRendering = false;
-            if (_modernScene is not null)
-                _modernScene.Background = previousSceneBackground;
-            if (_modernCanvas is not null)
-                _modernCanvas.Background = previousCanvasBackground;
-            if (_modernImage is not null && previousImageVisibility is { } visibility)
-                _modernImage.Visibility = visibility;
-            RenderModernEditor();
-        }
+        // 导出与交互场景完全解耦：直接程序化绘制，不受 ScrollViewer 缩放/裁剪或纹理上限影响。
+        var encoded = await Task.Run(() =>
+            RenderModernPngExport(profile, imagePath, options, isVisible));
+        await File.WriteAllBytesAsync(destination, encoded);
     }
 
     private static byte[] EncodeModernPng(byte[] bgraPixels, int width, int height, int compressionLevel)
@@ -357,27 +320,5 @@ public sealed partial class MapListPage : UserControl
         return image.ImEncode(
             ".png",
             [new ImageEncodingParam(ImwriteFlags.PngCompression, compressionLevel)]);
-    }
-
-    private static void UnPremultiplyModernPngPixels(Span<byte> bgraPixels)
-    {
-        for (var index = 0; index + 3 < bgraPixels.Length; index += 4)
-        {
-            var alpha = bgraPixels[index + 3];
-            if (alpha == 255)
-                continue;
-            if (alpha == 0)
-            {
-                bgraPixels[index] = 0;
-                bgraPixels[index + 1] = 0;
-                bgraPixels[index + 2] = 0;
-                continue;
-            }
-            for (var channel = 0; channel < 3; channel++)
-            {
-                var straight = (bgraPixels[index + channel] * 255 + alpha / 2) / alpha;
-                bgraPixels[index + channel] = (byte)Math.Min(255, straight);
-            }
-        }
     }
 }

@@ -11,7 +11,7 @@ public sealed class MapInputInvokedEventArgs(long timestamp) : EventArgs
 }
 
 /// <summary>Pass-through global input bindings with keyboard polling for games that bypass hooks.</summary>
-public sealed class MapGlobalInputService : IDisposable
+public sealed partial class MapGlobalInputService : IDisposable
 {
     private const int WhKeyboardLl = 13;
     private const int WhMouseLl = 14;
@@ -403,22 +403,29 @@ public sealed class MapGlobalInputService : IDisposable
 
         var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
         if (invokeQuickScan)
-            _dispatcher.TryEnqueue(() => QuickScanInvoked?.Invoke(this, invoked));
+            DispatchInput(invoked, "keyboard", _quickScan.DisplayName,
+                "quick-scan", () => QuickScanInvoked?.Invoke(this, invoked));
         if (invokeOverlayToggle)
-            _dispatcher.TryEnqueue(() => OverlayToggleInvoked?.Invoke(this, invoked));
+            DispatchInput(invoked, "keyboard", _overlayToggle.DisplayName,
+                "overlay-toggle", () => OverlayToggleInvoked?.Invoke(this, invoked));
         if (invokeManualRecognition)
-            _dispatcher.TryEnqueue(() => ManualRecognitionInvoked?.Invoke(this, invoked));
+            DispatchInput(invoked, "keyboard", _manualRecognition.DisplayName,
+                "manual-recognition", () => ManualRecognitionInvoked?.Invoke(this, invoked));
         if (invokeGameMapToggle)
-            _dispatcher.TryEnqueue(() => GameMapToggleInvoked?.Invoke(this, invoked));
+            DispatchInput(invoked, "keyboard", _gameMapToggle.DisplayName,
+                "game-map-toggle", () => GameMapToggleInvoked?.Invoke(this, invoked));
         if (invokeControlPanelToggle)
         {
-            _dispatcher.TryEnqueue(
+            DispatchInput(invoked, "keyboard", _controlPanelToggle.DisplayName,
+                "control-panel-toggle",
                 () => ControlPanelToggleInvoked?.Invoke(this, invoked));
         }
         if (invokeSwitchFloor)
-            _dispatcher.TryEnqueue(() => SwitchFloorInvoked?.Invoke(this, invoked));
+            DispatchInput(invoked, "keyboard", _switchFloor.DisplayName,
+                "switch-floor", () => SwitchFloorInvoked?.Invoke(this, invoked));
         if (invokeSaveMapCache)
-            _dispatcher.TryEnqueue(() => SaveMapCacheInvoked?.Invoke(this, invoked));
+            DispatchInput(invoked, "keyboard", _saveMapCache.DisplayName,
+                "save-map-cache", () => SaveMapCacheInvoked?.Invoke(this, invoked));
     }
 
     private static bool IsKeyDown(uint key) =>
@@ -545,29 +552,35 @@ public sealed class MapGlobalInputService : IDisposable
         {
             var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
             if (_quickScan.Kind == MapInputBindingKind.Mouse && _quickScan.MouseButton == button)
-                _dispatcher.TryEnqueue(() => QuickScanInvoked?.Invoke(this, invoked));
+                DispatchInput(invoked, "mouse", _quickScan.DisplayName,
+                    "quick-scan", () => QuickScanInvoked?.Invoke(this, invoked));
             if (_overlayToggle.Kind == MapInputBindingKind.Mouse && _overlayToggle.MouseButton == button)
-                _dispatcher.TryEnqueue(() => OverlayToggleInvoked?.Invoke(this, invoked));
+                DispatchInput(invoked, "mouse", _overlayToggle.DisplayName,
+                    "overlay-toggle", () => OverlayToggleInvoked?.Invoke(this, invoked));
             if (_manualRecognition.Kind == MapInputBindingKind.Mouse && _manualRecognition.MouseButton == button)
-                _dispatcher.TryEnqueue(() => ManualRecognitionInvoked?.Invoke(this, invoked));
+                DispatchInput(invoked, "mouse", _manualRecognition.DisplayName,
+                    "manual-recognition", () => ManualRecognitionInvoked?.Invoke(this, invoked));
             if (_gameMapToggle.Kind == MapInputBindingKind.Mouse && _gameMapToggle.MouseButton == button)
-                _dispatcher.TryEnqueue(() => GameMapToggleInvoked?.Invoke(this, invoked));
+                DispatchInput(invoked, "mouse", _gameMapToggle.DisplayName,
+                    "game-map-toggle", () => GameMapToggleInvoked?.Invoke(this, invoked));
             if (_controlPanelToggle.Kind == MapInputBindingKind.Mouse
                 && _controlPanelToggle.MouseButton == button)
             {
-                _dispatcher.TryEnqueue(
+                DispatchInput(invoked, "mouse", _controlPanelToggle.DisplayName,
+                    "control-panel-toggle",
                     () => ControlPanelToggleInvoked?.Invoke(this, invoked));
             }
             if (_switchFloor.Kind == MapInputBindingKind.Mouse
                 && _switchFloor.MouseButton == button)
             {
-                _dispatcher.TryEnqueue(
-                    () => SwitchFloorInvoked?.Invoke(this, invoked));
+                DispatchInput(invoked, "mouse", _switchFloor.DisplayName,
+                    "switch-floor", () => SwitchFloorInvoked?.Invoke(this, invoked));
             }
             if (_saveMapCache.Kind == MapInputBindingKind.Mouse
                 && _saveMapCache.MouseButton == button)
             {
-                _dispatcher.TryEnqueue(
+                DispatchInput(invoked, "mouse", _saveMapCache.DisplayName,
+                    "save-map-cache",
                     () => SaveMapCacheInvoked?.Invoke(this, invoked));
             }
         }

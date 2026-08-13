@@ -623,9 +623,13 @@ public sealed class MapManualCandidateWindow
         });
         details.Children.Add(new TextBlock
         {
-            Text = $"几何误差 {choice.VectorError:F3} · 置信度 {choice.RawConfidence:P0}",
+            Text = string.IsNullOrWhiteSpace(choice.EvidenceLabel)
+                ? $"几何误差 {choice.VectorError:F3} · 置信度 {choice.RawConfidence:P0}"
+                : choice.EvidenceLabel,
             FontSize = 13,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 200, 200, 200))
+            Foreground = new SolidColorBrush(choice.IsReferenceOnly
+                ? Color.FromArgb(255, 244, 190, 90)
+                : Color.FromArgb(255, 150, 225, 170))
         });
         overlay.Child = details;
         grid.Children.Add(overlay);

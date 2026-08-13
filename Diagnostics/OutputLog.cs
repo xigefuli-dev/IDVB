@@ -12,7 +12,11 @@ namespace IDVBuff.Diagnostics;
 public static class OutputLog
 {
     private const int RetainedLogCount = 10;
+    private const long MaximumLogBytes = 16L * 1024 * 1024;
+    private const int FirstChanceBurstLimit = 20;
+    private static readonly TimeSpan FirstChanceWindow = TimeSpan.FromSeconds(1);
     private static readonly object Gate = new();
+    private static readonly object FirstChanceGate = new();
 
     [ThreadStatic]
     private static bool writing;
@@ -24,6 +28,10 @@ public static class OutputLog
     private static CapturingTextWriter? capturedError;
     private static OutputTraceListener? traceListener;
     private static bool firstChanceExceptionsAttached;
+    private static bool logSizeLimitReached;
+    private static DateTime firstChanceWindowStartedUtc = DateTime.UtcNow;
+    private static int firstChanceCount;
+    private static int suppressedFirstChanceCount;
 
     public static string? CurrentLogPath { get; private set; }
 
@@ -61,6 +69,7 @@ public static class OutputLog
                 {
                     AutoFlush = true
                 };
+                logSizeLimitReached = false;
 
                 originalOutput = Console.Out;
                 originalError = Console.Error;
@@ -111,7 +120,22 @@ public static class OutputLog
                 line += Environment.NewLine + FormatException(exception);
 
             lock (Gate)
-                writer?.WriteLine(line);
+            {
+                if (writer is null || logSizeLimitReached)
+                    return;
+                var encodedLength = writer.Encoding.GetByteCount(line)
+                    + writer.Encoding.GetByteCount(Environment.NewLine);
+                if (writer.BaseStream.Position + encodedLength >= MaximumLogBytes)
+                {
+                    writer.WriteLine(
+                        $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz}] "
+                        + "[WARNING] [SYSTEM] Output log size limit reached; "
+                        + "further messages were suppressed.");
+                    logSizeLimitReached = true;
+                    return;
+                }
+                writer.WriteLine(line);
+            }
         }
         catch
         {
@@ -160,17 +184,53 @@ public static class OutputLog
 
             writer.Dispose();
             writer = null;
+            logSizeLimitReached = false;
         }
     }
 
     private static void OnFirstChanceException(
         object? sender,
-        FirstChanceExceptionEventArgs args) =>
+        FirstChanceExceptionEventArgs args)
+    {
+        int suppressedCount = 0;
+        lock (FirstChanceGate)
+        {
+            var now = DateTime.UtcNow;
+            if (now - firstChanceWindowStartedUtc >= FirstChanceWindow)
+            {
+                suppressedCount = suppressedFirstChanceCount;
+                firstChanceWindowStartedUtc = now;
+                firstChanceCount = 0;
+                suppressedFirstChanceCount = 0;
+            }
+
+            if (firstChanceCount >= FirstChanceBurstLimit)
+            {
+                suppressedFirstChanceCount++;
+                return;
+            }
+            firstChanceCount++;
+        }
+
+        if (suppressedCount > 0)
+        {
+            Write(
+                "WARNING",
+                "FIRST-CHANCE",
+                $"Suppressed {suppressedCount} repeated first-chance exceptions "
+                    + "during the previous one-second window.");
+        }
+
+        var exception = args.Exception;
+        var includeCallStack = exception is ArgumentException
+            or System.Runtime.InteropServices.COMException;
         Write(
             "WARNING",
             "FIRST-CHANCE",
             $"Exception was thrown and may be handled by a try/catch: "
-                + $"{args.Exception.GetType().FullName}: {args.Exception.Message}");
+                + $"{exception.GetType().FullName}: {exception.Message}",
+            includeCallStack ? exception : null);
+    }
 
     private static void OnUnhandledException(
         object sender,

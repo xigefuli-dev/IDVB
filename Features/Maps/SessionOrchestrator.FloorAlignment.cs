@@ -36,6 +36,9 @@ public sealed partial class SessionOrchestrator
         out MapFeatureCacheKey? repairCacheKey)
     {
         repairCacheKey = null;
+        // 缓存信任门控：fixed/兜底连续失败达阈值后，本轮已无可用缓存证据，
+        // 跳过 VPSG 把预算直接给宽半径全局恢复。
+        var skipVpsgForDistrustedCache = false;
         var primaryFloorKey = MapFloorRules.GetPrimaryFloorKey(locked.Map);
         var hasFloorCalibration = _settings!.FloorScaleCalibrations
             .Any(calibration => calibration.Matches(
@@ -59,6 +62,7 @@ public sealed partial class SessionOrchestrator
             repairCacheKey = pendingRepairKey;
         }
         MapRecognitionAttempt? firstAttempt = null;
+        double? vpsgScale = null;
         if (reliable is not null)
         {
             firstAttempt = AlignNoDoorLocalStructure(
@@ -94,54 +98,105 @@ public sealed partial class SessionOrchestrator
                  && cacheKey is not null
                  && cacheEntry is not null)
         {
-            if (!TryCreateNoDoorStageTuning(
-                    structureTuning,
-                    out var cachedTuning,
-                    maximumStageMilliseconds: 650))
+            // 信任门槛：连续验证失败达到阈值的条目跳过 fixed 验证。
+            // repairCacheKey 保留，使修复样本继续积累，最终由 Recovery 替换毒缓存。
+            if (!MapFeatureCacheRules.IsCacheEntryTrusted(cacheEntry))
             {
-                return CreateNoDoorBudgetFailure("cached-fixed-scale");
+                repairCacheKey = cacheKey;
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Warning,
+                    $"缩放缓存已降级跳过 · floor={floorKey} · "
+                    + $"scale={cacheEntry.Scale.UniformScale:F6}",
+                    details: new()
+                    {
+                        ["mapId"] = locked.Map.Id,
+                        ["floor"] = floorKey,
+                        ["scale"] = cacheEntry.Scale.UniformScale,
+                        ["source"] = cacheEntry.Scale.Source.ToString(),
+                        ["failedValidationCount"] =
+                            cacheEntry.Scale.Validation?.FailedValidationCount,
+                        ["cacheDecision"] = "distrusted-skipped"
+                    });
             }
-
-            scaleSeed = MapFeatureCacheRules.CreateScaleSeed(
-                locked.Map,
-                floorKey,
-                cacheEntry.Scale.UniformScale);
-            firstAttempt = _recognition.AlignWithCachedScale(
-                frame,
-                locked.Map.Id,
-                floorKey,
-                scaleSeed,
-                alignmentMode,
-                tuning,
-                cachedTuning,
-                identityPriorConfidence);
-            LogNoDoorStage(
-                "cached-fixed-scale",
-                firstAttempt.Recognition is not null,
-                firstAttempt,
-                firstAttempt.Diagnostics.TotalMilliseconds,
-                new Dictionary<string, object?>
+            else
+            {
+                if (!TryCreateNoDoorStageTuning(
+                        structureTuning,
+                        out var cachedTuning,
+                        maximumStageMilliseconds: 650))
                 {
-                    ["scale"] = cacheEntry.Scale.UniformScale,
-                    ["cacheSource"] = cacheEntry.Scale.Source.ToString()
-                });
-            if (firstAttempt.Recognition is { } cachedRecognition)
-            {
-                return CopyAttempt(
-                    firstAttempt,
-                    MarkUsedCachedScale(cachedRecognition));
-            }
+                    return CreateNoDoorBudgetFailure("cached-fixed-scale");
+                }
 
-            // The entry stays active and trusted. A later successful global
-            // recovery is merely a repair candidate and cannot replace a
-            // manual entry until three consistent samples have accumulated.
-            repairCacheKey = cacheKey;
-            MarkMapCacheForRepair(cacheKey);
+                scaleSeed = MapFeatureCacheRules.CreateScaleSeed(
+                    locked.Map,
+                    floorKey,
+                    cacheEntry.Scale.UniformScale);
+                firstAttempt = _recognition.AlignWithCachedScale(
+                    frame,
+                    locked.Map.Id,
+                    floorKey,
+                    scaleSeed,
+                    alignmentMode,
+                    tuning,
+                    cachedTuning,
+                    identityPriorConfidence);
+                LogNoDoorStage(
+                    "cached-fixed-scale",
+                    firstAttempt.Recognition is not null,
+                    firstAttempt,
+                    firstAttempt.Diagnostics.TotalMilliseconds,
+                    new Dictionary<string, object?>
+                    {
+                        ["scale"] = cacheEntry.Scale.UniformScale,
+                        ["cacheSource"] = cacheEntry.Scale.Source.ToString()
+                    });
+                if (firstAttempt.Recognition is { } cachedRecognition)
+                {
+                    return CopyAttempt(
+                        firstAttempt,
+                        MarkUsedCachedScale(cachedRecognition));
+                }
+
+                // fixed 单假设验证失败 → 缓存 scale 附近极小半径 Search 兜底，
+                // 救小漂移；同时为信任降级提供验证证据（成功重置 / 失败 +1）。
+                var repairSearch = TryAlignWithCachedScaleRepairSearch(
+                    frame,
+                    locked,
+                    floorKey,
+                    cacheEntry.Scale.UniformScale,
+                    alignmentMode,
+                    tuning,
+                    structureTuning,
+                    identityPriorConfidence);
+                if (repairSearch.Recognition is { } repairRecognition)
+                {
+                    NoteCacheValidationOutcome(cacheKey, succeeded: true);
+                    return CopyAttempt(
+                        repairSearch,
+                        MarkUsedCachedScale(repairRecognition));
+                }
+
+                NoteCacheValidationOutcome(cacheKey, succeeded: false);
+                // The entry stays active and trusted. A later successful global
+                // recovery is merely a repair candidate and cannot replace a
+                // manual entry until three consistent samples have accumulated.
+                repairCacheKey = cacheKey;
+                MarkMapCacheForRepair(cacheKey);
+                // 本轮失败后计数将达阈值 → 缓存已确认不可靠，跳过 VPSG 直达
+                // 宽半径全局恢复（止血，避免再消耗 VPSG 预算）。
+                skipVpsgForDistrustedCache =
+                    (cacheEntry.Scale.Validation?.FailedValidationCount ?? 0) + 1
+                        >= MapFeatureCacheRules
+                            .MaximumFailedValidationCountBeforeDistrust;
+            }
         }
 
         // VPSG 缩放引导：不信任跨楼层 scale seed，用 AKAZE 描述符几何直接
         // 估计本楼层 scale 并做固定 scale 结构验证。成功则短路返回。
-        if (TryAlignFloorWithVpsg(
+        if (!skipVpsgForDistrustedCache
+            && TryAlignFloorWithVpsg(
                 frame,
                 locked,
                 floorKey,
@@ -154,6 +209,14 @@ public sealed partial class SessionOrchestrator
             firstAttempt ??= vpsgAttempt;
             if (vpsgAttempt.Recognition is not null)
                 return vpsgAttempt;
+            // VPSG 估计出本楼层 scale 但固定 scale 结构验证失败：保留估计值，
+            // 让全局恢复以它（而非中性 KEEP-1.0 种子）为搜索锚点，避免正确
+            // scale 落在 [0.70,1.30] 搜索范围之外（根因③）。
+            if (double.IsFinite(vpsgAttempt.Diagnostics.ScaleBootstrapScale)
+                && vpsgAttempt.Diagnostics.ScaleBootstrapScale > 0d)
+            {
+                vpsgScale = vpsgAttempt.Diagnostics.ScaleBootstrapScale;
+            }
         }
 
         // 辅助锚点已停用：跳过 auxiliary-disambiguation 阶段，
@@ -188,11 +251,14 @@ public sealed partial class SessionOrchestrator
             recoveryTuning.EnableFeatureVoting = false;
         }
         recoveryTuning.Normalize();
+        var recoverySeed = vpsgScale is { } vpsgEstimate
+            ? MapFeatureCacheRules.CreateScaleSeed(locked.Map, floorKey, vpsgEstimate)
+            : scaleSeed;
         var recovery = _recognition.AlignFloorWithoutGates(
             frame,
             locked.Map.Id,
             floorKey,
-            scaleSeed,
+            recoverySeed,
             alignmentMode,
             tuning,
             recoveryTuning,
@@ -228,6 +294,62 @@ public sealed partial class SessionOrchestrator
         return recovery;
     }
 
+    /// <summary>
+    /// cached-fixed-scale 单假设验证失败后的极小半径 Search 兜底。在缓存 scale
+    /// 附近 ±3% 做诚实的结构搜索，救小漂移；成功/失败作为信任降级的验证证据。
+    /// </summary>
+    private MapRecognitionAttempt TryAlignWithCachedScaleRepairSearch(
+        CapturedGameFrame frame,
+        RuntimeMapRecognition locked,
+        string floorKey,
+        double cachedScale,
+        MapOverlayAlignmentMode alignmentMode,
+        MapRecognitionTuning tuning,
+        MapStructureRegistrationTuning structureTuning,
+        double identityPriorConfidence)
+    {
+        if (!TryCreateNoDoorStageTuning(
+                structureTuning,
+                out var repairTuning,
+                maximumStageMilliseconds:
+                    MapOpenAlignmentRouteRules
+                        .CachedScaleRepairSearchBudgetMilliseconds))
+        {
+            return CreateNoDoorBudgetFailure("cached-scale-repair-search");
+        }
+        MapOpenAlignmentRouteRules.ApplyCachedScaleRepairSearchPolicy(
+            repairTuning);
+        var repairSeed = MapFeatureCacheRules.CreateScaleSeed(
+            locked.Map,
+            floorKey,
+            cachedScale);
+        var repairSearch = _recognition.AlignFloorWithoutGates(
+            frame,
+            locked.Map.Id,
+            floorKey,
+            repairSeed,
+            alignmentMode,
+            tuning,
+            repairTuning,
+            candidateHistory: null,
+            isTracking: false,
+            scaleSearchPolicy: MapScaleSearchPolicy.Search,
+            identityPriorConfidence: identityPriorConfidence);
+        LogNoDoorStage(
+            "cached-scale-repair-search",
+            repairSearch.Recognition is not null,
+            repairSearch,
+            repairSearch.Diagnostics.TotalMilliseconds,
+            new Dictionary<string, object?>
+            {
+                ["cachedScale"] = cachedScale,
+                ["scaleRadius"] =
+                    MapOpenAlignmentRouteRules.CachedScaleRepairSearchRadius,
+                ["searchPolicy"] = nameof(MapScaleSearchPolicy.Search)
+            });
+        return repairSearch;
+    }
+
     private async Task<(
         RuntimeMapRecognition? Recognition,
         string? FailureReason,
@@ -250,24 +372,9 @@ public sealed partial class SessionOrchestrator
             return (identityLock, null, null, null, null);
         }
 
-        if (identityLock.Result.OverlayTransform is not { } identityTransform)
-        {
-            return (
-                null,
-                $"地图已锁定，但当前手动楼层 {manualFloorKey.ToUpperInvariant()} 缺少可用缩放种子。",
-                null,
-                null,
-                new MapRecognitionAttempt
-                {
-                    FailureReason = $"Manual floor {manualFloorKey} has no usable scale seed."
-                });
-        }
-
-        var scaleSeed = CreateCrossFloorScaleSeed(
+        var scaleSeed = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
             identityLock.Map,
-            identityLock.Result.Floor,
-            manualFloorKey,
-            identityTransform);
+            manualFloorKey);
         var recognitionTuning = CreateInitialAlignmentRecognitionTuning();
         var structureTuning = CreateInitialAlignmentStructureTuning();
         using var deadline = new NoDoorAlignmentDeadline(
@@ -310,19 +417,4 @@ public sealed partial class SessionOrchestrator
             attempt);
     }
 
-    private static MapOverlayTransform CreateCrossFloorScaleSeed(
-        MapRecord map,
-        string sourceFloorKey,
-        string targetFloorKey,
-        MapOverlayTransform sourceTransform)
-    {
-        var sourceFloor = MapFloorRules.GetFloorProfile(map, sourceFloorKey);
-        var targetFloor = MapFloorRules.GetFloorProfile(map, targetFloorKey);
-        return sourceFloor is not null && targetFloor is not null
-            ? MapFloorScaleSeedRules.RenormalizeTransformToFloor(
-                sourceTransform,
-                sourceFloor,
-                targetFloor)
-            : sourceTransform;
-    }
 }

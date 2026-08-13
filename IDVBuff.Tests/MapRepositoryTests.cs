@@ -128,6 +128,16 @@ public sealed class MapRepositoryTests
                 .FindAnchor("main-entrance")!.IsMarked);
             Assert.Equal("roof", reloaded.Recognition.FirstFloor.FloorKey);
             Assert.Equal("ground", reloaded.Recognition.SecondFloor.FloorKey);
+
+            var draft = await repository.CreateDraftAsync(saved.Id);
+            Assert.NotNull(draft);
+            draft!.Recognition.GetFloor("roof")!.Annotations.Add(
+                new MapAnnotation { Type = MapAnnotationType.Outline });
+            await repository.SaveAsync(draft);
+
+            var roundTripped = (await repository.GetMapsAsync()).Single();
+            Assert.Single(roundTripped.Recognition.GetFloor("roof")!.Annotations);
+            Assert.Empty(roundTripped.Recognition.GetFloor("ground")!.Annotations);
         }
         finally
         {
@@ -595,7 +605,7 @@ public sealed class MapRepositoryTests
             Assert.True(repairedFloor["ImageFileLength"]!.GetValue<long>() > 0);
             Assert.True(repairedFloor["ImageLastWriteUtcTicks"]!.GetValue<long>() > 0);
             Assert.False(string.IsNullOrWhiteSpace(repairedFloor["ThumbnailFileName"]!.GetValue<string>()));
-            Assert.Equal(13, repaired["StorageSchemaVersion"]!.GetValue<int>());
+            Assert.Equal(14, repaired["StorageSchemaVersion"]!.GetValue<int>());
         }
         finally
         {

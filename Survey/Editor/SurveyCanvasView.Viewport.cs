@@ -14,6 +14,7 @@ internal enum SurveyEditorTool
     Select,
     Pan,
     Decontaminate,
+    VignetteCorrection,
     Align,
     NormalizeColors,
     Eraser
@@ -66,6 +67,8 @@ internal sealed partial class SurveyCanvasView
     public void SetTool(SurveyEditorTool tool)
     {
         ActiveTool = tool;
+        if (tool != SurveyEditorTool.Select)
+            CancelTransformBoxInteraction(commit: false);
         _brushPreview?.SetValue(VisibilityProperty,
             tool == SurveyEditorTool.Eraser ? Visibility.Visible : Visibility.Collapsed);
         ProtectedCursor = tool switch
@@ -77,6 +80,7 @@ internal sealed partial class SurveyCanvasView
             _ => Microsoft.UI.Input.InputSystemCursor.Create(
                 Microsoft.UI.Input.InputSystemCursorShape.Arrow)
         };
+        UpdateTransformBox();
     }
 
     public void SetBrush(double size, SurveyBrushShape shape)
@@ -106,6 +110,7 @@ internal sealed partial class SurveyCanvasView
         _viewportTransform.ScaleY = zoom;
         _viewportTransform.TranslateX = centerX - (worldX * zoom);
         _viewportTransform.TranslateY = centerY - (worldY * zoom);
+        UpdateTransformBox();
         RaiseZoomChanged();
     }
 
@@ -120,6 +125,7 @@ internal sealed partial class SurveyCanvasView
         _viewportTransform.ScaleY = zoom;
         _viewportTransform.TranslateX = (ActualWidth - (_canvas.Width * zoom)) / 2d;
         _viewportTransform.TranslateY = (ActualHeight - (_canvas.Height * zoom)) / 2d;
+        UpdateTransformBox();
         RaiseZoomChanged();
     }
 
@@ -138,6 +144,7 @@ internal sealed partial class SurveyCanvasView
         SizeChanged += (_, args) =>
         {
             Clip = new RectangleGeometry { Rect = new Rect(0d, 0d, args.NewSize.Width, args.NewSize.Height) };
+            UpdateTransformBox();
         };
         AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Viewport_PointerPressed), true);
         AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(Viewport_PointerMoved), true);
@@ -179,6 +186,7 @@ internal sealed partial class SurveyCanvasView
             var point = e.GetCurrentPoint(this).Position;
             _viewportTransform.TranslateX = _panStartX + point.X - _panStart.X;
             _viewportTransform.TranslateY = _panStartY + point.Y - _panStart.Y;
+            UpdateTransformBox();
             e.Handled = true;
             return;
         }
@@ -301,6 +309,7 @@ internal sealed partial class SurveyCanvasView
     {
         _viewportTransform.TranslateX -= originDeltaX * _viewportTransform.ScaleX;
         _viewportTransform.TranslateY -= originDeltaY * _viewportTransform.ScaleY;
+        UpdateTransformBox();
     }
 
     private static double Distance(SurveyWorldPoint left, SurveyWorldPoint right)

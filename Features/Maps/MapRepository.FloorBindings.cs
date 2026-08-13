@@ -15,6 +15,7 @@ public sealed partial class MapRepository
 
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var sortOrders = new HashSet<int>();
+        var profiles = new List<FloorRecognitionProfile>();
         for (var index = 0; index < floors.Count; index++)
         {
             var floor = floors[index];
@@ -28,11 +29,20 @@ public sealed partial class MapRepository
 
             var profile = record.Recognition.GetFloor(floor.Key);
             if (profile is null
-                || !string.Equals(profile.FloorKey, floor.Key, StringComparison.Ordinal))
+                || !string.Equals(profile.FloorKey, floor.Key, StringComparison.Ordinal)
+                || profiles.Any(existing => ReferenceEquals(existing, profile)))
             {
                 throw new InvalidOperationException(
                     $"Map {record.Id}, floor '{floor.Key}' has no matching recognition profile.");
             }
+            profiles.Add(profile);
+        }
+
+        if (record.Recognition.Floors.Count != floors.Count
+            || record.Recognition.Floors.Keys.Any(key => !keys.Contains(key)))
+        {
+            throw new InvalidOperationException(
+                $"Map {record.Id} has orphaned recognition floor profiles.");
         }
 
         if (!string.Equals(

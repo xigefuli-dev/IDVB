@@ -5,7 +5,7 @@ using OpenCvSharp;
 namespace IDVBuff.Tests;
 
 [Collection(CompleteAlignmentTestCollection.Name)]
-public sealed class SideEntranceStrategyCompleteAlignmentTests
+public sealed partial class SideEntranceStrategyCompleteAlignmentTests
 {
     [Fact]
     public void InitialSideSelectionRecoveryUsesBroadNonTrackingSearch()
@@ -27,6 +27,34 @@ public sealed class SideEntranceStrategyCompleteAlignmentTests
         Assert.True(
             MapAlignmentSearchPolicy.UseTrackingForGlobalRecovery(
                 laterTracking));
+    }
+
+    [Fact]
+    public void InitialSideSearchContextDisablesBothGateEarlyExits()
+    {
+        var method = typeof(MapCvRecognitionService).GetMethod(
+            "CreateSideEntranceWarmSearchContext",
+            System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        var session = new MapAlignmentSession
+        {
+            BaselineGateScale = 1d,
+            LockedGateEvidence =
+            [
+                new CvAnchorEvidence
+                {
+                    TemplateScale = GateTemplateRules.ReferenceScale
+                }
+            ]
+        };
+
+        var context = Assert.IsType<AlignmentSearchContext>(method!.Invoke(
+            null,
+            [session, new MapRecognitionTuning(), true]));
+
+        Assert.False(context.GateSearch.AllowSingleGateEarlyExit);
+        Assert.False(context.GateSearch.AllowDualGateEarlyExit);
     }
 
     [Fact]

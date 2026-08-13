@@ -58,6 +58,263 @@ public sealed class MapFeatureCacheTests
     }
 
     [Fact]
+    public void Map27ScaleProjectsByViewportArea()
+    {
+        var source = new MapCacheResolutionSignature(
+            2560, 1600, 1354, 1087);
+        var target = new MapCacheResolutionSignature(
+            1920, 1080, 990, 787);
+
+        Assert.True(MapScaleSeedResolver.TryProjectScale(
+            1.064945491226174d,
+            source,
+            target,
+            out var projected,
+            out var rejection));
+        Assert.Equal(string.Empty, rejection);
+        Assert.Equal(0.774833230978016d, projected, 12);
+    }
+
+    [Fact]
+    public void ProjectionAllowsAtMostThreePercentAxisDisagreement()
+    {
+        var source = new MapCacheResolutionSignature(
+            2560, 1600, 1000, 1000);
+        var accepted = new MapCacheResolutionSignature(
+            1920, 1080, 1000, 970);
+        var rejected = accepted with { ViewportHeight = 969 };
+
+        Assert.True(MapScaleSeedResolver.TryProjectScale(
+            1d, source, accepted, out _, out _));
+        Assert.False(MapScaleSeedResolver.TryProjectScale(
+            1d, source, rejected, out _, out var reason));
+        Assert.Equal("viewport-axis-scale-disagreement", reason);
+    }
+
+    [Fact]
+    public void DirectTrustedSourceOutranksValidatedAutomaticSources()
+    {
+        var mapId = Guid.NewGuid();
+        var source = new MapCacheResolutionSignature(
+            2560, 1600, 1354, 1087);
+        var target = new MapCacheResolutionSignature(
+            1920, 1080, 990, 787);
+        var player = CreateTrustedEntry(
+            mapId, "content", "1f", source, 1.064d,
+            MapFeatureCacheSource.Player, 0,
+            localizationConfidence: 0.80d,
+            candidateMargin: 0.05d);
+        var recovery = CreateTrustedEntry(
+            mapId, "content", "1f", source, 1.12d,
+            MapFeatureCacheSource.Recovery, 8,
+            localizationConfidence: 0.99d,
+            candidateMargin: 0.30d);
+
+        Assert.True(MapScaleSeedResolver.TryResolve(
+            [recovery, player],
+            mapId,
+            "content",
+            "1f",
+            target,
+            0.70d,
+            0.04d,
+            out var resolved,
+            out _));
+        Assert.Same(player, resolved!.CacheEntry);
+    }
+
+    [Fact]
+    public void VpsgFixedScaleValidationCannotExceedThreePixelChamfer()
+    {
+        var source = new MapStructureRegistrationTuning
+        {
+            MaximumChamferPixels = 8d,
+            RestrictedSearchMaximumChamferPixels = 3d,
+            ScaleSearchRadius = 0.04d
+        };
+
+        var strict =
+            MapScaleSeedResolver.CreateStrictVpsgValidationTuning(source);
+
+        Assert.Equal(3d, strict.MaximumChamferPixels);
+        Assert.Equal(3d, strict.RestrictedSearchMaximumChamferPixels);
+        Assert.Equal(0.04d, strict.ScaleSearchRadius);
+        Assert.Equal(8d, source.MaximumChamferPixels);
+    }
+
+    [Fact]
+    public void ExactTrustedCacheWinsBeforeCrossResolutionProjection()
+    {
+        var mapId = Guid.NewGuid();
+        var target = new MapCacheResolutionSignature(
+            1920, 1080, 990, 787);
+        var source = new MapCacheResolutionSignature(
+            2560, 1600, 1354, 1087);
+        var entries = new[]
+        {
+            CreateTrustedEntry(
+                mapId,
+                "content",
+                "1f",
+                source,
+                1.064945491226174d,
+                MapFeatureCacheSource.Player,
+                successfulValidations: 0),
+            CreateTrustedEntry(
+                mapId,
+                "content",
+                "1f",
+                target,
+                0.78d,
+                MapFeatureCacheSource.Recovery,
+                successfulValidations: 2)
+        };
+
+        Assert.True(MapScaleSeedResolver.TryResolve(
+            entries,
+            mapId,
+            "content",
+            "1f",
+            target,
+            0.70d,
+            0.04d,
+            out var resolved,
+            out _));
+        Assert.NotNull(resolved);
+        Assert.Equal(MapScaleSeedSource.ExactCache, resolved!.Source);
+        Assert.Equal(0.78d, resolved.Scale);
+        Assert.False(resolved.IsProjected);
+    }
+
+    [Fact]
+    public void ResolverRejectsAnisotropicOrDistrustedAndIsolatesContentAndFloor()
+    {
+        var mapId = Guid.NewGuid();
+        var source = new MapCacheResolutionSignature(
+            2560, 1600, 1354, 1087);
+        var target = new MapCacheResolutionSignature(
+            1920, 1080, 990, 700);
+        var failed = CreateTrustedEntry(
+            mapId,
+            "content",
+            "1f",
+            source,
+            1.064d,
+            MapFeatureCacheSource.Player,
+            successfulValidations: 0,
+            failedValidations: 2);
+        var wrongContent = CreateTrustedEntry(
+            mapId,
+            "other-content",
+            "1f",
+            source,
+            1.064d,
+            MapFeatureCacheSource.Player,
+            successfulValidations: 0);
+        var wrongFloor = CreateTrustedEntry(
+            mapId,
+            "content",
+            "2f",
+            source,
+            1.064d,
+            MapFeatureCacheSource.Player,
+            successfulValidations: 0);
+        var valid = CreateTrustedEntry(
+            mapId,
+            "content",
+            "1f",
+            source,
+            1.064d,
+            MapFeatureCacheSource.Player,
+            successfulValidations: 0);
+
+        Assert.False(MapScaleSeedResolver.TryResolve(
+            [failed, wrongContent, wrongFloor],
+            mapId,
+            "content",
+            "1f",
+            target,
+            0.70d,
+            0.04d,
+            out _,
+            out _));
+        Assert.False(MapScaleSeedResolver.TryResolve(
+            [valid],
+            mapId,
+            "content",
+            "1f",
+            target,
+            0.70d,
+            0.04d,
+            out _,
+            out var anisotropicRejection));
+        Assert.Contains("viewport-axis-scale-disagreement", anisotropicRejection);
+    }
+
+    [Fact]
+    public void AutomaticEstimateRequiresApprovedSourceAndHighConfidenceValidation()
+    {
+        var mapId = Guid.NewGuid();
+        var source = new MapCacheResolutionSignature(
+            2560, 1600, 1354, 1087);
+        var target = new MapCacheResolutionSignature(
+            1920, 1080, 990, 787);
+        var automatic = CreateTrustedEntry(
+            mapId, "content", "1f", source, 1.064d,
+            MapFeatureCacheSource.Automatic, 5);
+        var weakRecovery = CreateTrustedEntry(
+            mapId, "content", "1f", source, 1.064d,
+            MapFeatureCacheSource.Recovery, 5,
+            localizationConfidence: 0.69d);
+
+        Assert.False(MapScaleSeedResolver.TryResolve(
+            [automatic, weakRecovery],
+            mapId,
+            "content",
+            "1f",
+            target,
+            0.70d,
+            0.04d,
+            out _,
+            out _));
+    }
+
+    [Fact]
+    public void ReplacingSeedScaleKeepsObservedGateAtSameScreenCenter()
+    {
+        var seed = new MapAlignmentSession
+        {
+            MapId = Guid.NewGuid(),
+            FloorKey = "1f",
+            BaselineGateScale = 0.72d,
+            LockedTransform = new MapOverlayTransform
+            {
+                ScaleX = 0.72d,
+                ScaleY = 0.72d,
+                ReferenceCenterX = 500d,
+                ReferenceCenterY = 400d,
+                ScreenCenterX = 760d,
+                ScreenCenterY = 510d,
+                OffsetX = 400d,
+                OffsetY = 222d,
+                ReferenceWidth = 1000,
+                ReferenceHeight = 800
+            }
+        };
+
+        var projected = seed.WithUniformScale(0.774833230978016d);
+
+        Assert.Equal(seed.LockedTransform.ScreenCenterX,
+            projected.LockedTransform.ScreenCenterX);
+        Assert.Equal(seed.LockedTransform.ScreenCenterY,
+            projected.LockedTransform.ScreenCenterY);
+        Assert.Equal(760d - (500d * 0.774833230978016d),
+            projected.LockedTransform.OffsetX, 12);
+        Assert.Equal(510d - (400d * 0.774833230978016d),
+            projected.LockedTransform.OffsetY, 12);
+    }
+
+    [Fact]
     public void FingerprintChangesWhenMapContentChanges()
     {
         var map = CreateMap();
@@ -495,5 +752,45 @@ public sealed class MapFeatureCacheTests
             },
             new FloorDefinition { Key = "2f", SortOrder = 2 }
         ]
+    };
+
+    private static MapFeatureCacheEntry CreateTrustedEntry(
+        Guid mapId,
+        string contentFingerprint,
+        string floorKey,
+        MapCacheResolutionSignature resolution,
+        double scale,
+        MapFeatureCacheSource source,
+        int successfulValidations,
+        int failedValidations = 0,
+        double localizationConfidence = 0.90d,
+        double candidateMargin = 0.08d) => new()
+    {
+        Key = new MapFeatureCacheKey(
+            mapId,
+            contentFingerprint,
+            floorKey,
+            resolution),
+        Scale = new MapScaleCachePayload
+        {
+            UniformScale = scale,
+            Source = source,
+            SampleCount = 1,
+            Confidence = localizationConfidence,
+            RelativeMedianAbsoluteDeviation = 0d,
+            Validation = new MapScaleCacheValidationMetadata
+            {
+                DirectlyTrusted = source is MapFeatureCacheSource.Manual
+                    or MapFeatureCacheSource.Player,
+                SuccessfulValidationCount = successfulValidations,
+                FailedValidationCount = failedValidations,
+                LastLocalizationConfidence = localizationConfidence,
+                LastCandidateMargin = candidateMargin,
+                LastValidatedAt = successfulValidations + failedValidations > 0
+                    ? DateTimeOffset.UtcNow
+                    : default
+            },
+            UpdatedAt = DateTimeOffset.UtcNow
+        }
     };
 }

@@ -208,6 +208,45 @@ public sealed class MapOverlayWindow : IDisposable
             viewportBounds,
             preservePlayer);
 
+    public void UpdateMapTransform(
+        MapOverlayTransform transform,
+        bool preservePlayer = true)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_map is null)
+            return;
+        var overlayWidth = transform.ReferenceWidth * transform.ScaleX;
+        var overlayHeight = transform.ReferenceHeight * transform.ScaleY;
+        if (!double.IsFinite(overlayWidth)
+            || !double.IsFinite(overlayHeight)
+            || !double.IsFinite(transform.OffsetX)
+            || !double.IsFinite(transform.OffsetY)
+            || overlayWidth <= 0
+            || overlayHeight <= 0)
+        {
+            return;
+        }
+
+        _map = _map with
+        {
+            Left = ToFiniteSingle(transform.OffsetX - _gameBounds.X),
+            Top = ToFiniteSingle(transform.OffsetY - _gameBounds.Y),
+            Width = ToFiniteSingle(overlayWidth),
+            Height = ToFiniteSingle(overlayHeight)
+        };
+        InvalidateLockedBackground();
+        if (!preservePlayer)
+            _player = null;
+        if (IsVisible)
+            Present();
+    }
+
+    public bool TryEnableCaptureExclusion(out string failureReason)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _nativeWindow.TryEnableCaptureExclusion(out failureReason);
+    }
+
     public void UpdatePlayer(MapPlayerState? player)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

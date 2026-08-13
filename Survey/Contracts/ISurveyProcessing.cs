@@ -41,6 +41,14 @@ public interface ISurveyPreprocessor
 
 public interface ISurveyLayerRasterEditor
 {
+    Task<SurveyAssetReference> CorrectVignetteAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        double compensationStart,
+        double compensationStrength,
+        CancellationToken cancellationToken = default);
+
     Task<SurveyAssetReference> NormalizeColorsAsync(
         Guid projectId,
         SurveyMapLayer layer,

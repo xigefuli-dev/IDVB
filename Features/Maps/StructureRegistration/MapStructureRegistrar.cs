@@ -201,6 +201,9 @@ public sealed class MapStructureRegistrar
                 Math.Max(1, (int)Math.Round(reference.Edges.Height * baselineScale)));
             dsEdges = new Mat();
             Cv2.Resize(reference.Edges, dsEdges, dsSize, 0d, 0d, InterpolationFlags.Area);
+            // Area 平均会把 1px Canny 二值边降采样成灰值，随后 DistanceTransform
+            // 把灰边当非前景、从参考距离图抹掉墙段（根因④）。重阈值化保持二值。
+            Cv2.Threshold(dsEdges, dsEdges, 127d, 255d, ThresholdTypes.Binary);
             dsStructure = new Mat();
             Cv2.Resize(reference.StructureMask, dsStructure, dsSize, 0d, 0d, InterpolationFlags.Nearest);
             _currentReciprocalScale = new ReciprocalScaleContext
@@ -427,6 +430,19 @@ public sealed class MapStructureRegistrar
                 var rejection = MapStructureValidator.Validate(
                     best, margin, requiredMargin, tuning,
                     restrictedSearch: request.RestrictSearchToLockedTransform);
+                // scale 一致性门：拒绝与锁定/先验 scale 差异过大的候选（根因②'）。
+                // 结构配准的 chamfer/edgeCoverage 均单向按 query 归一化，错误的
+                // 更大 scale（更小 query）可能在这些指标上反而更漂亮而通过验收；
+                // 以锁定 scale 为锚，偏离超过 MaximumScaleChangeRatio 即拒。
+                if (rejection == MapStructureRejectionReason.None
+                    && !request.ForceBestCandidate
+                    && double.IsFinite(request.LockedTransform.ScaleX)
+                    && request.LockedTransform.ScaleX > 0d
+                    && Math.Abs((best.Scale / request.LockedTransform.ScaleX) - 1d)
+                        > StructureRegistrationRules.MaximumScaleChangeRatio)
+                {
+                    rejection = MapStructureRejectionReason.ScaleChangeTooLarge;
+                }
                 var forcedReason = forcedRefinementFallback
                     ? MapStructureRejectionReason.RefinementFailed : rejection;
                 var confidenceBreakdown = MapStructureConfidenceCalculator.Calculate(
@@ -529,6 +545,7 @@ public sealed class MapStructureRegistrar
                 Math.Max(1, (int)Math.Round(referenceFast.Edges.Height * baselineScale)));
             dsEdgesFast = new Mat();
             Cv2.Resize(referenceFast.Edges, dsEdgesFast, dsSize, 0d, 0d, InterpolationFlags.Area);
+            Cv2.Threshold(dsEdgesFast, dsEdgesFast, 127d, 255d, ThresholdTypes.Binary);
             dsStructureFast = new Mat();
             Cv2.Resize(referenceFast.StructureMask, dsStructureFast, dsSize, 0d, 0d, InterpolationFlags.Nearest);
             _currentReciprocalScale = new ReciprocalScaleContext

@@ -6,117 +6,30 @@ namespace IDVBuff.Tests;
 public sealed class MapSecondFloorAlignmentTests
 {
     [Fact]
-    public void CrossFloorSeedAdjustsScaleButDiscardsTranslation()
+    public void SecondFloorSeedDoesNotReusePrimaryFloorScale()
     {
-        var source = new MapOverlayTransform
+        var map = new MapRecord
         {
-            ScaleX = 1.2d,
-            ScaleY = 1.2d,
-            OffsetX = 400d,
-            OffsetY = 200d,
-            ReferenceCenterX = 500d,
-            ReferenceCenterY = 400d,
-            ScreenCenterX = 1000d,
-            ScreenCenterY = 680d,
-            ReferenceWidth = 1000,
-            ReferenceHeight = 800,
-            OrientationDegrees = 0,
-            AlignmentMode = MapOverlayAlignmentMode.Uniform,
-            MaximumResidualPixels = 3d
+            Id = Guid.NewGuid(),
+            UpdatedAt = DateTimeOffset.UtcNow
         };
-        var sourceFloor = new FloorRecognitionProfile
-        {
-            FloorKey = "1f",
-            RecognitionPixelWidth = 1000,
-            RecognitionPixelHeight = 800,
-            OrientationDegrees = 0
-        };
-        var targetFloor = new FloorRecognitionProfile
-        {
-            FloorKey = "2f",
-            RecognitionPixelWidth = 500,
-            RecognitionPixelHeight = 400,
-            OrientationDegrees = 0
-        };
+        map.Recognition.EnsureStandardAnchors();
+        map.Recognition.SecondFloor.RecognitionPixelWidth = 500;
+        map.Recognition.SecondFloor.RecognitionPixelHeight = 400;
+        map.Recognition.SecondFloor.OrientationDegrees = 0;
 
-        var result = MapFloorScaleSeedRules.RenormalizeTransformToFloor(
-            source,
-            sourceFloor,
-            targetFloor);
+        var result = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+            map,
+            "2f");
 
-        // scale = 1.2 × ((1000/500) + (800/400)) / 2 = 2.4.
-        // Translation is deliberately discarded across floors.
-        Assert.Equal(2.4d, result.ScaleX, 8);
-        Assert.Equal(2.4d, result.ScaleY, 8);
+        Assert.Equal(1d, result.ScaleX, 8);
+        Assert.Equal(1d, result.ScaleY, 8);
         Assert.Equal(500, result.ReferenceWidth);
         Assert.Equal(400, result.ReferenceHeight);
         Assert.Equal(250d, result.ReferenceCenterX, 8);
         Assert.Equal(200d, result.ReferenceCenterY, 8);
-        Assert.Equal(0, result.OrientationDegrees);
         Assert.Equal(0d, result.OffsetX, 8);
         Assert.Equal(0d, result.OffsetY, 8);
-    }
-
-    [Fact]
-    public void CrossFloorSeedIgnoresDimensionRatioWhenFloorExtentsDiffer()
-    {
-        var source = new MapOverlayTransform
-        {
-            ScaleX = 0.9878022620589495d,
-            ScaleY = 0.9878022620589495d,
-            ReferenceWidth = 1129,
-            ReferenceHeight = 1196,
-            AlignmentMode = MapOverlayAlignmentMode.Uniform
-        };
-        var sourceFloor = new FloorRecognitionProfile
-        {
-            RecognitionPixelWidth = 1129,
-            RecognitionPixelHeight = 1196
-        };
-        var targetFloor = new FloorRecognitionProfile
-        {
-            RecognitionPixelWidth = 1198,
-            RecognitionPixelHeight = 658
-        };
-
-        var ratio = MapFloorScaleSeedRules.ResolveReferenceScaleRatio(
-            sourceFloor,
-            targetFloor,
-            out var usedDimensionRatio);
-        var result = MapFloorScaleSeedRules.RenormalizeTransformToFloor(
-            source,
-            sourceFloor,
-            targetFloor);
-
-        // Different aspect ratios represent different world extents rather
-        // than a reliable pixel-density ratio.
-        Assert.False(usedDimensionRatio);
-        Assert.Equal(1d, ratio, 6);
-        Assert.Equal(source.ScaleX, result.ScaleX, 6);
-        Assert.Equal(source.ScaleY, result.ScaleY, 6);
-    }
-
-    [Fact]
-    public void CrossFloorSeed_DoesNotAverageCurrentPrimaryAndSecondFloorExtents()
-    {
-        var sourceFloor = new FloorRecognitionProfile
-        {
-            RecognitionPixelWidth = 1199,
-            RecognitionPixelHeight = 970
-        };
-        var targetFloor = new FloorRecognitionProfile
-        {
-            RecognitionPixelWidth = 1195,
-            RecognitionPixelHeight = 852
-        };
-
-        var ratio = MapFloorScaleSeedRules.ResolveReferenceScaleRatio(
-            sourceFloor,
-            targetFloor,
-            out var usedDimensionRatio);
-
-        Assert.False(usedDimensionRatio);
-        Assert.Equal(1d, ratio, 8);
     }
 
     [Fact]

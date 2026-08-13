@@ -149,6 +149,39 @@ internal sealed class SurveyEditorSession : IDisposable
         return result.Value;
     }
 
+    public async Task<SurveyLayerOperationResult?> CorrectVignetteAsync(
+        IReadOnlyList<Guid> layerIds,
+        double compensationStart,
+        double compensationStrength,
+        CancellationToken cancellationToken = default)
+    {
+        if (Snapshot is null || layerIds.Count == 0)
+            return null;
+        var before = SnapshotState(layerIds);
+        var result = await _coordinator.CorrectLayerVignetteAsync(
+            new SurveyLayerVignetteCorrectionRequest(
+                Guid.NewGuid(),
+                ProjectId,
+                Snapshot.Project.Revision,
+                layerIds,
+                compensationStart,
+                compensationStrength),
+            cancellationToken);
+        if (!result.Succeeded || result.Value is null)
+        {
+            Error?.Invoke(this, result.Message ?? "晕影校正失败。");
+            return null;
+        }
+        Snapshot = result.Value.Snapshot;
+        var succeeded = result.Value.Items.Where(item => item.Succeeded).Select(item => item.LayerId).ToArray();
+        if (succeeded.Length > 0)
+            PushBatchHistory(FilterState(before, succeeded), SnapshotState(succeeded));
+        lock (_renderCacheGate)
+            _renderCache.Clear();
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+        return result.Value;
+    }
+
     public async Task<SurveyLayerOperationResult?> ApplyMaskStrokeAsync(
         Guid floorId,
         IReadOnlyList<Guid> layerIds,
@@ -176,6 +209,65 @@ internal sealed class SurveyEditorSession : IDisposable
             PushBatchHistory(FilterState(before, succeeded), SnapshotState(succeeded));
         SnapshotChanged?.Invoke(this, EventArgs.Empty);
         return result.Value;
+    }
+
+    public async Task<SurveyObservationCommitResult?> ImportObservationAsync(
+        byte[] bytes,
+        string fileExtension,
+        string mediaType,
+        int pixelWidth,
+        int pixelHeight,
+        string floorKey,
+        string? layerName = null,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (Snapshot is null)
+            return null;
+        var capture = new SurveyCaptureContext(
+            Guid.Empty,
+            0L,
+            0L,
+            DateTimeOffset.UtcNow,
+            pixelWidth,
+            pixelHeight,
+            96d,
+            new SurveyPixelRect(0, 0, pixelWidth, pixelHeight),
+            // EnsureFloorAsync 以原样 key 插库且 UNIQUE(project_id, floor_key)
+            // 在 SQLite BINARY 排序下大小写敏感，必须归一化小写（与游戏路径一致）。
+            floorKey.Trim().ToLowerInvariant(),
+            Snapshot.Project.ConfigDigest,
+            Snapshot.Project.AlgorithmVersion);
+        var frame = new SurveyEncodedFrame(bytes, fileExtension, mediaType, pixelWidth, pixelHeight, capture);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var result = await _coordinator.ImportObservationAsync(
+                new SurveyObservationImportRequest(
+                    Guid.NewGuid(),
+                    ProjectId,
+                    Snapshot.Project.Revision,
+                    frame,
+                    layerName),
+                cancellationToken);
+            if (result.Succeeded && result.Value is not null)
+            {
+                Snapshot = result.Value.Snapshot;
+                SnapshotChanged?.Invoke(this, EventArgs.Empty);
+                return result.Value;
+            }
+            if (result.ErrorCode != SurveyErrorCode.RevisionConflict || attempt > 0)
+            {
+                Error?.Invoke(this, result.Message ?? "图片导入失败。");
+                return null;
+            }
+            Snapshot = await _coordinator.GetProjectAsync(ProjectId, cancellationToken);
+            if (Snapshot is null)
+            {
+                Error?.Invoke(this, "测绘项目已不存在。");
+                return null;
+            }
+        }
+        return null;
     }
 
     public async Task EditAsync(

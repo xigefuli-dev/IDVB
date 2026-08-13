@@ -11,6 +11,27 @@ internal static class MapOpenAlignmentRouteRules
     internal const int MinimumVpsgStageBudgetMilliseconds = 450;
     internal const double TargetReliableAlignmentRate = 0.95d;
     internal const double TargetTranslationJitterP95Pixels = 3d;
+    // cached-scale 固定验证失败后的极小半径 Search 兜底：救缓存 scale 的小漂移，
+    // 并为信任降级提供"成功→重置 / 失败→计数+1"的验证证据。
+    internal const int CachedScaleRepairSearchBudgetMilliseconds = 300;
+    internal const double CachedScaleRepairSearchRadius = 0.03d; // 覆盖 ±3%
+
+    internal static void ApplyCachedScaleRepairSearchPolicy(
+        MapStructureRegistrationTuning tuning)
+    {
+        // 兜底必须走诚实的 EdgesOnly Search：固定 SchemaVersion 防止 Normalize
+        // 按旧版本把 EnableFeatureVoting 强制翻回 true。
+        tuning.SchemaVersion = MapStructureRegistrationTuning.CurrentSchemaVersion;
+        tuning.ScaleSearchRadius = CachedScaleRepairSearchRadius;
+        tuning.TrackingScaleSearchRadius = 0d;
+        // 种子 scale 可能不准，禁止在错误 scale 上早停。
+        tuning.DisableScaleEarlyTermination = true;
+        // 走诚实的结构搜索，避免粗路径早退。
+        tuning.EnableFastAlignment = false;
+        // 强制 EdgesOnly → 复用 fixed 阶段已提取的实时特征，不重复 AKAZE。
+        tuning.EnableFeatureVoting = false;
+        tuning.Normalize();
+    }
 
     internal static bool ShouldPreferLockedSideFeature(
         bool isOtherFloor,

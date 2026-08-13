@@ -30,11 +30,21 @@ internal sealed class RealCliCandidateSelector(int? requestedPosition)
             return Task.FromResult(MapCandidateDecision.SelectKnownMap(position - 1));
         }
 
-        var bestIndex = 0;
-        for (var index = 1; index < candidates.Count; index++)
+        var hasVerifiedCandidate = candidates.Any(candidate =>
+            !candidate.IsReferenceOnly);
+        var bestIndex = -1;
+        for (var index = 0; index < candidates.Count; index++)
         {
-            if (candidates[index].RawConfidence
-                > candidates[bestIndex].RawConfidence)
+            if (hasVerifiedCandidate && candidates[index].IsReferenceOnly)
+                continue;
+
+            if (bestIndex < 0
+                || candidates[index].PreferredOrder
+                    < candidates[bestIndex].PreferredOrder
+                || (candidates[index].PreferredOrder
+                        == candidates[bestIndex].PreferredOrder
+                    && candidates[index].RawConfidence
+                        > candidates[bestIndex].RawConfidence))
             {
                 bestIndex = index;
             }

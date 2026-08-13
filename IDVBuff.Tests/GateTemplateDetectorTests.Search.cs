@@ -76,6 +76,64 @@ public sealed partial class GateTemplateDetectorTests
     }
 
     [Fact]
+    public void FullSearchSingleGateCompletesScheduleWhenEarlyExitIsDisabled()
+    {
+        var gatePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");
+        using var detector = new GateTemplateDetector(gatePath);
+        using var frame = BuildSingleGateFrame(gatePath, 0.275d);
+        using var matchImage = GateTemplateDetector.CreateMatchImage(frame);
+        var viewport = new MapScreenRect(0d, 0d, frame.Width, frame.Height);
+
+        var result = detector.Detect(
+            matchImage,
+            viewport,
+            BaselineClientWidth,
+            MapRecognitionTuning.DefaultGateTemplateThreshold,
+            new GateSearchContext
+            {
+                Mode = GateSearchMode.FullSearch,
+                AllowSingleGateEarlyExit = false,
+                SingleGateScoreThreshold =
+                    GateTemplateRules.EarlyExitScoreThreshold,
+            });
+
+        Assert.True(result.Gates.Count >= 1);
+        Assert.Equal(GateSearchStopReason.Completed, result.StopReason);
+        Assert.True(
+            result.ScalesEvaluated >= 8,
+            $"Disabled early exit must evaluate the full schedule, got {result.ScalesEvaluated}");
+        output.WriteLine(
+            $"FullSearchSingleGateCompleted: {result.ScalesEvaluated} scales, "
+            + $"{result.ElapsedMilliseconds:F0}ms, stop={result.StopReason}");
+    }
+
+    [Fact]
+    public void FullSearchDualGateCompletesScheduleWhenDualExitIsDisabled()
+    {
+        var gatePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");
+        using var detector = new GateTemplateDetector(gatePath);
+        using var frame = BuildTwoGateFrame(gatePath, 0.275d);
+        using var matchImage = GateTemplateDetector.CreateMatchImage(frame);
+        var viewport = new MapScreenRect(0d, 0d, frame.Width, frame.Height);
+
+        var result = detector.Detect(
+            matchImage,
+            viewport,
+            BaselineClientWidth,
+            MapRecognitionTuning.DefaultGateTemplateThreshold,
+            new GateSearchContext
+            {
+                Mode = GateSearchMode.FullSearch,
+                AllowDualGateEarlyExit = false,
+                AllowSingleGateEarlyExit = false
+            });
+
+        Assert.True(result.Gates.Count >= 2);
+        Assert.Equal(GateSearchStopReason.Completed, result.StopReason);
+        Assert.True(result.ScalesEvaluated >= 8);
+    }
+
+    [Fact]
     public void LocalConfirmationUsesOnlyConfiguredRois()
     {
         var gatePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");
@@ -365,6 +423,19 @@ public sealed partial class GateTemplateDetectorTests
         resized.ConvertTo(dimmed, MatType.CV_8UC3, 0.82d, 12d);
         Cv2.GaussianBlur(dimmed, dimmed, new Size(3, 3), 0d);
         Paste(frame, dimmed, 280, 230);
+        return frame;
+    }
+
+    private static Mat BuildTwoGateFrame(string gatePath, double scale)
+    {
+        var frame = BuildSingleGateFrame(gatePath, scale);
+        using var gate = Cv2.ImRead(gatePath, ImreadModes.Color);
+        using var resized = new Mat();
+        Cv2.Resize(gate, resized, new Size(), scale, scale, InterpolationFlags.Linear);
+        using var dimmed = new Mat();
+        resized.ConvertTo(dimmed, MatType.CV_8UC3, 0.82d, 12d);
+        Cv2.GaussianBlur(dimmed, dimmed, new Size(3, 3), 0d);
+        Paste(frame, dimmed, 1180, 720);
         return frame;
     }
 

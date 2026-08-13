@@ -14,10 +14,10 @@ public sealed partial class MapStatusPage : UserControl
     private async void PresetSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_refreshing) return;
-        if (_presetSelector.SelectedItem is not IDVBuff.Core.Models.ResolutionTuningProfile profile) return;
+        if (_presetSelector.SelectedItem is not PresetSelectionItem item) return;
         try
         {
-            await _runtime.SetActivePresetAsync(profile.Name);
+            await _runtime.SetSelectedResolutionPresetAsync(item.ProfileName);
         }
         catch (Exception ex)
         {

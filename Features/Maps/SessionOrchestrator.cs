@@ -40,6 +40,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private readonly MapFeatureCacheRepository _mapFeatureCacheRepository;
     private readonly MapOverlayStatusCoordinator _overlayStatus;
     private readonly MapControlPanelWindow? _controlPanel;
+    private readonly GameOverlayProgressBar _scanProgressOverlay = new();
 
     // Session state
     private readonly MapOpenSession _mapOpenSession = new();
@@ -137,7 +138,20 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _mapFeatureCacheRepository = new MapFeatureCacheRepository();
         _overlayStatus = new MapOverlayStatusCoordinator(
             _overlay,
-            action => _dispatcher.TryEnqueue(() => action()));
+            action =>
+            {
+                if (_dispatcher.TryEnqueue(() => action()))
+                    return;
+                _logCollector.Append(
+                    MapLogCategory.System,
+                    MapLogLevel.Warning,
+                    "Overlay status dispatch rejected",
+                    details: new()
+                    {
+                        ["outcome"] = "dispatch-rejected",
+                        ["operation"] = "overlay-status-expiration"
+                    });
+            });
 
         // MapControlPanelWindow 仅在 GUI 模式创建（headless CLI 跳过）
         if (!headless)
@@ -155,19 +169,93 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         if (!headless)
         {
             _input.QuickScanInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(() => _ = RunQuickScanAsync());
+                StartInputOperation("quick-scan", RunQuickScanAsync);
             _input.OverlayToggleInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(ToggleOverlay);
+                RunInputAction("overlay-toggle", ToggleOverlay);
             _input.ManualRecognitionInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(() => _ = RunManualRecognitionAsync());
+                StartInputOperation(
+                    "manual-recognition",
+                    RunManualRecognitionAsync);
             _input.GameMapToggleInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(() => _ = HandleGameMapToggleAsync());
+                StartInputOperation("game-map-toggle", HandleGameMapToggleAsync);
             _input.ControlPanelToggleInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(ToggleControlPanel);
+                RunInputAction("control-panel-toggle", ToggleControlPanel);
             _input.SwitchFloorInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(HandleSwitchFloor);
+                RunInputAction("switch-floor", HandleSwitchFloorSafely);
             _input.SaveMapCacheInvoked += (_, _) =>
-                _dispatcher.TryEnqueue(() => _ = SaveCurrentMapCacheAsync());
+                StartInputOperation("save-map-cache", SaveCurrentMapCacheAsync);
+        }
+    }
+
+    private void RunInputAction(string actionName, Action action)
+    {
+        LogInputHandlerOutcome(actionName, "handler-started");
+        try
+        {
+            action();
+            LogInputHandlerOutcome(actionName, "handler-completed");
+        }
+        catch (Exception exception)
+        {
+            LogInputHandlerOutcome(actionName, "handler-failed", exception);
+        }
+    }
+
+    private void StartInputOperation(
+        string actionName,
+        Func<Task> operation)
+    {
+        LogInputHandlerOutcome(actionName, "handler-started");
+        Task task;
+        try
+        {
+            task = operation();
+        }
+        catch (Exception exception)
+        {
+            LogInputHandlerOutcome(actionName, "handler-failed", exception);
+            return;
+        }
+
+        _ = ObserveInputOperationAsync(actionName, task);
+    }
+
+    private async Task ObserveInputOperationAsync(
+        string actionName,
+        Task operation)
+    {
+        try
+        {
+            await operation;
+            LogInputHandlerOutcome(actionName, "handler-completed");
+        }
+        catch (Exception exception)
+        {
+            LogInputHandlerOutcome(actionName, "handler-failed", exception);
+        }
+    }
+
+    private void LogInputHandlerOutcome(
+        string actionName,
+        string outcome,
+        Exception? exception = null)
+    {
+        try
+        {
+            _logCollector.Append(
+                MapLogCategory.System,
+                exception is null ? MapLogLevel.Info : MapLogLevel.Error,
+                $"Input handler: {actionName} · {outcome}",
+                details: new()
+                {
+                    ["outcome"] = outcome,
+                    ["action"] = actionName,
+                    ["exceptionType"] = exception?.GetType().FullName,
+                    ["exception"] = exception?.ToString()
+                });
+        }
+        catch
+        {
         }
     }
 
@@ -218,11 +306,14 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             _logCollector.Append(
                 MapLogCategory.System,
                 MapLogLevel.Info,
-                $"地图运行时已初始化 · 就绪地图 {_recognition.ReadyMapCount}/{_recognition.TotalMapCount}",
+                $"地图运行时已初始化 · 主识别 {_recognition.ReadyMapCount}/{_recognition.TotalMapCount} "
+                + $"· 侧门 {_recognition.SideEntranceReadyMapCount}/{_recognition.TotalMapCount}",
                 details: new()
                 {
                     ["readyMapCount"] = _recognition.ReadyMapCount,
-                    ["totalMapCount"] = _recognition.TotalMapCount
+                    ["totalMapCount"] = _recognition.TotalMapCount,
+                    ["sideEntranceReadyMapCount"] =
+                        _recognition.SideEntranceReadyMapCount
                 });
 
             ApplyBindings();
@@ -244,9 +335,15 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public string GetActivePreset()
         => _config.ActiveResolutionPreset;
 
+    /// <summary>获取「使用配置文件」的用户选择；null/空 表示「自动」。</summary>
+    public string? GetSelectedResolutionPreset()
+        => _settings?.SelectedResolutionPreset;
+
     /// <summary>切换到指定分辨率预设，重新加载 TOML 配置并刷新叠加层显示。</summary>
     public async Task SetActivePresetAsync(string name)
     {
+        CancelOrbTracking("resolution preset changed");
+        await DrainOrbTrackingAsync();
         await _profileService.SetActiveProfileAsync(name);
 
         // 重新应用所有 TOML 规则
@@ -297,6 +394,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public MapReferencePoint? LastTrustedPlayerPosition => _lastTrustedPlayerPoint;
     public MapAlignmentTrackingMode AlignmentTrackingMode => _alignmentTrackingMode;
     public int ReadyMapCount => _recognition.ReadyMapCount;
+    public int SideEntranceReadyMapCount => _recognition.SideEntranceReadyMapCount;
     public int TotalMapCount => _recognition.TotalMapCount;
     public bool ArePlayerAssetsReady => false;
     public GameIntegrityStatus IntegrityStatus { get; private set; } =

@@ -72,6 +72,141 @@ public sealed class MapModelsTests
     }
 
     [Fact]
+    public void SingleCanonicalFloorDoesNotShareSecondFloorCompatibilityState()
+    {
+        var first = new FloorRecognitionProfile
+        {
+            Floor = MapFloor.Second,
+            FloorKey = "1f",
+            Annotations =
+            [
+                new MapAnnotation { Type = MapAnnotationType.Outline }
+            ]
+        };
+        var profile = new MapRecognitionProfile
+        {
+            Floors = new Dictionary<string, FloorRecognitionProfile>
+            {
+                ["1f"] = first
+            }
+        };
+
+        profile.NormalizeForFloors(
+        [
+            new FloorDefinition { Key = "1f", DisplayName = "1F", SortOrder = 1 }
+        ]);
+
+        Assert.Same(first, profile.Floors["1f"]);
+        Assert.Same(profile.Floors["1f"], profile.FirstFloor);
+        Assert.NotSame(profile.FirstFloor, profile.SecondFloor);
+        Assert.DoesNotContain("2f", profile.Floors.Keys);
+        Assert.Single(profile.FirstFloor.Annotations);
+        Assert.Empty(profile.SecondFloor.Annotations);
+
+        profile.FirstFloor.Annotations.Clear();
+        Assert.Empty(profile.FirstFloor.Annotations);
+        Assert.Empty(profile.SecondFloor.Annotations);
+    }
+
+    [Fact]
+    public void CloneUsesCanonicalProfilesWithoutCrossFloorSharing()
+    {
+        var profile = new MapRecognitionProfile();
+        profile.EnsureStandardAnchors();
+        profile.FirstFloor.Annotations.Add(new MapAnnotation { Type = MapAnnotationType.Outline });
+
+        var clone = profile.Clone();
+
+        Assert.Same(clone.Floors["1f"], clone.FirstFloor);
+        Assert.Same(clone.Floors["2f"], clone.SecondFloor);
+        Assert.NotSame(clone.Floors["1f"], clone.Floors["2f"]);
+        Assert.NotSame(profile.Floors["1f"], clone.Floors["1f"]);
+        Assert.Single(clone.FirstFloor.Annotations);
+
+        clone.FirstFloor.Annotations.Clear();
+        Assert.Single(profile.FirstFloor.Annotations);
+        Assert.Empty(clone.SecondFloor.Annotations);
+    }
+
+    [Fact]
+    public void ConverterRepairsSingleFloorWithWrongLegacyEnumWithoutAddingSecondFloor()
+    {
+        const string json = """
+            {
+              "SchemaVersion": 7,
+              "Floors": {
+                "1f": { "Floor": 2, "FloorKey": "1f" }
+              }
+            }
+            """;
+
+        var profile = JsonSerializer.Deserialize<MapRecognitionProfile>(json)!;
+
+        Assert.Equal(MapFloor.First, profile.Floors["1f"].Floor);
+        Assert.Equal("1f", profile.FirstFloor.FloorKey);
+        Assert.NotSame(profile.FirstFloor, profile.SecondFloor);
+        Assert.Single(profile.Floors);
+    }
+
+    [Fact]
+    public void CanonicalSingleFloorIgnoresLegacySecondFloorPayload()
+    {
+        const string json = """
+            {
+              "SchemaVersion": 7,
+              "SecondFloor": {
+                "Floor": 2,
+                "FloorKey": "2f",
+                "Annotations": [{ "Type": 1 }]
+              },
+              "Floors": {
+                "1f": { "Floor": 1, "FloorKey": "1f" }
+              }
+            }
+            """;
+
+        var profile = JsonSerializer.Deserialize<MapRecognitionProfile>(json)!;
+
+        Assert.Single(profile.Floors);
+        Assert.Empty(profile.SecondFloor.Annotations);
+        Assert.NotSame(profile.FirstFloor, profile.SecondFloor);
+    }
+
+    [Fact]
+    public void RecordNormalizationCreatesIndependentProfileForMissingSecondFloor()
+    {
+        var first = new FloorRecognitionProfile
+        {
+            Floor = MapFloor.First,
+            FloorKey = "1f"
+        };
+        var record = new MapRecord
+        {
+            Floors =
+            [
+                new FloorDefinition { Key = "1f", DisplayName = "1F", SortOrder = 1 },
+                new FloorDefinition { Key = "2f", DisplayName = "2F", SortOrder = 2 }
+            ],
+            Recognition = new MapRecognitionProfile
+            {
+                Floors = new Dictionary<string, FloorRecognitionProfile>
+                {
+                    ["1f"] = first
+                },
+                FirstFloor = first,
+                SecondFloor = first
+            }
+        };
+
+        record.NormalizeRecognition();
+
+        Assert.Equal(["1f", "2f"], record.Recognition.Floors.Keys.OrderBy(key => key));
+        Assert.NotSame(record.Recognition.Floors["1f"], record.Recognition.Floors["2f"]);
+        Assert.Same(record.Recognition.Floors["1f"], record.Recognition.FirstFloor);
+        Assert.Same(record.Recognition.Floors["2f"], record.Recognition.SecondFloor);
+    }
+
+    [Fact]
     public void FirstFloorGateMarkersAreEnoughForEditorConfirmation()
     {
         var profile = new MapRecognitionProfile();

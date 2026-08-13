@@ -168,7 +168,8 @@ public enum MapRecognitionSource
     AuxiliaryAnchorTracking,
     StructureMatching,
     ReusedLastTransform,
-    SideEntranceSelection
+    SideEntranceSelection,
+    OrbTracking
 }
 
 public enum MapAlignmentEvidenceKind
@@ -209,6 +210,7 @@ public enum MapAlignmentTrackingMode
     StructureMatched,
     HoldingLastTransform,
     Lost,
+    OrbTracking,
     Uninitialized = None,
     AnchorCalibrated = GatePairLocked,
     OffsetOnlyUpdated = SingleGateTracking
@@ -306,6 +308,9 @@ public sealed class MapScanDiagnostics
 {
     public int ReadyMapCount { get; set; }
     public int TotalMapCount { get; set; }
+    public int SideEntranceReadyMapCount { get; set; }
+    public int SideEntranceEligibleMapCount { get; set; }
+    public int SideEntranceRejectedCandidateCount { get; set; }
     public int GateCandidateCount { get; set; }
     public GateSearchMode GateSearchMode { get; set; }
     public GateSearchStopReason GateSearchStopReason { get; set; }
@@ -367,6 +372,17 @@ public sealed class MapScanDiagnostics
     public int ScaleBootstrapPairVotes { get; set; }
     public double ScaleBootstrapResidualPixels { get; set; }
     public double ScaleBootstrapRelativeMad { get; set; }
+    public string ScaleSeedSource { get; set; } = string.Empty;
+    public string ScaleSeedCacheSource { get; set; } = string.Empty;
+    public double ScaleSeedScale { get; set; }
+    public bool ScaleSeedProjected { get; set; }
+    public int ScaleSeedSourceViewportWidth { get; set; }
+    public int ScaleSeedSourceViewportHeight { get; set; }
+    public int ScaleSeedTargetViewportWidth { get; set; }
+    public int ScaleSeedTargetViewportHeight { get; set; }
+    public double ProjectedScale { get; set; }
+    public double FinalValidatedScale { get; set; }
+    public string ScaleSeedRejectionReason { get; set; } = string.Empty;
     public bool StructureEccConverged { get; set; }
     public double StructureEccCorrelation { get; set; }
     public double OverlayMilliseconds { get; set; }
@@ -470,6 +486,10 @@ public sealed class MapScanDiagnostics
             : string.Empty)
         + (ConfirmationMilliseconds > 0 ? $" · 复核 {ConfirmationMilliseconds:F0}ms" : string.Empty)
         + (UsedSingleGateStructureFallback ? " · 单门复核失败，已回退结构" : string.Empty)
+        + (SideEntranceEligibleMapCount > 0
+            ? $" · 侧门就绪 {SideEntranceReadyMapCount}/{SideEntranceEligibleMapCount}"
+                + $" · 拒绝 {SideEntranceRejectedCandidateCount}"
+            : string.Empty)
         + (UsedForcedBestResult ? " · 已强制采用最优结果" : string.Empty)
         + (StructureSearchMilliseconds > 0
             ? $" · 结构 {StructurePreprocessMilliseconds + StructureSearchMilliseconds + StructureRefineMilliseconds:F0}ms"
@@ -538,81 +558,35 @@ public sealed record MapAlignmentObservationContext(
 }
 
 /// <summary>
-/// Creates a weak cross-floor scale seed from reference dimensions.  Screen
-/// translation is deliberately discarded and must be solved on the target.
+/// Creates a neutral scale seed for one exact floor. Scale evidence from any
+/// other floor is deliberately excluded; same-floor sessions and caches may
+/// replace this seed later in the alignment pipeline.
 /// </summary>
 internal static class MapFloorScaleSeedRules
 {
-    // Reference dimensions only describe pixel density when both axes changed
-    // by roughly the same ratio.  A large disagreement means that the floors
-    // simply have different world extents/aspect ratios; averaging those two
-    // values produces a fictitious scale (for example 0.94 and 1.82 -> 1.38).
-    internal const double MaximumDimensionRatioDisagreement = 0.10d;
-
-    public static double ResolveReferenceScaleRatio(
-        FloorRecognitionProfile sourceFloor,
-        FloorRecognitionProfile targetFloor,
-        out bool usedDimensionRatio)
+    public static MapOverlayTransform CreateIndependentFloorSeed(
+        MapRecord map,
+        string floorKey)
     {
-        var sourceWidth = Math.Max(1, sourceFloor.RecognitionPixelWidth);
-        var targetWidth = Math.Max(1, targetFloor.RecognitionPixelWidth);
-        var sourceHeight = Math.Max(1, sourceFloor.RecognitionPixelHeight);
-        var targetHeight = Math.Max(1, targetFloor.RecognitionPixelHeight);
-        var widthRatio = (double)sourceWidth / targetWidth;
-        var heightRatio = (double)sourceHeight / targetHeight;
-        var disagreement = Math.Abs(widthRatio - heightRatio)
-            / Math.Max(widthRatio, heightRatio);
-        usedDimensionRatio = double.IsFinite(disagreement)
-            && disagreement <= MaximumDimensionRatioDisagreement;
-        if (usedDimensionRatio)
-            return (widthRatio + heightRatio) / 2d;
-
-        // Different aspect ratios describe different explored world extents,
-        // not different pixels-per-world-unit. A diagonal ratio therefore
-        // over-scales narrow secondary floors. Keep the observed screen scale
-        // and let the bounded cross-floor scale search absorb real zoom drift.
-        usedDimensionRatio = false;
-        return 1d;
-    }
-
-    public static MapOverlayTransform RenormalizeTransformToFloor(
-        MapOverlayTransform source,
-        FloorRecognitionProfile sourceFloor,
-        FloorRecognitionProfile targetFloor)
-    {
-        var similarity = MapSimilarityTransform.FromOverlay(source);
-        var scale = similarity.Scale * ResolveReferenceScaleRatio(
-            sourceFloor,
-            targetFloor,
-            out _);
-        var referenceWidth = Math.Max(1, targetFloor.RecognitionPixelWidth);
-        var referenceHeight = Math.Max(1, targetFloor.RecognitionPixelHeight);
-        var targetSimilarity = new MapSimilarityTransform
-        {
-            Scale = scale,
-            RotationDegrees = targetFloor.OrientationDegrees,
-            TranslationX = 0d,
-            TranslationY = 0d
-        };
-        var center = targetSimilarity.ToScreen(
-            new MapReferencePoint(
-                referenceWidth / 2d,
-                referenceHeight / 2d));
+        var profile = MapFloorRules.GetFloorProfile(map, floorKey)
+            ?? throw new InvalidOperationException(
+                $"地图不包含楼层 '{floorKey}'。");
+        var width = Math.Max(1, profile.RecognitionPixelWidth);
+        var height = Math.Max(1, profile.RecognitionPixelHeight);
         return new MapOverlayTransform
         {
-            ScaleX = scale,
-            ScaleY = scale,
+            ScaleX = 1d,
+            ScaleY = 1d,
             OffsetX = 0d,
             OffsetY = 0d,
-            ReferenceCenterX = referenceWidth / 2d,
-            ReferenceCenterY = referenceHeight / 2d,
-            ScreenCenterX = center.X,
-            ScreenCenterY = center.Y,
-            ReferenceWidth = referenceWidth,
-            ReferenceHeight = referenceHeight,
-            OrientationDegrees = targetFloor.OrientationDegrees,
-            AlignmentMode = MapOverlayAlignmentMode.Uniform,
-            MaximumResidualPixels = source.MaximumResidualPixels
+            ReferenceCenterX = width / 2d,
+            ReferenceCenterY = height / 2d,
+            ScreenCenterX = width / 2d,
+            ScreenCenterY = height / 2d,
+            ReferenceWidth = width,
+            ReferenceHeight = height,
+            OrientationDegrees = profile.OrientationDegrees,
+            AlignmentMode = MapOverlayAlignmentMode.Uniform
         };
     }
 }

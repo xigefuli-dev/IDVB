@@ -70,10 +70,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         {
             var viewportBounds = DwrGameWindowCaptureService.GetViewportBounds(
                 frame.ClientBounds,
-                _settings!.ResolveMapViewportRegion(
+                ResolveViewportRegion(
                     (int)Math.Round(frame.ClientBounds.Width),
-                    (int)Math.Round(frame.ClientBounds.Height))
-                    ?? new NormalizedRectangle { X = 0, Y = 0, Width = 1, Height = 1 });
+                    (int)Math.Round(frame.ClientBounds.Height)));
             if (!viewportBounds.IsValid)
             {
                 _statusMessage = "已校准的地图区域无效，请重新校准。";
@@ -205,6 +204,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 frame.WindowHandle,
                 attempt.Diagnostics);
             _overlay.Show();
+            await StartOrbTrackingAsync(recognition, frame);
             RefreshMiniMapForCurrentFloor();
             StateChanged?.Invoke(this, EventArgs.Empty);
         }

@@ -30,6 +30,7 @@ public sealed partial class SessionOrchestrator
 
     private void CancelMatchOperations()
     {
+        CancelOrbTracking("match lifecycle changed");
         try
         {
             _matchCancellation?.Cancel();
@@ -44,8 +45,62 @@ public sealed partial class SessionOrchestrator
 
     private async Task DrainMatchOperationsAsync()
     {
+        await DrainOrbTrackingAsync();
         await _scanGate.WaitAsync();
         _scanGate.Release();
+    }
+
+    /// <summary>
+    /// A quick scan is an explicit request to identify the map again. Release
+    /// every map-scoped lock before the new scan starts so a previous wrong
+    /// choice cannot constrain the result or remain visible when rescanning
+    /// fails or is cancelled.
+    /// </summary>
+    private void UnlockMapForRescan()
+    {
+        var previousMapId = _lastRecognition?.Map.Id
+            ?? _pendingAlignmentIdentity?.Map.Id;
+        if (previousMapId is null
+            && _lastAlignmentSession is null
+            && _primaryFloorAlignmentSession is null)
+        {
+            return;
+        }
+
+        _overlayStatus.Clear();
+        _overlay.Clear();
+        _mapOpenSession.Close("quick scan restarted");
+        _candidateStability.Reset();
+        _alignmentCommitGuard.Invalidate();
+        _recognition.ResetMatchState();
+
+        _currentFloorKey = null;
+        _lastRecognition = null;
+        _pendingAlignmentIdentity = null;
+        _pendingAlignmentSeed = null;
+        _lastAlignmentSession = null;
+        _primaryFloorAlignmentSession = null;
+        _lastFloorRecognition = null;
+        _lastTrustedPlayerPoint = null;
+        _alignmentTrackingMode = MapAlignmentTrackingMode.None;
+        _lastGameBounds = default;
+        _lastGameWindowHandle = IntPtr.Zero;
+
+        lock (_reliableFloorAlignmentGate)
+        {
+            _reliableFloorAlignments.Clear();
+            _reliableFloorAlignmentMatchVersion =
+                _matchSession.Snapshot.Version;
+        }
+
+        // Do not allow samples collected for a wrongly selected map to be
+        // persisted after a later scan corrects the identity.
+        ResetAutomaticMapCacheSamples();
+
+        _logCollector.Append(
+            MapLogCategory.Session,
+            MapLogLevel.Info,
+            $"重新扫描已解除地图锁定 · previousMap={previousMapId?.ToString() ?? "<none>"}");
     }
 
     private void ResetMatchTransientState(bool resetAutomaticCacheSamples)

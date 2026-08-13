@@ -71,7 +71,8 @@ public sealed partial class MapCvRecognitionService
             {
                 Mode = GateSearchMode.WarmScaleSearch,
                 WarmScale = warmScale,
-                AllowSingleGateEarlyExit = true,
+                AllowDualGateEarlyExit = !useInitialHighPrecisionRecovery,
+                AllowSingleGateEarlyExit = !useInitialHighPrecisionRecovery,
                 SingleGateScoreThreshold = GateTemplateRules.EarlyExitScoreThreshold,
                 SingleGateScaleTolerance = GateTemplateRules.SingleGateScaleTolerance,
                 AmbiguityScoreGap = GateTemplateRules.SingleGateAmbiguityGap,

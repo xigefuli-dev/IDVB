@@ -37,6 +37,8 @@ public sealed class FloorRecognitionProfile
     public string SideEntranceFeatureSha256 { get; set; } = string.Empty;
     /// <summary>生成特征图时所用识别图的 SHA-256，用于失效检测。</summary>
     public string SideEntranceFeatureSourceSha256 { get; set; } = string.Empty;
+    /// <summary>生成侧门特征时使用的算法版本；不匹配时必须重建。</summary>
+    public string SideEntranceFeatureAlgorithmVersion { get; set; } = string.Empty;
     /// <summary>实际中心点 X（识别图像素坐标，边界挤压后）。</summary>
     public double SideEntranceFeatureCenterX { get; set; }
     /// <summary>实际中心点 Y（识别图像素坐标，边界挤压后）。</summary>
@@ -80,6 +82,7 @@ public sealed class FloorRecognitionProfile
         SideEntranceFeatureFileName = SideEntranceFeatureFileName,
         SideEntranceFeatureSha256 = SideEntranceFeatureSha256,
         SideEntranceFeatureSourceSha256 = SideEntranceFeatureSourceSha256,
+        SideEntranceFeatureAlgorithmVersion = SideEntranceFeatureAlgorithmVersion,
         SideEntranceFeatureCenterX = SideEntranceFeatureCenterX,
         SideEntranceFeatureCenterY = SideEntranceFeatureCenterY,
         SideEntranceFeatureRadius = SideEntranceFeatureRadius
@@ -128,48 +131,190 @@ public sealed class MapRecognitionProfile
         SecondFloor ??= new FloorRecognitionProfile { Floor = MapFloor.Second };
         WholeImage ??= new WholeImageRecognitionSettings();
         Floors ??= [];
+
+        // A profile without a canonical dictionary is a legacy two-floor
+        // profile. Keep both legacy entries independent while constructing
+        // the canonical dictionary for it.
+        if (Floors.Count == 0)
+        {
+            FirstFloor.Floor = MapFloor.First;
+            SecondFloor = EnsureIndependentSecondFloor(FirstFloor, SecondFloor);
+            SecondFloor.Floor = MapFloor.Second;
+            FirstFloor.FloorKey = string.IsNullOrWhiteSpace(FirstFloor.FloorKey)
+                ? "1f"
+                : FirstFloor.FloorKey;
+            SecondFloor.FloorKey = string.IsNullOrWhiteSpace(SecondFloor.FloorKey)
+                || string.Equals(SecondFloor.FloorKey, FirstFloor.FloorKey, StringComparison.Ordinal)
+                    ? "2f"
+                    : SecondFloor.FloorKey;
+            NormalizeFloorProfile(FirstFloor, MapFloor.First);
+            NormalizeFloorProfile(SecondFloor, MapFloor.Second);
+            Floors = new Dictionary<string, FloorRecognitionProfile>(StringComparer.Ordinal)
+            {
+                [FirstFloor.FloorKey] = FirstFloor,
+                [SecondFloor.FloorKey] = SecondFloor
+            };
+            return;
+        }
+
+        // Once Floors exists it is the only canonical source. Compatibility
+        // properties are projections and must never add phantom floors.
+        NormalizeCanonicalDictionary();
+        RefreshCompatibilityViews();
+    }
+
+    /// <summary>
+    /// Reconciles recognition profiles with the map's ordered floor
+    /// definitions. The floor definitions are authoritative for membership,
+    /// order, and the first/second compatibility slots.
+    /// </summary>
+    public void NormalizeForFloors(IReadOnlyList<FloorDefinition> orderedFloors)
+    {
+        SchemaVersion = Math.Max(SchemaVersion, 7);
+        FirstFloor ??= new FloorRecognitionProfile { Floor = MapFloor.First };
+        SecondFloor ??= new FloorRecognitionProfile { Floor = MapFloor.Second };
+        WholeImage ??= new WholeImageRecognitionSettings();
+        Floors ??= [];
+
+        var existing = Floors;
+        var canonical = new Dictionary<string, FloorRecognitionProfile>(StringComparer.Ordinal);
+        var usedProfiles = new List<FloorRecognitionProfile>();
+        var floors = orderedFloors
+            .Where(floor => floor is not null && !string.IsNullOrWhiteSpace(floor.Key))
+            .ToArray();
+
+        for (var index = 0; index < floors.Length; index++)
+        {
+            var floor = floors[index];
+            existing.TryGetValue(floor.Key, out var candidate);
+            if (candidate is null || usedProfiles.Any(previous => ReferenceEquals(previous, candidate)))
+            {
+                var legacyCandidate = index == 0 ? FirstFloor : index == 1 ? SecondFloor : null;
+                if (candidate is null
+                    && legacyCandidate is not null
+                    && !usedProfiles.Any(previous => ReferenceEquals(previous, legacyCandidate)))
+                {
+                    candidate = legacyCandidate;
+                }
+                else
+                {
+                    candidate = candidate?.Clone() ?? new FloorRecognitionProfile();
+                }
+            }
+
+            candidate.FloorKey = floor.Key;
+            var compatibilityFloor = index switch
+            {
+                0 => MapFloor.First,
+                1 => MapFloor.Second,
+                _ => (MapFloor?)null
+            };
+            if (compatibilityFloor is { } enumFloor)
+                candidate.Floor = enumFloor;
+            NormalizeFloorProfile(candidate, compatibilityFloor);
+            canonical[floor.Key] = candidate;
+            usedProfiles.Add(candidate);
+        }
+
+        Floors = canonical;
+        RefreshCompatibilityViews();
+        if (floors.Length < 2)
+        {
+            SecondFloor = new FloorRecognitionProfile
+            {
+                Floor = MapFloor.Second,
+                FloorKey = "2f"
+            };
+            NormalizeFloorProfile(SecondFloor, MapFloor.Second);
+        }
+    }
+
+    private void NormalizeCanonicalDictionary()
+    {
+        var normalized = new Dictionary<string, FloorRecognitionProfile>(StringComparer.Ordinal);
+        foreach (var (key, source) in Floors.ToArray())
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                continue;
+            var profile = source ?? new FloorRecognitionProfile();
+            profile.FloorKey = key;
+            if (string.Equals(key, "1f", StringComparison.OrdinalIgnoreCase))
+                profile.Floor = MapFloor.First;
+            else if (string.Equals(key, "2f", StringComparison.OrdinalIgnoreCase))
+                profile.Floor = MapFloor.Second;
+            NormalizeFloorProfile(
+                profile,
+                profile.Floor is MapFloor.First or MapFloor.Second ? profile.Floor : null);
+            normalized[key] = profile;
+        }
+
+        Floors = normalized;
+    }
+
+    private void RefreshCompatibilityViews()
+    {
+        var first = Floors.TryGetValue("1f", out var traditionalFirst)
+            ? traditionalFirst
+            : Floors.Values.FirstOrDefault(profile => profile.Floor == MapFloor.First)
+                ?? Floors.Values.FirstOrDefault();
+        var second = Floors.TryGetValue("2f", out var traditionalSecond)
+            ? traditionalSecond
+            : Floors.Values.FirstOrDefault(profile => profile.Floor == MapFloor.Second
+                && !ReferenceEquals(profile, first))
+                ?? Floors.Values.FirstOrDefault(profile => !ReferenceEquals(profile, first));
+
+        FirstFloor = first ?? new FloorRecognitionProfile
+        {
+            Floor = MapFloor.First,
+            FloorKey = "1f"
+        };
+        SecondFloor = EnsureIndependentSecondFloor(
+            FirstFloor,
+            second ?? new FloorRecognitionProfile
+            {
+                Floor = MapFloor.Second,
+                FloorKey = "2f"
+            });
         FirstFloor.Floor = MapFloor.First;
         SecondFloor.Floor = MapFloor.Second;
-        // Keep custom keys assigned by the V6 editor. Empty legacy profiles
-        // still receive the traditional keys for backwards compatibility.
-        FirstFloor.FloorKey = string.IsNullOrWhiteSpace(FirstFloor.FloorKey)
-            ? "1f"
-            : FirstFloor.FloorKey;
-        SecondFloor.FloorKey = string.IsNullOrWhiteSpace(SecondFloor.FloorKey)
-            ? "2f"
-            : SecondFloor.FloorKey;
-        FirstFloor.Anchors ??= [];
-        SecondFloor.Anchors ??= [];
-        FirstFloor.WholeImageIgnoreRegions ??= [];
-        SecondFloor.WholeImageIgnoreRegions ??= [];
-        FirstFloor.Annotations ??= [];
-        SecondFloor.Annotations ??= [];
-        NormalizeAnnotations(FirstFloor);
-        NormalizeAnnotations(SecondFloor);
-        FirstFloor.OrientationDegrees = NormalizeOrientation(FirstFloor.OrientationDegrees);
-        SecondFloor.OrientationDegrees = NormalizeOrientation(SecondFloor.OrientationDegrees);
-        FirstFloor.RecognitionRegion = NormalizeRecognitionRegion(FirstFloor.RecognitionRegion);
-        SecondFloor.RecognitionRegion = NormalizeRecognitionRegion(SecondFloor.RecognitionRegion);
-        EnsureAnchor(FirstFloor, "main-entrance", "大门", RecognitionAnchorRole.Required, isBuiltIn: true);
-        EnsureAnchor(FirstFloor, "side-entrance", "侧门", RecognitionAnchorRole.Required, isBuiltIn: true);
-        EnsureAnchor(SecondFloor, "second-floor-primary", "二楼主锚点", RecognitionAnchorRole.Optional, isBuiltIn: true);
-        ConfigureBuiltInAnchor(FirstFloor, "main-entrance", "大门", RecognitionAnchorRole.Required);
-        ConfigureBuiltInAnchor(FirstFloor, "side-entrance", "侧门", RecognitionAnchorRole.Required);
-        ConfigureBuiltInAnchor(SecondFloor, "second-floor-primary", "二楼主锚点", RecognitionAnchorRole.Optional);
-        FirstFloor.RecognitionPixelWidth = Math.Max(0, FirstFloor.RecognitionPixelWidth);
-        FirstFloor.RecognitionPixelHeight = Math.Max(0, FirstFloor.RecognitionPixelHeight);
-        SecondFloor.RecognitionPixelWidth = Math.Max(0, SecondFloor.RecognitionPixelWidth);
-        SecondFloor.RecognitionPixelHeight = Math.Max(0, SecondFloor.RecognitionPixelHeight);
-        FirstFloor.ValidMapBounds = NormalizeValidMapBounds(FirstFloor);
-        SecondFloor.ValidMapBounds = NormalizeValidMapBounds(SecondFloor);
-        NormalizeAnchorWeights(FirstFloor);
-        NormalizeAnchorWeights(SecondFloor);
+        NormalizeFloorProfile(FirstFloor, MapFloor.First);
+        NormalizeFloorProfile(SecondFloor, MapFloor.Second);
+    }
 
-        // V6: keep Floors dictionary in sync with FirstFloor / SecondFloor
-        Floors[FirstFloor.FloorKey] = FirstFloor;
-        Floors[SecondFloor.FloorKey] = SecondFloor;
-        foreach (var profile in Floors.Values.Distinct())
-            NormalizeAnnotations(profile);
+    private static FloorRecognitionProfile EnsureIndependentSecondFloor(
+        FloorRecognitionProfile first,
+        FloorRecognitionProfile second) =>
+        ReferenceEquals(first, second)
+            ? second.Clone()
+            : second;
+
+    private static void NormalizeFloorProfile(
+        FloorRecognitionProfile profile,
+        MapFloor? compatibilityFloor)
+    {
+        profile.Anchors ??= [];
+        profile.WholeImageIgnoreRegions ??= [];
+        profile.Annotations ??= [];
+        NormalizeAnnotations(profile);
+        profile.OrientationDegrees = NormalizeOrientation(profile.OrientationDegrees);
+        profile.RecognitionRegion = NormalizeRecognitionRegion(profile.RecognitionRegion);
+        profile.RecognitionPixelWidth = Math.Max(0, profile.RecognitionPixelWidth);
+        profile.RecognitionPixelHeight = Math.Max(0, profile.RecognitionPixelHeight);
+        profile.ValidMapBounds = NormalizeValidMapBounds(profile);
+        NormalizeAnchorWeights(profile);
+
+        if (compatibilityFloor == MapFloor.First)
+        {
+            EnsureAnchor(profile, "main-entrance", "大门", RecognitionAnchorRole.Required, isBuiltIn: true);
+            EnsureAnchor(profile, "side-entrance", "侧门", RecognitionAnchorRole.Required, isBuiltIn: true);
+            ConfigureBuiltInAnchor(profile, "main-entrance", "大门", RecognitionAnchorRole.Required);
+            ConfigureBuiltInAnchor(profile, "side-entrance", "侧门", RecognitionAnchorRole.Required);
+        }
+        else if (compatibilityFloor == MapFloor.Second)
+        {
+            EnsureAnchor(profile, "second-floor-primary", "二楼主锚点", RecognitionAnchorRole.Optional, isBuiltIn: true);
+            ConfigureBuiltInAnchor(profile, "second-floor-primary", "二楼主锚点", RecognitionAnchorRole.Optional);
+        }
     }
 
     public bool HasRequiredIdentificationData()
@@ -216,14 +361,14 @@ public sealed class MapRecognitionProfile
     public MapRecognitionProfile Clone()
     {
         EnsureStandardAnchors();
-        return new MapRecognitionProfile
+        var clone = new MapRecognitionProfile
         {
             SchemaVersion = SchemaVersion,
-            FirstFloor = FirstFloor.Clone(),
-            SecondFloor = SecondFloor.Clone(),
             Floors = Floors.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Clone()),
             WholeImage = WholeImage.Clone()
         };
+        clone.EnsureStandardAnchors();
+        return clone;
     }
 
     private static void EnsureAnchor(
@@ -385,24 +530,6 @@ public sealed class MapRecognitionProfileJsonConverter : JsonConverter<MapRecogn
         {
             profile.Floors = JsonSerializer.Deserialize<Dictionary<string, FloorRecognitionProfile>>(
                 floors.GetRawText(), inner) ?? [];
-        }
-
-        if (profile.Floors.Count > 0)
-        {
-            var ordered = profile.Floors.Values
-                .OrderBy(floor => floor.Floor)
-                .ThenBy(floor => floor.FloorKey, StringComparer.Ordinal)
-                .ToArray();
-            profile.FirstFloor = profile.Floors.TryGetValue("1f", out var first)
-                ? first
-                : ordered.FirstOrDefault(floor => floor.Floor == MapFloor.First)
-                    ?? ordered.FirstOrDefault()
-                    ?? profile.FirstFloor;
-            profile.SecondFloor = profile.Floors.TryGetValue("2f", out var second)
-                ? second
-                : ordered.FirstOrDefault(floor => floor.Floor == MapFloor.Second)
-                    ?? ordered.FirstOrDefault(floor => !ReferenceEquals(floor, profile.FirstFloor))
-                    ?? profile.SecondFloor;
         }
 
         profile.EnsureStandardAnchors();

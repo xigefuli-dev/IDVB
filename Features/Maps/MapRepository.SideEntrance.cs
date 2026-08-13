@@ -77,6 +77,8 @@ public sealed partial class MapRepository
                 Convert.ToHexString(featureHash).ToLowerInvariant();
             profile.SideEntranceFeatureSourceSha256 =
                 Convert.ToHexString(sourceHash).ToLowerInvariant();
+            profile.SideEntranceFeatureAlgorithmVersion =
+                SideEntranceFeaturePreprocessor.AlgorithmVersion;
             profile.SideEntranceFeatureCenterX = result.CenterX;
             profile.SideEntranceFeatureCenterY = result.CenterY;
             profile.SideEntranceFeatureRadius   = result.Radius;
@@ -155,6 +157,8 @@ public sealed partial class MapRepository
                         Convert.ToHexString(featureHash).ToLowerInvariant();
                     profile.SideEntranceFeatureSourceSha256 =
                         Convert.ToHexString(sourceHash).ToLowerInvariant();
+                    profile.SideEntranceFeatureAlgorithmVersion =
+                        SideEntranceFeaturePreprocessor.AlgorithmVersion;
                     profile.SideEntranceFeatureCenterX = result.CenterX;
                     profile.SideEntranceFeatureCenterY = result.CenterY;
                     profile.SideEntranceFeatureRadius   = result.Radius;
@@ -190,6 +194,8 @@ public sealed partial class MapRepository
                                 srcProfile.SideEntranceFeatureSha256;
                             dstProfile.SideEntranceFeatureSourceSha256 =
                                 srcProfile.SideEntranceFeatureSourceSha256;
+                            dstProfile.SideEntranceFeatureAlgorithmVersion =
+                                srcProfile.SideEntranceFeatureAlgorithmVersion;
                             dstProfile.SideEntranceFeatureCenterX =
                                 srcProfile.SideEntranceFeatureCenterX;
                             dstProfile.SideEntranceFeatureCenterY =
@@ -239,5 +245,124 @@ public sealed partial class MapRepository
         {
             // 复制失败不阻断主保存流程
         }
+    }
+
+    /// <summary>
+    /// Validates every dependency of a persisted side-entrance feature. A file
+    /// being readable is insufficient: it must belong to the current source
+    /// recognition image and the current preprocessing algorithm.
+    /// </summary>
+    internal bool TryGetValidSideEntranceFeaturePath(
+        MapRecord record,
+        string floorKey,
+        out string path,
+        out string failureReason)
+    {
+        path = string.Empty;
+        failureReason = string.Empty;
+        var profile = MapFloorRules.GetFloorProfile(record, floorKey);
+        if (profile is null
+            || string.IsNullOrWhiteSpace(profile.SideEntranceFeatureFileName))
+        {
+            failureReason = "侧门特征尚未生成。";
+            return false;
+        }
+
+        if (!string.Equals(
+                profile.SideEntranceFeatureAlgorithmVersion,
+                SideEntranceFeaturePreprocessor.AlgorithmVersion,
+                StringComparison.Ordinal))
+        {
+            failureReason = "侧门特征算法版本已过期。";
+            return false;
+        }
+
+        path = GetSideEntranceFeaturePath(record, floorKey);
+        var recognitionPath = GetFloorRecognitionPath(record, floorKey);
+        if (!File.Exists(path) || !File.Exists(recognitionPath))
+        {
+            failureReason = "侧门特征或其源识别图不存在。";
+            return false;
+        }
+
+        try
+        {
+            var featureHash = ComputeFileSha256(path);
+            var sourceHash = ComputeFileSha256(recognitionPath);
+            if (!string.Equals(featureHash, profile.SideEntranceFeatureSha256,
+                    StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(sourceHash, profile.SideEntranceFeatureSourceSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                failureReason = "侧门特征哈希或源识别图哈希不匹配。";
+                return false;
+            }
+        }
+        catch (Exception exception)
+        {
+            failureReason = $"侧门特征完整性校验失败：{exception.Message}";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Regenerates one missing or stale side-entrance feature in place.</summary>
+    private bool EnsureCurrentSideEntranceFeature(
+        MapRecord record,
+        string floorKey,
+        FloorRecognitionProfile profile,
+        string recognitionPath)
+    {
+        if (profile.FindAnchor("side-entrance") is not { IsMarked: true } anchor
+            || anchor.Bounds?.IsValid is not true
+            || !File.Exists(recognitionPath))
+        {
+            return false;
+        }
+
+        if (TryGetValidSideEntranceFeaturePath(record, floorKey, out _, out _))
+            return false;
+
+        try
+        {
+            using var recognition = Cv2.ImRead(recognitionPath, ImreadModes.Grayscale);
+            if (recognition.Empty())
+                return false;
+            var radius = Math.Clamp(
+                profile.SideEntranceFeatureRadius > 0
+                    ? profile.SideEntranceFeatureRadius
+                    : 80,
+                20,
+                Math.Max(20, Math.Min(recognition.Width, recognition.Height) / 2));
+            using var result = _sideEntrancePreprocessor.Process(
+                recognition,
+                anchor.Bounds,
+                radius);
+            var fileName = GetSideEntranceFeatureFileName(floorKey);
+            var featurePath = Path.Combine(GetMapDirectory(record.Id), fileName);
+            if (!Cv2.ImWrite(featurePath, result.Feature))
+                return false;
+
+            profile.SideEntranceFeatureFileName = fileName;
+            profile.SideEntranceFeatureSha256 = ComputeFileSha256(featurePath);
+            profile.SideEntranceFeatureSourceSha256 = ComputeFileSha256(recognitionPath);
+            profile.SideEntranceFeatureAlgorithmVersion =
+                SideEntranceFeaturePreprocessor.AlgorithmVersion;
+            profile.SideEntranceFeatureCenterX = result.CenterX;
+            profile.SideEntranceFeatureCenterY = result.CenterY;
+            profile.SideEntranceFeatureRadius = result.Radius;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string ComputeFileSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 }

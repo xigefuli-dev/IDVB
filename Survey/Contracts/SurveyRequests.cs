@@ -27,6 +27,13 @@ public sealed record SurveyObservationRequest(
     long ExpectedRevision,
     SurveyEncodedFrame Frame);
 
+public sealed record SurveyObservationImportRequest(
+    Guid CommandId,
+    Guid ProjectId,
+    long ExpectedRevision,
+    SurveyEncodedFrame Frame,
+    string? LayerName = null);
+
 public sealed record SurveyLayerEditRequest(
     Guid CommandId,
     Guid ProjectId,
@@ -152,6 +159,14 @@ public sealed record SurveyLayerColorNormalizationRequest(
     long ExpectedRevision,
     Guid AnchorLayerId,
     IReadOnlyList<Guid> LayerIds);
+
+public sealed record SurveyLayerVignetteCorrectionRequest(
+    Guid CommandId,
+    Guid ProjectId,
+    long ExpectedRevision,
+    IReadOnlyList<Guid> LayerIds,
+    double CompensationStart,
+    double CompensationStrength);
 
 public sealed record SurveyMaskStrokeRequest(
     Guid CommandId,

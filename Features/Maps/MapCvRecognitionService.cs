@@ -62,6 +62,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
     public int ReadyMapCount => _fingerprints.Count;
     public int TotalMapCount { get; private set; }
+    public int SideEntranceReadyMapCount => _sideEntranceFeatureCache.Count;
 
     /// <summary>上次成功检测到的门模板 scale（用于 LockedScale 搜索），可能为 null。</summary>
     public double? LastGateTemplateScale => _gateDetector.WarmScale;

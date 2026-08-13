@@ -7,6 +7,7 @@
 
         <!-- WinUI 3 -->
         <UseWinUI>true</UseWinUI>
+        <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
         <EnableMsixTooling>true</EnableMsixTooling>
         <WindowsPackageType>None</WindowsPackageType>
 
@@ -22,11 +23,11 @@
         <PackageId>IdentityVisionBridge</PackageId>
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
-        <IDVBProductVersion>1.4.1</IDVBProductVersion>
+        <IDVBProductVersion>1.4.2</IDVBProductVersion>
         <IDVBReleaseLine>b01.4</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
-        <AssemblyVersion>1.4.1.0</AssemblyVersion>
-        <FileVersion>1.4.1.0</FileVersion>
+        <AssemblyVersion>1.4.2.0</AssemblyVersion>
+        <FileVersion>1.4.2.0</FileVersion>
         <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>
@@ -54,6 +55,7 @@
         <ProjectReference Include="Services\IDVBuff.Services.csproj" />
         <ProjectReference Include="Pipeline\IDVBuff.Pipeline.csproj" />
         <ProjectReference Include="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
+        <ProjectReference Include="UpdateCore\IDVBuff.UpdateCore.csproj" />
         <ProjectReference Include="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
         <ProjectReference Include="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
         <ProjectReference Include="Survey\Application\IDVBuff.Survey.Application.csproj" />
@@ -94,6 +96,9 @@
         <Compile Remove="IDVBuff.Tests\**\*.cs" />
         <Compile Remove="IDVBuff.MapAlignment.Probe\**\*.cs" />
         <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
+        <Compile Remove="UpdateCore\**\*.cs" />
+        <Compile Remove="Updater\**\*.cs" />
+        <Compile Remove="release\**\*.cs" />
         <Compile Remove="Survey\**\*.cs" />
         <!-- Local validation/release snapshots and auxiliary worktrees can
              contain complete copies of the repository. They must never be
@@ -115,6 +120,7 @@
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
         <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+        <PackageReference Include="Velopack" Version="1.2.0" />
 
         <Manifest Include="$(ApplicationManifest)" />
     </ItemGroup>

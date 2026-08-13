@@ -448,6 +448,15 @@ public sealed class SurveyLayerEditingTests
     {
         public int NormalizeCallCount { get; private set; }
 
+        public Task<SurveyAssetReference> CorrectVignetteAsync(
+            Guid projectId,
+            SurveyMapLayer layer,
+            SurveyObservation observation,
+            double compensationStart,
+            double compensationStrength,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<SurveyAssetReference> NormalizeColorsAsync(
             Guid projectId,
             SurveyMapLayer layer,

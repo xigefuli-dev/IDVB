@@ -19,7 +19,9 @@ public sealed partial class SessionOrchestrator
         CancellationToken cancellationToken)
     {
         var orderedCandidates = candidates
-            .OrderByDescending(candidate => candidate.RawConfidence)
+            .OrderBy(candidate => candidate.IsReferenceOnly)
+            .ThenBy(candidate => candidate.PreferredOrder)
+            .ThenByDescending(candidate => candidate.RawConfidence)
             .ToArray();
         _lastCandidateChoices = orderedCandidates;
         if (_activeCandidateSelector is not null)
@@ -33,12 +35,18 @@ public sealed partial class SessionOrchestrator
 
         if (_headless)
         {
-            if (orderedCandidates.Length == 0)
+            var reliableCandidates = orderedCandidates
+                .Where(candidate => !candidate.IsReferenceOnly)
+                .ToArray();
+            if (reliableCandidates.Length == 0)
+            {
+                _statusMessage = "未找到可验证的地图；Headless 模式不会采用待验证线索。";
                 return new CandidateSelectionResolution(null, false);
-            var best = orderedCandidates[0];
+            }
+            var best = reliableCandidates[0];
             var recognition = MapCvRecognitionService.ConfirmChoice(best);
             _statusMessage =
-                $"已自动选择候选地图：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
+                $"已自动选择可靠候选：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
@@ -72,8 +80,9 @@ public sealed partial class SessionOrchestrator
             }
 
             var recognition = MapCvRecognitionService.ConfirmChoice(orderedCandidates[index]);
-            _statusMessage =
-                $"用户选择了候选地图：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
+            _statusMessage = orderedCandidates[index].IsReferenceOnly
+                ? $"正在严格复核参考线索：{recognition.Map.DisplayName}……"
+                : $"用户选择了可靠候选：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,

@@ -329,7 +329,8 @@ public sealed partial class SessionOrchestrator
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
         IReadOnlyList<MapSimilarityTransform> candidateHistory,
-        double identityPriorConfidence)
+        double identityPriorConfidence,
+        bool allowTrackingScaleSearch = false)
     {
         if (!TryCreateNoDoorStageTuning(
                 structureTuning,
@@ -410,7 +411,8 @@ public sealed partial class SessionOrchestrator
         localTuning = postPreprocessTuning;
 
         localTuning.ScaleSearchRadius = 0d;
-        localTuning.TrackingScaleSearchRadius = 0d;
+        if (!allowTrackingScaleSearch)
+            localTuning.TrackingScaleSearchRadius = 0d;
         localTuning.TrackingSearchRadiusPixels =
             localTuning.PreviousAlignmentSearchRadiusPixels;
         localTuning.EnableFeatureVoting = false;
@@ -422,7 +424,9 @@ public sealed partial class SessionOrchestrator
                 ViewportBounds = frame.ViewportBounds,
                 LockedTransform = sameFloorSession.LockedTransform,
                 Tuning = localTuning,
-                ScaleSearchPolicy = MapScaleSearchPolicy.Fixed,
+                ScaleSearchPolicy = allowTrackingScaleSearch
+                    ? MapScaleSearchPolicy.Search
+                    : MapScaleSearchPolicy.Fixed,
                 RestrictSearchToLockedTransform = true,
                 TrackingMode = true,
                 ForceBestCandidate = false,

@@ -53,7 +53,13 @@ public sealed partial class SessionOrchestrator
                 WarmScale = session.GateTemplateScale
                     ?? (GateTemplateRules.ReferenceScale
                         * session.BaselineGateScale),
-                AllowSingleGateEarlyExit = true,
+                AllowDualGateEarlyExit = !useInitialHighPrecisionRecovery,
+                // The first identity frame may contain multiple gate glyphs.
+                // Evaluate the complete warm-scale schedule so the higher
+                // scoring, wrong gate cannot erase the candidate-owned gate
+                // association established by the scan. Locked tracking keeps
+                // the fast single-gate exit.
+                AllowSingleGateEarlyExit = !useInitialHighPrecisionRecovery,
                 SingleGateScoreThreshold =
                     GateTemplateRules.EarlyExitScoreThreshold,
                 SingleGateScaleTolerance =

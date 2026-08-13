@@ -51,7 +51,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         }
         var operationMatch = _matchSession.Snapshot;
         if (!_captureSvc.TryGetForegroundClientBounds(
-                out _, out _, out var failureReason))
+                out var clientBounds, out var windowHandle, out var failureReason))
         {
             ReportCliCaptureFailure(failureReason);
             return;
@@ -60,6 +60,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _activeCandidateSelector = candidateSelector;
         _statusMessage = "快速扫描中……";
         StateChanged?.Invoke(this, EventArgs.Empty);
+
+        // 小型进度窗口独立于现有全屏地图 Overlay，只在 GUI 模式显示。
+        if (!_headless && clientBounds is MapScreenRect gameBounds)
+            _scanProgressOverlay.Show(gameBounds, windowHandle, "正在扫描...");
 
         Interlocked.Increment(ref _activeScanOperations);
         StateChanged?.Invoke(this, EventArgs.Empty);
@@ -72,6 +76,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         }
         finally
         {
+            _scanProgressOverlay.Complete();
             if (restoreOverlay
                 && IsCurrentMatchOperation(operationMatch)
                 && !_overlay.IsVisible)
@@ -156,6 +161,12 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         if (_gameMapToggleState.IsOpen == isOpen)
             return;
         _gameMapToggleState.SetOpenForExternalController(isOpen);
+        if (!isOpen)
+        {
+            CancelOrbTracking("external game map closed");
+            _overlay.ClearMap();
+            RefreshMiniMapForCurrentFloor();
+        }
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -364,6 +375,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         }
         _input.Dispose();
         _overlayStatus.Dispose();
+        _scanProgressOverlay.Dispose();
         _overlay.Dispose();
         _gateDetector.Dispose();
         _floorRecognizer.Dispose();

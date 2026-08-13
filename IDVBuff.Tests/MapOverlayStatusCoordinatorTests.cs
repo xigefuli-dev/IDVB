@@ -32,6 +32,66 @@ public sealed class MapOverlayStatusCoordinatorTests
     }
 
     [Fact]
+    public void OverlayFailuresAreFailOpen()
+    {
+        var overlay = new RecordingOverlay
+        {
+            ThrowOnUpdateStatus = true,
+            ThrowOnClearStatus = true
+        };
+        using var coordinator = new MapOverlayStatusCoordinator(
+            overlay,
+            action => action());
+        var bounds = new MapScreenRect(0, 0, 1920, 1080);
+
+        var showException = Record.Exception(() => coordinator.Show(
+            Status("broken"),
+            bounds,
+            new IntPtr(1),
+            true,
+            transient: false));
+        var clearException = Record.Exception(coordinator.Clear);
+
+        Assert.Null(showException);
+        Assert.Null(clearException);
+    }
+
+    [Fact]
+    public void LaterStatusUpdateRetriesAfterOverlayFailure()
+    {
+        var overlay = new RecordingOverlay
+        {
+            RemainingUpdateFailures = 1
+        };
+        using var coordinator = new MapOverlayStatusCoordinator(
+            overlay,
+            action => action());
+        var bounds = new MapScreenRect(0, 0, 1920, 1080);
+
+        coordinator.Show(Status("first"), bounds, new IntPtr(1), true, false);
+        coordinator.Show(Status("second"), bounds, new IntPtr(1), true, false);
+
+        Assert.Equal("second", overlay.Status?.Title);
+    }
+
+    [Fact]
+    public void SurveyCleanupReleasesGateBeforeFailingUiCallbacks()
+    {
+        using var gate = new SemaphoreSlim(0, 1);
+        var failures = new List<string>();
+
+        SurveyCaptureCleanup.Complete(
+            gate,
+            () => throw new InvalidOperationException("overlay"),
+            () => throw new InvalidOperationException("state"),
+            (operation, _) => failures.Add(operation));
+
+        Assert.True(gate.Wait(0));
+        Assert.Contains("overlay-restore", failures);
+        Assert.Contains("state-changed", failures);
+    }
+
+    [Fact]
     public void AlignmentTextUsesFinalEvidenceInsteadOfGateFailure()
     {
         var recognition = new RuntimeMapRecognition
@@ -102,14 +162,27 @@ public sealed class MapOverlayStatusCoordinatorTests
 
     private sealed class RecordingOverlay : IOverlayWindow
     {
+        public bool ThrowOnUpdateStatus { get; init; }
+        public bool ThrowOnClearStatus { get; init; }
+        public int RemainingUpdateFailures { get; set; }
         public bool IsVisible => Status is not null;
         public bool HasMap => false;
         public MapOverlayStatus? Status { get; private set; }
         public int ClearStatusCount { get; private set; }
         public void UpdateStatus(object status, object gameBounds, IntPtr handle,
-            bool showStatusPreference, bool showImmediately = true) =>
+            bool showStatusPreference, bool showImmediately = true)
+        {
+            if (ThrowOnUpdateStatus || RemainingUpdateFailures-- > 0)
+                throw new InvalidOperationException("update failed");
             Status = (MapOverlayStatus)status;
-        public void ClearStatus() { Status = null; ClearStatusCount++; }
+        }
+        public void ClearStatus()
+        {
+            if (ThrowOnClearStatus)
+                throw new InvalidOperationException("clear failed");
+            Status = null;
+            ClearStatusCount++;
+        }
         public void UpdateMap(object recognition, object bounds, IntPtr handle,
             bool show, object? viewport = null, bool preservePlayer = false) { }
         public void UpdatePlayer(object? player) { }

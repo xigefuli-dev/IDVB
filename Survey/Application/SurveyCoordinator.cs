@@ -221,48 +221,8 @@ public sealed partial class SurveyCoordinator : ISurveyCoordinator
                 request.ProjectId,
                 request.Frame,
                 cancellationToken).ConfigureAwait(false);
-            var floor = current.Floors.FirstOrDefault(candidate =>
-                string.Equals(
-                    candidate.FloorKey,
-                    request.Frame.Capture.FloorKey,
-                    StringComparison.OrdinalIgnoreCase));
-            var floorId = floor?.FloorId ?? Guid.NewGuid();
-            var observationId = Guid.NewGuid();
-            var layerId = Guid.NewGuid();
-            var isRoot = current.Layers.All(layer => layer.IsDeleted);
-            var state = isRoot
-                ? SurveyObservationState.Registered
-                : SurveyObservationState.Unregistered;
-            var idempotencyKey = CreateIdempotencyKey(request.Frame.Capture, asset.Sha256);
-            var observation = new SurveyObservation(
-                observationId,
-                request.ProjectId,
-                floorId,
-                idempotencyKey,
-                request.Frame.Capture,
-                asset,
-                state,
-                isRoot ? 1d : 0d,
-                isRoot ? SurveyErrorCode.None : SurveyErrorCode.RegistrationRejected,
-                isRoot ? null : "尚未执行自动配准，可在编辑器中手动对齐。",
-                null,
-                null);
-            var layer = new SurveyMapLayer(
-                layerId,
-                request.ProjectId,
-                floorId,
-                observationId,
-                $"测绘图层 {current.Layers.Count + 1}",
-                current.Layers.Count == 0 ? 0 : current.Layers.Max(candidate => candidate.ZOrder) + 1,
-                true,
-                false,
-                false,
-                1d,
-                SurveyBlendMode.Normal,
-                SurveyLayerTransform.Identity,
-                null,
-                current.Project.Revision,
-                0);
+            var (observation, layer) = BuildObservationAndLayer(
+                current, request.Frame, asset, request.ProjectId, null);
 
             SetStatus(CreateStatus(
                 current,
@@ -299,6 +259,93 @@ public sealed partial class SurveyCoordinator : ISurveyCoordinator
         catch (Exception exception)
         {
             return Fault<SurveyObservationCommitResult>(SurveyErrorCode.AssetWriteFailed, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<SurveyOperationResult<SurveyObservationCommitResult>> ImportObservationAsync(
+        SurveyObservationImportRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (request.Frame.Bytes.IsEmpty
+                || request.Frame.PixelWidth <= 0
+                || request.Frame.PixelHeight <= 0)
+            {
+                return Failure<SurveyObservationCommitResult>(
+                    SurveyErrorCode.FrameInvalid,
+                    "导入的图片内容无效。");
+            }
+
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.State == SurveyProjectState.Archived)
+            {
+                return Failure<SurveyObservationCommitResult>(
+                    SurveyErrorCode.ProjectArchived,
+                    "已归档的测绘项目为只读。");
+            }
+
+            var asset = await _assets.PutAsync(
+                request.ProjectId,
+                request.Frame,
+                cancellationToken).ConfigureAwait(false);
+            var (observation, layer) = BuildObservationAndLayer(
+                current, request.Frame, asset, request.ProjectId, request.LayerName);
+            var committed = await _projects.CommitObservationAsync(
+                observation,
+                layer,
+                request.ExpectedRevision,
+                request.CommandId,
+                cancellationToken).ConfigureAwait(false);
+            if (!committed.WasAlreadyCommitted)
+            {
+                committed = IsRootLayer(committed)
+                    ? await ProcessRootObservationAsync(committed, cancellationToken).ConfigureAwait(false)
+                    : await ProcessObservationAsync(committed, cancellationToken).ConfigureAwait(false);
+            }
+
+            // 导入是编辑器中的手动编辑，不切换对局会话的状态机；
+            // 保留当前 RuntimeState，只更新图层计数与提示消息。
+            SetStatus(CreateStatus(
+                committed.Snapshot,
+                Status.RuntimeState,
+                committed.WasAlreadyCommitted
+                    ? "该图片已经导入到当前楼层。"
+                    : $"已导入“{committed.Layer.Name}”。"));
+            return SurveyOperationResult<SurveyObservationCommitResult>.Success(committed);
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyObservationCommitResult>(
+                SurveyErrorCode.RevisionConflict,
+                exception.Message);
+        }
+        catch (SurveyProjectNotFoundException exception)
+        {
+            return Failure<SurveyObservationCommitResult>(
+                SurveyErrorCode.ProjectNotFound,
+                exception.Message);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return Failure<SurveyObservationCommitResult>(
+                SurveyErrorCode.Cancelled,
+                "本次图片导入已取消。");
+        }
+        catch (Exception exception)
+        {
+            // 刻意用 Failure 而非 Fault：Fault 会把 RuntimeState 置为 Faulted，
+            // 打挂正在进行的游戏采集会话。导入是编辑器被动编辑，不应影响对局。
+            return Failure<SurveyObservationCommitResult>(
+                SurveyErrorCode.AssetWriteFailed,
+                exception.Message);
         }
         finally
         {
@@ -356,6 +403,63 @@ public sealed partial class SurveyCoordinator : ISurveyCoordinator
         SurveyCaptureContext capture,
         string digest) =>
         $"{capture.MatchId:N}:{capture.MapToggleVersion}:{capture.FloorKey.ToLowerInvariant()}:{digest}";
+
+    private static (SurveyObservation Observation, SurveyMapLayer Layer) BuildObservationAndLayer(
+        SurveyProjectSnapshot current,
+        SurveyEncodedFrame frame,
+        SurveyAssetReference asset,
+        Guid projectId,
+        string? layerName)
+    {
+        var floor = current.Floors.FirstOrDefault(candidate =>
+            string.Equals(
+                candidate.FloorKey,
+                frame.Capture.FloorKey,
+                StringComparison.OrdinalIgnoreCase));
+        var floorId = floor?.FloorId ?? Guid.NewGuid();
+        var observationId = Guid.NewGuid();
+        var layerId = Guid.NewGuid();
+        var isRoot = current.Layers.All(layer => layer.IsDeleted);
+        var state = isRoot
+            ? SurveyObservationState.Registered
+            : SurveyObservationState.Unregistered;
+        var idempotencyKey = CreateIdempotencyKey(frame.Capture, asset.Sha256);
+        var observation = new SurveyObservation(
+            observationId,
+            projectId,
+            floorId,
+            idempotencyKey,
+            frame.Capture,
+            asset,
+            state,
+            isRoot ? 1d : 0d,
+            isRoot ? SurveyErrorCode.None : SurveyErrorCode.RegistrationRejected,
+            isRoot ? null : "尚未执行自动配准，可在编辑器中手动对齐。",
+            null,
+            null);
+        var layer = new SurveyMapLayer(
+            layerId,
+            projectId,
+            floorId,
+            observationId,
+            string.IsNullOrWhiteSpace(layerName)
+                ? $"测绘图层 {current.Layers.Count + 1}"
+                : layerName.Trim(),
+            current.Layers.Count == 0 ? 0 : current.Layers.Max(candidate => candidate.ZOrder) + 1,
+            true,
+            false,
+            false,
+            1d,
+            SurveyBlendMode.Normal,
+            SurveyLayerTransform.Identity,
+            null,
+            current.Project.Revision,
+            0);
+        return (observation, layer);
+    }
+
+    private static bool IsRootLayer(SurveyObservationCommitResult committed) =>
+        committed.Snapshot.Layers.Count(item => !item.IsDeleted) == 1;
 
     private SurveyOperationResult<T> Failure<T>(SurveyErrorCode code, string message)
     {

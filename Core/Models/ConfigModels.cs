@@ -189,6 +189,8 @@ public sealed class AlignmentConfig
 public sealed class StructureConfig
 {
     public double MaximumChamferPixels { get; init; } = 3.2;
+    /// <summary>受限搜索（RestrictSearchToLockedTransform=true）专用的 chamfer 上限。</summary>
+    public double RestrictedSearchMaximumChamferPixels { get; init; } = 3.0;
     public double MinimumEdgeCoverage { get; init; } = 0.40;
     public double MinimumOccupancyCoverage { get; init; } = 0.42;
     public double MinimumCandidateMargin { get; init; } = 0.04;
@@ -241,6 +243,34 @@ public sealed class FeatureVotingConfig
     public int MinInlierTolerance { get; init; } = 2;
     public int MinVotes { get; init; } = 3;
     public double ConsensusCostReduction { get; init; } = 0.5;
+}
+
+/// <summary>
+/// Experimental frame-to-frame ORB tracking applied after an absolute map
+/// alignment has been locked. It is intentionally not exposed in settings.
+/// </summary>
+public sealed class OrbTrackingConfig
+{
+    public bool Enabled { get; init; }
+    public int ActiveIntervalMs { get; init; } = 100;
+    public int StableIntervalMs { get; init; } = 250;
+    public int StableObservationCount { get; init; } = 5;
+    public int FeatureCount { get; init; } = 1200;
+    public double RatioThreshold { get; init; } = 0.64;
+    public int MinimumMatches { get; init; } = 12;
+    public int MinimumRansacInliers { get; init; } = 8;
+    public double MinimumInlierRatio { get; init; } = 0.50;
+    public double MaximumMedianReprojectionErrorPixels { get; init; } = 2.5;
+    public double MaximumRotationDegrees { get; init; } = 0.5;
+    public double MaximumStepScaleChangeRatio { get; init; } = 0.01;
+    public double MaximumBaselineScaleChangeRatio { get; init; } = 0.03;
+    public double MinimumTranslationLimitPixels { get; init; } = 24;
+    public double MaximumTranslationPixelsPerSecond { get; init; } = 600;
+    public double TranslationDeadbandPixels { get; init; } = 0.5;
+    public double ScaleDeadbandRatio { get; init; } = 0.0005;
+    public int StructureCorrectionIntervalMs { get; init; } = 1000;
+    public int WeakFrameThreshold { get; init; } = 3;
+    public int RecoveryIntervalMs { get; init; } = 500;
 }
 
 public sealed class PartitionsConfig

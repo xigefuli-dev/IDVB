@@ -74,7 +74,28 @@ public static class MapAlignmentResearchAttemptFactory
                     ? transform?.ScaleX
                     : null),
             HistoricalFloorRatio = learned?.MedianRatio,
-            ScaleSeedSource = scaleSeed is null ? "double-gate" : "cross-floor",
+            ScaleSeedSource = string.IsNullOrWhiteSpace(
+                    attempt.Diagnostics.ScaleSeedSource)
+                ? scaleSeed is null ? "double-gate" : "cross-floor"
+                : attempt.Diagnostics.ScaleSeedSource,
+            ScaleSeedCacheSource = attempt.Diagnostics.ScaleSeedCacheSource,
+            ScaleSeedProjected = attempt.Diagnostics.ScaleSeedProjected,
+            ScaleSeedSourceViewportWidth =
+                attempt.Diagnostics.ScaleSeedSourceViewportWidth,
+            ScaleSeedSourceViewportHeight =
+                attempt.Diagnostics.ScaleSeedSourceViewportHeight,
+            ScaleSeedTargetViewportWidth =
+                attempt.Diagnostics.ScaleSeedTargetViewportWidth,
+            ScaleSeedTargetViewportHeight =
+                attempt.Diagnostics.ScaleSeedTargetViewportHeight,
+            ProjectedScale = attempt.Diagnostics.ProjectedScale > 0d
+                ? attempt.Diagnostics.ProjectedScale
+                : null,
+            FinalValidatedScale = attempt.Diagnostics.FinalValidatedScale > 0d
+                ? attempt.Diagnostics.FinalValidatedScale
+                : null,
+            ScaleSeedRejectionReason =
+                attempt.Diagnostics.ScaleSeedRejectionReason,
             SearchStages = (searchRadii ?? [])
                 .Select(radius => new MapAlignmentResearchSearchStage(
                     radius,

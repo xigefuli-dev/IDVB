@@ -26,10 +26,11 @@ public sealed partial class SessionOrchestrator
             || clientBoundsObj is not MapScreenRect clientBounds)
             return;
 
-        await TryAutoMatchResolutionPresetAsync(clientBounds);
+        await ApplySelectedResolutionPresetAsync(clientBounds);
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
         {
+            CancelOrbTracking("game map closed");
             _overlay.ClearMap();
             RefreshMiniMapForCurrentFloor();
             try { _overlay.Show(); } catch { }
@@ -48,49 +49,50 @@ public sealed partial class SessionOrchestrator
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private async Task TryAutoMatchResolutionPresetAsync(
+    /// <summary>
+    /// 对局控件激活时解析生效预设：用户指定配置优先，否则按窗口自动匹配。
+    /// 仅在选择（或自动匹配）结果与当前活跃预设几何不同时才触发重载，
+    /// 因此用户切换配置在「下次进入对局」生效。
+    /// </summary>
+    private async Task ApplySelectedResolutionPresetAsync(
         MapScreenRect clientBounds)
     {
-        var profiles = GetAvailablePresets();
-        if (profiles.Count == 0 || !clientBounds.IsValid)
+        if (!clientBounds.IsValid)
             return;
 
-        const int dpi = 120;
-        var profile = profiles.FirstOrDefault(candidate =>
-                candidate.ClientWidth == (int)Math.Round(clientBounds.Width)
-                && candidate.ClientHeight == (int)Math.Round(clientBounds.Height)
-                && candidate.Dpi == dpi)
-            ?? profiles
-                .Where(candidate => candidate.Dpi == dpi)
-                .OrderBy(candidate =>
-                    Math.Abs(candidate.ClientWidth - clientBounds.Width)
-                    + Math.Abs(candidate.ClientHeight - clientBounds.Height))
-                .FirstOrDefault(candidate =>
-                    Math.Abs(candidate.ClientWidth - clientBounds.Width) <= 100
-                    && Math.Abs(candidate.ClientHeight - clientBounds.Height) <= 100);
-        if (profile is null)
+        var width = (int)Math.Round(clientBounds.Width);
+        var height = (int)Math.Round(clientBounds.Height);
+        var target = ResolutionPresetResolver.ResolveEffectivePreset(
+            _settings?.SelectedResolutionPreset,
+            GetAvailablePresets(),
+            width,
+            height,
+            dpi: 120);
+
+        if (string.IsNullOrWhiteSpace(target))
             return;
 
         var activeGeometry = _config.ActiveResolutionPreset.Split(' ')[0];
-        var profileGeometry = profile.Name.Split(' ')[0];
+        var targetGeometry = target.Split(' ')[0];
         if (string.Equals(
             activeGeometry,
-            profileGeometry,
+            targetGeometry,
             StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        await SetActivePresetAsync(profile.Name);
+        await SetActivePresetAsync(target);
         _logCollector.Append(
             MapLogCategory.System,
             MapLogLevel.Info,
-            $"已按游戏客户区自动匹配分辨率预设 · {profile.Name}",
+            $"已应用分辨率预设 · {target}",
             details: new()
             {
-                ["clientWidth"] = clientBounds.Width,
-                ["clientHeight"] = clientBounds.Height,
-                ["preset"] = profile.Name
+                ["clientWidth"] = width,
+                ["clientHeight"] = height,
+                ["preset"] = target,
+                ["selected"] = _settings?.SelectedResolutionPreset ?? "自动"
             });
     }
 

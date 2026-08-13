@@ -16,28 +16,36 @@ public sealed partial class SessionOrchestrator
         CancellationToken cancellationToken)
     {
         var scanWallClock = Stopwatch.StartNew();
+        _scanProgressOverlay.Report(0.06d, "正在准备扫描...");
         // 开图动画等待（在调用线程即可，不阻塞）
         await Task.Delay(
             _settings!.SessionTuning.OpeningAnimationDelayMilliseconds,
             cancellationToken);
 
-        // 捕获稳定帧
-        if (!_captureSvc.TryCaptureViewport(
-                ResolveMapViewportForCurrentWindow(),
-                out var frameObj,
-                out var captureFailureReason)
-            || frameObj is not CapturedGameFrame frame)
+        // 首次识别和重新开图对齐使用同一稳定帧约束，避免把开图动画
+        // 或尚未稳定的裁剪/缩放送入侧门身份扫描。
+        var frame = await CaptureStableViewportAsync(
+            "首次扫描",
+            cancellationToken);
+        if (frame is null)
         {
-            ReportScanCaptureFailure(captureFailureReason, scanWallClock);
+            ReportScanCaptureFailure(
+                _lastStableCaptureFailureReason ?? "地图截图失败。",
+                scanWallClock);
             return;
         }
+
+        _scanProgressOverlay.Report(0.22d, "正在分析画面...");
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await TryAutoMatchResolutionPresetAsync(frame.ClientBounds);
+            await ApplySelectedResolutionPresetAsync(frame.ClientBounds);
             var initialState = new InitialRecognitionPipelineState();
+            _scanProgressOverlay.Report(0.38d, "正在识别地图...");
             await Task.Run(() => RunInitialRecognition(frame, initialState));
+
+            _scanProgressOverlay.Report(0.88d, "正在确认结果...");
 
             var recognition = initialState.Recognition;
             var failureReason = initialState.FailureReason;
@@ -100,7 +108,7 @@ public sealed partial class SessionOrchestrator
             // (or headless policy) confirms it, run exactly one selected-map
             // alignment using the mandatory scanned gate as the provisional
             // seed. Never render the provisional scan transform.
-            if (pendingSideEntranceScan is { Gate: { } selectedSideGate }
+            if (pendingSideEntranceScan is not null
                 && recognition is not null
                 && pendingSideEntranceSeed is null)
             {
@@ -114,7 +122,6 @@ public sealed partial class SessionOrchestrator
                 }
                 else if (!_recognition.TryCreateSideEntranceAlignmentSeed(
                              selectedCandidate,
-                             selectedSideGate,
                              frame.ViewportBounds,
                              out var selectedSeed,
                              out var selectedSeedFailure))
@@ -125,8 +132,6 @@ public sealed partial class SessionOrchestrator
                 else
                 {
                     pendingSideEntranceSeed = selectedSeed;
-                    _pendingAlignmentIdentity = recognition;
-                    _pendingAlignmentSeed = selectedSeed;
                     var selectedTuning = CreateInitialAlignmentRecognitionTuning();
                     if (selectedTuning.GateTemplateThreshold
                         > GateTemplateRules.FallbackPairThreshold)
@@ -141,7 +146,8 @@ public sealed partial class SessionOrchestrator
                             selectedTuning,
                             useInitialHighPrecisionRecovery: true);
                     var selectedStructureTuning =
-                        CreateInitialAlignmentStructureTuning();
+                        MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
+                            CreateInitialAlignmentStructureTuning());
                     MapFeatureCacheKey? selectedRepairKey = null;
                     var selectedAttempt = await Task.Run(() =>
                     {
@@ -176,23 +182,62 @@ public sealed partial class SessionOrchestrator
                         frame,
                         selectedAttempt,
                         "side-entrance-confirmation");
-                    if (selectedAttempt.Recognition is { } selectedRecognition)
+                    var selectedVerified =
+                        SideEntranceCandidateEvidence.ApplyStructureAttempt(
+                            selectedCandidate,
+                            selectedAttempt);
+                    if (selectedAttempt.Recognition is { } selectedRecognition
+                        && selectedVerified)
                     {
                         recognition = selectedRecognition;
+                        _pendingAlignmentIdentity = selectedRecognition;
+                        _pendingAlignmentSeed = selectedSeed;
                         _statusMessage =
                             $"侧门地图已确认并完成对齐：{recognition.Map.DisplayName} · "
                             + $"置信度 {recognition.Result.Confidence:P0}";
                     }
                     else
                     {
-                        recognition = null;
+                        // 玩家已确认候选：身份立即锁定，与变换解耦。结构对齐失败
+                        // 只丢变换、不清空身份。身份与侧门种子保留在 pending，供下次
+                        // 开图经 recoveringSelectedIdentity 链路对该地图重试对齐
+                        // （Pipeline.cs:22-23）。"身份-only" 范式复用
+                        // Default.cs:177-192：不设 OverlayTransform、LocalizationConfidence=0。
+                        var floorKey = selectedCandidate.FloorKey;
+                        if (MapFloorRules.GetFloorProfile(
+                                selectedCandidate.Map, floorKey) is null)
+                        {
+                            floorKey = MapFloorRules.GetPrimaryFloorKey(
+                                selectedCandidate.Map);
+                        }
+
+                        _pendingAlignmentIdentity = new RuntimeMapRecognition
+                        {
+                            Map = selectedCandidate.Map,
+                            FloorImagePath = _mapRepository.GetFloorOverlayPath(
+                                selectedCandidate.Map, floorKey),
+                            Result = new MapRecognitionResult
+                            {
+                                MapId = selectedCandidate.Map.Id,
+                                Floor = floorKey,
+                                Confidence = selectedCandidate.MatchScore,
+                                IdentityConfidence = 1.0d,   // 用户确认 = 身份确定
+                                LocalizationConfidence = 0d, // 变换未就绪
+                                Source = MapRecognitionSource.UserConfirmed
+                            }
+                        };
+                        // 必须与身份成对设置，否则重试时 Pipeline.cs:119 的
+                        // MapAlignmentSession.FromRecognition 会对 null 变换抛异常。
+                        _pendingAlignmentSeed = selectedSeed;
+                        recognition = null; // 跳过 overlay 提交块
+
                         var selectedFailure = string.IsNullOrWhiteSpace(
                             selectedAttempt.StructureFailureReason)
                             ? selectedAttempt.FailureReason
                             : selectedAttempt.StructureFailureReason;
                         failureReason =
-                            $"侧门地图已选择，但首次对齐失败：{selectedFailure}；"
-                            + "已保留所选地图身份，下次重新打开地图将按高精度策略重试。";
+                            $"已锁定所选地图身份（{selectedCandidate.Map.DisplayName}），但首次对齐未通过："
+                            + $"{selectedFailure}；请重新打开地图重试对齐。";
                     }
                 }
             }
@@ -225,6 +270,7 @@ public sealed partial class SessionOrchestrator
 
             if (recognition is not null)
             {
+                _scanProgressOverlay.Report(0.92d, "正在应用结果...");
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!IsCurrentMatchOperation(operationMatch))
                     return;
@@ -305,12 +351,14 @@ public sealed partial class SessionOrchestrator
                     frame.WindowHandle,
                     _lastDiagnostics);
                 _overlay.Show();
+                await StartOrbTrackingAsync(recognition, frame);
                 _logCollector.Append(
                     MapLogCategory.Overlay,
                     MapLogLevel.Info,
                     $"Overlay 更新完成 · visible={_overlay.IsVisible} · hasMap={_overlay.HasMap}");
                 // 识别成功后刷新持久小地图（若启用）
                 RefreshMiniMapForCurrentFloor();
+                _scanProgressOverlay.Report(0.98d, "正在完成...");
             }
             else if (failureReason is not null)
             {

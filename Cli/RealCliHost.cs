@@ -746,7 +746,7 @@ internal sealed class RealCliHost : IAsyncDisposable
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["begin"] = "begin --slot <1-4> --class <class>",
-            ["scan"] = "scan [--candidate <1-N>]；RealCLI 默认选择置信度最高候选",
+            ["scan"] = "scan [--candidate <1-N>]；RealCLI 默认优先选择结构已验证候选",
             ["align"] = "只对已锁定地图执行 IDVB 的仅对齐入口",
             ["end"] = "结束当前对局并释放锁定地图",
             ["status"] = "输出完整运行状态快照",

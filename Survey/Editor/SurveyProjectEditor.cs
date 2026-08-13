@@ -3,6 +3,9 @@ using IDVBuff.Survey.Domain;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Graphics.Imaging;
+using Windows.Storage;
+using Windows.Storage.Streams;
 using Windows.UI;
 using Microsoft.Windows.Storage.Pickers;
 
@@ -23,6 +26,9 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
     private SurveyBrushShape _brushShape = SurveyBrushShape.Circle;
     private double _brushSize = 64d;
     private Flyout? _eraserFlyout;
+    private Flyout? _vignetteFlyout;
+    private double _vignetteStart = 0.5d;
+    private double _vignetteStrength = 0.5d;
     private NumberBox? _zoomPercent;
     private bool _updatingZoom;
     private string _floorKey = "1f";
@@ -227,6 +233,18 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
                 _lifetimeCancellation.Token);
             return;
         }
+        if (e.Tool == SurveyEditorTool.VignetteCorrection)
+        {
+            SetStatus("正在应用晕影校正…");
+            var corrected = await _session.CorrectVignetteAsync(
+                [e.LayerId],
+                _vignetteStart,
+                _vignetteStrength,
+                _lifetimeCancellation.Token);
+            if (corrected is not null)
+                SetVignetteResultStatus(corrected);
+            return;
+        }
         if (e.Tool == SurveyEditorTool.NormalizeColors)
         {
             if (_layers.SelectedLayerIds.Count < 2)
@@ -289,6 +307,56 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
     {
         foreach (var button in _toolButtons.Values)
             button.IsEnabled = enabled;
+    }
+
+    private async Task ApplyVignetteCorrectionToSelectionAsync()
+    {
+        if (_layers.SelectedLayerIds.Count == 0)
+        {
+            SetStatus("请先选择至少一个图层。", isError: true);
+            return;
+        }
+        if (Interlocked.CompareExchange(ref _layerToolOperationActive, 1, 0) != 0)
+        {
+            SetStatus("上一个图层处理仍在进行，请稍候。", isError: true);
+            return;
+        }
+        SetLayerToolButtonsEnabled(false);
+        try
+        {
+            SetStatus("正在对选中图层应用晕影校正…");
+            var result = await _session.CorrectVignetteAsync(
+                _layers.SelectedLayerIds.ToArray(),
+                _vignetteStart,
+                _vignetteStrength,
+                _lifetimeCancellation.Token);
+            if (result is not null)
+                SetVignetteResultStatus(result);
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            if (!_disposed)
+                SetStatus($"晕影校正失败：{exception.Message}", isError: true);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _layerToolOperationActive, 0);
+            if (!_disposed)
+                SetLayerToolButtonsEnabled(true);
+        }
+    }
+
+    private void SetVignetteResultStatus(SurveyLayerOperationResult result)
+    {
+        var succeeded = result.Items.Count(item => item.Succeeded);
+        var failed = result.Items.Count - succeeded;
+        SetStatus(failed == 0
+            ? $"已对 {succeeded} 个图层应用晕影校正。"
+            : $"已校正 {succeeded} 个图层，{failed} 个未处理。",
+            isError: succeeded == 0);
     }
 
     private async void Canvas_MaskStrokeCommitted(object? sender, SurveyMaskStrokeEventArgs e)
@@ -421,6 +489,142 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
         {
             SetStatus($"PNG 导出失败：{exception.Message}", isError: true);
         }
+    }
+
+    private async Task ImportImageAsync()
+    {
+        if (_session.Snapshot is not { } snapshot)
+            return;
+        try
+        {
+            var picker = new FileOpenPicker(XamlRoot.ContentIslandEnvironment.AppWindowId)
+            {
+                SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                CommitButtonText = "选择",
+                ViewMode = PickerViewMode.Thumbnail
+            };
+            picker.FileTypeFilter.Add(".png");
+            picker.FileTypeFilter.Add(".jpg");
+            picker.FileTypeFilter.Add(".jpeg");
+            picker.FileTypeFilter.Add(".bmp");
+            picker.FileTypeFilter.Add(".webp");
+            var picked = await picker.PickSingleFileAsync();
+            if (picked is null || string.IsNullOrWhiteSpace(picked.Path))
+                return;
+            var file = await StorageFile.GetFileFromPathAsync(picked.Path);
+
+            byte[] bytes;
+            int width, height;
+            using (var stream = await file.OpenAsync(FileAccessMode.Read))
+            {
+                // 服务端不解码图片，这里用 BitmapDecoder 读取真实像素尺寸。
+                var decoder = await BitmapDecoder.CreateAsync(stream);
+                width = (int)decoder.PixelWidth;
+                height = (int)decoder.PixelHeight;
+                stream.Seek(0);
+                using var memory = new MemoryStream();
+                await stream.AsStreamForRead().CopyToAsync(memory);
+                bytes = memory.ToArray();
+            }
+            if (bytes.Length == 0)
+            {
+                SetStatus("选中的图片为空。", isError: true);
+                return;
+            }
+            if (width <= 0 || height <= 0)
+            {
+                SetStatus("无法识别该图片的尺寸。", isError: true);
+                return;
+            }
+
+            var extension = file.FileType.ToLowerInvariant();
+            var mediaType = extension switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".bmp" => "image/bmp",
+                ".webp" => "image/webp",
+                _ => "application/octet-stream"
+            };
+
+            var floor = await PickImportFloorAsync(snapshot, _floorKey);
+            if (floor is null)
+                return;
+
+            SetStatus("正在导入图片…");
+            var result = await _session.ImportObservationAsync(
+                bytes,
+                extension,
+                mediaType,
+                width,
+                height,
+                floor.FloorKey,
+                Path.GetFileName(file.Path),
+                _lifetimeCancellation.Token);
+            if (result is null)
+                return;
+            SetStatus(result.WasAlreadyCommitted
+                ? "该图片已经导入到当前楼层，未创建重复图层。"
+                : $"已导入“{result.Layer.Name}”。");
+
+            // 导入到当前楼层时画布由图层面板刷新自动更新；跨楼层需手动切换。
+            if (!string.Equals(floor.FloorKey, _floorKey, StringComparison.OrdinalIgnoreCase))
+            {
+                _floorKey = floor.FloorKey;
+                _floorPicker.SelectedItem = _floorPicker.Items
+                    .OfType<ComboBoxItem>()
+                    .FirstOrDefault(item =>
+                        string.Equals(item.Tag as string, _floorKey, StringComparison.OrdinalIgnoreCase));
+                _layers.SetFloor(_floorKey);
+                await RenderCanvasAsync(_floorKey, fitAfterRender: true);
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"图片导入失败：{exception.Message}", isError: true);
+        }
+    }
+
+    private async Task<SurveyFloor?> PickImportFloorAsync(
+        SurveyProjectSnapshot snapshot,
+        string currentFloorKey)
+    {
+        var combo = new ComboBox
+        {
+            Header = "目标楼层",
+            MinWidth = 240,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = snapshot.Floors.OrderBy(floor => floor.Order)
+                .Select(floor => new ComboBoxItem
+                {
+                    Content = $"{floor.DisplayName}（{floor.FloorKey}）",
+                    Tag = floor.FloorKey
+                })
+                .ToList()
+        };
+        combo.SelectedItem = combo.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item =>
+                string.Equals(item.Tag as string, currentFloorKey, StringComparison.OrdinalIgnoreCase))
+            ?? combo.Items.OfType<ComboBoxItem>().FirstOrDefault();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "导入本地图片",
+            Content = new StackPanel { Spacing = 8, Children = { combo } },
+            PrimaryButtonText = "导入",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return null;
+        return combo.SelectedItem is ComboBoxItem { Tag: string floorKey }
+            ? snapshot.Floors.FirstOrDefault(floor =>
+                string.Equals(floor.FloorKey, floorKey, StringComparison.OrdinalIgnoreCase))
+            : null;
     }
 
     private static string CreatePngSuggestedFileName(string projectName, string floorKey)

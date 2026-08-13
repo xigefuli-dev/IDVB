@@ -8,7 +8,7 @@ namespace IDVBuff.Features.Maps;
 /// Thread-safe, opt-in collector for structured map diagnostics.
 /// A session is flushed in small batches and finalized when collection stops.
 /// </summary>
-public sealed class MapLogCollector : IDisposable, IAsyncDisposable
+public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
 {
     private const int FlushBatchSize = 50;
     private const int MaxBufferedEntries = 500;
@@ -161,9 +161,7 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
         if (session is null)
             return [];
 
-        var flushTask = FlushAsync(session);
-        TrackFlush(session, flushTask);
-        await flushTask.ConfigureAwait(false);
+        await FlushAsync(session).ConfigureAwait(false);
 
         var persisted = await _repository.ReadSessionAsync(
             session.Path,
@@ -206,16 +204,22 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
         var shouldFlush = false;
         lock (session.Gate)
         {
+            if (session.PersistenceDisabled
+                && session.Entries.Count >= MaxBufferedEntries)
+            {
+                session.Entries.RemoveAt(0);
+                session.DroppedEntryCount++;
+            }
             session.Entries.Add(entry);
             session.TotalEntryCount++;
-            if (session.Entries.Count == 1
-                || session.Entries.Count >= MaxBufferedEntries
-                || session.Entries.Count % FlushBatchSize == 0)
+            if (!session.PersistenceDisabled
+                && (session.Entries.Count == 1
+                    || session.Entries.Count % FlushBatchSize == 0))
                 shouldFlush = true;
         }
 
         if (shouldFlush)
-            TrackFlush(session, FlushAsync(session));
+            RequestFlush(session);
     }
 
     private static void WritePlainTextOutput(
@@ -251,11 +255,10 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
 
     private void OnFlushTimer(Session session)
     {
-        var flushTask = FlushAsync(session);
-        TrackFlush(session, flushTask);
+        RequestFlush(session);
     }
 
-    private Task FlushAsync(Session session) => FlushCoreAsync(session);
+    private Task FlushAsync(Session session) => RequestFlush(session);
 
     private async Task FlushCoreAsync(Session session)
     {
@@ -289,6 +292,20 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
         }
         catch (Exception exception)
         {
+            lock (session.FlushTaskGate)
+            {
+                session.PersistenceDisabled = true;
+                session.FlushRequested = false;
+            }
+            lock (session.Gate)
+            {
+                if (session.Entries.Count > MaxBufferedEntries)
+                {
+                    var removeCount = session.Entries.Count - MaxBufferedEntries;
+                    session.Entries.RemoveRange(0, removeCount);
+                    session.DroppedEntryCount += removeCount;
+                }
+            }
             Debug.WriteLine($"[MapLogCollector] flush failed: {exception}");
             WriteErrorToFile("flush", exception);
         }
@@ -306,12 +323,6 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
                 }
             }
         }
-    }
-
-    private void TrackFlush(Session session, Task flushTask)
-    {
-        lock (session.FlushTaskGate)
-            session.PendingFlush = Task.WhenAll(session.PendingFlush, flushTask);
     }
 
     private Task? StopCurrentSessionLocked(string message)
@@ -333,9 +344,12 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
     {
         try
         {
-            Task pending;
-            lock (session.FlushTaskGate)
-                pending = session.PendingFlush;
+            if (session.PersistenceDisabled)
+                return;
+
+            // Force the final marker through the same coalesced worker so a
+            // racing timer callback cannot write the session file in parallel.
+            var pending = RequestFlush(session);
 
             if (!await WaitForCompletionAsync(pending).ConfigureAwait(false))
             {
@@ -344,6 +358,9 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
                     new TimeoutException("Timed out waiting for pending log flushes."));
                 return;
             }
+
+            if (session.PersistenceDisabled)
+                return;
 
             IReadOnlyList<MapLogEntry> remaining;
             lock (session.Gate)
@@ -467,6 +484,10 @@ public sealed class MapLogCollector : IDisposable, IAsyncDisposable
         public readonly string Path = path;
         public readonly List<MapLogEntry> Entries = [];
         public Task PendingFlush = Task.CompletedTask;
+        public bool FlushRequested;
+        public bool FlushLoopActive;
+        public volatile bool PersistenceDisabled;
+        public int DroppedEntryCount;
         public int Sequence;
         public int LastFlushedSequence;
         public int TotalEntryCount;

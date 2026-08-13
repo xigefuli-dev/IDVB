@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
     <ProjectReference Include="..\Pipeline\IDVBuff.Pipeline.csproj" />
     <ProjectReference Include="..\Survey\Domain\IDVBuff.Survey.Domain.csproj" />
@@ -97,6 +98,9 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionHelpers.cs" Link="Production\MapCvRecognitionHelpers.cs" />
     <Compile Include="..\Features\Maps\MapOpenAlignmentRouteRules.cs" Link="Production\MapOpenAlignmentRouteRules.cs" />
     <Compile Include="..\Features\Maps\MapAnchorTracker.cs" Link="Production\MapAnchorTracker.cs" />
+    <Compile Include="..\Features\Maps\MapOrbTrackingModels.cs" Link="Production\MapOrbTrackingModels.cs" />
+    <Compile Include="..\Features\Maps\MapOrbTracker.cs" Link="Production\MapOrbTracker.cs" />
+    <Compile Include="..\Features\Maps\MapOrbTracker.Fitting.cs" Link="Production\MapOrbTracker.Fitting.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.cs" Link="Production\MapStructureRegistrationModels.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Enums.cs" Link="Production\MapStructureRegistrationModels.Enums.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Tuning.cs" Link="Production\MapStructureRegistrationModels.Tuning.cs" />
@@ -123,6 +127,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationRules.cs" Link="Production\StructureRegistrationRules.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
     <Compile Include="..\Features\Maps\MapGameToggleState.cs" Link="Production\MapGameToggleState.cs" />
+    <Compile Include="..\Features\Maps\MapFloorSwitchRules.cs" Link="Production\MapFloorSwitchRules.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.cs" Link="Production\MapOverlayNativeWindow.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.cs" Link="Production\MapOverlayNativeWindow.Rendering.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.Map.cs" Link="Production\MapOverlayNativeWindow.Rendering.Map.cs" />
@@ -135,6 +140,7 @@
     <Compile Include="..\Features\Maps\MapRuntimeSettings.Models.cs" Link="Production\MapRuntimeSettings.Models.cs" />
     <Compile Include="..\Features\Maps\MapDisplayCalibrationProfiles.cs" Link="Production\MapDisplayCalibrationProfiles.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettings.Tuning.cs" Link="Production\MapRuntimeSettings.Tuning.cs" />
+    <Compile Include="..\Features\Maps\ResolutionPresetResolver.cs" Link="Production\ResolutionPresetResolver.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettingsRepository.cs" Link="Production\MapRuntimeSettingsRepository.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettingsRules.cs" Link="Production\MapRuntimeSettingsRules.cs" />
     <Compile Include="..\Features\Maps\GateTemplateDetector.cs" Link="Production\GateTemplateDetector.cs" />
@@ -153,6 +159,9 @@
     <Compile Include="..\Features\Maps\MapRepository.SideEntrance.cs" Link="Production\MapRepository.SideEntrance.cs" />
     <Compile Include="..\Features\Maps\SideEntranceFeaturePreprocessor.cs" Link="Production\SideEntranceFeaturePreprocessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.cs" Link="Production\SideEntranceScanPipeline.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Evidence.cs" Link="Production\SideEntranceScanPipeline.Evidence.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceScanPipeline.MultiGate.cs" Link="Production\SideEntranceScanPipeline.MultiGate.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.cs" Link="Production\IdvmPackageService.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.Reader.cs" Link="Production\IdvmPackageService.Reader.cs" />
@@ -160,6 +169,7 @@
     <Compile Include="..\Features\Maps\IdvmPackageService.Validator.cs" Link="Production\IdvmPackageService.Validator.cs" />
     <Compile Include="..\Features\Maps\MapLogModels.cs" Link="Production\MapLogModels.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.cs" Link="Production\MapLogCollector.cs" />
+    <Compile Include="..\Features\Maps\MapLogCollector.Flush.cs" Link="Production\MapLogCollector.Flush.cs" />
     <Compile Include="..\Features\Maps\MapLogRepository.cs" Link="Production\MapLogRepository.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentResearchModels.cs" Link="Production\MapAlignmentResearchModels.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentResearchAttemptFactory.cs" Link="Production\MapAlignmentResearchAttemptFactory.cs" />

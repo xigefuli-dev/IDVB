@@ -28,4 +28,10 @@ public interface IConfigProvider
     /// 解析预设目录的磁盘路径（优先 AppData，回退到构建输出目录）。
     /// </summary>
     string ResolvePresetDirectory(string presetName);
+
+    /// <summary>
+    /// 立即重新加载全部 TOML 配置并合并，触发 <see cref="ConfigChanged"/>。
+    /// 供写回配置（如校准区域）后刷新内存合并表，避免读到旧值。
+    /// </summary>
+    void Reload();
 }

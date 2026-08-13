@@ -235,10 +235,63 @@ public sealed class MapRecord
         ? $"地图 {SequenceNumber}"
         : Title;
 
+    public bool NeedsCanonicalFloorNormalization()
+    {
+        Recognition ??= new MapRecognitionProfile();
+        Recognition.Floors ??= [];
+        var orderedFloors = MapFloorRules.GetOrderedFloors(this);
+        if (orderedFloors.Count != Recognition.Floors.Count)
+            return true;
+
+        var profiles = new List<FloorRecognitionProfile>();
+        for (var index = 0; index < orderedFloors.Count; index++)
+        {
+            var floor = orderedFloors[index];
+            var profile = Recognition.GetFloor(floor.Key);
+            if (profile is null
+                || !string.Equals(profile.FloorKey, floor.Key, StringComparison.Ordinal)
+                || profiles.Any(previous => ReferenceEquals(previous, profile)))
+            {
+                return true;
+            }
+
+            if ((index == 0 && profile.Floor != MapFloor.First)
+                || (index == 1 && profile.Floor != MapFloor.Second))
+            {
+                return true;
+            }
+            profiles.Add(profile);
+        }
+
+        if (orderedFloors.Count > 0
+            && !string.Equals(
+                Recognition.FirstFloor?.FloorKey,
+                orderedFloors[0].Key,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return orderedFloors.Count > 1
+            && !string.Equals(
+                Recognition.SecondFloor?.FloorKey,
+                orderedFloors[1].Key,
+                StringComparison.Ordinal);
+    }
+
     public void NormalizeRecognition()
     {
         Recognition ??= new MapRecognitionProfile();
-        Recognition.EnsureStandardAnchors();
+
+        // V6 migration: populate Floors list and Class from legacy data if missing
+        Floors ??= [];
+        if (Floors.Count == 0)
+        {
+            Floors.Add(new FloorDefinition { Key = "1f", DisplayName = "1F", SortOrder = 1 });
+            Floors.Add(new FloorDefinition { Key = "2f", DisplayName = "2F", SortOrder = 2 });
+        }
+
+        Recognition.NormalizeForFloors(MapFloorRules.GetOrderedFloors(this));
         var main = Recognition.FirstFloor.FindAnchor("main-entrance")!;
         var side = Recognition.FirstFloor.FindAnchor("side-entrance")!;
         if (!main.IsMarked && MainEntrance?.IsValid is true)
@@ -249,12 +302,6 @@ public sealed class MapRecord
         MainEntrance = null;
         SideEntrance = null;
 
-        // V6 migration: populate Floors list and Class from legacy data if missing
-        if (Floors.Count == 0)
-        {
-            Floors.Add(new FloorDefinition { Key = "1f", DisplayName = "1F", SortOrder = 1 });
-            Floors.Add(new FloorDefinition { Key = "2f", DisplayName = "2F", SortOrder = 2 });
-        }
         if (string.IsNullOrWhiteSpace(Class))
             Class = "S1";
         if (ContentVersion <= 0)

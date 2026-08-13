@@ -23,11 +23,23 @@ public sealed partial class MapRepository
                 ?? new MapCatalogDocument();
         }
         var migrated = false;
+        var repairedFloorProfileIds = new List<Guid>();
         var requiresLegacyBindingMigration = catalog.StorageSchemaVersion < 10;
+        var requiresFloorProfileMigration = catalog.StorageSchemaVersion < CurrentStorageSchemaVersion
+            || catalog.Maps.Any(record => record.NeedsCanonicalFloorNormalization());
+        if (requiresFloorProfileMigration)
+        {
+            var backupPath = $"{CatalogPath}.bak-v14";
+            if (!File.Exists(backupPath))
+                File.Copy(CatalogPath, backupPath);
+        }
         var needsV4Backup = false;
         var needsV5Backup = false;
         foreach (var record in catalog.Maps)
         {
+            var needsFloorProfileRepair = record.NeedsCanonicalFloorNormalization();
+            if (needsFloorProfileRepair)
+                repairedFloorProfileIds.Add(record.Id);
             var previousSchema = record.Recognition?.SchemaVersion ?? 0;
             if (previousSchema < 5)
                 needsV4Backup = true;
@@ -47,7 +59,8 @@ public sealed partial class MapRepository
 
             migrated |= previousSchema < 6
                 || firstBoundsMissing
-                || secondBoundsMissing;
+                || secondBoundsMissing
+                || needsFloorProfileRepair;
 
             if (requiresLegacyBindingMigration)
                 await MigrateFloorImageBindingsAsync(record);
@@ -73,6 +86,11 @@ public sealed partial class MapRepository
         {
             catalog.StorageSchemaVersion = CurrentStorageSchemaVersion;
             await WriteCatalogAsync(catalog);
+        }
+        foreach (var mapId in repairedFloorProfileIds)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[MapRepository] repaired canonical floor profiles for map {mapId}");
         }
         return catalog;
     }

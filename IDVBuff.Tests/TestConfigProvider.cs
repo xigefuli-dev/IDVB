@@ -38,4 +38,6 @@ public sealed class TestConfigProvider : IConfigProvider
 
     public string ResolvePresetDirectory(string presetName)
         => Path.Combine(Path.GetTempPath(), "IDVB-Tests", "Presets", presetName);
+
+    public void Reload() { /* 内存提供器无文件可重载 */ }
 }

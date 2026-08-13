@@ -2,102 +2,11 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-/// <summary>侧门扫描的单条候选结果。</summary>
-public sealed class SideEntranceScanCandidate
-{
-    public MapRecord Map { get; init; } = new();
-    /// <summary>匹配所用的楼层键（通常为主楼层 key，如 "1f"）。</summary>
-    public string FloorKey { get; init; } = string.Empty;
-    /// <summary>TM_CCOEFF_NORMED 匹配得分 [0, 1]，越高越相似。</summary>
-    public double MatchScore { get; init; }
-    /// <summary>特征模板在捕获帧中的最佳匹配位置（屏幕像素）。</summary>
-    public MapScreenRect MatchLocation { get; init; }
-
-    /// <summary>
-    /// 取得最佳匹配时模板所用的缩放倍率（识别图像素 → 实时帧像素）。
-    /// 模板匹配本身不具备尺度不变性，所以缩放只能靠遍历若干倍率取峰值得出；
-    /// 这个值就是胜出的那一档，也是对齐种子唯一可信的初始缩放来源。
-    /// </summary>
-    public double MatchScale { get; init; } = 1d;
-}
-
-/// <summary>
-/// The side-entrance scan result keeps the mandatory gate observation next to
-/// the feature-region candidates. The gate is scan evidence; it is not an
-/// alignment result and must be validated again by the selected-map alignment
-/// pipeline.
-/// </summary>
-public sealed class SideEntranceScanResult
-{
-    public GateDetectionResult GateDetection { get; init; } = new();
-    public IReadOnlyList<SideEntranceScanCandidate> Candidates { get; init; } = [];
-    public string FailureReason { get; init; } = string.Empty;
-
-    public GateDetection? Gate => GateDetection.Gates
-        .OrderByDescending(gate => gate.Score)
-        .FirstOrDefault();
-}
-
-/// <summary>
-/// Keeps the map identity confirmed by the user immutable throughout the
-/// side-entrance alignment chain. Structure registration may refine the
-/// transform, but it must never replace the confirmed map with another scan
-/// candidate.
-/// </summary>
-public readonly record struct SideEntranceMapSelection(
-    Guid MapId,
-    string FloorKey)
-{
-    public bool IsValid =>
-        MapId != Guid.Empty
-        && !string.IsNullOrWhiteSpace(FloorKey);
-
-    public bool Matches(SideEntranceScanCandidate? candidate) =>
-        IsValid
-        && candidate is not null
-        && candidate.Map.Id == MapId
-        && string.Equals(
-            candidate.FloorKey,
-            FloorKey,
-            StringComparison.Ordinal);
-
-    public bool Matches(MapAlignmentSession? seed) =>
-        IsValid
-        && seed is not null
-        && seed.MapId == MapId
-        && string.Equals(
-            seed.FloorKey,
-            FloorKey,
-            StringComparison.Ordinal);
-
-    public bool Matches(
-        Guid recognitionMapId,
-        Guid resultMapId,
-        string? resultFloor) =>
-        IsValid
-        && recognitionMapId == MapId
-        && resultMapId == MapId
-        && string.Equals(
-            resultFloor,
-            FloorKey,
-            StringComparison.Ordinal);
-
-    public bool Matches(
-        SideEntranceScanCandidate? candidate,
-        MapAlignmentSession? seed,
-        Guid recognitionMapId,
-        Guid resultMapId,
-        string? resultFloor) =>
-        Matches(candidate)
-        && Matches(seed)
-        && Matches(recognitionMapId, resultMapId, resultFloor);
-}
-
 /// <summary>
 /// 侧门专属扫描管线：对捕获帧运行模板匹配，返回 TopK 候选地图。
 /// 与双门管线并列，仅用于首次地图识别，对齐阶段仍由原有管线处理。
 /// </summary>
-public sealed class SideEntranceScanPipeline
+public sealed partial class SideEntranceScanPipeline
 {
     /// <summary>
     /// Creates the provisional lock used between side-gate scan selection and
@@ -157,8 +66,8 @@ public sealed class SideEntranceScanPipeline
         // constant-sized while the map is zoomed and must not replace it.
         var mapScale = candidate.MatchScale;
         if (!double.IsFinite(mapScale)
-            || mapScale < MinimumScale
-            || mapScale > MaximumScale)
+            || mapScale < SideEntranceScanRules.MinimumScale
+            || mapScale > SideEntranceScanRules.MaximumScale)
         {
             failureReason = "the side-gate scan produced an invalid map scale.";
             return false;
@@ -297,8 +206,8 @@ public sealed class SideEntranceScanPipeline
         // 这个比值恒等于 1，与实际缩放无关。
         var scale = candidate.MatchScale;
         if (!double.IsFinite(scale)
-            || scale < SideEntranceScanPipeline.MinimumScale
-            || scale > SideEntranceScanPipeline.MaximumScale)
+            || scale < SideEntranceScanRules.MinimumScale
+            || scale > SideEntranceScanRules.MaximumScale)
         {
             failureReason = "侧门特征无法生成有效的初始缩放。";
             return false;
@@ -350,10 +259,8 @@ public sealed class SideEntranceScanPipeline
         return true;
     }
 
-    /// <summary>允许的最小缩放（识别图 → 实时帧）。</summary>
-    public const double MinimumScale = 0.55d;
-    /// <summary>允许的最大缩放（识别图 → 实时帧）。</summary>
-    public const double MaximumScale = 2.2d;
+    // 侧门扫描缩放边界已下沉到 SideEntranceScanRules（side_entrance.toml 的
+    // [side_entrance] 段 minimum_scale / maximum_scale），按分辨率预设可单独配置。
     // 扫描网格密度（粗步长 / 精化档数）、粗降采样倍率、粗分数剪枝与跨地图
     // 并行度均由 SideEntranceScanRules 提供，三个分辨率预设目录各自通过
     // side_entrance.toml 覆盖（见 Infrastructure/Configuration/Presets）。
@@ -365,9 +272,8 @@ public sealed class SideEntranceScanPipeline
     /// <item>粗搜索：在 1/<see cref="SideEntranceScanRules.CoarsePyramidFactor"/>
     /// 降采样帧上对所有候选地图并行遍历缩放网格。降采样帧只计算一次、
     /// 全部分享（原实现每张地图各降采样一次，29 张地图重复 29 次）。</item>
-    /// <item>精化：只对粗分前
-    /// <see cref="SideEntranceScanRules.RefineCandidateTopK"/> 张地图做全分辨率
-    /// 窗口细化，其余直接淘汰——避免 29 张地图全部跑 7 次全分辨率匹配。</item>
+    /// <item>精化：对所有通过粗分绝对下限的地图做全分辨率窗口细化；
+    /// topK 只限制最后交给调用方的线索数量，不参与身份召回剪枝。</item>
     /// </list>
     /// 粗搜索与精化均按 <see cref="SideEntranceScanRules.ScanParallelism"/> 并行。
     /// </summary>
@@ -381,7 +287,29 @@ public sealed class SideEntranceScanPipeline
     public IReadOnlyList<SideEntranceScanCandidate> RunScan(
         Mat capturedFrame,
         IReadOnlyList<(MapRecord map, string floorKey, Mat featureTemplate)> candidates,
-        int topK = 5)
+        int topK = 5,
+        GateDetection? detectedGate = null,
+        MapScreenRect? viewportBounds = null,
+        Action<double>? progress = null) =>
+        RunSingleGateScan(
+            capturedFrame,
+            candidates,
+            topK,
+            detectedGate,
+            viewportBounds,
+            maskDetectedGate: true,
+            gateIndexForDiagnostics: null,
+            progress: progress);
+
+    private IReadOnlyList<SideEntranceScanCandidate> RunSingleGateScan(
+        Mat capturedFrame,
+        IReadOnlyList<(MapRecord map, string floorKey, Mat featureTemplate)> candidates,
+        int topK,
+        GateDetection? detectedGate,
+        MapScreenRect? viewportBounds,
+        bool maskDetectedGate,
+        int? gateIndexForDiagnostics,
+        Action<double>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(capturedFrame);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -397,27 +325,75 @@ public sealed class SideEntranceScanPipeline
         else
             Cv2.CvtColor(capturedFrame, grayFrame, ColorConversionCodes.BGR2GRAY);
 
+        // Remove the detected common gate glyph from the live image, matching
+        // the persisted v2 feature preprocessing. This prevents one shared UI
+        // icon from acting as map identity evidence.
+        if (maskDetectedGate
+            && detectedGate is not null
+            && viewportBounds is { IsValid: true } viewport
+            && detectedGate.ScreenBounds.IsValid)
+        {
+            var local = new Rect(
+                (int)Math.Floor(detectedGate.ScreenBounds.X - viewport.X),
+                (int)Math.Floor(detectedGate.ScreenBounds.Y - viewport.Y),
+                (int)Math.Ceiling(detectedGate.ScreenBounds.Width),
+                (int)Math.Ceiling(detectedGate.ScreenBounds.Height));
+            local = local.Intersect(new Rect(0, 0, grayFrame.Width, grayFrame.Height));
+            if (local.Width > 0 && local.Height > 0)
+            {
+                var mean = Cv2.Mean(grayFrame);
+                Cv2.Rectangle(grayFrame, local, new Scalar(mean.Val0), -1);
+            }
+        }
+
         var valid = candidates
             .Where(c => c.featureTemplate is not null && !c.featureTemplate.Empty())
             .ToList();
         if (valid.Count == 0)
             return [];
 
+        // Search only where a feature crop could geometrically contain the
+        // detected gate. The generous radius covers edge-clamped feature
+        // centers at every supported map scale, while excluding unrelated
+        // repeated corridors elsewhere in the viewport.
+        var searchBounds = new Rect(0, 0, grayFrame.Width, grayFrame.Height);
+        if (detectedGate is not null
+            && viewportBounds is { IsValid: true } gateViewport)
+        {
+            var gateX = detectedGate.ScreenBounds.CenterX - gateViewport.X;
+            var gateY = detectedGate.ScreenBounds.CenterY - gateViewport.Y;
+            var largestTemplateExtent = valid.Max(item =>
+                Math.Max(item.featureTemplate.Width, item.featureTemplate.Height));
+            var radius = (int)Math.Ceiling(
+                (largestTemplateExtent * SideEntranceScanRules.MaximumScale)
+                + (SideEntranceScanRules.MaximumGateSpatialResidualPixels * 2d));
+            var left = Math.Clamp((int)Math.Floor(gateX) - radius,
+                0, Math.Max(0, grayFrame.Width - 1));
+            var top = Math.Clamp((int)Math.Floor(gateY) - radius,
+                0, Math.Max(0, grayFrame.Height - 1));
+            var right = Math.Clamp((int)Math.Ceiling(gateX) + radius,
+                left + 1, grayFrame.Width);
+            var bottom = Math.Clamp((int)Math.Ceiling(gateY) + radius,
+                top + 1, grayFrame.Height);
+            searchBounds = new Rect(left, top, right - left, bottom - top);
+        }
+
+        using var gateConstrainedFrame = new Mat(grayFrame, searchBounds);
+
         var coarseFactor = Math.Max(2, SideEntranceScanRules.CoarsePyramidFactor);
         var parallelism = Math.Max(1, SideEntranceScanRules.ScanParallelism);
-        // 精化上限至少覆盖 topK，默认等于 RefineCandidateTopK。
-        var refineTopK = Math.Max(
-            topK,
-            Math.Min(SideEntranceScanRules.RefineCandidateTopK, valid.Count));
+        // 身份识别不能因为性能剪枝永久丢失正确地图。准确优先模式下
+        // 对全部粗搜索结果做全分辨率精化，topK 只限制最终展示数量。
+        var refineTopK = valid.Count;
 
         // 优化1：粗降采样帧只计算一次，全部候选地图共享。
         using var coarseFrame = new Mat();
         Cv2.Resize(
-            grayFrame,
+            gateConstrainedFrame,
             coarseFrame,
             new Size(
-                Math.Max(1, grayFrame.Width / coarseFactor),
-                Math.Max(1, grayFrame.Height / coarseFactor)),
+                Math.Max(1, gateConstrainedFrame.Width / coarseFactor),
+                Math.Max(1, gateConstrainedFrame.Height / coarseFactor)),
             0d,
             0d,
             InterpolationFlags.Area);
@@ -425,6 +401,7 @@ public sealed class SideEntranceScanPipeline
         // 阶段1：并行粗搜索。每张地图互相独立，各自写独立结果槽位；
         // 并行度受 TOML 约束，避免与 OpenCV 内部线程过订阅。
         var coarseResults = new CoarseResult?[valid.Count];
+        var coarseCompleted = 0;
         Parallel.For(
             0,
             valid.Count,
@@ -432,14 +409,16 @@ public sealed class SideEntranceScanPipeline
             i =>
             {
                 var (map, floorKey, template) = valid[i];
-                var peak = FindCoarsePeak(coarseFrame, template, coarseFactor);
+                var peak = FindCoarsePeak(
+                    coarseFrame, template, coarseFactor,
+                    $"{map.SequenceNumber}#{floorKey}");
                 coarseResults[i] = peak is { } p
                     ? new CoarseResult(map, floorKey, template, p)
                     : null;
+                progress?.Invoke(0.7d * Interlocked.Increment(ref coarseCompleted) / valid.Count);
             });
 
-        // 阶段2：粗分数剪枝 —— 低于绝对阈值的地图直接淘汰，且只精化粗分
-        // 前 refineTopK 张，其余跳过全分辨率匹配。
+        // 阶段2：仅应用粗分绝对下限；准确优先模式不按排名截断召回。
         var pruneThreshold = SideEntranceScanRules.CoarseScorePruneThreshold;
         var toRefine = coarseResults
             .Where(r => r is not null && r.Value.Peak.Score >= pruneThreshold)
@@ -450,6 +429,7 @@ public sealed class SideEntranceScanPipeline
 
         // 阶段3：并行精化（仅入选地图，全分辨率窗口）。
         var refined = new SideEntranceScanCandidate?[toRefine.Count];
+        var refineCompleted = 0;
         Parallel.For(
             0,
             toRefine.Count,
@@ -458,7 +438,7 @@ public sealed class SideEntranceScanPipeline
             {
                 var item = toRefine[i];
                 var best = Refine(
-                    grayFrame,
+                    gateConstrainedFrame,
                     item.Template,
                     item.Map,
                     item.FloorKey,
@@ -471,13 +451,73 @@ public sealed class SideEntranceScanPipeline
                     + $"coarse={item.Peak.Score:P0} · "
                     + $"refined={best?.MatchScore:P0} · scale={best?.MatchScale:F3}");
                 refined[i] = best;
+                progress?.Invoke(0.7d + 0.3d * Interlocked.Increment(ref refineCompleted) / Math.Max(1, toRefine.Count));
             });
 
         var results = refined.Where(r => r is not null).Select(r => r!).ToList();
+        if (searchBounds.X != 0 || searchBounds.Y != 0)
+        {
+            foreach (var candidate in results)
+            {
+                candidate.MatchLocation = new MapScreenRect(
+                    candidate.MatchLocation.X + searchBounds.X,
+                    candidate.MatchLocation.Y + searchBounds.Y,
+                    candidate.MatchLocation.Width,
+                    candidate.MatchLocation.Height);
+            }
+        }
 
-        // 按得分降序，取前 topK
+        // 模板分数只负责提出线索。绝对分、分离度、门空间关系和缩放
+        // 边界均是硬性证据检查；不合格项不得拿来填满 Top-K。
         results.Sort((a, b) => b.MatchScore.CompareTo(a.MatchScore));
-        return results.Count <= topK ? results : results.GetRange(0, topK);
+        for (var index = 0; index < results.Count; index++)
+        {
+            var candidate = results[index];
+            var previousGap = index > 0
+                ? results[index - 1].MatchScore - candidate.MatchScore
+                : double.PositiveInfinity;
+            var nextGap = index + 1 < results.Count
+                ? candidate.MatchScore - results[index + 1].MatchScore
+                : double.PositiveInfinity;
+            candidate.TemplateMargin = results.Count == 1
+                ? candidate.MatchScore
+                : Math.Min(previousGap, nextGap);
+            ClassifyTemplateEvidence(candidate, detectedGate, viewportBounds);
+            if (candidate.Disposition == SideEntranceCandidateDisposition.Rejected)
+            {
+                MapLogCollector.Instance.Append(
+                    MapLogCategory.GateDetection,
+                    MapLogLevel.Warning,
+                    $"侧门线索已拒绝 · map={candidate.Map.SequenceNumber}#{candidate.FloorKey} "
+                    + $"· reason={candidate.RejectionReason} · {candidate.RejectionDetail}",
+                    details: new()
+                    {
+                        ["mapId"] = candidate.Map.Id,
+                        ["templateSimilarity"] = candidate.MatchScore,
+                        ["templateMargin"] = candidate.TemplateMargin,
+                        ["gateSpatialResidualPixels"] =
+                            candidate.GateSpatialResidualPixels,
+                        ["matchScale"] = candidate.MatchScale,
+                        ["rejectionReason"] = candidate.RejectionReason.ToString(),
+                        ["gateIndex"] = gateIndexForDiagnostics,
+                        ["gateScore"] = detectedGate?.Score,
+                        ["gateScale"] = detectedGate?.Scale,
+                        ["gateBounds"] = detectedGate is null
+                            ? null
+                            : $"{detectedGate.ScreenBounds.X:F1},"
+                                + $"{detectedGate.ScreenBounds.Y:F1},"
+                                + $"{detectedGate.ScreenBounds.Width:F1},"
+                                + $"{detectedGate.ScreenBounds.Height:F1}"
+                    });
+            }
+        }
+
+        var eligible = results
+            .Where(candidate => candidate.Disposition !=
+                SideEntranceCandidateDisposition.Rejected)
+            .Take(topK)
+            .ToList();
+        return eligible;
     }
 
     /// <summary>粗搜索的峰值：缩放档位、降采样图上的匹配左上角与得分。</summary>
@@ -534,7 +574,8 @@ public sealed class SideEntranceScanPipeline
             if (index == 0)
                 continue;
             var scale = peak.Scale * (1d + (index * refineStep));
-            if (scale < MinimumScale || scale > MaximumScale)
+            if (scale < SideEntranceScanRules.MinimumScale
+                || scale > SideEntranceScanRules.MaximumScale)
                 continue;
             var evaluated = Evaluate(
                 searchRegion,
@@ -600,12 +641,14 @@ public sealed class SideEntranceScanPipeline
     private static CoarsePeak? FindCoarsePeak(
         Mat coarseFrame,
         Mat template,
-        int coarseFactor)
+        int coarseFactor,
+        string logContext)
     {
         CoarsePeak? bestPeak = null;
         var bestScore = double.NegativeInfinity;
-        for (var scale = MinimumScale;
-            scale <= MaximumScale;
+        var response = new List<(double Scale, double Score)>();
+        for (var scale = SideEntranceScanRules.MinimumScale;
+            scale <= SideEntranceScanRules.MaximumScale;
             scale *= 1d + SideEntranceScanRules.CoarseScaleStep)
         {
             var width = (int)Math.Round(
@@ -633,11 +676,28 @@ public sealed class SideEntranceScanPipeline
                 resultMat,
                 TemplateMatchModes.CCoeffNormed);
             Cv2.MinMaxLoc(resultMat, out _, out var maxVal, out _, out var maxLoc);
+            if (double.IsFinite(maxVal))
+                response.Add((scale, maxVal));
             if (double.IsFinite(maxVal) && maxVal > bestScore)
             {
                 bestScore = maxVal;
                 bestPeak = new CoarsePeak(scale, maxLoc.X, maxLoc.Y, maxVal);
             }
+        }
+
+        if (response.Count > 0)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.GateDetection,
+                MapLogLevel.Info,
+                $"侧门粗搜索尺度响应 {logContext}",
+                details: new()
+                {
+                    ["scales"] = string.Join(
+                        ",", response.Select(r => r.Scale.ToString("F3"))),
+                    ["scores"] = string.Join(
+                        ",", response.Select(r => r.Score.ToString("F4")))
+                });
         }
 
         return bestPeak;

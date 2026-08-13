@@ -21,6 +21,7 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
     internal const byte AcSrcAlpha = 1;
     internal const uint UlwAlpha = 0x00000002;
     private const int ErrorClassAlreadyExists = 1410;
+    private const uint WdaExcludeFromCapture = 0x00000011;
     internal const uint MonitorDefaultToNearest = 2;
     internal static readonly IntPtr HwndTopMost = new(-1);
     private static readonly object ClassRegistrationGate = new();
@@ -71,6 +72,27 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
             throw new InvalidOperationException("The native overlay window did not retain its required input styles.");
         }
         Hide();
+    }
+
+    internal bool TryEnableCaptureExclusion(out string failureReason)
+    {
+        failureReason = string.Empty;
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            EnsureWindow();
+            SetLastError(0);
+            if (SetWindowDisplayAffinity(_handle, WdaExcludeFromCapture))
+                return true;
+            var error = Marshal.GetLastWin32Error();
+            failureReason = $"SetWindowDisplayAffinity failed (Win32 {error}).";
+            return false;
+        }
+        catch (Exception exception)
+        {
+            failureReason = exception.Message;
+            return false;
+        }
     }
 
     private static void EnsureWindowClass()
@@ -181,6 +203,10 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ShowWindow(IntPtr window, int command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string? moduleName);

@@ -12,7 +12,7 @@ public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Le
 /// </summary>
 public sealed partial class MapRepository
 {
-    private const int CurrentStorageSchemaVersion = 13;
+    private const int CurrentStorageSchemaVersion = 14;
     private const string FloorOneRecognitionFileName = "floor-1-recognition.png";
     private const string FloorTwoRecognitionFileName = "floor-2-recognition.png";
     private const string FloorOneOverlayFileName = "floor-1-overlay.png";
@@ -161,9 +161,6 @@ public sealed partial class MapRepository
                 .Select(gate => gate.Clone())
                 .ToList();
             record.UpdatedAt = DateTimeOffset.UtcNow;
-            draft.Recognition.EnsureStandardAnchors();
-            record.Recognition = draft.Recognition.Clone();
-            record.NormalizeRecognition();
 
             // A draft can only be saved into an existing canonical class.
             var requestedClass = NormalizeClassName(draft.Class) ?? "S1";
@@ -181,18 +178,8 @@ public sealed partial class MapRepository
                         SortOrder = index + 1
                     })
                     .ToList();
-            var orderedProfiles = record.Floors
-                .OrderBy(floor => floor.SortOrder)
-                .ThenBy(floor => floor.Key, StringComparer.Ordinal)
-                .Select(floor => record.Recognition.GetFloor(floor.Key))
-                .Where(profile => profile is not null)
-                .Cast<FloorRecognitionProfile>()
-                .ToArray();
-            if (orderedProfiles.Length > 0)
-                record.Recognition.FirstFloor = orderedProfiles[0];
-            if (orderedProfiles.Length > 1)
-                record.Recognition.SecondFloor = orderedProfiles[1];
-            record.Recognition.EnsureStandardAnchors();
+            record.Recognition = draft.Recognition.Clone();
+            record.NormalizeRecognition();
             ValidateFloorDefinitions(record);
 
             Directory.CreateDirectory(_rootDirectory);

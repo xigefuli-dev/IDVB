@@ -5,6 +5,8 @@ public sealed partial class SessionOrchestrator
     private async Task RunMapOpenAlignmentAsync(
         MapGameToggleTransition toggle)
     {
+        CancelOrbTracking("absolute alignment started");
+        await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;
         var cancellationToken = CurrentMatchCancellationToken;
         if (!await _scanGate.WaitAsync(0))
@@ -46,6 +48,8 @@ public sealed partial class SessionOrchestrator
 
     private async Task RunRecognitionPipelineAsync()
     {
+        CancelOrbTracking("recognition scan started");
+        await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;
         var cancellationToken = CurrentMatchCancellationToken;
         if (!await _scanGate.WaitAsync(0))
@@ -57,6 +61,7 @@ public sealed partial class SessionOrchestrator
 
         try
         {
+            UnlockMapForRescan();
             await RunRecognitionPipelineCoreAsync(
                 operationMatch,
                 cancellationToken);

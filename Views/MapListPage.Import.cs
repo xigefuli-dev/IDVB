@@ -270,21 +270,20 @@ public sealed partial class MapListPage : UserControl
 
         _draft.FloorPaths.Clear();
         _draft.Floors.Clear();
+        _draft.FloorTwoPath = null;
         var profilesByNewKey = new Dictionary<string, FloorRecognitionProfile>(
             StringComparer.OrdinalIgnoreCase);
-        FloorRecognitionProfile? firstProfile = null;
-        FloorRecognitionProfile? secondProfile = null;
 
         for (var i = 0; i < _pendingImportFloors.Count; i++)
         {
             var entry = _pendingImportFloors[i];
-            var profile = profilesByKey.GetValueOrDefault(entry.OriginalFloorKey)
+            var sourceProfile = profilesByKey.GetValueOrDefault(entry.OriginalFloorKey)
                 ?? (entry.OriginalFloorKey.Equals("1f", StringComparison.OrdinalIgnoreCase)
                     ? legacyFirstProfile
                     : entry.OriginalFloorKey.Equals("2f", StringComparison.OrdinalIgnoreCase)
                         ? legacySecondProfile
-                        : null)
-                ?? new FloorRecognitionProfile();
+                        : null);
+            var profile = sourceProfile?.Clone() ?? new FloorRecognitionProfile();
             profile.FloorKey = entry.FloorKey;
             profile.Floor = i == 0 ? MapFloor.First : MapFloor.Second;
 
@@ -301,26 +300,15 @@ public sealed partial class MapListPage : UserControl
             if (i == 0)
             {
                 _draft.FloorOnePath = entry.ImagePath;
-                firstProfile = profile;
             }
             else if (i == 1)
             {
                 _draft.FloorTwoPath = entry.ImagePath;
-                secondProfile = profile;
             }
         }
 
-        // 如果只有一个楼层，第二个楼层回退到第一个
-        if (_pendingImportFloors.Count == 1)
-        {
-            _draft.FloorTwoPath = _draft.FloorOnePath;
-            secondProfile = firstProfile;
-        }
-
-        _draft.Recognition.FirstFloor = firstProfile ?? legacyFirstProfile;
-        _draft.Recognition.SecondFloor = secondProfile ?? firstProfile ?? legacySecondProfile;
         _draft.Recognition.Floors = profilesByNewKey;
-        _draft.Recognition.EnsureStandardAnchors();
+        _draft.Recognition.NormalizeForFloors(_draft.Floors);
     }
 
     private Button CreateAddFloorButton(Action onChanged, Button confirmButton)

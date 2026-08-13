@@ -111,32 +111,31 @@ public sealed partial class MapCvRecognitionService
         if (capturedFrame.Empty() || _sideEntranceFeatureCache.Count == 0)
             return [];
 
+        var candidates = BuildSideEntranceScanInputs(mapClass, selectedMapId);
+        return _sideEntrancePipeline.RunScan(capturedFrame, candidates, topK);
+    }
+
+    private List<(MapRecord map, string floorKey, Mat template)>
+        BuildSideEntranceScanInputs(string? mapClass, Guid? selectedMapId = null)
+    {
         var candidates = new List<(MapRecord map, string floorKey, Mat template)>(
             _sideEntranceFeatureCache.Count);
-
         foreach (var ((mapId, floorKey), template) in _sideEntranceFeatureCache)
         {
-            var map = _maps.FirstOrDefault(m => m.Id == mapId);
+            var map = _maps.FirstOrDefault(item => item.Id == mapId);
             if (map is null
-                || (selectedMapId is { } requiredMapId
-                    && map.Id != requiredMapId)
+                || (selectedMapId is { } requiredMapId && map.Id != requiredMapId)
                 || (!string.IsNullOrWhiteSpace(mapClass)
-                    && !string.Equals(
-                        map.Class,
-                        mapClass,
+                    && !string.Equals(map.Class, mapClass,
                         StringComparison.OrdinalIgnoreCase))
-                || !string.Equals(
-                    floorKey,
-                    MapFloorRules.GetPrimaryFloorKey(map),
+                || !string.Equals(floorKey, MapFloorRules.GetPrimaryFloorKey(map),
                     StringComparison.Ordinal))
             {
                 continue;
             }
-
             candidates.Add((map, floorKey, template));
         }
-
-        return _sideEntrancePipeline.RunScan(capturedFrame, candidates, topK);
+        return candidates;
     }
 
     /// <summary>
@@ -149,12 +148,14 @@ public sealed partial class MapCvRecognitionService
         CapturedGameFrame frame,
         MapRecognitionTuning tuning,
         int topK = 5,
-        string? mapClass = null)
+        string? mapClass = null,
+        Action<double>? progress = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(frame);
 
         tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning);
+        progress?.Invoke(0d);
         using var liveMatchImage = GateTemplateDetector.CreateMatchImage(frame.Image);
         var gateResult = _gateDetector.Detect(
             liveMatchImage,
@@ -164,17 +165,16 @@ public sealed partial class MapCvRecognitionService
             new GateSearchContext
             {
                 Mode = GateSearchMode.FullSearch,
-                AllowSingleGateEarlyExit = true,
+                AllowDualGateEarlyExit = false,
+                AllowSingleGateEarlyExit = false,
                 SingleGateScoreThreshold =
                     Math.Max(tuning.GateTemplateThreshold, GateTemplateRules.EarlyExitScoreThreshold),
                 SingleGateScaleTolerance = GateTemplateRules.SingleGateScaleTolerance,
                 AmbiguityScoreGap = GateTemplateRules.SingleGateAmbiguityGap
             });
+        progress?.Invoke(0.12d);
 
-        var gate = gateResult.Gates
-            .OrderByDescending(candidate => candidate.Score)
-            .FirstOrDefault();
-        if (gate is null)
+        if (gateResult.Gates.Count == 0)
         {
             return new SideEntranceScanResult
             {
@@ -184,16 +184,32 @@ public sealed partial class MapCvRecognitionService
             };
         }
 
-        var candidates = RunSideEntranceScan(
+        var inputs = BuildSideEntranceScanInputs(mapClass);
+        var eligibleMapCount = _maps.Count(map =>
+            (string.IsNullOrWhiteSpace(mapClass)
+                || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
+            && MapFloorRules.GetFloorProfile(
+                map,
+                MapFloorRules.GetPrimaryFloorKey(map))?
+                .FindAnchor("side-entrance")?.IsMarked is true);
+        var candidates = _sideEntrancePipeline.RunScan(
             frame.Image,
-            topK,
-            mapClass);
+            inputs,
+            gateResult.Gates,
+            Math.Max(topK, inputs.Count),
+            frame.ViewportBounds,
+            progress: value => progress?.Invoke(0.12d + value * 0.88d));
         return new SideEntranceScanResult
         {
             GateDetection = gateResult,
             Candidates = candidates,
+            EligibleMapCount = eligibleMapCount,
+            ReadyMapCount = inputs.Count,
+            RejectedCandidateCount = Math.Max(0, inputs.Count - candidates.Count),
             FailureReason = candidates.Count == 0
-                ? "the visible gate was found, but no marked side-entrance feature matched a map."
+                ? inputs.Count == 0
+                    ? $"当前地图类别没有可用的侧门特征（就绪 {inputs.Count}/{eligibleMapCount}）。"
+                    : "检测到侧门，但没有地图通过最低证据门槛。"
                 : string.Empty
         };
     }
@@ -203,6 +219,46 @@ public sealed partial class MapCvRecognitionService
     /// It is scan evidence only; the caller must run AlignSideEntrance after
     /// the user confirms the map.
     /// </summary>
+    public bool TryCreateSideEntranceSelection(
+        SideEntranceScanCandidate candidate,
+        MapScreenRect viewportBounds,
+        out RuntimeMapRecognition recognition,
+        out MapAlignmentSession session,
+        out string failureReason)
+    {
+        recognition = new RuntimeMapRecognition();
+        if (!TryCreateSideEntranceAlignmentSeed(
+                candidate,
+                viewportBounds,
+                out session,
+                out failureReason))
+        {
+            return false;
+        }
+
+        var fingerprint = _fingerprints.FirstOrDefault(item =>
+            item.Map.Id == candidate.Map.Id
+            && string.Equals(item.FloorKey, candidate.FloorKey, StringComparison.Ordinal));
+        if (fingerprint is null)
+        {
+            failureReason = "the selected side-entrance candidate is no longer in the map cache.";
+            return false;
+        }
+
+        var confidence = candidate.Disposition ==
+            SideEntranceCandidateDisposition.Reliable
+                ? Math.Clamp(candidate.IdentityConfidence, 0d, 1d)
+                : 0d;
+        recognition = MapCvRecognitionBuilders.BuildTrackedRecognition(
+            fingerprint,
+            session.LockedTransform,
+            session.LockedGateEvidence,
+            MapRecognitionSource.SideEntranceSelection,
+            confidenceOverride: confidence,
+            evidenceKind: MapAlignmentEvidenceKind.None);
+        return true;
+    }
+
     public bool TryCreateSideEntranceSelection(
         SideEntranceScanCandidate candidate,
         GateDetection gate,
@@ -231,10 +287,13 @@ public sealed partial class MapCvRecognitionService
             return false;
         }
 
-        var confidence = Math.Clamp(
-            (candidate.MatchScore * 0.70d) + (gate.Score * 0.30d),
-            0d,
-            1d);
+        // This is a provisional identity used to carry a user selection into
+        // strict selected-map alignment. Template similarity and a shared gate
+        // detection are not calibrated identity confidence.
+        var confidence = candidate.Disposition ==
+            SideEntranceCandidateDisposition.Reliable
+                ? Math.Clamp(candidate.IdentityConfidence, 0d, 1d)
+                : 0d;
         recognition = MapCvRecognitionBuilders.BuildTrackedRecognition(
             fingerprint,
             session.LockedTransform,
@@ -243,6 +302,41 @@ public sealed partial class MapCvRecognitionService
             confidenceOverride: confidence,
             evidenceKind: MapAlignmentEvidenceKind.None);
         return true;
+    }
+
+    public bool TryCreateSideEntranceAlignmentSeed(
+        SideEntranceScanCandidate candidate,
+        MapScreenRect viewportBounds,
+        out MapAlignmentSession session,
+        out string failureReason)
+    {
+        var fingerprint = _fingerprints.FirstOrDefault(item =>
+            item.Map.Id == candidate.Map.Id
+            && string.Equals(item.FloorKey, candidate.FloorKey, StringComparison.Ordinal));
+        if (fingerprint is null)
+        {
+            session = new MapAlignmentSession();
+            failureReason = "the selected side-entrance candidate is no longer in the map cache.";
+            return false;
+        }
+
+        if (candidate.AssociatedGate is { } gate)
+        {
+            return SideEntranceScanPipeline.TryCreateGateAlignmentSeed(
+                candidate,
+                gate,
+                viewportBounds,
+                fingerprint.ReferenceGateIconWidth,
+                fingerprint.ReferenceGateIconHeight,
+                out session,
+                out failureReason);
+        }
+
+        return SideEntranceScanPipeline.TryCreateAlignmentSeed(
+            candidate,
+            viewportBounds,
+            out session,
+            out failureReason);
     }
 
     public bool TryCreateSideEntranceAlignmentSeed(

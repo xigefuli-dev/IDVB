@@ -293,6 +293,41 @@ internal static partial class MapCvRecognitionBuilders
             }
         };
 
+    internal static RuntimeMapRecognition ReplaceTransformAndSource(
+        RuntimeMapRecognition recognition,
+        MapOverlayTransform transform,
+        MapRecognitionSource source) =>
+        new()
+        {
+            Map = recognition.Map,
+            FloorImagePath = recognition.FloorImagePath,
+            Result = new MapRecognitionResult
+            {
+                MapId = recognition.Result.MapId,
+                Floor = recognition.Result.Floor,
+                OrientationDegrees = recognition.Result.OrientationDegrees,
+                Confidence = recognition.Result.Confidence,
+                IdentityConfidence = recognition.Result.IdentityConfidence,
+                LocalizationConfidence = recognition.Result.LocalizationConfidence,
+                Source = source,
+                HasAllRequiredAnchorEvidence = recognition.Result.HasAllRequiredAnchorEvidence,
+                GeometryMargin = recognition.Result.GeometryMargin,
+                UsedLocalConfirmation = true,
+                OverlayTransform = transform,
+                AnchorMatches = recognition.Result.AnchorMatches,
+                StructureBestScore = recognition.Result.StructureBestScore,
+                StructureSecondScore = recognition.Result.StructureSecondScore,
+                StructureCandidateMargin = recognition.Result.StructureCandidateMargin,
+                StructureRejectionReason = recognition.Result.StructureRejectionReason,
+                WasForcedBestResult = recognition.Result.WasForcedBestResult,
+                ReusedLastTransform = false,
+                UsedCachedScale = recognition.Result.UsedCachedScale,
+                EvidenceKind = recognition.Result.EvidenceKind,
+                StructureDisposition = recognition.Result.StructureDisposition,
+                SkippedStructureValidation = recognition.Result.SkippedStructureValidation
+            }
+        };
+
     internal static Rect ToLocalRect(
         MapScreenRect screen,
         MapScreenRect viewport,

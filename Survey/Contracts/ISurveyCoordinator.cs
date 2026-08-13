@@ -26,6 +26,10 @@ public interface ISurveyCoordinator : ISurveyStatusSource, IAsyncDisposable
         SurveyObservationRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<SurveyOperationResult<SurveyObservationCommitResult>> ImportObservationAsync(
+        SurveyObservationImportRequest request,
+        CancellationToken cancellationToken = default);
+
     Task SetRuntimeStateAsync(
         Guid projectId,
         SurveyRuntimeState state,
@@ -50,6 +54,10 @@ public interface ISurveyCoordinator : ISurveyStatusSource, IAsyncDisposable
 
     Task<SurveyOperationResult<SurveyLayerOperationResult>> NormalizeLayerColorsAsync(
         SurveyLayerColorNormalizationRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SurveyOperationResult<SurveyLayerOperationResult>> CorrectLayerVignetteAsync(
+        SurveyLayerVignetteCorrectionRequest request,
         CancellationToken cancellationToken = default);
 
     Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyMaskStrokeAsync(

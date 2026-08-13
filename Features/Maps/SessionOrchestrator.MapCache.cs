@@ -161,6 +161,28 @@ public sealed partial class SessionOrchestrator
                 ["sampleCount"] = entry.Scale.SampleCount,
                 ["confidence"] = entry.Scale.Confidence
             });
+        // 信任门槛：连续验证失败达到阈值的条目跳过 fixed 验证，直接走常规
+        // 路线。repairKey 保留，使修复样本继续积累，最终由 Recovery 替换毒缓存。
+        if (!MapFeatureCacheRules.IsCacheEntryTrusted(entry))
+        {
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Warning,
+                $"缩放缓存已降级跳过 · floor={floorKey} · "
+                + $"scale={entry.Scale.UniformScale:F6}",
+                details: new()
+                {
+                    ["mapId"] = map.Id,
+                    ["floor"] = floorKey,
+                    ["scale"] = entry.Scale.UniformScale,
+                    ["source"] = entry.Scale.Source.ToString(),
+                    ["failedValidationCount"] =
+                        entry.Scale.Validation?.FailedValidationCount,
+                    ["cacheDecision"] = "distrusted-skipped"
+                });
+            repairKey = key;
+            return fallback();
+        }
         var cachedAlignmentTimer =
             System.Diagnostics.Stopwatch.StartNew();
         var cachedAttempt = _recognition.AlignWithCachedScale(

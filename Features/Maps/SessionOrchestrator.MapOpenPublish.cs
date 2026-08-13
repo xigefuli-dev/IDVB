@@ -35,11 +35,15 @@ public sealed partial class SessionOrchestrator
                 return false;
 
             RecordSuccessfulAlignment(aligned, frame);
+            // 与识别管线一致：首次成功对齐时 _lastAlignmentSession 可能仍为
+            // null，需回退到侧门扫描种子以保留 SideEntranceScanPriorConfidence；
+            // 否则仅对齐成功后先验归零，后续重新对齐会退化到 Default 双门路线。
+            var sideEntranceSeed = _pendingAlignmentSeed;
             _lastRecognition = aligned;
             _pendingAlignmentIdentity = null;
             _pendingAlignmentSeed = null;
             var updatedSession = UpdateAlignmentSession(
-                _lastAlignmentSession,
+                _lastAlignmentSession ?? sideEntranceSeed,
                 aligned);
             _lastAlignmentSession = updatedSession;
             RememberPrimaryFloorSession(aligned, updatedSession);
@@ -77,6 +81,7 @@ public sealed partial class SessionOrchestrator
                 frame.WindowHandle,
                 _lastDiagnostics);
             _overlay.Show();
+            await StartOrbTrackingAsync(aligned, frame);
             RefreshMiniMapForCurrentFloor();
             return true;
         }

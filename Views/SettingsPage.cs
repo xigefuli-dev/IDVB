@@ -2,6 +2,8 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using System.Diagnostics;
+using IDVBuff.UpdateCore;
 
 namespace IDVBuff.Views;
 
@@ -43,6 +45,7 @@ public sealed class SettingsPage : Page
         Grid.SetColumn(versionCard, 1);
         informationGrid.Children.Add(versionCard);
         root.Children.Add(informationGrid);
+        root.Children.Add(CreateUpdateCard());
 
         root.Children.Add(CreateSectionHeading(
             "许可与使用边界",
@@ -234,6 +237,78 @@ public sealed class SettingsPage : Page
             CornerRadius = new CornerRadius(8),
             Child = content
         };
+    }
+
+    private Border CreateUpdateCard()
+    {
+        var text = new StackPanel { Spacing = 5 };
+        text.Children.Add(new TextBlock
+        {
+            Text = "软件更新",
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = PrimaryTextBrush
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = "手动检查新版本。下载期间可以继续使用主程序，安装前会引导安全关闭并在更新后重新启动。",
+            FontSize = 13,
+            Foreground = SecondaryTextBrush,
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var grid = new Grid { ColumnSpacing = 18 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(text);
+        var button = new Button
+        {
+            Content = "检查更新",
+            VerticalAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(18, 8, 18, 8)
+        };
+        button.Click += CheckForUpdates_Click;
+        Grid.SetColumn(button, 1);
+        grid.Children.Add(button);
+        return new Border
+        {
+            Padding = new Thickness(18),
+            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = CardBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Child = grid
+        };
+    }
+
+    private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        var updaterPath = Path.Combine(AppContext.BaseDirectory, "Updater", "IDVB.Updater.exe");
+        if (File.Exists(updaterPath))
+        {
+            var channel = Lifecycle.UpdateChannelPolicy.Resolve();
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = updaterPath,
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(updaterPath)
+            };
+            startInfo.ArgumentList.Add("--channel");
+            startInfo.ArgumentList.Add(channel);
+            startInfo.ArgumentList.Add("--from-main-pid");
+            startInfo.ArgumentList.Add(Environment.ProcessId.ToString(
+                System.Globalization.CultureInfo.InvariantCulture));
+            _ = Process.Start(startInfo);
+            return;
+        }
+
+        await new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "更新程序不可用",
+            Content = "当前运行的是开发输出，或安装内容不完整。请使用正式安装版本中的更新功能。",
+            CloseButtonText = "知道了"
+        }.ShowAsync();
     }
 
     private Button CreateSpecificationCard(

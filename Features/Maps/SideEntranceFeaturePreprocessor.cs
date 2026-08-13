@@ -39,6 +39,12 @@ public sealed class SideEntranceFeatureResult : IDisposable
 public sealed class SideEntranceFeaturePreprocessor
 {
     /// <summary>
+    /// Increment when generated feature pixels or their matching semantics change.
+    /// Persisted features from another version must be rebuilt before scanning.
+    /// </summary>
+    public const string AlgorithmVersion = "2-gate-masked";
+
+    /// <summary>
     /// 处理侧门特征。
     /// </summary>
     /// <param name="recognitionImage">识别图（BGR 或灰度均可）。</param>
@@ -86,6 +92,25 @@ public sealed class SideEntranceFeaturePreprocessor
             Cv2.CvtColor(recognitionImage, gray, ColorConversionCodes.BGR2GRAY);
 
         var feature = new Mat(gray, cropRect).Clone();
+
+        // Every map uses the same side-gate glyph. Keeping that glyph in the
+        // template makes it the strongest (and least discriminating) signal.
+        // Replace only the annotated icon rectangle with the surrounding mean;
+        // the live scan applies the same operation to the detected gate.
+        var anchorLeft = (int)Math.Floor(anchorBounds.X * imageWidth) - left;
+        var anchorTop = (int)Math.Floor(anchorBounds.Y * imageHeight) - top;
+        var anchorWidth = (int)Math.Ceiling(anchorBounds.Width * imageWidth);
+        var anchorHeight = (int)Math.Ceiling(anchorBounds.Height * imageHeight);
+        var iconRect = new Rect(
+            Math.Clamp(anchorLeft, 0, Math.Max(0, feature.Width - 1)),
+            Math.Clamp(anchorTop, 0, Math.Max(0, feature.Height - 1)),
+            Math.Clamp(anchorWidth, 1, Math.Max(1, feature.Width - Math.Clamp(anchorLeft, 0, Math.Max(0, feature.Width - 1)))),
+            Math.Clamp(anchorHeight, 1, Math.Max(1, feature.Height - Math.Clamp(anchorTop, 0, Math.Max(0, feature.Height - 1)))));
+        if (iconRect.Width > 0 && iconRect.Height > 0)
+        {
+            var mean = Cv2.Mean(feature);
+            Cv2.Rectangle(feature, iconRect, new Scalar(mean.Val0), -1);
+        }
         return new SideEntranceFeatureResult(feature, cx, cy, r);
     }
 

@@ -66,8 +66,19 @@ internal static class MapStructureEvaluator
             referenceStructurePatch,
             queryStructure,
             occupancyOverlap);
-        var occupancyCoverage = Cv2.CountNonZero(occupancyOverlap)
-            / (double)Math.Max(1, Cv2.CountNonZero(queryStructure));
+        var queryStructureCount = Cv2.CountNonZero(queryStructure);
+        var overlapCount = Cv2.CountNonZero(occupancyOverlap);
+        var occupancyCoverage = overlapCount
+            / (double)Math.Max(1, queryStructureCount);
+        // 反向覆盖：query 覆盖的参考结构 / 整个参考图结构。正向三项指标均以
+        // query 归一化，query 越小越稀疏越容易拿高分，系统性偏向更大 scale
+        // （更小 query）；本项以「整个参考图结构」为分母，惩罚「参考图大量
+        // 墙体未被这个偏小的 query 解释」，使正确 scale 不再被错误 scale
+        // 超越（根因②）。
+        var referenceFullStructureCount = Cv2.CountNonZero(structureForPatch);
+        var referenceCoverage = referenceFullStructureCount > 0
+            ? overlapCount / (double)referenceFullStructureCount
+            : 0d;
 
         var partitionCounts = new int[4];
         var partitionCovered = new int[4];
@@ -107,6 +118,7 @@ internal static class MapStructureEvaluator
         var composite = chamfer
             + ((1d - edgeCoverage) * StructureRegistrationRules.EdgeCoverageWeight)
             + ((1d - occupancyCoverage) * StructureRegistrationRules.OccupancyCoverageWeight)
+            + ((1d - referenceCoverage) * StructureRegistrationRules.EdgeCoverageWeight)
             + (Math.Max(
                 0,
                 tuning.MinimumConsistentPartitions - consistentPartitions)

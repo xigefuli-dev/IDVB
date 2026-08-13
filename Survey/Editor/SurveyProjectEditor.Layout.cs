@@ -113,6 +113,9 @@ public sealed partial class SurveyProjectEditor
         var exportPng = CreateHeaderButton("导出为 PNG");
         exportPng.Click += async (_, _) => await ExportCurrentFloorPngAsync();
         actions.Children.Add(exportPng);
+        var importImage = CreateHeaderButton("导入图片");
+        importImage.Click += async (_, _) => await ImportImageAsync();
+        actions.Children.Add(importImage);
         Grid.SetColumn(actions, 2);
         header.Children.Add(actions);
         return header;
@@ -121,9 +124,10 @@ public sealed partial class SurveyProjectEditor
     private Border CreateToolRail()
     {
         var tools = new StackPanel { Spacing = 2 };
-        tools.Children.Add(CreateToolButton(SurveyEditorTool.Select, "\uE8B0", "选择"));
+        tools.Children.Add(CreateToolButton(SurveyEditorTool.Select, "\uE8B0", "变换工具"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Pan, "\uE7C2", "拖动"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Decontaminate, "\uE790", "去污"));
+        tools.Children.Add(CreateToolButton(SurveyEditorTool.VignetteCorrection, "\uE706", "反晕影"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Align, "\uE73E", "魔术贴"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.NormalizeColors, "\uE790", "融色"));
         tools.Children.Add(CreateToolButton(SurveyEditorTool.Eraser, "\uE75C", "橡皮擦"));
@@ -155,6 +159,12 @@ public sealed partial class SurveyProjectEditor
         };
         button.Click += (_, _) =>
         {
+            if (tool == SurveyEditorTool.VignetteCorrection)
+            {
+                SelectTool(tool);
+                ShowVignetteProperties(button);
+                return;
+            }
             if (tool == SurveyEditorTool.Eraser
                 && _canvas.ActiveTool == SurveyEditorTool.Eraser)
             {
@@ -227,9 +237,10 @@ public sealed partial class SurveyProjectEditor
                 pair.Key == tool ? AccentBlue : EditorPanel);
         SetStatus(tool switch
         {
-            SurveyEditorTool.Select => "选择工具：单击选择图层，拖动可调整图层位置。",
+            SurveyEditorTool.Select => "变换工具：框内拖动移动；边中点单轴缩放；角点等比缩放（Shift 自由缩放）；外角拖动旋转。",
             SurveyEditorTool.Pan => "拖动工具：可向任意方向拖动画布视图，不会修改图层位置。",
             SurveyEditorTool.Decontaminate => "去污工具：点击一个已选且未锁定图层，在原图与去污图之间切换。",
+            SurveyEditorTool.VignetteCorrection => "晕影校正/反晕影：设置补偿起点与强度后应用到选中图层。",
             SurveyEditorTool.Align => "魔术贴工具：多选图层后，在画布点击其中一层作为固定基准。",
             SurveyEditorTool.NormalizeColors => "融色工具：多选图层后，点击其中一层作为颜色基准。",
             SurveyEditorTool.Eraser => _eraseMode == SurveyEraseMode.Eraser
@@ -244,6 +255,84 @@ public sealed partial class SurveyProjectEditor
         if (_eraserFlyout is null)
             _eraserFlyout = CreateEraserPropertiesFlyout();
         _eraserFlyout.ShowAt(anchor);
+    }
+
+    private void ShowVignetteProperties(Button anchor)
+    {
+        _vignetteFlyout ??= CreateVignettePropertiesFlyout();
+        _vignetteFlyout.ShowAt(anchor);
+    }
+
+    private Flyout CreateVignettePropertiesFlyout()
+    {
+        var content = new StackPanel { Spacing = 10, Width = 270 };
+        content.Children.Add(new TextBlock
+        {
+            Text = "晕影校正 / 反晕影",
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "从图像中心向四角按椭圆归一化距离逐渐提亮，仅调整明度并保护高光。",
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.75
+        });
+
+        var startValue = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        var startHeader = new Grid();
+        startHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        startHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        startHeader.Children.Add(new TextBlock { Text = "补偿起点" });
+        Grid.SetColumn(startValue, 1);
+        startHeader.Children.Add(startValue);
+        content.Children.Add(startHeader);
+        var start = new Slider
+        {
+            Minimum = 0d,
+            Maximum = 100d,
+            StepFrequency = 1d,
+            Value = _vignetteStart * 100d
+        };
+        content.Children.Add(start);
+
+        var strengthValue = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        var strengthHeader = new Grid();
+        strengthHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        strengthHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        strengthHeader.Children.Add(new TextBlock { Text = "补偿强度（边缘最大提亮）" });
+        Grid.SetColumn(strengthValue, 1);
+        strengthHeader.Children.Add(strengthValue);
+        content.Children.Add(strengthHeader);
+        var strength = new Slider
+        {
+            Minimum = 0d,
+            Maximum = 100d,
+            StepFrequency = 1d,
+            Value = _vignetteStrength * 100d
+        };
+        content.Children.Add(strength);
+
+        var apply = new Button
+        {
+            Content = "应用到选中图层",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        content.Children.Add(apply);
+
+        void RefreshValues()
+        {
+            _vignetteStart = Math.Clamp(start.Value / 100d, 0d, 1d);
+            _vignetteStrength = Math.Clamp(strength.Value / 100d, 0d, 1d);
+            startValue.Text = $"{Math.Round(start.Value)}%";
+            strengthValue.Text = $"{Math.Round(strength.Value)}%";
+        }
+        start.ValueChanged += (_, _) => RefreshValues();
+        strength.ValueChanged += (_, _) => RefreshValues();
+        apply.Click += async (_, _) => await ApplyVignetteCorrectionToSelectionAsync();
+        RefreshValues();
+        return new Flyout { Content = content };
     }
 
     private Flyout CreateEraserPropertiesFlyout()

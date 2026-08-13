@@ -34,7 +34,8 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
         bool showStatusPreference,
         bool transient)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed)
+            return;
         CancellationTokenSource? expiration = null;
         long version;
         lock (_gate)
@@ -46,12 +47,14 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
             version = ++_version;
         }
 
-        _overlay.UpdateStatus(
-            status,
-            gameBounds,
-            gameWindowHandle,
-            showStatusPreference,
-            showImmediately: true);
+        TryOverlayOperation(
+            "status-show",
+            () => _overlay.UpdateStatus(
+                status,
+                gameBounds,
+                gameWindowHandle,
+                showStatusPreference,
+                showImmediately: true));
         if (expiration is not null)
             _ = ExpireAsync(version, expiration);
     }
@@ -67,7 +70,7 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
             _expiration?.Dispose();
             _expiration = null;
         }
-        _overlay.ClearStatus();
+        TryOverlayOperation("status-clear", _overlay.ClearStatus);
     }
 
     private async Task ExpireAsync(long version, CancellationTokenSource expiration)
@@ -75,10 +78,21 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
         try
         {
             await Task.Delay(_transientLifetime, _timeProvider, expiration.Token);
-            _dispatch(() => ClearIfCurrent(version, expiration));
+            try
+            {
+                _dispatch(() => ClearIfCurrent(version, expiration));
+            }
+            catch (Exception exception)
+            {
+                LogOverlayFailure("status-expiration-dispatch", exception);
+            }
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (Exception exception)
+        {
+            LogOverlayFailure("status-expiration", exception);
         }
     }
 
@@ -96,7 +110,44 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
             ++_version;
         }
         expiration.Dispose();
-        _overlay.ClearStatus();
+        TryOverlayOperation("status-expiration-clear", _overlay.ClearStatus);
+    }
+
+    private static void LogOverlayFailure(
+        string operation,
+        Exception exception)
+    {
+        try
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.System,
+                MapLogLevel.Warning,
+                $"Overlay operation failed: {operation}",
+                details: new()
+                {
+                    ["outcome"] = "overlay-operation-failed",
+                    ["operation"] = operation,
+                    ["exceptionType"] = exception.GetType().FullName,
+                    ["exception"] = exception.ToString()
+                });
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryOverlayOperation(
+        string operation,
+        Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            LogOverlayFailure(operation, exception);
+        }
     }
 
     public void Dispose()
@@ -112,6 +163,57 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
             _expiration?.Cancel();
             _expiration?.Dispose();
             _expiration = null;
+        }
+    }
+}
+
+internal static class SurveyCaptureCleanup
+{
+    internal static void Complete(
+        SemaphoreSlim scanGate,
+        Action restoreOverlay,
+        Action notifyStateChanged,
+        Action<string, Exception> reportFailure)
+    {
+        try
+        {
+            scanGate.Release();
+        }
+        catch (Exception exception)
+        {
+            TryReport(reportFailure, "scan-gate-release", exception);
+        }
+
+        TryRun(restoreOverlay, reportFailure, "overlay-restore");
+        TryRun(notifyStateChanged, reportFailure, "state-changed");
+    }
+
+    private static void TryRun(
+        Action action,
+        Action<string, Exception> reportFailure,
+        string operation)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            TryReport(reportFailure, operation, exception);
+        }
+    }
+
+    private static void TryReport(
+        Action<string, Exception> reportFailure,
+        string operation,
+        Exception exception)
+    {
+        try
+        {
+            reportFailure(operation, exception);
+        }
+        catch
+        {
         }
     }
 }

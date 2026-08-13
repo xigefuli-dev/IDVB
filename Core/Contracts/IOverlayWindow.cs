@@ -32,6 +32,23 @@ public interface IOverlayWindow : IDisposable
         object? /* MapScreenRect? */ viewportBounds = null,
         bool preservePlayer = false);
 
+    /// <summary>Updates only the transform of the currently loaded map.</summary>
+    void UpdateMapTransform(
+        object /* MapOverlayTransform */ transform,
+        bool preservePlayer = true)
+    {
+    }
+
+    /// <summary>
+    /// Excludes the native overlay from desktop capture. Continuous screen
+    /// tracking must remain disabled when this cannot be guaranteed.
+    /// </summary>
+    bool TryEnableCaptureExclusion(out string failureReason)
+    {
+        failureReason = "Capture exclusion is not supported by this overlay.";
+        return false;
+    }
+
     /// <summary>
     /// 更新叠加状态文字。
     /// </summary>

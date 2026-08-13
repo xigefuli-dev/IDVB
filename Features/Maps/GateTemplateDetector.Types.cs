@@ -59,6 +59,12 @@ public sealed class GateSearchContext
     public int? TimeBudgetMilliseconds { get; set; }
 
     // ── Single-gate warm exit ────────────────────────────────────
+    /// <summary>
+    /// Allows the detector to stop after two strong, non-overlapping glyphs
+    /// appear at one scale. Initial identity scans disable this so an early
+    /// false pair cannot hide gates that occur later in the scale schedule.
+    /// </summary>
+    public bool AllowDualGateEarlyExit { get; init; } = true;
     public bool AllowSingleGateEarlyExit { get; init; }
     public double SingleGateScoreThreshold { get; init; } =
         GateTemplateRules.EarlyExitScoreThreshold;

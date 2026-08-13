@@ -248,7 +248,8 @@ public sealed partial class GateTemplateDetector : IDisposable
 
                 // Dual-gate early exit: two high-score candidates in same scale.
                 // Must verify they are spatially distinct (not same physical gate).
-                if (scaleCandidates.Count >= 2
+                if (searchContext.AllowDualGateEarlyExit
+                    && scaleCandidates.Count >= 2
                     && scaleCandidates
                         .OrderByDescending(c => c.Score)
                         .Take(2)

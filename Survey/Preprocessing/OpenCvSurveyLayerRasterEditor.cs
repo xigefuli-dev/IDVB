@@ -6,9 +6,131 @@ namespace IDVBuff.Survey.Preprocessing.OpenCv;
 
 public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
 {
+    private const double MaximumVignetteGain = 2d;
     private readonly ISurveyAssetStore _assets;
 
     public OpenCvSurveyLayerRasterEditor(ISurveyAssetStore assets) => _assets = assets;
+
+    public async Task<SurveyAssetReference> CorrectVignetteAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        double compensationStart,
+        double compensationStrength,
+        CancellationToken cancellationToken = default)
+    {
+        if (!double.IsFinite(compensationStart) || compensationStart is < 0d or > 1d)
+            throw new ArgumentOutOfRangeException(nameof(compensationStart));
+        if (!double.IsFinite(compensationStrength) || compensationStrength is < 0d or > 1d)
+            throw new ArgumentOutOfRangeException(nameof(compensationStrength));
+
+        var selected = layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+            ? observation.DisplayAsset
+            : observation.SourceAsset);
+        using var source = await ReadImageAsync(projectId, selected, ImreadModes.Unchanged, cancellationToken)
+            .ConfigureAwait(false);
+        using var bgr = ToBgr(source);
+        using var lab = new Mat();
+        Cv2.CvtColor(bgr, lab, ColorConversionCodes.BGR2Lab);
+        var labChannels = Cv2.Split(lab);
+        Mat? alpha = null;
+        try
+        {
+            if (source.Channels() is 2 or 4)
+            {
+                alpha = new Mat();
+                Cv2.ExtractChannel(source, alpha, source.Channels() - 1);
+            }
+            ApplyVignetteToLightness(
+                labChannels[0],
+                alpha,
+                compensationStart,
+                compensationStrength,
+                cancellationToken);
+            using var adjustedLab = new Mat();
+            using var adjustedBgr = new Mat();
+            Cv2.Merge(labChannels, adjustedLab);
+            Cv2.CvtColor(adjustedLab, adjustedBgr, ColorConversionCodes.Lab2BGR);
+            using var output = new Mat();
+            if (alpha is not null)
+            {
+                Cv2.CvtColor(adjustedBgr, output, ColorConversionCodes.BGR2BGRA);
+                Cv2.InsertChannel(alpha, output, 3);
+            }
+            else
+            {
+                adjustedBgr.CopyTo(output);
+            }
+
+            Cv2.ImEncode(".png", output, out var bytes);
+            return await _assets.PutAsync(
+                projectId,
+                new SurveyEncodedFrame(
+                    bytes,
+                    ".png",
+                    "image/png",
+                    output.Width,
+                    output.Height,
+                    observation.Capture),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            alpha?.Dispose();
+            foreach (var channel in labChannels)
+                channel.Dispose();
+        }
+    }
+
+    private static void ApplyVignetteToLightness(
+        Mat lightness,
+        Mat? alpha,
+        double compensationStart,
+        double compensationStrength,
+        CancellationToken cancellationToken)
+    {
+        if (compensationStrength <= double.Epsilon)
+            return;
+        var width = lightness.Width;
+        var height = lightness.Height;
+        var centerX = (width - 1d) / 2d;
+        var centerY = (height - 1d) / 2d;
+        var radiusX = Math.Max(0.5d, Math.Max(centerX, width - 1d - centerX));
+        var radiusY = Math.Max(0.5d, Math.Max(centerY, height - 1d - centerY));
+        // At 100%, retain a one-thousandth edge band so the mathematical
+        // endpoint remains useful without a division-by-zero discontinuity.
+        var start = Math.Min(0.999d, compensationStart);
+        var maximumGain = Math.Min(MaximumVignetteGain, 1d + compensationStrength);
+
+        for (var y = 0; y < height; y++)
+        {
+            if ((y & 63) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
+            var normalizedY = (y - centerY) / radiusY;
+            for (var x = 0; x < width; x++)
+            {
+                if (alpha is not null && alpha.Get<byte>(y, x) == 0)
+                    continue;
+                var normalizedX = (x - centerX) / radiusX;
+                var distance = Math.Min(1d, Math.Sqrt(
+                    ((normalizedX * normalizedX) + (normalizedY * normalizedY)) / 2d));
+                if (distance <= start)
+                    continue;
+                var amount = Math.Clamp((distance - start) / (1d - start), 0d, 1d);
+                var weight = amount * amount * (3d - (2d * amount));
+                var gain = Math.Min(maximumGain, 1d + (compensationStrength * weight));
+                var value = lightness.Get<byte>(y, x);
+                var normalizedLightness = value / 255d;
+                // Roll the gain off smoothly in existing highlights. This keeps
+                // the correction in Lab lightness while protecting near-white detail.
+                var highlight = Math.Clamp((normalizedLightness - 0.72d) / 0.28d, 0d, 1d);
+                var highlightProtection = highlight * highlight * (3d - (2d * highlight));
+                var protectedGain = 1d + ((gain - 1d) * (1d - highlightProtection));
+                lightness.Set(y, x, (byte)Math.Clamp(
+                    Math.Round(value * protectedGain), 0d, 255d));
+            }
+        }
+    }
 
     public async Task<SurveyAssetReference> NormalizeColorsAsync(
         Guid projectId,

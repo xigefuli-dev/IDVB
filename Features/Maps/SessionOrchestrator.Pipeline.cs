@@ -183,13 +183,8 @@ public sealed partial class SessionOrchestrator
                 MapFeatureCacheKey? localRepairKey;
                 if (isOtherFloor)
                 {
-                    var scaleSeed = primarySession?.LockedTransform
-                        ?? alignmentSession.LockedTransform;
-                    scaleSeed = CreateCrossFloorScaleSeed(
-                        locked.Map,
-                        primaryFloorKey,
-                        targetFloorKey,
-                        scaleSeed);
+                    var scaleSeed = MapFloorScaleSeedRules
+                        .CreateIndependentFloorSeed(locked.Map, targetFloorKey);
                     attempt = AlignExactManualFloor(
                         frame,
                         locked,
@@ -203,18 +198,78 @@ public sealed partial class SessionOrchestrator
                 }
                 else
                 {
-                    attempt = AlignMapOpenWithPreferredRoute(
-                        frame,
-                        locked,
-                        targetFloorKey,
-                        isOtherFloor,
-                        recoveringSelectedIdentity,
-                        alignmentSession,
-                        alignmentMode,
-                        tuning,
-                        structureTuning,
-                        RunFallback,
-                        out localRepairKey);
+                    // 热启动快速路径：同一张图连续开图直接复用上次锁定变换。
+                    // 复用 AlignExactManualFloor 的 same-floor-local 同款调用
+                    // （TryGetReliableFloorAlignment + AlignNoDoorLocalStructure），
+                    // 在锁定变换附近做局部平移搜索、固定 scale——吸收细微位移，
+                    // 是正常识别结果（不标记 ReusedLastTransform，reliable 状态可刷新）。
+                    // 命中则短路发布，跳过完整管线。
+                    MapRecognitionAttempt? quickAttempt = null;
+                    if (!recoveringSelectedIdentity)
+                    {
+                        var reliableCheck = TryGetReliableFloorAlignment(
+                            operationMatch,
+                            locked.Map,
+                            targetFloorKey);
+                        if (reliableCheck is not null)
+                        {
+                            var candidate = AlignNoDoorLocalStructure(
+                                frame,
+                                locked,
+                                targetFloorKey,
+                                reliableCheck.Session,
+                                alignmentMode,
+                                tuning,
+                                structureTuning,
+                                reliableCheck.CandidateHistory,
+                                alignmentSession.SideEntranceScanPriorConfidence);
+                            LogNoDoorStage(
+                                "hot-start-local",
+                                candidate.Recognition is not null,
+                                candidate,
+                                candidate.Diagnostics.TotalMilliseconds,
+                                new Dictionary<string, object?>
+                                {
+                                    ["historyCount"] =
+                                        reliableCheck.CandidateHistory.Count,
+                                    ["scale"] =
+                                        reliableCheck.Session.LockedTransform.ScaleX
+                                });
+                            // 热启动短路质量门槛：structure-only 固定 scale 验证的
+                            // 置信度可能因单向指标缺陷而偏低（如 0.56~0.62）。只有达到
+                            // 可靠定位样本水平才短路，否则继续走稳健的双门/侧门路径，
+                            // 避免用低质量结果覆盖本可给出高置信的门路径（根因⑥）。
+                            if (candidate.Recognition is { } localRecognition
+                                && MapFeatureCacheRules.IsReliableLocalizationSample(
+                                    localRecognition.Result,
+                                    _settings!.SessionTuning.HighConfidence,
+                                    _settings.StructureRegistrationTuning.MinimumCandidateMargin))
+                            {
+                                quickAttempt = candidate;
+                            }
+                        }
+                    }
+
+                    if (quickAttempt is not null)
+                    {
+                        attempt = quickAttempt;
+                        localRepairKey = null;
+                    }
+                    else
+                    {
+                        attempt = AlignMapOpenWithPreferredRoute(
+                            frame,
+                            locked,
+                            targetFloorKey,
+                            isOtherFloor,
+                            recoveringSelectedIdentity,
+                            alignmentSession,
+                            alignmentMode,
+                            tuning,
+                            structureTuning,
+                            RunFallback,
+                            out localRepairKey);
+                    }
                 }
                 repairCacheKey = localRepairKey;
                 finalAttempt = attempt;

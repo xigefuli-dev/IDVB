@@ -3,7 +3,7 @@ using OpenCvSharp;
 
 namespace IDVBuff.Tests;
 
-public sealed class SideEntranceScanPipelineTests
+public sealed partial class SideEntranceScanPipelineTests
 {
     [Fact]
     public void SideFeatureMatchCreatesSeedUsingViewportCoordinates()
@@ -251,6 +251,156 @@ public sealed class SideEntranceScanPipelineTests
         Assert.True(
             match.MatchScore > 0.9d,
             $"edge feature should match strongly but scored {match.MatchScore:F3}");
+    }
+
+    [Fact]
+    public void ScanReturnsNoCandidateForWeakUnrelatedPixels()
+    {
+        using var frame = new Mat(420, 520, MatType.CV_8UC1, Scalar.All(128));
+        using var template = BuildTexture(64, 64, seed: 101);
+
+        var results = new SideEntranceScanPipeline().RunScan(
+            frame,
+            [(CreateMap(), "1f", template)]);
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void IndistinguishableTemplatesRemainReferenceOnly()
+    {
+        using var template = BuildTexture(64, 64, seed: 107);
+        using var frame = BuildTexture(520, 440, seed: 109);
+        using (var target = new Mat(frame, new Rect(180, 140, 64, 64)))
+            template.CopyTo(target);
+        using var duplicate = template.Clone();
+
+        var results = new SideEntranceScanPipeline().RunScan(
+            frame,
+            [
+                (CreateMap(), "1f", template),
+                (CreateMap(), "1f", duplicate)
+            ],
+            topK: 2);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, candidate =>
+        {
+            Assert.Equal(
+                SideEntranceCandidateDisposition.NeedsVerification,
+                candidate.Disposition);
+            Assert.Equal(
+                SideEntranceRejectionReason.AmbiguousTemplateRanking,
+                candidate.RejectionReason);
+            Assert.InRange(candidate.TemplateMargin, 0d, 0.001d);
+        });
+    }
+
+    [Fact]
+    public void GateSpatialMismatchCannotBecomeCandidate()
+    {
+        using var template = BuildTexture(64, 64, seed: 113);
+        using var frame = BuildTexture(520, 440, seed: 127);
+        using (var target = new Mat(frame, new Rect(100, 90, 64, 64)))
+            template.CopyTo(target);
+        var map = CreateMap();
+        var profile = MapFloorRules.GetFloorProfile(map, "1f")!;
+        profile.SideEntranceFeatureCenterX = 200d;
+        profile.SideEntranceFeatureCenterY = 300d;
+        profile.SideEntranceFeatureRadius = 32;
+        profile.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
+        {
+            X = 0.19d,
+            Y = 0.3625d,
+            Width = 0.02d,
+            Height = 0.025d
+        };
+        var unrelatedGate = new GateDetection
+        {
+            Score = 0.95d,
+            Scale = 1d,
+            ScreenBounds = new MapScreenRect(390d, 350d, 20d, 20d)
+        };
+
+        var results = new SideEntranceScanPipeline().RunScan(
+            frame,
+            [(map, "1f", template)],
+            topK: 1,
+            detectedGate: unrelatedGate,
+            viewportBounds: new MapScreenRect(0d, 0d, frame.Width, frame.Height));
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void GateConstrainedSearchIgnoresAStrongerRemotePeak()
+    {
+        using var template = BuildTexture(64, 64, seed: 137);
+        using var frame = BuildTexture(1200, 420, seed: 139);
+        using (var remote = new Mat(frame, new Rect(40, 60, 64, 64)))
+            template.CopyTo(remote);
+        using (var nearGate = new Mat(frame, new Rect(900, 140, 64, 64)))
+            template.CopyTo(nearGate);
+        // The detected gate glyph is removed from this local copy, making it
+        // weaker than the exact remote peak. A full-frame maximum would pick
+        // the wrong location; the gate-constrained search must not see it.
+        Cv2.Rectangle(frame, new Rect(922, 162, 20, 20), Scalar.All(128), -1);
+
+        var map = CreateMap();
+        var profile = MapFloorRules.GetFloorProfile(map, "1f")!;
+        profile.SideEntranceFeatureCenterX = 200d;
+        profile.SideEntranceFeatureCenterY = 300d;
+        profile.SideEntranceFeatureRadius = 32;
+        profile.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
+        {
+            X = 0.19d,
+            Y = 0.3625d,
+            Width = 0.02d,
+            Height = 0.025d
+        };
+        var gate = new GateDetection
+        {
+            Score = 0.95d,
+            Scale = 1d,
+            ScreenBounds = new MapScreenRect(922d, 162d, 20d, 20d)
+        };
+
+        var results = new SideEntranceScanPipeline().RunScan(
+            frame,
+            [(map, "1f", template)],
+            topK: 1,
+            detectedGate: gate,
+            viewportBounds: new MapScreenRect(0d, 0d, frame.Width, frame.Height));
+
+        var candidate = Assert.Single(results);
+        Assert.InRange(candidate.MatchLocation.X, 888d, 912d);
+        Assert.InRange(candidate.MatchLocation.Y, 128d, 152d);
+        Assert.InRange(candidate.GateSpatialResidualPixels, 0d, 20d);
+    }
+
+    [Fact]
+    public void FeaturePreprocessorMasksTheSharedGateGlyph()
+    {
+        using var image = BuildTexture(240, 240, seed: 131);
+        var anchor = new NormalizedRectangle
+        {
+            X = 0.45d,
+            Y = 0.45d,
+            Width = 0.10d,
+            Height = 0.10d
+        };
+        Cv2.Rectangle(image, new Rect(108, 108, 24, 24), Scalar.All(255), -1);
+
+        using var result = new SideEntranceFeaturePreprocessor().Process(
+            image,
+            anchor,
+            featureRadius: 60);
+        using var icon = new Mat(result.Feature, new Rect(48, 48, 24, 24));
+        Cv2.MeanStdDev(icon, out var mean, out var standardDeviation);
+
+        Assert.InRange(standardDeviation.Val0, 0d, 0.001d);
+        Assert.True(mean.Val0 < 250d);
+        Assert.Equal("2-gate-masked", SideEntranceFeaturePreprocessor.AlgorithmVersion);
     }
 
     /// <summary>

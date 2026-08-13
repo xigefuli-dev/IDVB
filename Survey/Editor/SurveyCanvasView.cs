@@ -42,6 +42,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         _canvas.VerticalAlignment = VerticalAlignment.Top;
         Children.Add(_canvas);
         InitializeViewportInteractions();
+        InitializeTransformBox();
         KeyDown += Canvas_KeyDown;
     }
 
@@ -66,15 +67,14 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
             var selected = _selectedLayerIds.Contains(pair.Key);
             var outline = GetSelectionOutline(pair.Value);
             outline.BorderBrush = new SolidColorBrush(
-                pair.Key == _primaryLayerId
-                    ? Color.FromArgb(255, 91, 176, 255)
-                    : selected
+                selected && pair.Key != _primaryLayerId
                         ? Color.FromArgb(255, 78, 205, 196)
                     : Color.FromArgb(0, 0, 0, 0));
-            outline.BorderThickness = selected
+            outline.BorderThickness = selected && pair.Key != _primaryLayerId
                 ? new Thickness(2)
                 : new Thickness(0);
         }
+        UpdateTransformBox();
     }
 
     public async Task RenderAsync(
@@ -165,6 +165,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
             var selectedIds = _selectedLayerIds.ToArray();
             SelectLayers(selectedIds, _primaryLayerId);
             RecreateBrushPreview();
+            UpdateTransformBox();
             if (!_hasInitialFit)
             {
                 _hasInitialFit = true;
@@ -286,7 +287,10 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
     {
         if (sender is not Border { Tag: SurveyMapLayer layer } wrapper)
             return;
-        if (ActiveTool is SurveyEditorTool.Decontaminate or SurveyEditorTool.Align or SurveyEditorTool.NormalizeColors)
+        if (ActiveTool is SurveyEditorTool.Decontaminate
+            or SurveyEditorTool.VignetteCorrection
+            or SurveyEditorTool.Align
+            or SurveyEditorTool.NormalizeColors)
         {
             LayerToolInvoked?.Invoke(this, new SurveyLayerToolEventArgs
             {
@@ -324,6 +328,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
             TranslationY = _dragTransform.TranslationY + point.Y - _dragStart.Y
         };
         _dragStart = point;
+        UpdateTransformBox();
         e.Handled = true;
     }
 
@@ -349,6 +354,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         }
         _dragLayerId = null;
         _dragVisualTransform = null;
+        UpdateTransformBox();
     }
 
     private void Canvas_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -445,6 +451,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         _primaryLayerId = null;
         _dragLayerId = null;
         _dragVisualTransform = null;
+        DisposeTransformBox();
         ClearLiveMaskPreview();
         _brushPreview = null;
         _canvas.Children.Clear();

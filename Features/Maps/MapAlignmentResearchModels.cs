@@ -41,6 +41,15 @@ public sealed record MapAlignmentResearchAttempt
     public double? PrimaryScale { get; init; }
     public double? HistoricalFloorRatio { get; init; }
     public string ScaleSeedSource { get; init; } = string.Empty;
+    public string ScaleSeedCacheSource { get; init; } = string.Empty;
+    public bool ScaleSeedProjected { get; init; }
+    public int ScaleSeedSourceViewportWidth { get; init; }
+    public int ScaleSeedSourceViewportHeight { get; init; }
+    public int ScaleSeedTargetViewportWidth { get; init; }
+    public int ScaleSeedTargetViewportHeight { get; init; }
+    public double? ProjectedScale { get; init; }
+    public double? FinalValidatedScale { get; init; }
+    public string ScaleSeedRejectionReason { get; init; } = string.Empty;
     public IReadOnlyList<MapAlignmentResearchSearchStage> SearchStages { get; init; } = [];
     public int QueryEdgePixels { get; init; }
     public int QueryBoundsWidth { get; init; }

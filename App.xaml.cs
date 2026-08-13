@@ -7,6 +7,7 @@ using Microsoft.UI.Dispatching;
 using IDVBuff.Diagnostics;
 using IDVBuff.Cli;
 using System.Runtime.InteropServices;
+using IDVBuff.Lifecycle;
 
 // Windows App SDK 单文件发布要求：在程序入口前设置此环境变量，
 // 以便运行时能在单文件包内找到原生 DLL。
@@ -34,6 +35,7 @@ namespace IDVBuff
         private bool applicationExitRequested;
         private ServiceProvider? _serviceProvider;
         private IdvbControlServer? _idvbControlServer;
+        private UpdateShutdownServer? _updateShutdownServer;
 
         /// <summary>全局 DI 容器（供 Views 等非 DI 感知组件使用）。</summary>
         public static ServiceProvider Services =>
@@ -58,7 +60,12 @@ namespace IDVBuff
             var isCliLaunch = Array.Exists(
                 Environment.GetCommandLineArgs(),
                 argument => string.Equals(argument, "--cli", StringComparison.OrdinalIgnoreCase));
-            OutputLog.Initialize(captureFirstChanceExceptions: !isCliLaunch);
+            // First-chance exception capture is intentionally diagnostic-only.
+            // Enabling it for every production GUI process turns a handled
+            // exception loop into a high-volume allocation and disk-write loop.
+            OutputLog.Initialize(
+                captureFirstChanceExceptions: !isCliLaunch
+                    && (System.Diagnostics.Debugger.IsAttached || AppDataPaths.IsTestBuild));
             UnhandledException += App_UnhandledException;
             this.InitializeComponent();
         }
@@ -100,8 +107,13 @@ namespace IDVBuff
                 window.Activate();
                 WriteStartupTrace("Main window activated.");
 
-                // ═══ 构建 DI 容器 ═══
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
+                GuiInstanceCoordinator.ActivationRequested += GuiInstance_ActivationRequested;
+                _updateShutdownServer = new UpdateShutdownServer(() =>
+                    dispatcher.TryEnqueue(() => window?.Close()));
+                _updateShutdownServer.Start();
+
+                // ═══ 构建 DI 容器 ═══
                 var services = new ServiceCollection();
                 services.AddIdvbServices(dispatcher);
                 _serviceProvider = services.BuildServiceProvider();
@@ -127,6 +139,8 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Map runtime initialized.");
+                if (UpdateLifecycleState.WasRestartedAfterUpdate)
+                    await ShowUpdatedSuccessfullyAsync();
             }
             catch (Exception exception)
             {
@@ -406,6 +420,12 @@ namespace IDVBuff
                     _idvbControlServer = null;
                 }
 
+                if (_updateShutdownServer is not null)
+                {
+                    await _updateShutdownServer.DisposeAsync();
+                    _updateShutdownServer = null;
+                }
+
                 if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is IAsyncDisposable ad)
                 {
                     await ad.DisposeAsync()
@@ -472,14 +492,40 @@ namespace IDVBuff
                 return;
 
             applicationExitRequested = true;
+            GuiInstanceCoordinator.ActivationRequested -= GuiInstance_ActivationRequested;
             OutputLog.Shutdown();
             if (ReferenceEquals(_currentApp, this))
                 _currentApp = null;
 
             // A WinUI desktop process can remain alive when another hidden
             // XAML window or dispatcher is still registered.  Closing the main
-            // HWND is therefore followed by an explicit application exit.
+            // HWND is therefore followed by an explicit application exit. If
+            // WinUI only posts that request, terminate after all owned services
+            // and logs have already completed their bounded cleanup above.
             Exit();
+            Environment.Exit(Environment.ExitCode);
+        }
+
+        private void GuiInstance_ActivationRequested(object? sender, EventArgs e)
+        {
+            var currentWindow = window;
+            if (currentWindow is null)
+                return;
+            _ = currentWindow.DispatcherQueue.TryEnqueue(currentWindow.Activate);
+        }
+
+        private async Task ShowUpdatedSuccessfullyAsync()
+        {
+            UpdateLifecycleState.WasRestartedAfterUpdate = false;
+            if (window?.Content is not FrameworkElement root)
+                return;
+            await new ContentDialog
+            {
+                XamlRoot = root.XamlRoot,
+                Title = "更新完成",
+                Content = $"Identity Vision Bridge 已更新到 {BuildVersionInfo.BuildVersion}。",
+                CloseButtonText = "知道了"
+            }.ShowAsync();
         }
 
         private async void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)

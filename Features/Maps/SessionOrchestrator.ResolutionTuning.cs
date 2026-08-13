@@ -14,6 +14,8 @@ public sealed partial class SessionOrchestrator
         var tuning = _settings!.StructureRegistrationTuning.Clone();
         var structure = _config.Get<IDVBuff.Core.Models.StructureConfig>("structure");
         tuning.MaximumChamferPixels = structure.MaximumChamferPixels;
+        tuning.RestrictedSearchMaximumChamferPixels =
+            structure.RestrictedSearchMaximumChamferPixels;
         tuning.MinimumEdgeCoverage = structure.MinimumEdgeCoverage;
         tuning.MinimumOccupancyCoverage = structure.MinimumOccupancyCoverage;
         tuning.MinimumCandidateMargin = structure.MinimumCandidateMargin;

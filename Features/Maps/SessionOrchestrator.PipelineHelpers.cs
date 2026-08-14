@@ -30,6 +30,7 @@ public sealed partial class SessionOrchestrator
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
         {
+            EndAdaptiveMapOpen("game map closed");
             CancelOrbTracking("game map closed");
             _overlay.ClearMap();
             RefreshMiniMapForCurrentFloor();

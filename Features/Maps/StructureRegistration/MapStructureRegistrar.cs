@@ -434,12 +434,20 @@ public sealed class MapStructureRegistrar
                 // 结构配准的 chamfer/edgeCoverage 均单向按 query 归一化，错误的
                 // 更大 scale（更小 query）可能在这些指标上反而更漂亮而通过验收；
                 // 以锁定 scale 为锚，偏离超过 MaximumScaleChangeRatio 即拒。
+                // 门限必须不小于本次搜索实际覆盖的 scale 范围：无门楼层的全局恢复
+                // 在 seed 不可靠（中性 1.0 种子或未通过验证的 VPSG 估计）时按
+                // ±0.30 搜索（MapFloorScaleSearchPolicy），若门限固定 15% 会把
+                // 搜索找到的正确 scale 误判为"超过安全范围的地图缩放"，一楼双门
+                // 路径则用与搜索半径等宽的独立检查（AlignSelected.Structure）。
+                var allowedScaleChange = Math.Max(
+                    StructureRegistrationRules.MaximumScaleChangeRatio,
+                    scaleSearchRadius);
                 if (rejection == MapStructureRejectionReason.None
                     && !request.ForceBestCandidate
                     && double.IsFinite(request.LockedTransform.ScaleX)
                     && request.LockedTransform.ScaleX > 0d
                     && Math.Abs((best.Scale / request.LockedTransform.ScaleX) - 1d)
-                        > StructureRegistrationRules.MaximumScaleChangeRatio)
+                        > allowedScaleChange)
                 {
                     rejection = MapStructureRejectionReason.ScaleChangeTooLarge;
                 }

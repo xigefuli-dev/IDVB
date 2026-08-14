@@ -30,6 +30,7 @@ public sealed partial class SessionOrchestrator
 
     private void CancelMatchOperations()
     {
+        EndAdaptiveMapOpen("match lifecycle changed");
         CancelOrbTracking("match lifecycle changed");
         try
         {
@@ -58,6 +59,7 @@ public sealed partial class SessionOrchestrator
     /// </summary>
     private void UnlockMapForRescan()
     {
+        EndAdaptiveMapOpen("map rescan requested");
         var previousMapId = _lastRecognition?.Map.Id
             ?? _pendingAlignmentIdentity?.Map.Id;
         if (previousMapId is null
@@ -80,6 +82,7 @@ public sealed partial class SessionOrchestrator
         _pendingAlignmentSeed = null;
         _lastAlignmentSession = null;
         _primaryFloorAlignmentSession = null;
+        ClearAdaptiveSessionKeys();
         _lastFloorRecognition = null;
         _lastTrustedPlayerPoint = null;
         _alignmentTrackingMode = MapAlignmentTrackingMode.None;
@@ -105,6 +108,7 @@ public sealed partial class SessionOrchestrator
 
     private void ResetMatchTransientState(bool resetAutomaticCacheSamples)
     {
+        EndAdaptiveMapOpen("match transient state reset");
         _overlayStatus.Clear();
         _overlay.Clear();
         _mapOpenSession.Close("match lifecycle reset");
@@ -122,6 +126,7 @@ public sealed partial class SessionOrchestrator
         _pendingAlignmentSeed = null;
         _lastAlignmentSession = null;
         _primaryFloorAlignmentSession = null;
+        ClearAdaptiveSessionKeys();
         _lastDiagnostics = null;
         _lastScanPhaseTimings = null;
         _lastAlignmentPhaseTimings = null;

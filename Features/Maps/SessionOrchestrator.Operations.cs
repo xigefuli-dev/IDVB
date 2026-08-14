@@ -163,6 +163,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _gameMapToggleState.SetOpenForExternalController(isOpen);
         if (!isOpen)
         {
+            EndAdaptiveMapOpen("external game map closed");
             CancelOrbTracking("external game map closed");
             _overlay.ClearMap();
             RefreshMiniMapForCurrentFloor();
@@ -385,6 +386,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _controlPanel?.Dispose();
         _surveyCoordinator.StatusChanged -= SurveyCoordinator_StatusChanged;
         await _researchCollector.DisposeAsync();
+        await DrainAdaptiveScaleAsync();
         await _logCollector.DisposeAsync();
         _initializeGate.Dispose();
         _scanGate.Dispose();

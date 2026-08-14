@@ -19,7 +19,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.*" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
     <PackageReference Include="Velopack" Version="1.2.0" />
     <Manifest Include="$(ApplicationManifest)" />

@@ -10,6 +10,8 @@
         <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
         <EnableMsixTooling>true</EnableMsixTooling>
         <WindowsPackageType>None</WindowsPackageType>
+        <!-- Keep ordinary build output runnable without a separately installed Windows App Runtime. -->
+        <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
 
         <!-- Project Options -->
         <Nullable>enable</Nullable>
@@ -23,11 +25,11 @@
         <PackageId>IdentityVisionBridge</PackageId>
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
-        <IDVBProductVersion>1.4.2</IDVBProductVersion>
+        <IDVBProductVersion>1.4.3</IDVBProductVersion>
         <IDVBReleaseLine>b01.4</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
-        <AssemblyVersion>1.4.2.0</AssemblyVersion>
-        <FileVersion>1.4.2.0</FileVersion>
+        <AssemblyVersion>1.4.3.0</AssemblyVersion>
+        <FileVersion>1.4.3.0</FileVersion>
         <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>
@@ -37,6 +39,8 @@
         <!-- App Options -->
         <UseRidGraph>true</UseRidGraph>
         <Platforms>x86;x64;ARM64</Platforms>
+        <!-- Direct project builds/runs do not use the solution's x64 mapping. -->
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and ('$(Platform)' == 'AnyCPU' or '$(Platform)' == 'Any CPU')">win-x64</RuntimeIdentifier>
         <ApplicationManifest>app.manifest</ApplicationManifest>
         <ApplicationIcon>Assets\Icons\IDVB_icon_multisize.ico</ApplicationIcon>
         <PublishProfile>win-$(Platform).pubxml</PublishProfile>
@@ -98,6 +102,8 @@
         <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
         <Compile Remove="UpdateCore\**\*.cs" />
         <Compile Remove="Updater\**\*.cs" />
+        <ApplicationDefinition Remove="Updater\**\*.xaml" />
+        <Page Remove="Updater\**\*.xaml" />
         <Compile Remove="release\**\*.cs" />
         <Compile Remove="Survey\**\*.cs" />
         <!-- Local validation/release snapshots and auxiliary worktrees can
@@ -115,7 +121,7 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
-        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.*" />
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
         <PackageReference Include="Microsoft.Web.WebView2" Version="1.*" />
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />

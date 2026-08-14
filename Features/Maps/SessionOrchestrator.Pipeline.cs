@@ -101,6 +101,10 @@ public sealed partial class SessionOrchestrator
                 : _settings.RecognitionTuning.Clone();
             if (tuning.GateTemplateThreshold > GateTemplateRules.FallbackPairThreshold)
                 tuning.GateTemplateThreshold = GateTemplateRules.FallbackPairThreshold;
+            var adaptiveKey = CreateAdaptiveScaleKey(
+                frame,
+                locked.Map,
+                targetFloorKey);
             RuntimeMapRecognition? aligned = null;
             string? failureReason = null;
             MapFeatureCacheKey? repairCacheKey = null; MapRecognitionAttempt? finalAttempt = null;
@@ -115,6 +119,9 @@ public sealed partial class SessionOrchestrator
                     : _lastAlignmentSession is { } lastSession
                         && lastSession.MapId == locked.Map.Id
                         && lastSession.MapUpdatedAt == locked.Map.UpdatedAt
+                        && (!IsAdaptiveScaleEnabled
+                            || _lastReliableAdaptiveKey == adaptiveKey)
+                        && CanUseAdaptiveReliableSession(lastSession, adaptiveKey)
                     ? lastSession
                     : MapAlignmentSession.FromRecognition(
                         locked.Map,
@@ -127,6 +134,9 @@ public sealed partial class SessionOrchestrator
                 var primarySession = _primaryFloorAlignmentSession is { } savedPrimary
                         && savedPrimary.MapId == locked.Map.Id
                         && savedPrimary.MapUpdatedAt == locked.Map.UpdatedAt
+                        && (!IsAdaptiveScaleEnabled
+                            || _primaryFloorAdaptiveKey == adaptiveKey)
+                        && CanUseAdaptiveReliableSession(savedPrimary, adaptiveKey)
                     ? savedPrimary
                     : null;
                 var alignmentSession = isOtherFloor
@@ -209,6 +219,7 @@ public sealed partial class SessionOrchestrator
                     {
                         var reliableCheck = TryGetReliableFloorAlignment(
                             operationMatch,
+                            frame,
                             locked.Map,
                             targetFloorKey);
                         if (reliableCheck is not null)

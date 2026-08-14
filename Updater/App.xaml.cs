@@ -18,7 +18,9 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new UpdaterWindow(UpdaterLaunchOptions.Parse(Environment.GetCommandLineArgs()));
-        _window.Activate();
+        var options = UpdaterLaunchOptions.Parse(Environment.GetCommandLineArgs());
+        _window = new UpdaterWindow(options);
+        if (!options.Background)
+            _window.Activate();
     }
 }

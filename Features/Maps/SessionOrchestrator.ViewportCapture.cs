@@ -11,6 +11,15 @@ public sealed partial class SessionOrchestrator
         IDVBuff.Survey.Contracts.SurveyCaptureTuning? surveyTuning = null)
     {
         var sessionTuning = _settings!.SessionTuning;
+        if (_captureSvc.TryGetForegroundClientBounds(
+                out var presetBounds,
+                out _,
+                out _)
+            && presetBounds is MapScreenRect validPresetBounds
+            && validPresetBounds.IsValid)
+        {
+            await ApplySelectedResolutionPresetAsync(validPresetBounds);
+        }
         var viewport = ResolveMapViewportForCurrentWindow();
         var interval = Math.Max(
             20,
@@ -154,7 +163,10 @@ public sealed partial class SessionOrchestrator
     private NormalizedRectangle ResolveViewportRegion(int width, int height)
     {
         var toml = _config.Get<ViewportCalibrationConfig>("viewport");
-        if (toml.MapRegionWidth >= 0.01 && toml.MapRegionHeight >= 0.01)
+        if (toml.ClientWidth == width
+            && toml.ClientHeight == height
+            && toml.MapRegionWidth >= 0.01
+            && toml.MapRegionHeight >= 0.01)
         {
             return new NormalizedRectangle
             {

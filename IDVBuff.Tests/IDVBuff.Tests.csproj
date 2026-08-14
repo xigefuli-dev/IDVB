@@ -175,6 +175,7 @@
     <Compile Include="..\Features\Maps\MapAlignmentResearchAttemptFactory.cs" Link="Production\MapAlignmentResearchAttemptFactory.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentResearchCollector.cs" Link="Production\MapAlignmentResearchCollector.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionStatisticsRepository.cs" Link="Production\MapRecognitionStatisticsRepository.cs" />
+    <Compile Include="..\Features\Maps\AdaptiveScaleAlignment\AdaptiveScale*.cs" Link="Production\AdaptiveScaleAlignment\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

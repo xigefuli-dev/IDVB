@@ -152,6 +152,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                         ["operation"] = "overlay-status-expiration"
                     });
             });
+        InitializeAdaptiveScale();
 
         // MapControlPanelWindow 仅在 GUI 模式创建（headless CLI 跳过）
         if (!headless)
@@ -301,6 +302,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 
             await _recognition.RefreshCacheAsync();
             await _mapFeatureCacheRepository.InitializeAsync();
+            await InitializeAdaptiveScaleAsync();
             await _surveyCoordinator.InitializeAsync(_lifetimeCts.Token);
 
             _logCollector.Append(
@@ -342,6 +344,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     /// <summary>切换到指定分辨率预设，重新加载 TOML 配置并刷新叠加层显示。</summary>
     public async Task SetActivePresetAsync(string name)
     {
+        EndAdaptiveMapOpen("resolution preset changed");
+        ClearAdaptiveSessionKeys();
         CancelOrbTracking("resolution preset changed");
         await DrainOrbTrackingAsync();
         await _profileService.SetActiveProfileAsync(name);
@@ -465,6 +469,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 
             await DrainMatchOperationsAsync();
             await DrainMapCacheWritesAsync();
+            await DrainAdaptiveScaleAsync();
             if (!isSurvey && saveAutomaticMapCache)
                 await FlushAutomaticMapCacheAsync();
             else
@@ -563,6 +568,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 StringComparison.Ordinal))
         {
             _primaryFloorAlignmentSession = session;
+            RememberAdaptiveReliableKey(recognition, primary: true);
         }
     }
 

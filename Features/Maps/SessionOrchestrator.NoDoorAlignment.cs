@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Features.Maps.AdaptiveScaleAlignment;
 
 namespace IDVBuff.Features.Maps;
 
@@ -19,6 +20,7 @@ public sealed partial class SessionOrchestrator
     private sealed class ReliableFloorAlignmentState
     {
         public required MapAlignmentSession Session { get; set; }
+        public AdaptiveScaleKey? AdaptiveKey { get; set; }
         public List<MapSimilarityTransform> CandidateHistory { get; } = [];
     }
 
@@ -120,6 +122,7 @@ public sealed partial class SessionOrchestrator
 
     private ReliableFloorAlignmentSeed? TryGetReliableFloorAlignment(
         MapMatchSnapshot match,
+        CapturedGameFrame frame,
         MapRecord map,
         string floorKey)
     {
@@ -128,6 +131,7 @@ public sealed partial class SessionOrchestrator
             map.Id,
             map.UpdatedAt,
             floorKey);
+        var adaptiveKey = CreateAdaptiveScaleKey(frame, map, floorKey);
         lock (_reliableFloorAlignmentGate)
         {
             if (!_reliableFloorAlignments.TryGetValue(key, out var state)
@@ -136,7 +140,9 @@ public sealed partial class SessionOrchestrator
                     map.Id,
                     map.UpdatedAt,
                     floorKey,
-                    _settings!.SessionTuning.HighConfidence))
+                    _settings!.SessionTuning.HighConfidence)
+                || (IsAdaptiveScaleEnabled && state.AdaptiveKey != adaptiveKey)
+                || !CanUseAdaptiveReliableSession(state.Session, adaptiveKey))
             {
                 return null;
             }
@@ -152,6 +158,7 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition recognition,
         MapAlignmentSession? session)
     {
+        var hasAdaptiveKey = TryGetActiveAdaptiveKey(recognition, out var adaptiveKey);
         if (!match.IsStarted
             || !_matchSession.IsCurrent(match)
             || session is null
@@ -166,7 +173,10 @@ public sealed partial class SessionOrchestrator
                 recognition.Map.Id,
                 recognition.Map.UpdatedAt,
                 recognition.Result.Floor,
-                _settings.SessionTuning.HighConfidence))
+                _settings.SessionTuning.HighConfidence)
+            || (IsAdaptiveScaleEnabled && !hasAdaptiveKey)
+            || (hasAdaptiveKey
+                && !CanUseAdaptiveReliableSession(session, adaptiveKey)))
         {
             return;
         }
@@ -181,13 +191,25 @@ public sealed partial class SessionOrchestrator
         {
             if (!_reliableFloorAlignments.TryGetValue(key, out var state))
             {
-                state = new ReliableFloorAlignmentState { Session = session };
+                state = new ReliableFloorAlignmentState
+                {
+                    Session = session,
+                    AdaptiveKey = hasAdaptiveKey ? adaptiveKey : null
+                };
                 _reliableFloorAlignments[key] = state;
             }
             else
             {
                 state.Session = session;
+                state.AdaptiveKey = hasAdaptiveKey ? adaptiveKey : null;
             }
+
+            RememberAdaptiveReliableKey(
+                recognition,
+                string.Equals(
+                    recognition.Result.Floor,
+                    MapFloorRules.GetPrimaryFloorKey(recognition.Map),
+                    StringComparison.Ordinal));
 
             var duplicate = state.CandidateHistory.Any(candidate =>
                 Math.Abs(candidate.Scale - similarity.Scale) <= 0.0005d

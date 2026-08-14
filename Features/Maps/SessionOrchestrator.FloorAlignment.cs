@@ -48,10 +48,31 @@ public sealed partial class SessionOrchestrator
                 floorKey));
 
         var operationMatch = _matchSession.Snapshot;
-        var reliable = TryGetReliableFloorAlignment(
-            operationMatch,
+        var hasAdaptiveSeed = TryAlignWithAdaptiveCalibrationSeed(
+            frame,
             locked.Map,
-            floorKey);
+            floorKey,
+            alignmentMode,
+            tuning,
+            structureTuning,
+            identityPriorConfidence,
+            out var adaptiveSeed,
+            out var adaptiveAttempt);
+        if (hasAdaptiveSeed && adaptiveSeed is not null)
+            scaleSeed = MapFeatureCacheRules.CreateScaleSeed(
+                locked.Map,
+                floorKey,
+                adaptiveSeed.Scale);
+        if (adaptiveAttempt is not null
+            && IsAdaptiveInitialScaleQualified(adaptiveAttempt, structureTuning))
+            return adaptiveAttempt;
+        var reliable = hasAdaptiveSeed
+            ? null
+            : TryGetReliableFloorAlignment(
+                operationMatch,
+                frame,
+                locked.Map,
+                floorKey);
         if (reliable is not null
             && TryGetPendingMapCacheRepairKey(
                 frame,
@@ -61,7 +82,7 @@ public sealed partial class SessionOrchestrator
         {
             repairCacheKey = pendingRepairKey;
         }
-        MapRecognitionAttempt? firstAttempt = null;
+        MapRecognitionAttempt? firstAttempt = adaptiveAttempt;
         double? vpsgScale = null;
         if (reliable is not null)
         {
@@ -89,7 +110,8 @@ public sealed partial class SessionOrchestrator
                 return firstAttempt;
             scaleSeed = reliable.Session.LockedTransform;
         }
-        else if (TryGetNoDoorScaleCache(
+        else if (!hasAdaptiveSeed
+                 && TryGetNoDoorScaleCache(
                      frame,
                      locked.Map,
                      floorKey,
@@ -152,7 +174,8 @@ public sealed partial class SessionOrchestrator
                         ["scale"] = cacheEntry.Scale.UniformScale,
                         ["cacheSource"] = cacheEntry.Scale.Source.ToString()
                     });
-                if (firstAttempt.Recognition is { } cachedRecognition)
+                if (IsAdaptiveInitialScaleQualified(firstAttempt, cachedTuning)
+                    && firstAttempt.Recognition is { } cachedRecognition)
                 {
                     return CopyAttempt(
                         firstAttempt,
@@ -170,7 +193,8 @@ public sealed partial class SessionOrchestrator
                     tuning,
                     structureTuning,
                     identityPriorConfidence);
-                if (repairSearch.Recognition is { } repairRecognition)
+                if (IsAdaptiveInitialScaleQualified(repairSearch, structureTuning)
+                    && repairSearch.Recognition is { } repairRecognition)
                 {
                     NoteCacheValidationOutcome(cacheKey, succeeded: true);
                     return CopyAttempt(
@@ -207,7 +231,8 @@ public sealed partial class SessionOrchestrator
                 identityPriorConfidence) is { } vpsgAttempt)
         {
             firstAttempt ??= vpsgAttempt;
-            if (vpsgAttempt.Recognition is not null)
+            if (vpsgAttempt.Recognition is not null
+                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
                 return vpsgAttempt;
             // VPSG 估计出本楼层 scale 但固定 scale 结构验证失败：保留估计值，
             // 让全局恢复以它（而非中性 KEEP-1.0 种子）为搜索锚点，避免正确

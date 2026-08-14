@@ -9,6 +9,8 @@ namespace IDVBuff.Core.Models;
 /// </summary>
 public sealed class ViewportCalibrationConfig
 {
+    public int ClientWidth { get; set; }
+    public int ClientHeight { get; set; }
     public double MapRegionX { get; set; }
     public double MapRegionY { get; set; }
     public double MapRegionWidth { get; set; }

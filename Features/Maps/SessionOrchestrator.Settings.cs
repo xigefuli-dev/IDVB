@@ -333,25 +333,28 @@ public sealed partial class SessionOrchestrator
         int clientHeight,
         uint observedDpi)
     {
-        var region = _settings!.MapViewportRegion;
+        var region = _settings!.GetExactDisplayCalibration(
+            clientWidth,
+            clientHeight)?.MapViewportRegion;
         if (region?.IsValid is not true)
             return;
 
         try
         {
-            var target = ResolutionPresetResolver.ResolveEffectivePreset(
-                _settings.SelectedResolutionPreset,
+            var target = ResolutionPresetResolver.MatchPresetName(
                 GetAvailablePresets(),
                 clientWidth,
                 clientHeight,
                 observedDpi > 0 ? (int)observedDpi : 120);
             if (string.IsNullOrWhiteSpace(target))
-                target = _config.ActiveResolutionPreset;
-            if (string.IsNullOrWhiteSpace(target))
                 return;
 
             var presetDir = _config.ResolvePresetDirectory(target);
-            await ViewportCalibrationTomlWriter.WriteAsync(presetDir, region);
+            await ViewportCalibrationTomlWriter.WriteAsync(
+                presetDir,
+                region,
+                clientWidth,
+                clientHeight);
 
             // 写回目标正是当前活跃预设时，需重载合并表，否则下一次
             // ResolveViewportRegion 仍会读到旧的 viewport.toml（同名切换会因

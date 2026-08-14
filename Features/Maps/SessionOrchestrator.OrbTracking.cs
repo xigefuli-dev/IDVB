@@ -1,6 +1,7 @@
 using IDVBuff.Core.Models;
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Features.Maps.AdaptiveScaleAlignment;
 
 namespace IDVBuff.Features.Maps;
 
@@ -22,6 +23,7 @@ public sealed partial class SessionOrchestrator
         Guid MapId,
         DateTimeOffset MapUpdatedAt,
         string FloorKey,
+        AdaptiveScaleKey AdaptiveKey,
         double BaselineScale);
 
     private async Task StartOrbTrackingAsync(
@@ -31,7 +33,7 @@ public sealed partial class SessionOrchestrator
         var config = _config.Get<OrbTrackingConfig>("orb_tracking");
         CancelOrbTracking("alignment replaced");
         await DrainOrbTrackingAsync();
-        if (!config.Enabled
+        if ((!config.Enabled && !IsAdaptiveScaleEnabled)
             || recognition.Result.OverlayTransform is not { } transform
             || !_gameMapToggleState.IsOpen
             || !_matchSession.Snapshot.IsStarted)
@@ -55,8 +57,6 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        var seed = seedFrame.Image.Clone();
-        var viewportBounds = seedFrame.ViewportBounds;
         var generation = Interlocked.Increment(ref _orbTrackingGeneration);
         var context = new OrbTrackingContext(
             generation,
@@ -65,25 +65,38 @@ public sealed partial class SessionOrchestrator
             recognition.Map.Id,
             recognition.Map.UpdatedAt,
             recognition.Result.Floor,
+            CreateAdaptiveScaleKey(
+                seedFrame,
+                recognition.Map,
+                recognition.Result.Floor),
             (transform.ScaleX + transform.ScaleY) / 2d);
         var linked = CancellationTokenSource.CreateLinkedTokenSource(
             CurrentMatchCancellationToken,
             _lifetimeCts.Token);
+        var seed = config.Enabled ? seedFrame.Image.Clone() : null;
+        var viewportBounds = seedFrame.ViewportBounds;
         lock (_orbTrackingGate)
         {
             _orbTrackingCancellation = linked;
-            _orbTrackingTask = Task.Run(
-                () => RunOrbTrackingLoopAsync(
-                    context,
-                    recognition,
-                    seed,
-                    viewportBounds,
-                    transform,
-                    config,
-                    linked.Token));
+            _orbTrackingTask = config.Enabled
+                ? Task.Run(
+                    () => RunOrbTrackingLoopAsync(
+                        context,
+                        recognition,
+                        seed!,
+                        viewportBounds,
+                        transform,
+                        config,
+                        linked.Token))
+                : Task.Run(
+                    () => RunAdaptiveStructureTrackingLoopAsync(
+                        context,
+                        recognition,
+                        config,
+                        linked.Token));
         }
         _logCollector.Append(
-            MapLogCategory.OrbTracking,
+            config.Enabled ? MapLogCategory.OrbTracking : MapLogCategory.StructureRegistration,
             MapLogLevel.Info,
             $"ORB tracking started · map={context.MapId} · floor={context.FloorKey} · generation={generation}");
     }
@@ -167,9 +180,20 @@ public sealed partial class SessionOrchestrator
                             stableFrames = observation.ShouldCommit
                                 ? 0
                                 : stableFrames + 1;
+                            var adaptiveOrb = EvaluateAdaptiveOrb(
+                                context,
+                                observation.Transform,
+                                observation.StepScale);
+                            if (adaptiveOrb.Reanchor)
+                            {
+                                tracker.Reanchor(
+                                    frame.Image,
+                                    frame.ViewportBounds,
+                                    adaptiveOrb.Transform);
+                            }
                             currentRecognition = MapCvRecognitionBuilders.ReplaceTransformAndSource(
                                 currentRecognition,
-                                tracker.CurrentTransform,
+                                adaptiveOrb.Transform,
                                 MapRecognitionSource.OrbTracking);
                             if (observation.ShouldCommit)
                             {
@@ -177,7 +201,7 @@ public sealed partial class SessionOrchestrator
                                     context,
                                     MapCvRecognitionBuilders.ReplaceTransformAndSource(
                                         currentRecognition,
-                                        observation.Transform,
+                                        adaptiveOrb.Transform,
                                         MapRecognitionSource.OrbTracking),
                                     config.MaximumBaselineScaleChangeRatio);
                             }
@@ -192,6 +216,9 @@ public sealed partial class SessionOrchestrator
                         var correctionInterval = recoveryMode
                             ? Math.Max(100, config.RecoveryIntervalMs)
                             : Math.Max(250, config.StructureCorrectionIntervalMs);
+                        correctionInterval = GetAdaptiveStructureProbeInterval(
+                            context,
+                            correctionInterval);
                         var structureMilliseconds = 0d;
                         if (ElapsedMilliseconds(lastStructureCorrection) >= correctionInterval)
                         {
@@ -199,9 +226,11 @@ public sealed partial class SessionOrchestrator
                             var structureTimer = Stopwatch.StartNew();
                             var predictedRecognition = MapCvRecognitionBuilders.ReplaceTransformAndSource(
                                 currentRecognition,
-                                tracker.CurrentTransform,
+                                currentRecognition.Result.OverlayTransform
+                                    ?? tracker.CurrentTransform,
                                 MapRecognitionSource.OrbTracking);
                             var corrected = TryCorrectOrbTrackingWithStructure(
+                                context,
                                 frame,
                                 predictedRecognition,
                                 config.MaximumBaselineScaleChangeRatio,
@@ -211,6 +240,13 @@ public sealed partial class SessionOrchestrator
                             if (corrected is not null
                                 && corrected.Result.OverlayTransform is { } correctedTransform)
                             {
+                                var adaptiveStructure = EvaluateAdaptiveStructure(
+                                    context,
+                                    frame,
+                                    corrected,
+                                    now);
+                                corrected = adaptiveStructure.Recognition;
+                                correctedTransform = corrected.Result.OverlayTransform!;
                                 tracker.Reanchor(
                                     frame.Image,
                                     frame.ViewportBounds,
@@ -222,6 +258,17 @@ public sealed partial class SessionOrchestrator
                                     context,
                                     corrected,
                                     config.MaximumBaselineScaleChangeRatio);
+                                if (adaptiveStructure.BecameReliable)
+                                {
+                                    PublishAdaptiveReliableStatus(
+                                        context,
+                                        frame,
+                                        corrected);
+                                }
+                            }
+                            else
+                            {
+                                NotifyAdaptiveStructureFailure(context);
                             }
                         }
 
@@ -272,6 +319,7 @@ public sealed partial class SessionOrchestrator
     }
 
     private RuntimeMapRecognition? TryCorrectOrbTrackingWithStructure(
+        OrbTrackingContext context,
         CapturedGameFrame frame,
         RuntimeMapRecognition predicted,
         double maximumBaselineScaleChangeRatio,
@@ -282,21 +330,7 @@ public sealed partial class SessionOrchestrator
         {
             return null;
         }
-        var lockedSession = MapAlignmentSession.FromRecognition(
-            predicted.Map,
-            predicted.Result);
-        var attempt = AlignNoDoorLocalStructure(
-            frame,
-            predicted,
-            predicted.Result.Floor,
-            lockedSession,
-            MapOverlayAlignmentMode.Uniform,
-            _settings.RecognitionTuning.Clone(),
-            CreateEffectiveStructureTuning(),
-            [],
-            predicted.Result.IdentityConfidence,
-            allowTrackingScaleSearch: true);
-        if (attempt.Recognition is not { } corrected
+        if (ProbeAdaptiveScaleStructure(context, frame, predicted) is not { } corrected
             || corrected.Result.OverlayTransform is not { } correctedTransform)
         {
             return null;
@@ -305,7 +339,11 @@ public sealed partial class SessionOrchestrator
         if (!double.IsFinite(correctedScale)
             || baselineScale <= 0
             || Math.Abs((correctedScale / baselineScale) - 1d)
-                > Math.Max(0, maximumBaselineScaleChangeRatio))
+                > Math.Max(
+                    0,
+                    IsAdaptiveScaleEnabled
+                        ? 0.50d
+                        : maximumBaselineScaleChangeRatio))
         {
             return null;
         }
@@ -329,13 +367,23 @@ public sealed partial class SessionOrchestrator
                 {
                     return;
                 }
+                var effectiveScaleLimit = IsAdaptiveTransformConfirmed(context, transform)
+                    ? 0.50d
+                    : maximumBaselineScaleChangeRatio;
                 var advanced = session.Advance(
                     recognition.Map,
                     recognition.Result,
-                    maximumBaselineScaleChangeRatio);
+                    effectiveScaleLimit);
                 _lastRecognition = recognition;
                 _lastAlignmentSession = advanced;
-                RememberPrimaryFloorSession(recognition, advanced);
+                if (CanUseAdaptiveReliableSession(advanced, context.AdaptiveKey))
+                {
+                    RememberPrimaryFloorSession(recognition, advanced);
+                    RememberReliableFloorAlignment(
+                        context.Match,
+                        recognition,
+                        advanced);
+                }
                 _alignmentTrackingMode = recognition.Result.Source
                     == MapRecognitionSource.OrbTracking
                         ? MapAlignmentTrackingMode.OrbTracking

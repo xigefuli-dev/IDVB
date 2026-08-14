@@ -141,6 +141,7 @@ namespace IDVBuff
                 WriteStartupTrace("Map runtime initialized.");
                 if (UpdateLifecycleState.WasRestartedAfterUpdate)
                     await ShowUpdatedSuccessfullyAsync();
+                AutomaticUpdateLauncher.TryLaunch();
             }
             catch (Exception exception)
             {

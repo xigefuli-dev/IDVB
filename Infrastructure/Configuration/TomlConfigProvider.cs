@@ -26,7 +26,7 @@ public sealed class TomlConfigProvider : IConfigProvider, IDisposable
     {
         _rootDir = rootDir ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IDVBuff");
+            "IDVB");
         _mergedTable = new TomlTable();
         Reload();
         StartWatching();
@@ -118,9 +118,8 @@ public sealed class TomlConfigProvider : IConfigProvider, IDisposable
             MergeTable(merged, TOML.Parse(reader));
         }
 
-        // 2. 覆盖分辨率预设（先查 AppData，后回退到构建输出目录）
-        var presetPath = ResolvePresetDirectory(_activePreset);
-        if (Directory.Exists(presetPath))
+        // 2. 内置预设作为只读基线，AppData 中的用户文件最后覆盖。
+        foreach (var presetPath in ResolvePresetReadDirectories(_activePreset))
         {
             foreach (var file in Directory.GetFiles(presetPath, "*.toml"))
             {
@@ -146,43 +145,35 @@ public sealed class TomlConfigProvider : IConfigProvider, IDisposable
     /// </summary>
     public string ResolvePresetDirectory(string presetName)
     {
-        // 从预设名提取分辨率部分（如 "1920x1080 @ 120 DPI" → "1920x1080"）
         var dirName = presetName.Split(' ')[0];
+        return Path.Combine(_rootDir, "Presets", dirName);
+    }
 
-        // 尝试多个目录名
-        var candidates = new[] { presetName, dirName };
+    private IEnumerable<string> ResolvePresetReadDirectories(string presetName)
+    {
+        var dirName = presetName.Split(' ')[0];
+        var names = new[] { dirName, presetName }
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var name in candidates)
+        foreach (var name in names)
         {
-            // 主路径：AppData
-            var appDataPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "IDVB", "Presets", name);
-            if (Directory.Exists(appDataPath))
-                return appDataPath;
-
-            // 兼容旧路径
-            var legacyPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "IDVBuff", "Presets", name);
-            if (Directory.Exists(legacyPath))
-                return legacyPath;
-
-            // 回退：构建输出目录
-            var builtinPath = Path.Combine(AppContext.BaseDirectory, "Presets", name);
-            if (Directory.Exists(builtinPath))
-                return builtinPath;
-
-            // 兼容旧布局（Infrastructure.csproj 的 LinkBase 问题）
-            var altBuiltinPath = Path.Combine(AppContext.BaseDirectory, "Configuration", "Presets", name);
-            if (Directory.Exists(altBuiltinPath))
-                return altBuiltinPath;
+            foreach (var path in new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "Presets", name),
+                Path.Combine(AppContext.BaseDirectory, "Configuration", "Presets", name)
+            })
+            {
+                if (Directory.Exists(path))
+                    yield return path;
+            }
         }
 
-        // 全部未命中——返回最可能的主路径（即使不存在）
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "IDVB", "Presets", dirName);
+        foreach (var name in names)
+        {
+            var path = Path.Combine(_rootDir, "Presets", name);
+            if (Directory.Exists(path))
+                yield return path;
+        }
     }
 
     private static void MergeTable(TomlTable target, TomlTable source)

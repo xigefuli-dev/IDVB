@@ -10,12 +10,17 @@ public sealed class UpdateReleasePolicyTests
 
         Assert.DoesNotContain("Remove-Item", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("r2 object delete", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Stable packaging is blocked", script);
-        Assert.Contains("AuthenticodeThumbprint", script);
+        Assert.DoesNotContain("Stable packaging is blocked", script);
+        Assert.Contains("ecdsa-feed-sha256-assets", script);
+        Assert.Contains("Stable feed must contain exactly one full package", script);
         Assert.Contains("--signParams", script);
         Assert.Contains("feed-envelope.json", script);
         Assert.Contains("signed pointer", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("update-channel.txt", script);
+        Assert.Contains("git -C $repositoryRoot archive --format=zip --output=$archive $Context.SourceCommit", script);
+        Assert.Contains("'Infrastructure\\Configuration'", script);
+        Assert.Contains("'Directory.Build.targets'", script);
+        Assert.Contains("'Tools\\Generate-IDVBBuildVersion.ps1'", script);
         Assert.Contains("\"version\": \"1.2.0\"", toolManifest);
     }
 
@@ -44,13 +49,60 @@ public sealed class UpdateReleasePolicyTests
     }
 
     [Fact]
+    public void InstalledMainApplicationStartsAThrottledBackgroundUpdateCheck()
+    {
+        var app = Read("App.xaml.cs");
+        var launcher = Read("Lifecycle", "AutomaticUpdateLauncher.cs");
+
+        Assert.Contains("AutomaticUpdateLauncher.TryLaunch()", app);
+        Assert.Contains("TimeSpan.FromHours(24)", launcher);
+        Assert.Contains("Updater", launcher);
+        Assert.Contains("IDVB.Updater.exe", launcher);
+        Assert.Contains("--background", launcher);
+        Assert.Contains("--from-main-pid", launcher);
+        Assert.Contains("UpdateChannelPolicy.Resolve()", launcher);
+    }
+
+    [Fact]
     public void LegacyInnoBridgeCarriesTheIndependentUpdater()
     {
         var script = Read("installer", "Build-Release.ps1");
 
         Assert.Contains("Updater\\IDVBuff.Updater.csproj", script);
         Assert.Contains("Updater\\IDVB.Updater.exe", script);
+        Assert.Contains("Updater\\UpdateTrust\\idvb-update-2026-01.pem", script);
         Assert.Contains("Invoke-ReleaseSigning -Path (Join-Path $publishDir 'Updater", script);
+    }
+
+    [Fact]
+    public void EveryReleasePathRequiresTheEmbeddedUpdateTrustRoot()
+    {
+        var updateRelease = Read("release", "Invoke-IDVBRelease.ps1");
+        var githubRelease = Read("installer", "Build-RemoteRelease.ps1");
+
+        Assert.Contains("Updater\\UpdateTrust\\idvb-update-2026-01.pem", updateRelease);
+        Assert.Contains("release\\trust\\idvb-update-2026-01.pem", githubRelease);
+    }
+
+    [Fact]
+    public void UpdateWorkflowSeparatesTestStableAndExternalPublication()
+    {
+        var workflow = Read("release", "Invoke-IDVBUpdateWorkflow.ps1");
+
+        Assert.Contains("[ValidateSet('Test', 'Stable', 'GitHub', 'Audit', 'Status')]", workflow);
+        Assert.Contains("[switch]$Publish", workflow);
+        Assert.Contains("Invoke-Stage 'PublishTest' -DryRun", workflow);
+        Assert.Contains("Invoke-Stage 'PublishStable' -DryRun", workflow);
+        Assert.Contains("Confirm-OnlineEnvelope", workflow);
+        Assert.Contains("Invoke-StageIfPending", workflow);
+        Assert.Contains("GitHub publication requires a completed stable-channel publication receipt", workflow);
+        Assert.Contains("does not match GitHub target", workflow);
+        Assert.Contains("Create GitHub Release from stable assets", workflow);
+        Assert.DoesNotContain("Build-RemoteRelease.ps1", workflow);
+        Assert.Contains("IDVB-Setup-$($manifest.PublicVersion)-x64.exe", workflow);
+        Assert.Contains("feed-envelope.json", workflow);
+        Assert.DoesNotContain("publish-win-x64-test.json", workflow);
+        Assert.DoesNotContain("Remove-Item", workflow, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

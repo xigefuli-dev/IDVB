@@ -158,6 +158,15 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 return;
             }
 
+            // A manual result is an explicit replacement of the current
+            // alignment. Invalidate the old tracker and runtime scale before
+            // the new result enters adaptive arbitration, even when map/floor
+            // identity did not change.
+            CancelOrbTracking("manual recognition result replacing alignment");
+            await DrainOrbTrackingAsync();
+            EndAdaptiveMapOpen("manual recognition result replacing alignment");
+            ClearAdaptiveSessionKeys();
+
             RecordResearchAttempt(
                 recognition.Map,
                 recognition.Result.Floor,
@@ -165,20 +174,31 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 attempt,
                 "manual-recognition",
                 recognitionOverride: recognition);
-            RecordSuccessfulAlignment(recognition, frame);
-            await PersistPreprocessedScaleAsync(
+            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
                 recognition,
                 frame,
                 attempt.Diagnostics);
+            recognition = adaptiveDecision.RecognitionToRender;
+            if (adaptiveDecision.AllowLegacyCacheWrite)
+            {
+                RecordSuccessfulAlignment(recognition, frame);
+                await PersistPreprocessedScaleAsync(
+                    recognition,
+                    frame,
+                    attempt.Diagnostics);
+            }
             _lastRecognition = recognition;
             _lastAlignmentSession = UpdateAlignmentSession(
                 _lastAlignmentSession,
                 recognition);
-            RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
-            RememberReliableFloorAlignment(
-                operationMatch,
-                recognition,
-                _lastAlignmentSession);
+            if (adaptiveDecision.AllowReliableSession)
+            {
+                RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
+                RememberReliableFloorAlignment(
+                    operationMatch,
+                    recognition,
+                    _lastAlignmentSession);
+            }
             _lastGameBounds = frame.ClientBounds;
             _lastGameWindowHandle = frame.WindowHandle;
             _statusMessage =
@@ -198,13 +218,25 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 frame.ClientBounds,
                 frame.WindowHandle,
                 _settings.ShowOverlayStatus);
-            ShowTransientAlignmentSuccess(
-                recognition,
-                frame.ClientBounds,
-                frame.WindowHandle,
-                attempt.Diagnostics);
+            if (adaptiveDecision.AllowReliableSession)
+            {
+                ShowAdaptiveReliableStatus(
+                    recognition,
+                    adaptiveDecision,
+                    frame.ClientBounds,
+                    frame.WindowHandle);
+            }
+            else
+            {
+                ShowAdaptiveProvisionalStatus(
+                    recognition,
+                    adaptiveDecision,
+                    frame.ClientBounds,
+                    frame.WindowHandle);
+            }
             _overlay.Show();
-            await StartOrbTrackingAsync(recognition, frame);
+            if (adaptiveDecision.StartOrbTracking)
+                await StartOrbTrackingAsync(recognition, frame);
             RefreshMiniMapForCurrentFloor();
             StateChanged?.Invoke(this, EventArgs.Empty);
         }

@@ -52,13 +52,13 @@ public sealed class ResolutionPresetResolverTests
     }
 
     [Fact]
-    public void ResolveEffectivePreset_ExplicitSelection_WinsOverWindow()
+    public void ResolveEffectivePreset_WindowGeometry_WinsOverExplicitSelection()
     {
-        // 指定配置应无视窗口实际分辨率（快速测试场景）
+        // 记住的选择不得覆盖当前窗口的实际分辨率。
         var result = ResolutionPresetResolver.ResolveEffectivePreset(
             "2560x1440 @ 120 DPI", SampleProfiles(), 1920, 1080, 120);
 
-        Assert.Equal("2560x1440 @ 120 DPI", result);
+        Assert.Equal("1920x1080 @ 120 DPI", result);
     }
 
     [Fact]

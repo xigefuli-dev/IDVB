@@ -11,7 +11,9 @@ internal sealed class StructureConfig
     public double RotationTolerance { get; set; } = 0.1d;
     public double MinimumUsableScale { get; set; } = 0.05d;
     public double ScaleAgreementTolerance { get; set; } = 0.003d;
-    /// <summary>最终验收时允许候选 scale 相对锁定 scale 的最大偏离比例。</summary>
+    /// <summary>最终验收时允许候选 scale 相对锁定 scale 的最大偏离比例。
+    /// 实际生效门限为 max(本值, 本次搜索半径 scaleSearchRadius)：门限永远
+    /// 不严于搜索本身探索过的范围（无门楼层恢复允许 ±0.30）。</summary>
     public double MaximumScaleChangeRatio { get; set; } = 0.15d;
     public double ScaleDuplicateTolerance { get; set; } = 0.000001d;
     public double SpatialDuplicateTolerance { get; set; } = 2d;

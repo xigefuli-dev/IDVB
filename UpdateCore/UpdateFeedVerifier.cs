@@ -105,6 +105,8 @@ public sealed class EcdsaUpdateFeedVerifier : IUpdateFeedVerifier
         }
         if (!string.Equals(payload.VelopackVersion, mappedVersion, StringComparison.Ordinal))
             throw new UpdateTrustException("The signed public and Velopack versions do not match.");
+        if (string.IsNullOrWhiteSpace(payload.MinimumVersion))
+            throw new UpdateTrustException("The signed minimum update version is missing.");
         if (string.IsNullOrWhiteSpace(payload.Commit)
             || payload.Commit.Length != 40
             || payload.Commit.Any(character => !Uri.IsHexDigit(character)))

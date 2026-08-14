@@ -65,18 +65,20 @@ public sealed partial class MapRuntimeSettings
         int clientHeight) =>
         GetExactDisplayCalibration(clientWidth, clientHeight)
             ?.MapViewportRegion?.Clone()
-        ?? GetClosestDisplayCalibration(clientWidth, clientHeight)
-            ?.MapViewportRegion?.Clone()
-        ?? MapViewportRegion?.Clone();
+        ?? (CalibrationClientWidth == clientWidth
+            && CalibrationClientHeight == clientHeight
+                ? MapViewportRegion?.Clone()
+                : null);
 
     public NormalizedRectangle? ResolveFloorDisplayRegion(
         int clientWidth,
         int clientHeight) =>
         GetExactDisplayCalibration(clientWidth, clientHeight)
             ?.FloorDisplayRegion?.Clone()
-        ?? GetClosestDisplayCalibration(clientWidth, clientHeight)
-            ?.FloorDisplayRegion?.Clone()
-        ?? FloorDisplayRegion?.Clone();
+        ?? (FloorCalibrationClientWidth == clientWidth
+            && FloorCalibrationClientHeight == clientHeight
+                ? FloorDisplayRegion?.Clone()
+                : null);
 
     public void UpsertMapViewportCalibration(
         NormalizedRectangle region,

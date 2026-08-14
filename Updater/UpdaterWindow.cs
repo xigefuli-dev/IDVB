@@ -101,6 +101,12 @@ internal sealed class UpdaterWindow : Window
         var available = await _coordinator!.CheckAsync(_operation!.Token);
         if (!available)
         {
+            if (_options.Background)
+            {
+                Close();
+                Application.Current.Exit();
+                return;
+            }
             _state = UpdateWorkflowState.NoUpdate;
             _status.Text = "当前已是最新版本。";
             _details.Text = $"当前版本：{_coordinator.CurrentVersion}";
@@ -110,6 +116,8 @@ internal sealed class UpdaterWindow : Window
         }
 
         _state = UpdateWorkflowState.UpdateAvailable;
+        if (_options.Background)
+            Activate();
         var metadata = _coordinator.Metadata;
         _status.Text = _coordinator.IsInstalled ? "发现可用更新。" : "发现新的 Velopack 安装版本。";
         _details.Text = metadata is null
@@ -186,6 +194,12 @@ internal sealed class UpdaterWindow : Window
     private void ShowError(Exception exception)
     {
         UpdateLog.Write("Updater operation failed", exception);
+        if (_options.Background)
+        {
+            Close();
+            Application.Current.Exit();
+            return;
+        }
         _state = UpdateWorkflowState.Error;
         _status.Text = "更新没有执行。当前版本未被修改。";
         _details.Text = $"{exception.Message}\n\n诊断日志：{UpdateLog.FilePath}";

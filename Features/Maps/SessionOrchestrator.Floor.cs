@@ -175,6 +175,7 @@ public sealed partial class SessionOrchestrator
         int? requestedPosition = null)
     {
         CancelOrbTracking("floor changed");
+        SuspendActiveAdaptiveFloor("floor changed");
         var nextFloorKey = decision.ToFloorKey!;
         _currentFloorKey = nextFloorKey;
         if (!string.Equals(

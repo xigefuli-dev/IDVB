@@ -15,6 +15,8 @@ public sealed class UpdateFrameworkTests
         var verified = verifier.Verify(envelope, UpdateProtocol.TestChannel);
 
         Assert.Equal("b01.4-26.08.12.0001", verified.Payload.PublicVersion);
+        Assert.True(verified.Payload.MigrationBaseline);
+        Assert.Equal("1.4.1-build.20260812.1", verified.Payload.MinimumVersion);
         Assert.Equal(payloadBytes, verified.CanonicalPayload);
     }
 
@@ -92,6 +94,8 @@ public sealed class UpdateFrameworkTests
             "b01.4-26.08.12.0001",
             "1.4.1",
             "1.4.1-build.20260812.1",
+            "1.4.1-build.20260812.1",
+            true,
             DateTimeOffset.Parse("2026-08-12T00:00:00Z"),
             new string('a', 40),
             "Test release",

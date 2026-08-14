@@ -144,6 +144,72 @@ public sealed partial class MapStructureRegistrarTests
             tuning));
     }
 
+    [Theory]
+    [InlineData(0.82d)]
+    [InlineData(1.18d)]
+    public void WideRecoverySearchAcceptsScaleBeyondFixedFifteenPercentGate(
+        double plantedScale)
+    {
+        // 回归：二楼无门恢复路径用 ±0.30 搜索半径从不可靠 seed（中性 1.0）
+        // 恢复真实 scale。正确 scale 偏离 seed 超过 15% 时，固定 15% 的
+        // scale 一致性门会误拒为 ScaleChangeTooLarge（"缩放超出安全范围"）；
+        // 门限必须覆盖搜索实际探索的范围。
+        using var reference = BuildReference();
+        var crop = new Rect(82, 58, 300, 236);
+        using var source = new Mat(reference, crop);
+        using var live = new Mat();
+        Cv2.Resize(
+            source,
+            live,
+            new Size(
+                (int)Math.Round(source.Width * plantedScale),
+                (int)Math.Round(source.Height * plantedScale)),
+            0d,
+            0d,
+            InterpolationFlags.Nearest);
+        var viewport = new MapScreenRect(600d, 300d, live.Width, live.Height);
+        var tuning = TestTuning();
+        tuning.ScaleSearchRadius = 0.30d;
+        // 模拟全局恢复：禁止固定 scale 快速粗搜索与单假设早停。
+        tuning.EnableFastAlignment = false;
+        tuning.DisableScaleEarlyTermination = true;
+        tuning.Normalize();
+        var registrar = new MapStructureRegistrar(new MapStructurePreprocessor());
+
+        var result = registrar.Register(new MapStructureRegistrationRequest
+        {
+            ReferenceImage = reference,
+            LiveRoi = live,
+            ViewportBounds = viewport,
+            LockedTransform = Locked(
+                reference,
+                offsetX: viewport.X - crop.X,
+                offsetY: viewport.Y - crop.Y),
+            Tuning = tuning,
+            AllowScaleSearch = true
+        });
+
+        Assert.True(result.Accepted, result.FailureReason);
+        Assert.NotNull(result.Transform);
+        Assert.NotEqual(
+            MapStructureRejectionReason.ScaleChangeTooLarge,
+            result.RejectionReason);
+        Assert.InRange(
+            result.Transform.ScaleX,
+            plantedScale - 0.03d,
+            plantedScale + 0.03d);
+        Assert.InRange(
+            Math.Abs(result.Transform.OffsetX
+                - (viewport.X - (crop.X * result.Transform.ScaleX))),
+            0d,
+            3.5d);
+        Assert.InRange(
+            Math.Abs(result.Transform.OffsetY
+                - (viewport.Y - (crop.Y * result.Transform.ScaleY))),
+            0d,
+            3.5d);
+    }
+
     [Fact]
     public void ForcedBestCandidateAcceptsAmbiguousRepeatedRooms()
     {

@@ -278,14 +278,7 @@ public sealed partial class SessionOrchestrator
                 repairCacheKeys.TryGetValue(
                     recognition.Map.Id,
                     out var repairCacheKey);
-                await RepairMapCacheAsync(repairCacheKey, recognition, frame);
-                await PersistPreprocessedScaleAsync(
-                    recognition,
-                    frame,
-                    _lastDiagnostics);
-                if (!IsCurrentMatchOperation(operationMatch))
-                    return;
-                RecordSuccessfulAlignment(recognition, frame);
+                var playerDecidedScale = false;
                 // ── 由玩家决定缩放值：确认后直接以玩家 transform 渲染 ──
                 if (_settings.RecognitionTuning.PlayerDecidesScale
                     && recognition.Result.OverlayTransform is { } initialTransform
@@ -301,7 +294,7 @@ public sealed partial class SessionOrchestrator
                     recognition = WithOverlayTransform(
                         recognition,
                         playerTransform);
-                    await PersistPlayerDecidedScaleAsync(recognition, frame);
+                    playerDecidedScale = true;
                     _logCollector.Append(
                         MapLogCategory.Session,
                         MapLogLevel.Info,
@@ -311,6 +304,25 @@ public sealed partial class SessionOrchestrator
                         + $"offset=({playerTransform.OffsetX:F0},"
                         + $"{playerTransform.OffsetY:F0})");
                 }
+                var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
+                    recognition,
+                    frame,
+                    _lastDiagnostics,
+                    playerDecidedScale ? MapFeatureCacheSource.Player : null);
+                recognition = adaptiveDecision.RecognitionToRender;
+                if (adaptiveDecision.AllowLegacyCacheWrite)
+                {
+                    await RepairMapCacheAsync(repairCacheKey, recognition, frame);
+                    await PersistPreprocessedScaleAsync(
+                        recognition,
+                        frame,
+                        _lastDiagnostics);
+                    if (playerDecidedScale)
+                        await PersistPlayerDecidedScaleAsync(recognition, frame);
+                    RecordSuccessfulAlignment(recognition, frame);
+                }
+                if (!IsCurrentMatchOperation(operationMatch))
+                    return;
                 _lastRecognition = recognition;
                 _pendingAlignmentIdentity = null;
                 _pendingAlignmentSeed = null;
@@ -320,11 +332,14 @@ public sealed partial class SessionOrchestrator
                 _lastAlignmentSession = UpdateAlignmentSession(
                     _lastAlignmentSession ?? pendingSideEntranceSeed,
                     recognition);
-                RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
-                RememberReliableFloorAlignment(
-                    operationMatch,
-                    recognition,
-                    _lastAlignmentSession);
+                if (adaptiveDecision.AllowReliableSession)
+                {
+                    RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
+                    RememberReliableFloorAlignment(
+                        operationMatch,
+                        recognition,
+                        _lastAlignmentSession);
+                }
                 _lastGameBounds = frame.ClientBounds;
                 _lastGameWindowHandle = frame.WindowHandle;
 
@@ -345,13 +360,25 @@ public sealed partial class SessionOrchestrator
                     frame.ClientBounds,
                     frame.WindowHandle,
                     _settings.ShowOverlayStatus);
-                ShowTransientAlignmentSuccess(
-                    recognition,
-                    frame.ClientBounds,
-                    frame.WindowHandle,
-                    _lastDiagnostics);
+                if (adaptiveDecision.AllowReliableSession)
+                {
+                    ShowAdaptiveReliableStatus(
+                        recognition,
+                        adaptiveDecision,
+                        frame.ClientBounds,
+                        frame.WindowHandle);
+                }
+                else
+                {
+                    ShowAdaptiveProvisionalStatus(
+                        recognition,
+                        adaptiveDecision,
+                        frame.ClientBounds,
+                        frame.WindowHandle);
+                }
                 _overlay.Show();
-                await StartOrbTrackingAsync(recognition, frame);
+                if (adaptiveDecision.StartOrbTracking)
+                    await StartOrbTrackingAsync(recognition, frame);
                 _logCollector.Append(
                     MapLogCategory.Overlay,
                     MapLogLevel.Info,

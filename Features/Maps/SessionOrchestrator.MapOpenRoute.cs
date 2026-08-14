@@ -31,7 +31,8 @@ public sealed partial class SessionOrchestrator
                     structureTuning,
                     alignmentSession.SideEntranceScanPriorConfidence)
                 is { } vpsgAttempt
-                && vpsgAttempt.Recognition is not null)
+                && vpsgAttempt.Recognition is not null
+                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
             {
                 return vpsgAttempt;
             }
@@ -54,7 +55,8 @@ public sealed partial class SessionOrchestrator
                     alignmentMode,
                     tuning,
                     structureTuning);
-            if (directAttempt.Recognition is not null)
+            if (directAttempt.Recognition is not null
+                && IsAdaptiveInitialScaleQualified(directAttempt, structureTuning))
                 return directAttempt;
 
             _logCollector.Append(

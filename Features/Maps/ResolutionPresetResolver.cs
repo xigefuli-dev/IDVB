@@ -76,17 +76,8 @@ public static class ResolutionPresetResolver
         int height,
         int dpi)
     {
-        if (!string.IsNullOrWhiteSpace(selection))
-        {
-            var name = selection.Trim();
-            if (profiles.Any(p =>
-                string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
-            {
-                return name;
-            }
-            // 指定配置已从预设列表消失 → 回退自动
-        }
-
+        // The physical client geometry is authoritative. A remembered UI
+        // selection must never activate a preset for another resolution.
         return MatchPresetName(profiles, width, height, dpi);
     }
 }

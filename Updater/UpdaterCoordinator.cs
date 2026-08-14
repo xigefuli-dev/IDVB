@@ -32,11 +32,13 @@ internal sealed class UpdaterCoordinator : IDisposable
     {
         if (_manager.IsInstalled)
         {
-            _update = await _manager.CheckForUpdatesAsync();
+            _update = await _manager.CheckForUpdatesAsync().WaitAsync(cancellationToken);
             return _update is not null;
         }
 
         _ = await _source.FetchVerifiedFeedAsync(cancellationToken);
+        if (Metadata?.MigrationBaseline != true)
+            throw new InvalidOperationException("当前更新没有提供从传统安装包迁移到内置更新体系的入口。");
         return true;
     }
 

@@ -13,12 +13,17 @@ public static class ViewportCalibrationTomlWriter
     public const string FileName = "viewport.toml";
 
     /// <summary>生成 viewport.toml 的文本内容（[viewport] 段）。</summary>
-    public static string BuildViewportToml(NormalizedRectangle region)
+    public static string BuildViewportToml(
+        NormalizedRectangle region,
+        int clientWidth,
+        int clientHeight)
     {
         var sb = new StringBuilder();
         sb.AppendLine("# IDVB Viewport Calibration");
         sb.AppendLine();
         sb.AppendLine("[viewport]");
+        sb.AppendLine($"client_width = {clientWidth}");
+        sb.AppendLine($"client_height = {clientHeight}");
         sb.AppendLine($"map_region_x = {region.X:F6}");
         sb.AppendLine($"map_region_y = {region.Y:F6}");
         sb.AppendLine($"map_region_width = {region.Width:F6}");
@@ -29,7 +34,9 @@ public static class ViewportCalibrationTomlWriter
     /// <summary>写入预设目录；目录不存在时自动创建。</summary>
     public static async Task WriteAsync(
         string presetDirectory,
-        NormalizedRectangle region)
+        NormalizedRectangle region,
+        int clientWidth,
+        int clientHeight)
     {
         if (!Directory.Exists(presetDirectory))
             Directory.CreateDirectory(presetDirectory);
@@ -37,7 +44,7 @@ public static class ViewportCalibrationTomlWriter
         var path = Path.Combine(presetDirectory, FileName);
         await File.WriteAllTextAsync(
             path,
-            BuildViewportToml(region),
+            BuildViewportToml(region, clientWidth, clientHeight),
             Encoding.UTF8);
     }
 }

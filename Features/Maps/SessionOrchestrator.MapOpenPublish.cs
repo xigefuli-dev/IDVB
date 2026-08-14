@@ -26,15 +26,23 @@ public sealed partial class SessionOrchestrator
 
         if (aligned is not null)
         {
-            await RepairMapCacheAsync(repairCacheKey, aligned, frame);
-            await PersistPreprocessedScaleAsync(
+            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
                 aligned,
                 frame,
                 _lastDiagnostics);
+            aligned = adaptiveDecision.RecognitionToRender;
+            if (adaptiveDecision.AllowLegacyCacheWrite)
+            {
+                await RepairMapCacheAsync(repairCacheKey, aligned, frame);
+                await PersistPreprocessedScaleAsync(
+                    aligned,
+                    frame,
+                    _lastDiagnostics);
+                RecordSuccessfulAlignment(aligned, frame);
+            }
             if (!IsCurrentMatchOperation(operationMatch))
                 return false;
 
-            RecordSuccessfulAlignment(aligned, frame);
             // 与识别管线一致：首次成功对齐时 _lastAlignmentSession 可能仍为
             // null，需回退到侧门扫描种子以保留 SideEntranceScanPriorConfidence；
             // 否则仅对齐成功后先验归零，后续重新对齐会退化到 Default 双门路线。
@@ -46,11 +54,14 @@ public sealed partial class SessionOrchestrator
                 _lastAlignmentSession ?? sideEntranceSeed,
                 aligned);
             _lastAlignmentSession = updatedSession;
-            RememberPrimaryFloorSession(aligned, updatedSession);
-            RememberReliableFloorAlignment(
-                operationMatch,
-                aligned,
-                updatedSession);
+            if (adaptiveDecision.AllowReliableSession)
+            {
+                RememberPrimaryFloorSession(aligned, updatedSession);
+                RememberReliableFloorAlignment(
+                    operationMatch,
+                    aligned,
+                    updatedSession);
+            }
             _lastGameBounds = frame.ClientBounds;
             _lastGameWindowHandle = frame.WindowHandle;
             _statusMessage =
@@ -75,13 +86,25 @@ public sealed partial class SessionOrchestrator
                 frame.ClientBounds,
                 frame.WindowHandle,
                 _settings!.ShowOverlayStatus);
-            ShowTransientAlignmentSuccess(
-                aligned,
-                frame.ClientBounds,
-                frame.WindowHandle,
-                _lastDiagnostics);
+            if (adaptiveDecision.AllowReliableSession)
+            {
+                ShowAdaptiveReliableStatus(
+                    aligned,
+                    adaptiveDecision,
+                    frame.ClientBounds,
+                    frame.WindowHandle);
+            }
+            else
+            {
+                ShowAdaptiveProvisionalStatus(
+                    aligned,
+                    adaptiveDecision,
+                    frame.ClientBounds,
+                    frame.WindowHandle);
+            }
             _overlay.Show();
-            await StartOrbTrackingAsync(aligned, frame);
+            if (adaptiveDecision.StartOrbTracking)
+                await StartOrbTrackingAsync(aligned, frame);
             RefreshMiniMapForCurrentFloor();
             return true;
         }

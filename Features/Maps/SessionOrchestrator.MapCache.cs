@@ -129,6 +129,39 @@ public sealed partial class SessionOrchestrator
         }
 
         var key = MapFeatureCacheRules.CreateKey(map, floorKey, resolution);
+        if (TryAlignWithAdaptiveCalibrationSeed(
+                frame,
+                map,
+                floorKey,
+                _settings!.OverlayAlignmentMode,
+                tuning,
+                structureTuning,
+                identityPriorConfidence,
+                out _,
+                out var adaptiveAttempt))
+        {
+            if (IsAdaptiveInitialScaleQualified(adaptiveAttempt, structureTuning)
+                && adaptiveAttempt!.Recognition is { } adaptiveRecognition)
+            {
+                return CopyAttempt(adaptiveAttempt, adaptiveRecognition);
+            }
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Warning,
+                "adaptive calibration seed rejected by initial quality gate",
+                details: new()
+                {
+                    ["mapId"] = map.Id,
+                    ["floor"] = floorKey,
+                    ["localizationConfidence"] = adaptiveAttempt?.Recognition?
+                        .Result.LocalizationConfidence,
+                    ["candidateMargin"] = adaptiveAttempt?.Recognition?
+                        .Result.StructureCandidateMargin,
+                    ["requiredCandidateMargin"] = structureTuning.MinimumCandidateMargin
+                });
+            repairKey = key;
+            return fallback();
+        }
         if (!_mapFeatureCacheRepository.TryGet(key, out var entry)
             || entry is null)
         {
@@ -198,9 +231,12 @@ public sealed partial class SessionOrchestrator
             structureTuning,
             identityPriorConfidence);
         cachedAlignmentTimer.Stop();
+        var adaptiveQualified = IsAdaptiveInitialScaleQualified(
+            cachedAttempt,
+            structureTuning);
         _logCollector.Append(
             MapLogCategory.StructureRegistration,
-            cachedAttempt.Recognition is null
+            !adaptiveQualified
                 ? MapLogLevel.Warning
                 : MapLogLevel.Info,
             $"缩放缓存结构验证完成 · success={cachedAttempt.Recognition is not null}",
@@ -225,12 +261,16 @@ public sealed partial class SessionOrchestrator
                 ["candidateMargin"] = cachedAttempt.Recognition is { } cached
                     ? MapFeatureCacheRules.GetCandidateMargin(cached.Result)
                     : cachedAttempt.StructureResult?.CandidateMargin,
-                ["cacheDecision"] = cachedAttempt.Recognition is null
-                    ? "rejected-recovery-required"
-                    : "accepted",
+                ["cacheDecision"] = adaptiveQualified
+                    ? "accepted"
+                    : cachedAttempt.Recognition is null
+                        ? "rejected-recovery-required"
+                        : "rejected-adaptive-quality",
+                ["adaptiveQualified"] = adaptiveQualified,
                 ["failureReason"] = cachedAttempt.FailureReason
             });
-        if (cachedAttempt.Recognition is { } cachedRecognition)
+        if (adaptiveQualified
+            && cachedAttempt.Recognition is { } cachedRecognition)
         {
             return CopyAttempt(
                 cachedAttempt,

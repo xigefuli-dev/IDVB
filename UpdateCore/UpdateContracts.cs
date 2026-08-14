@@ -48,6 +48,8 @@ public sealed record UpdateFeedPayload(
     string PublicVersion,
     string ProductVersion,
     string VelopackVersion,
+    string MinimumVersion,
+    bool MigrationBaseline,
     DateTimeOffset PublishedUtc,
     string Commit,
     string ReleaseNotes,

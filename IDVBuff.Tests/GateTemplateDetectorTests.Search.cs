@@ -186,7 +186,7 @@ public sealed partial class GateTemplateDetectorTests
             new GateSearchContext
             {
                 Mode = GateSearchMode.FullSearch,
-                TimeBudgetMilliseconds = 1, // impossibly tight
+                TimeBudgetMilliseconds = 0, // deterministic immediate timeout
             });
 
         Assert.True(result.BudgetExceeded);

@@ -61,7 +61,8 @@
         <ProjectReference Include="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
         <ProjectReference Include="UpdateCore\IDVBuff.UpdateCore.csproj" />
         <ProjectReference Include="Updater\IDVBuff.Updater.csproj"
-                          ReferenceOutputAssembly="false" />
+                          ReferenceOutputAssembly="false"
+                          AdditionalProperties="SelfContained=false" />
         <ProjectReference Include="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
         <ProjectReference Include="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
         <ProjectReference Include="Survey\Application\IDVBuff.Survey.Application.csproj" />
@@ -115,10 +116,10 @@
         <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
         <Compile Remove="UpdateCore\**\*.cs" />
         <Compile Remove="Updater\**\*.cs" />
-        <!-- The Updater is a second WPF application under this repository.
-             Removing only its .cs files is insufficient: SDK XAML globs would
-             still import Updater/App.xaml as a second ApplicationDefinition
-             and break the main application build. Exclude both XAML item types. -->
+        <!-- The Updater is an independent WinForms application under this
+             repository. Removing only its .cs files is insufficient: SDK XAML
+             globs would still import stale Updater/App.xaml as a second
+             ApplicationDefinition and break the main application build. -->
         <ApplicationDefinition Remove="Updater\**\*.xaml" />
         <Page Remove="Updater\**\*.xaml" />
         <Compile Remove="release\**\*.cs" />

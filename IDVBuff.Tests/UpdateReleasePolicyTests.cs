@@ -180,6 +180,7 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("<UseWindowsForms>true</UseWindowsForms>", project);
         Assert.DoesNotContain("Microsoft.WindowsAppSDK", project);
         Assert.Contains("Updater\\IDVBuff.Updater.csproj", mainProject);
+        Assert.Contains("AdditionalProperties=\"SelfContained=false\"", mainProject);
         Assert.Contains("CopyUpdaterToApplicationOutput", mainProject);
         Assert.Contains("<RemoveDir Directories=\"$(TargetDir)Updater\"", mainProject);
         Assert.Contains("var layout = new TableLayoutPanel", window);

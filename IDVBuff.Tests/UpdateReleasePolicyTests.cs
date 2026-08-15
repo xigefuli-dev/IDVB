@@ -215,6 +215,9 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("git -C $snapshotRoot push origin", workflow);
         Assert.Contains("refs/heads/master", workflow);
         Assert.Contains("Test-PublicCodeOnlyPath", workflow);
+        Assert.Contains("Startup_IDVB.cmd", workflow);
+        Assert.Contains("Startup_RealCLI.cmd", workflow);
+        Assert.Contains("Startup_overlay_game.cmd", workflow);
         Assert.Contains("Commit this code-only source snapshot and push it to origin/master", workflow);
         Assert.Contains("Code-only source publication is an external GitHub change", workflow);
         Assert.Contains("Invoke-PublicCodeOnlyCommit -PlanOnly", workflow);

@@ -29,6 +29,7 @@
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Features\Plugins\PluginPreferencesStore.cs" Link="Production\Plugins\PluginPreferencesStore.cs" />
     <Compile Include="..\Lifecycle\VelopackInstallLayout.cs" Link="Production\VelopackInstallLayout.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.9" />

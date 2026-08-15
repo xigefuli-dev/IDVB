@@ -45,7 +45,14 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         return _byId.TryGetValue(id, out var registration) && registration.Enabled;
     }
 
-    public void Register(IPlugin plugin)
+    public void Register(IPlugin plugin) => Register(plugin, initiallyEnabled: true);
+
+    /// <summary>
+    /// Registers a plugin and specifies whether it should be enabled when the
+    /// host next starts. This lets the host restore persisted user choices
+    /// before plugin lifecycle callbacks run.
+    /// </summary>
+    public void Register(IPlugin plugin, bool initiallyEnabled)
     {
         ArgumentNullException.ThrowIfNull(plugin);
         if (string.IsNullOrWhiteSpace(plugin.Id))
@@ -58,7 +65,8 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
 
         var registration = new Registration(
             plugin,
-            MessageBus.GetHandlerMessageTypes(plugin));
+            MessageBus.GetHandlerMessageTypes(plugin),
+            initiallyEnabled);
         _registrations.Add(registration);
         _byId[plugin.Id] = registration;
     }
@@ -79,7 +87,10 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             }
 
             foreach (var registration in _registrations)
-                EnableRegistration(registration);
+            {
+                if (registration.DesiredEnabled)
+                    EnableRegistration(registration);
+            }
         }
         catch
         {
@@ -111,9 +122,15 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             return;
 
         if (enabled)
+        {
             EnableRegistration(registration);
+            registration.DesiredEnabled = true;
+        }
         else
+        {
             DisableRegistration(registration);
+            registration.DesiredEnabled = false;
+        }
     }
 
     public void Tick()
@@ -225,10 +242,14 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
 
     private sealed class Registration
     {
-        public Registration(IPlugin plugin, IReadOnlyList<Type> messageTypes)
+        public Registration(
+            IPlugin plugin,
+            IReadOnlyList<Type> messageTypes,
+            bool initiallyEnabled)
         {
             Plugin = plugin;
             MessageTypes = messageTypes;
+            DesiredEnabled = initiallyEnabled;
         }
 
         public IPlugin Plugin { get; }
@@ -236,6 +257,8 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         public IReadOnlyList<Type> MessageTypes { get; }
 
         public IPluginContext? Context { get; set; }
+
+        public bool DesiredEnabled { get; set; }
 
         public bool Enabled { get; set; }
     }

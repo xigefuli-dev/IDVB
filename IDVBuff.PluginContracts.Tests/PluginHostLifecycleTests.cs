@@ -33,6 +33,44 @@ public class PluginHostLifecycleTests
     }
 
     [Fact]
+    public void Start_RespectsInitialDisabledState_AndCanEnableLater()
+    {
+        var factory = new FakeContextFactory();
+        var host = CreateHost(factory);
+        var plugin = new RecordingPlugin("a");
+        host.Register(plugin, initiallyEnabled: false);
+
+        host.Start();
+
+        Assert.False(host.IsEnabled("a"));
+        Assert.Equal(["load"], plugin.Calls);
+
+        host.SetEnabled("a", enabled: true);
+
+        Assert.True(host.IsEnabled("a"));
+        Assert.Equal(["load", "enable", "start"], plugin.Calls);
+    }
+
+    [Fact]
+    public void StopAndStart_PreservesTheCurrentDesiredState()
+    {
+        var factory = new FakeContextFactory();
+        var host = CreateHost(factory);
+        var plugin = new RecordingPlugin("a");
+        host.Register(plugin);
+        host.Start();
+
+        host.SetEnabled("a", enabled: false);
+        host.Stop();
+        host.Start();
+
+        Assert.False(host.IsEnabled("a"));
+        Assert.Equal(
+            ["load", "enable", "start", "disable", "unload", "load"],
+            plugin.Calls);
+    }
+
+    [Fact]
     public void Tick_CallsOnTickForAllStartedPlugins()
     {
         var factory = new FakeContextFactory();

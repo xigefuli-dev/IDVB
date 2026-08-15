@@ -184,6 +184,7 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("'--self-contained'", updateRelease);
         Assert.Contains("Updater\\IDVBuff.Updater.csproj", mainProject);
         Assert.Contains("AdditionalProperties=\"SelfContained=false\"", mainProject);
+        Assert.Contains("<ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>", mainProject);
         Assert.Contains("CopyUpdaterToApplicationOutput", mainProject);
         Assert.Contains("<RemoveDir Directories=\"$(TargetDir)Updater\"", mainProject);
         Assert.Contains("var layout = new TableLayoutPanel", window);

@@ -22,6 +22,8 @@
     <ProjectReference Include="..\Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
     <ProjectReference Include="..\Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
     <ProjectReference Include="..\Survey\Preprocessing\IDVBuff.Survey.Preprocessing.OpenCv.csproj" />
+    <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -179,6 +181,8 @@
     <Compile Include="..\Features\Maps\MapAlignmentResearchCollector.cs" Link="Production\MapAlignmentResearchCollector.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionStatisticsRepository.cs" Link="Production\MapRecognitionStatisticsRepository.cs" />
     <Compile Include="..\Features\Maps\AdaptiveScaleAlignment\AdaptiveScale*.cs" Link="Production\AdaptiveScaleAlignment\%(Filename)%(Extension)" />
+    <Compile Include="..\Features\Plugins\HostMessageMapper.cs" Link="Production\Plugins\HostMessageMapper.cs" />
+    <Compile Include="..\Plugins\AutoClicker\AutoClickerPolicy.cs" Link="Production\Plugins\AutoClicker\AutoClickerPolicy.cs" />
   </ItemGroup>
 
   <ItemGroup>

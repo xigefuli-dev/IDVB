@@ -58,9 +58,17 @@
                         </Grid.ColumnDefinitions>
                         <SymbolIcon Grid.Column="0"
                                     Symbol="{Binding Icon}"
+                                    Visibility="{Binding SymbolIconVisibility}"
                                     Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                     HorizontalAlignment="Left"
                                     VerticalAlignment="Center" />
+                        <FontIcon Grid.Column="0"
+                                  Glyph="{Binding IconGlyph}"
+                                  Visibility="{Binding FontIconVisibility}"
+                                  FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                  HorizontalAlignment="Left"
+                                  VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1"
                                    Text="{Binding DisplayName}"
                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"

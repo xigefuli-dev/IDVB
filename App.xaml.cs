@@ -3,6 +3,8 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Navigation;
 using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
+using IDVBuff.Features.Plugins;
+using IDVBuff.PluginContracts;
 using Microsoft.UI.Dispatching;
 using IDVBuff.Diagnostics;
 using IDVBuff.Cli;
@@ -36,6 +38,8 @@ namespace IDVBuff
         private ServiceProvider? _serviceProvider;
         private IdvbControlServer? _idvbControlServer;
         private UpdateShutdownServer? _updateShutdownServer;
+        private PluginManager? _pluginManager;
+        private HostEventBridge? _hostEventBridge;
 
         /// <summary>全局 DI 容器（供 Views 等非 DI 感知组件使用）。</summary>
         public static ServiceProvider Services =>
@@ -45,6 +49,9 @@ namespace IDVBuff
         /// <summary>快捷访问新架构入口（供 Views 使用）。</summary>
         public static Features.Maps.SessionOrchestrator Session =>
             Services.GetRequiredService<Features.Maps.SessionOrchestrator>();
+
+        /// <summary>快捷访问插件宿主（供插件管理页读取已注册插件）。</summary>
+        public static PluginManager? Plugins => _currentApp?._pluginManager;
 
         private static App? _currentApp;
 
@@ -130,6 +137,28 @@ namespace IDVBuff
                 var session = _serviceProvider.GetRequiredService<Features.Maps.SessionOrchestrator>();
                 session.ElevationRequiredDetected += Runtime_ElevationRequiredDetected;
                 await session.InitializeAsync();
+
+                // ═══ 插件 SDK 装配（仅 GUI 路径；RealCLI 走 RunCliAsync，绝不加载插件）═══
+                var pluginBus = new MessageBus();
+                var pluginSynchronizer = new DispatcherQueueSynchronizer(dispatcher);
+                var pluginContextFactory = new PluginContextFactory(
+                    pluginBus,
+                    pluginSynchronizer,
+                    _serviceProvider);
+                _pluginManager = new PluginManager(
+                    dispatcher,
+                    pluginBus,
+                    pluginContextFactory);
+                _hostEventBridge = new HostEventBridge(
+                    pluginBus,
+                    session,
+                    _serviceProvider.GetRequiredService<IGlobalInput>(),
+                    session.SurveyCoordinator,
+                    _serviceProvider.GetRequiredService<IConfigProvider>(),
+                    _serviceProvider.GetRequiredService<IResolutionProfileService>());
+                _hostEventBridge.Attach();
+                PluginRegistration.Register(_pluginManager);
+                _pluginManager.Start();
 
                 if (!string.IsNullOrWhiteSpace(cliOptions.IdvbControlPipeName))
                 {
@@ -430,6 +459,12 @@ namespace IDVBuff
                     await _updateShutdownServer.DisposeAsync();
                     _updateShutdownServer = null;
                 }
+
+                // 先停插件、再拆桥、最后销毁 session：卸载期间宿主事件不触达半销毁的插件。
+                _pluginManager?.Stop();
+                _pluginManager = null;
+                _hostEventBridge?.Dispose();
+                _hostEventBridge = null;
 
                 if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is IAsyncDisposable ad)
                 {

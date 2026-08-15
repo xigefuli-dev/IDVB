@@ -10,7 +10,7 @@ internal sealed record UpdaterLaunchOptions(
 {
     public static UpdaterLaunchOptions Parse(string[] args)
     {
-        var channel = UpdateProtocol.StableChannel;
+        var channel = UpdateProtocol.DefaultChannel;
         var updateRoot = new Uri(UpdateProtocol.DefaultUpdateRoot, UriKind.Absolute);
         var mainProcessId = 0;
         var background = false;

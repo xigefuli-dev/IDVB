@@ -12,6 +12,7 @@ public static class ModuleRegistration
         catalog.Register(new SettingsModule());
         catalog.Register(new StatusModule());
         catalog.Register(new ListModule());
+        catalog.Register(new PluginsModule());
 
         // Example after adding a ProjectReference to an imported WinUI project:
         // catalog.Register(new ImportedProjectModule());
@@ -29,6 +30,11 @@ public static class ModuleRegistration
                 new NavigationNode("配置", Microsoft.UI.Xaml.Controls.Symbol.View, "map-status"),
                 new NavigationNode("地图列表", Microsoft.UI.Xaml.Controls.Symbol.Bullets, "map-list")
             ],
-            isExpanded: false)
+            isExpanded: false),
+        new NavigationNode(
+            "插件",
+            Microsoft.UI.Xaml.Controls.Symbol.AllApps,
+            "plugins",
+            iconGlyph: "\uEA86")
     ];
 }

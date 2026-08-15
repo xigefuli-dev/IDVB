@@ -12,6 +12,9 @@
         <WindowsPackageType>None</WindowsPackageType>
         <!-- Keep ordinary build output runnable without a separately installed Windows App Runtime. -->
         <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+        <!-- Updater is an independent WinForms executable built and copied as a deployment artifact,
+             not an executable assembly reference. Do not compare its self-contained mode with IDVB. -->
+        <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
 
         <!-- Project Options -->
         <Nullable>enable</Nullable>
@@ -74,6 +77,9 @@
         <ProjectReference Include="Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
         <ProjectReference Include="Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
         <ProjectReference Include="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
+        <ProjectReference Include="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+        <ProjectReference Include="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+        <ProjectReference Include="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
 
         <Content Include="Assets\SplashScreen.scale-200.png" />
         <Content Include="Assets\LockScreenLogo.scale-200.png" />
@@ -124,6 +130,10 @@
         <Page Remove="Updater\**\*.xaml" />
         <Compile Remove="release\**\*.cs" />
         <Compile Remove="Survey\**\*.cs" />
+        <Compile Remove="IDVBuff.PluginContracts\**\*.cs" />
+        <Compile Remove="IDVBuff.PluginHostMessages\**\*.cs" />
+        <Compile Remove="IDVBuff.PluginContracts.Tests\**\*.cs" />
+        <Compile Remove="Plugins\**\*.cs" />
         <!-- Local validation/release snapshots and auxiliary worktrees can
              contain complete copies of the repository. They must never be
              picked up by the main project's implicit source or XAML globs. -->

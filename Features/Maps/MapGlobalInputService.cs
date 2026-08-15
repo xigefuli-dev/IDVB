@@ -2,6 +2,7 @@ using Microsoft.UI.Dispatching;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using IDVBuff.PluginHostMessages;
 
 namespace IDVBuff.Features.Maps;
 
@@ -34,7 +35,7 @@ public sealed partial class MapGlobalInputService : IDisposable
     private const uint MouseeventfMiddleup = 0x0040;
     private const uint MouseeventfXup = 0x0100;
     private static readonly IntPtr ReleaseInputMarker =
-        new(0x4944564255464652L);
+        new(InputInjectionMarkers.HostGeneratedInput);
     private const int KeyboardPollIntervalMilliseconds = 15;
     private const long DuplicateKeyDownSuppressionMilliseconds = 120;
 
@@ -548,7 +549,7 @@ public sealed partial class MapGlobalInputService : IDisposable
 
     private IntPtr MouseHookCallback(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (code >= 0 && TryGetMouseButton((uint)wParam.ToInt64(), lParam, out var button))
+        if (code >= 0 && !IsMarkedInjectedMouse(lParam) && TryGetMouseButton((uint)wParam.ToInt64(), lParam, out var button))
         {
             var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
             if (_quickScan.Kind == MapInputBindingKind.Mouse && _quickScan.MouseButton == button)

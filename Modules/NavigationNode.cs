@@ -13,10 +13,12 @@ public sealed class NavigationNode
         Symbol icon,
         string? moduleId = null,
         IEnumerable<NavigationNode>? children = null,
-        bool isExpanded = false)
+        bool isExpanded = false,
+        string? iconGlyph = null)
     {
         DisplayName = displayName;
         Icon = icon;
+        IconGlyph = iconGlyph;
         ModuleId = moduleId;
         Children = children?.ToArray() ?? [];
         IsExpanded = isExpanded;
@@ -24,6 +26,7 @@ public sealed class NavigationNode
 
     public string DisplayName { get; }
     public Symbol Icon { get; }
+    public string? IconGlyph { get; }
     public string? ModuleId { get; }
     public IReadOnlyList<NavigationNode> Children { get; }
     public bool IsExpanded { get; private set; }
@@ -54,6 +57,13 @@ public sealed class NavigationEntry
     public IReadOnlyList<NavigationEntry> Children => _children;
     public string DisplayName => Node.DisplayName;
     public Symbol Icon => Node.Icon;
+    public string? IconGlyph => Node.IconGlyph;
+    public Visibility SymbolIconVisibility => string.IsNullOrEmpty(Node.IconGlyph)
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility FontIconVisibility => string.IsNullOrEmpty(Node.IconGlyph)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
     public string? ModuleId => Node.ModuleId;
     public string ExpansionGlyph => "\u203A";
     public Visibility ExpansionVisibility => Node.Children.Count > 0

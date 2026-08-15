@@ -29,7 +29,8 @@ internal static class UpdateChannelPolicy
         {
             // A missing or unreadable marker always fails closed to stable.
         }
-        return UpdateProtocol.StableChannel;
+        // A user who has not explicitly opted into preview updates stays on stable.
+        return UpdateProtocol.DefaultChannel;
 #endif
     }
 }

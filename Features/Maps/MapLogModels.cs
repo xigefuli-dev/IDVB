@@ -35,7 +35,9 @@ public enum MapLogCategory
     /// <summary>玩家位置追踪。</summary>
     PlayerTracking,
     /// <summary>Post-alignment ORB frame tracking.</summary>
-    OrbTracking
+    OrbTracking,
+    /// <summary>插件生命周期与消息。</summary>
+    Plugin
 }
 
 /// <summary>结构化日志条目。</summary>

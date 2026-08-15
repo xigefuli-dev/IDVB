@@ -48,6 +48,14 @@ internal sealed class ListModule : IAppModule
     public object CreateView() => new IDVBuff.Views.MapListPage();
 }
 
+internal sealed class PluginsModule : IAppModule
+{
+    public string Id => "plugins";
+    public string DisplayName => "插件";
+    public string IconKey => nameof(Symbol.AllApps);
+    public object CreateView() => new IDVBuff.Views.PluginsPage();
+}
+
 internal static class ModuleViewFactory
 {
     public static FrameworkElement Create(string title, string description, string badge) => new StackPanel

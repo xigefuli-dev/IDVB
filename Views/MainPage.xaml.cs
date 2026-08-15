@@ -35,6 +35,7 @@ public sealed partial class MainPage : Page
     private bool _hasSavedNavigationWidth;
     private GridLength _savedNavigationWidth;
     private readonly Dictionary<SymbolIcon, Brush?> _navigationIconForegrounds = [];
+    private readonly Dictionary<FontIcon, Brush?> _navigationFontIconForegrounds = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationRowElements = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationExpansionGlyphElements = [];
     private readonly Dictionary<NavigationEntry, ItemsControl> _navigationChildrenElements = [];
@@ -455,6 +456,24 @@ public sealed partial class MainPage : Page
                 icon.Foreground = new SolidColorBrush(CompactNavigationIconColor);
             }
             else if (_navigationIconForegrounds.Remove(icon, out var originalForeground))
+            {
+                icon.Foreground = originalForeground;
+            }
+
+            icon.HorizontalAlignment = compact
+                ? HorizontalAlignment.Center
+                : HorizontalAlignment.Left;
+        }
+
+        foreach (var icon in FindDescendants<FontIcon>(contentGrid))
+        {
+            if (compact)
+            {
+                if (!_navigationFontIconForegrounds.ContainsKey(icon))
+                    _navigationFontIconForegrounds[icon] = icon.Foreground;
+                icon.Foreground = new SolidColorBrush(CompactNavigationIconColor);
+            }
+            else if (_navigationFontIconForegrounds.Remove(icon, out var originalForeground))
             {
                 icon.Foreground = originalForeground;
             }

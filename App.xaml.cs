@@ -87,9 +87,13 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Creating the main window.");
+                var isIsolatedDevelopmentInstance = Environment.GetCommandLineArgs().Any(argument =>
+                    string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
                 window = new Window
                 {
-                    Title = AppDataPaths.DisplayName,
+                    Title = isIsolatedDevelopmentInstance
+                        ? $"{AppDataPaths.DisplayName} [DEV {BuildVersionInfo.BuildVersion}]"
+                        : AppDataPaths.DisplayName,
                     ExtendsContentIntoTitleBar = false,
                     SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop()
                 };

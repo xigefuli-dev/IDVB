@@ -35,28 +35,29 @@ internal static class UpdateLifecycleState
     {
         try
         {
+            if (args.Any(argument => string.Equals(
+                    argument,
+                    "--isolated-dev-instance",
+                    StringComparison.OrdinalIgnoreCase)))
+                return false;
             if (VelopackLocator.Current.CurrentlyInstalledVersion is not null)
                 return false;
             var markerPath = Path.Combine(AppDataPaths.RootDirectory, MarkerFileName);
             if (!File.Exists(markerPath))
                 return false;
             var marker = JsonSerializer.Deserialize<InstallMarker>(File.ReadAllText(markerPath));
-            if (marker is null || !File.Exists(marker.LauncherPath))
+            if (marker is null || !VelopackInstallLayout.IsValidLauncherPath(marker.LauncherPath))
                 return false;
 
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var expectedRoot = Path.GetFullPath(Path.Combine(localAppData, "IdentityVisionBridge"))
-                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var launcherPath = Path.GetFullPath(marker.LauncherPath);
-            if (!launcherPath.StartsWith(expectedRoot, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(launcherPath, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(launcherPath, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
                 return false;
 
             var startInfo = new ProcessStartInfo
             {
                 FileName = launcherPath,
                 UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(launcherPath)
+                WorkingDirectory = Path.GetDirectoryName(launcherPath)!
             };
             foreach (var argument in args)
                 startInfo.ArgumentList.Add(argument);

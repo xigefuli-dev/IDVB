@@ -242,6 +242,47 @@ public sealed class AdaptiveScaleInitialStreakTests
         }
     }
 
+    [Fact]
+    public async Task ManualRuntimeLockMakesOnlyCurrentFloorReliableWithoutWritingStore()
+    {
+        var directory = Directory.CreateTempSubdirectory("idvb-adaptive-manual-lock-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "adaptive-scale-cache.json");
+            var store = new AdaptiveScaleStore(path);
+            var coordinator = Coordinator(store);
+            using var frame = Frame();
+            var map = Map();
+            var firstFloor = Vote(coordinator, frame, map, 1, 1.0, floor: "1f");
+            await coordinator.DrainAsync();
+            var persistedBeforeLock = await File.ReadAllBytesAsync(path);
+            var firstFloorKey = AdaptiveScaleKey.Create(
+                map, "1f", frame.ClientBounds, frame.ViewportBounds);
+
+            Assert.True(coordinator.TryLockCurrentScale(firstFloorKey, 1, 1.0));
+            Assert.True(coordinator.IsConfirmedTransform(
+                firstFloorKey,
+                1,
+                firstFloor.RecognitionToRender.Result.OverlayTransform!));
+            await coordinator.DrainAsync();
+            Assert.Equal(persistedBeforeLock, await File.ReadAllBytesAsync(path));
+
+            coordinator.EndOpen(1, "switch-floor");
+            var secondFloor = Vote(coordinator, frame, map, 2, 1.2, floor: "2f");
+            var secondFloorKey = AdaptiveScaleKey.Create(
+                map, "2f", frame.ClientBounds, frame.ViewportBounds);
+            Assert.False(coordinator.IsConfirmedTransform(
+                secondFloorKey,
+                2,
+                secondFloor.RecognitionToRender.Result.OverlayTransform!));
+            await coordinator.DrainAsync();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     private static AdaptiveAlignmentDecision Vote(
         AdaptiveScaleCoordinator coordinator,
         CapturedGameFrame frame,

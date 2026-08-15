@@ -38,6 +38,8 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame? lastFrame = null;
         var attempts = 0;
         var successfulCaptures = 0;
+        var presenceRejections = 0;
+        MapViewportPresenceResult? lastPresence = null;
         _lastStableCaptureFailureReason = null;
 
         try
@@ -63,23 +65,50 @@ public sealed partial class SessionOrchestrator
                     lastFrame = current;
                     if (stable)
                     {
-                        _logCollector.Append(
-                            MapLogCategory.ViewportCapture,
-                            MapLogLevel.Info,
-                            $"稳定帧确认完成 · op={operation} · attempts={attempts} "
-                            + $"· captures={successfulCaptures} · diff={tracker.LastDifference:F4}",
-                            elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
-                            details: new()
+                        lastPresence = MapViewportPresenceDetector.Evaluate(
+                            current.Image,
+                            GetCurrentMapViewportPresenceReference());
+                        if (!lastPresence.IsPresent)
+                        {
+                            presenceRejections++;
+                            _lastStableCaptureFailureReason =
+                                "未检测到完整地图画面，请保持地图打开后重试。";
+                            if (presenceRejections == 1)
                             {
-                                ["operation"] = operation,
-                                ["attempts"] = attempts,
-                                ["successfulCaptures"] = successfulCaptures,
-                                ["stableFrames"] = tracker.StableFrames,
-                                ["lastDifference"] = tracker.LastDifference
-                            });
-                        var stableFrame = lastFrame;
-                        lastFrame = null;
-                        return stableFrame;
+                                _logCollector.Append(
+                                    MapLogCategory.ViewportCapture,
+                                    MapLogLevel.Info,
+                                    $"稳定画面未通过地图存在检测 · op={operation} "
+                                    + $"· mode={lastPresence.Mode} "
+                                    + $"· score={lastPresence.Score:F4} "
+                                    + $"· blueGray={lastPresence.BlueGrayFraction:F4}",
+                                    elapsedMs: stopwatch.Elapsed.TotalMilliseconds);
+                            }
+                        }
+                        else
+                        {
+                            _logCollector.Append(
+                                MapLogCategory.ViewportCapture,
+                                MapLogLevel.Info,
+                                $"稳定帧确认完成 · op={operation} · attempts={attempts} "
+                                + $"· captures={successfulCaptures} · diff={tracker.LastDifference:F4}",
+                                elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
+                                details: new()
+                                {
+                                    ["operation"] = operation,
+                                    ["attempts"] = attempts,
+                                    ["successfulCaptures"] = successfulCaptures,
+                                    ["stableFrames"] = tracker.StableFrames,
+                                    ["lastDifference"] = tracker.LastDifference,
+                                    ["mapPresenceMode"] = lastPresence.Mode,
+                                    ["mapPresenceScore"] = lastPresence.Score,
+                                    ["blueGrayFraction"] = lastPresence.BlueGrayFraction,
+                                    ["presenceRejections"] = presenceRejections
+                                });
+                            var stableFrame = lastFrame;
+                            lastFrame = null;
+                            return stableFrame;
+                        }
                     }
                 }
                 else if (frameObj is IDisposable disposable)
@@ -128,6 +157,10 @@ public sealed partial class SessionOrchestrator
                     ["successfulCaptures"] = successfulCaptures,
                     ["stableFrames"] = tracker.StableFrames,
                     ["lastDifference"] = tracker.LastDifference,
+                    ["mapPresenceMode"] = lastPresence?.Mode,
+                    ["mapPresenceScore"] = lastPresence?.Score,
+                    ["blueGrayFraction"] = lastPresence?.BlueGrayFraction,
+                    ["presenceRejections"] = presenceRejections,
                     ["captureFailureReason"] = _lastStableCaptureFailureReason
                 });
             lastFrame?.Dispose();
@@ -139,6 +172,54 @@ public sealed partial class SessionOrchestrator
             lastFrame?.Dispose();
         }
     }
+
+    private MapViewportColorSignature? GetCurrentMapViewportPresenceReference()
+    {
+        var identity = _lastRecognition ?? _pendingAlignmentIdentity;
+        if (identity is null)
+            return null;
+        var floorKey = _currentFloorKey
+            ?? identity.Result.Floor
+            ?? MapFloorRules.GetPrimaryFloorKey(identity.Map);
+        var key = new MapViewportReferenceKey(
+            identity.Map.Id,
+            NormalizeMapViewportFloorKey(floorKey));
+        lock (_mapViewportReferenceGate)
+        {
+            return _mapViewportReferences.GetValueOrDefault(key);
+        }
+    }
+
+    private void RememberMapViewportPresenceReference(
+        RuntimeMapRecognition recognition,
+        CapturedGameFrame frame)
+    {
+        var key = new MapViewportReferenceKey(
+            recognition.Map.Id,
+            NormalizeMapViewportFloorKey(recognition.Result.Floor));
+        var signature = MapViewportPresenceDetector.CreateSignature(frame.Image);
+        lock (_mapViewportReferenceGate)
+        {
+            _mapViewportReferences[key] = signature;
+        }
+    }
+
+    private void ClearMapViewportPresenceReferences()
+    {
+        lock (_mapViewportReferenceGate)
+        {
+            _mapViewportReferences.Clear();
+        }
+    }
+
+    private static string NormalizeMapViewportFloorKey(string? floorKey) =>
+        string.IsNullOrWhiteSpace(floorKey)
+            ? "1f"
+            : floorKey.Trim().ToLowerInvariant();
+
+    private readonly record struct MapViewportReferenceKey(
+        Guid MapId,
+        string FloorKey);
 
     private NormalizedRectangle ResolveMapViewportForCurrentWindow()
     {

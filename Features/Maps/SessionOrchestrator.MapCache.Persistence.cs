@@ -321,76 +321,39 @@ public sealed partial class SessionOrchestrator
             recognition.Result.Floor,
             StringComparison.Ordinal))
             failure = "当前楼层尚未完成对齐。";
-        else if (_lastAlignmentResolution is not { IsSupported: true } resolution)
-            failure = "当前分辨率不支持地图缓存。";
         else if (!TryGetUniformScale(transform, out var scale))
             failure = "本次对齐没有可保存的统一缩放值。";
+        else if (!TryLockCurrentAdaptiveScale(recognition, scale))
+            failure = "当前临时对齐已失效，请重新打开地图并完成对齐。";
         else
         {
-            var key = MapFeatureCacheRules.CreateKey(
-                recognition.Map,
-                recognition.Result.Floor,
-                resolution);
-            try
-            {
-                await UpsertMapCacheAsync(CreateCacheEntry(
-                    key,
-                    scale,
-                    MapFeatureCacheSource.Manual,
-                    1,
-                    recognition.Result.LocalizationConfidence,
-                    0d,
-                    _lastAlignmentObservedDpi,
-                    validation: new MapScaleCacheValidationMetadata
-                    {
-                        DirectlyTrusted = true,
-                        LastLocalizationConfidence =
-                            recognition.Result.LocalizationConfidence,
-                        LastCandidateMargin =
-                            MapFeatureCacheRules.GetCandidateMargin(
-                                recognition.Result)
-                    },
-                    candidateMargin:
-                        MapFeatureCacheRules.GetCandidateMargin(
-                            recognition.Result)));
-                CompleteMapCacheRepair(key);
-                if (!IsCurrentMatchOperation(operationMatch))
-                    return;
-                _statusMessage = "地图缩放缓存已保存。";
-                _logCollector.Append(
-                    MapLogCategory.Session,
-                    MapLogLevel.Info,
-                    $"手动地图缓存已保存 · map={key.MapId} · "
-                    + $"floor={key.FloorKey} · scale={scale:F6}");
-                ShowCacheBindingStatus(
-                    MapOverlayStatusLevel.Success,
-                    "地图缓存已保存",
-                    $"{recognition.Map.DisplayName} · {recognition.Result.Floor.ToUpperInvariant()}");
-                StateChanged?.Invoke(this, EventArgs.Empty);
+            RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
+            RememberReliableFloorAlignment(
+                operationMatch,
+                recognition,
+                _lastAlignmentSession);
+            if (!IsCurrentMatchOperation(operationMatch))
                 return;
-            }
-            catch (Exception ex)
-            {
-                failure = $"写入缓存文件失败：{ex.Message}";
-                _logCollector.Append(
-                    MapLogCategory.Session,
-                    MapLogLevel.Error,
-                    $"手动地图缓存保存失败 · map={key.MapId} · "
-                    + $"floor={key.FloorKey} · {ex.Message}",
-                    details: new()
-                    {
-                        ["exceptionType"] = ex.GetType().FullName,
-                        ["stackTrace"] = ex.ToString()
-                    });
-            }
+            _statusMessage = "当前楼层缩放已在本局锁定。";
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Info,
+                $"玩家已锁定本局缩放 · map={recognition.Map.Id} · "
+                + $"floor={recognition.Result.Floor} · scale={scale:F6}");
+            ShowCacheBindingStatus(
+                MapOverlayStatusLevel.Success,
+                "本局缩放已锁定",
+                $"{recognition.Map.DisplayName} · {recognition.Result.Floor.ToUpperInvariant()} · {scale:F6}");
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            return;
         }
 
         if (!IsCurrentMatchOperation(operationMatch))
             return;
-        _statusMessage = $"地图缓存保存失败：{failure}";
+        _statusMessage = $"本局缩放锁定失败：{failure}";
         ShowCacheBindingStatus(
             MapOverlayStatusLevel.Failure,
-            "地图缓存保存失败",
+            "本局缩放锁定失败",
             failure!);
         StateChanged?.Invoke(this, EventArgs.Empty);
     }

@@ -8,6 +8,77 @@ namespace IDVBuff.Tests;
 public sealed class AdaptiveScaleRegressionTests
 {
     [Fact]
+    public void ProvisionalAdaptiveRebuildPreservesSideEntranceRouteIdentity()
+    {
+        var map = Map();
+        var recognition = Recognition(map, 1.06, 0.72);
+        var sideSession = new MapAlignmentSession
+        {
+            MapId = map.Id,
+            MapUpdatedAt = map.UpdatedAt,
+            FloorKey = "1f",
+            LockedTransform = Transform(1.02),
+            BaselineGateScale = 1.02,
+            LastConfidence = 0.82,
+            SideEntranceScanPriorConfidence = 0.82,
+            HasGatePairLock = false
+        };
+
+        var rebuilt = MapOpenAlignmentRouteRules.ResolveMapOpenAlignmentSession(
+            recognition.Map,
+            recognition.Result,
+            pendingSideEntranceSeed: null,
+            previous: sideSession,
+            canReusePrevious: false);
+
+        Assert.NotSame(sideSession, rebuilt);
+        Assert.Equal(1.06, rebuilt.LockedTransform.ScaleX, 8);
+        Assert.Equal(0.82, rebuilt.SideEntranceScanPriorConfidence, 8);
+        Assert.False(rebuilt.HasGatePairLock);
+        Assert.Equal(
+            SelectedAlignmentRoute.SideEntrance,
+            MapOpenAlignmentRouteRules.ResolveMatchRoute(
+                FirstScanStrategy.SideEntrance,
+                rebuilt));
+    }
+
+    [Fact]
+    public void DoubleGateStrategyRemainsOnDefaultRoute()
+    {
+        Assert.Equal(
+            SelectedAlignmentRoute.Default,
+            MapOpenAlignmentRouteRules.ResolveMatchRoute(
+                FirstScanStrategy.DoubleGate,
+                session: null));
+    }
+
+    [Fact]
+    public void EstablishedSessionRouteOverridesMidMatchSettingChange()
+    {
+        var sideSession = new MapAlignmentSession
+        {
+            SideEntranceScanPriorConfidence = 0.82,
+            HasGatePairLock = false
+        };
+        var doubleGateSession = new MapAlignmentSession
+        {
+            SideEntranceScanPriorConfidence = 0d,
+            HasGatePairLock = true
+        };
+
+        Assert.Equal(
+            SelectedAlignmentRoute.SideEntrance,
+            MapOpenAlignmentRouteRules.ResolveMatchRoute(
+                FirstScanStrategy.DoubleGate,
+                sideSession));
+        Assert.Equal(
+            SelectedAlignmentRoute.Default,
+            MapOpenAlignmentRouteRules.ResolveMatchRoute(
+                FirstScanStrategy.SideEntrance,
+                doubleGateSession));
+    }
+
+    [Fact]
     public async Task ChallengedInitialRecognitionKeepsReliableRuntimeScale()
     {
         var coordinator = Coordinator();

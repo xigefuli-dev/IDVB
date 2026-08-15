@@ -170,6 +170,56 @@ public sealed class MapAlignmentSession
         };
     }
 
+    internal static MapAlignmentSession RebuildPreservingFirstScanIdentity(
+        MapAlignmentSession? previous,
+        MapRecord map,
+        MapRecognitionResult result)
+    {
+        var rebuilt = FromRecognition(map, result);
+        if (previous is null
+            || previous.SideEntranceScanPriorConfidence <= 0d
+            || rebuilt.SideEntranceScanPriorConfidence > 0d
+            || previous.MapId != rebuilt.MapId
+            || previous.MapUpdatedAt != rebuilt.MapUpdatedAt)
+        {
+            return rebuilt;
+        }
+
+        return new MapAlignmentSession
+        {
+            MapId = rebuilt.MapId,
+            MapUpdatedAt = rebuilt.MapUpdatedAt,
+            FloorKey = rebuilt.FloorKey,
+            LockedTransform = rebuilt.LockedTransform,
+            LockedGateEvidence = previous.LockedGateEvidence.Count > 0
+                ? previous.LockedGateEvidence
+                : rebuilt.LockedGateEvidence,
+            BaselineGateScale = rebuilt.BaselineGateScale,
+            LastConfidence = rebuilt.LastConfidence,
+            LastBestScore = rebuilt.LastBestScore,
+            LastSecondScore = rebuilt.LastSecondScore,
+            LastCandidateMargin = rebuilt.LastCandidateMargin,
+            LastRejectionReason = rebuilt.LastRejectionReason,
+            LastObservationConfidence = rebuilt.LastObservationConfidence,
+            LastObservationBestScore = rebuilt.LastObservationBestScore,
+            LastObservationSecondScore = rebuilt.LastObservationSecondScore,
+            LastObservationCandidateMargin = rebuilt.LastObservationCandidateMargin,
+            LastObservationRejectionReason = rebuilt.LastObservationRejectionReason,
+            LastObservationAt = rebuilt.LastObservationAt,
+            ConsecutiveRejections = rebuilt.ConsecutiveRejections,
+            LastSuccessfulAt = rebuilt.LastSuccessfulAt,
+            HasGatePairLock = false,
+            SideEntranceScanPriorConfidence =
+                previous.SideEntranceScanPriorConfidence,
+            Mode = rebuilt.Mode,
+            LastStructureAttempted = rebuilt.LastStructureAttempted,
+            LastStructureAccepted = rebuilt.LastStructureAccepted,
+            LastStructureFailureReason = rebuilt.LastStructureFailureReason,
+            ConsecutiveStructureFailures = rebuilt.ConsecutiveStructureFailures,
+            LastSearchStage = rebuilt.LastSearchStage,
+        };
+    }
+
     public MapAlignmentSession Advance(
         MapRecord map,
         MapRecognitionResult result,

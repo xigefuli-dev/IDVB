@@ -1,5 +1,5 @@
-using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
+using System.Security.Cryptography;
+using System.Text;
 using Velopack;
 
 namespace IDVBuff.Updater;
@@ -15,18 +15,24 @@ public static class Program
         // fast-exit lifecycle work without constructing WinUI or opening files.
         VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
 
-        _instanceMutex = new Mutex(true, "Local\\IdentityVisionBridge.Updater", out var ownsMutex);
+        _instanceMutex = new Mutex(true, GetInstanceMutexName(), out var ownsMutex);
         if (!ownsMutex)
             return 0;
 
-        WinRT.ComWrappersSupport.InitializeComWrappers();
-        Application.Start(initialization =>
-        {
-            var context = new DispatcherQueueSynchronizationContext(
-                DispatcherQueue.GetForCurrentThread());
-            SynchronizationContext.SetSynchronizationContext(context);
-            _ = new App();
-        });
+        System.Windows.Forms.Application.EnableVisualStyles();
+        System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+        var options = UpdaterLaunchOptions.Parse(Environment.GetCommandLineArgs());
+        System.Windows.Forms.Application.Run(new UpdaterWindow(options));
         return 0;
+    }
+
+    private static string GetInstanceMutexName()
+    {
+        var executableDirectory = Path.GetFullPath(AppContext.BaseDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .ToUpperInvariant();
+        var identity = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(executableDirectory)));
+        return $"Local\\IdentityVisionBridge.Updater.{identity[..16]}";
     }
 }

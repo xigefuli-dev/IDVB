@@ -41,6 +41,54 @@ internal static class MapOpenAlignmentRouteRules
         && !recoveringSelectedIdentity
         && sideEntrancePriorConfidence > 0d;
 
+    internal static SelectedAlignmentRoute ResolveMatchRoute(
+        FirstScanStrategy firstScanStrategy,
+        MapAlignmentSession? session)
+    {
+        if (session is
+            {
+                SideEntranceScanPriorConfidence: > 0d,
+                HasGatePairLock: false
+            })
+        {
+            return SelectedAlignmentRoute.SideEntrance;
+        }
+
+        if (session?.HasGatePairLock is true)
+            return SelectedAlignmentRoute.Default;
+
+        return firstScanStrategy == FirstScanStrategy.SideEntrance
+            ? SelectedAlignmentRoute.SideEntrance
+            : SelectedAlignmentRoute.Default;
+    }
+
+    internal static MapAlignmentSession ResolveMapOpenAlignmentSession(
+        MapRecord map,
+        MapRecognitionResult result,
+        MapAlignmentSession? pendingSideEntranceSeed,
+        MapAlignmentSession? previous,
+        bool canReusePrevious)
+    {
+        if (pendingSideEntranceSeed is not null)
+            return pendingSideEntranceSeed;
+
+        if (previous is not null
+            && previous.MapId == map.Id
+            && previous.MapUpdatedAt == map.UpdatedAt)
+        {
+            // Adaptive scale reliability controls whether the old transform
+            // may be reused, not which first-scan strategy owns this match.
+            return canReusePrevious
+                ? previous
+                : MapAlignmentSession.RebuildPreservingFirstScanIdentity(
+                    previous,
+                    map,
+                    result);
+        }
+
+        return MapAlignmentSession.FromRecognition(map, result);
+    }
+
     internal static bool ShouldPrioritizeStructureValidation(
         SelectedAlignmentRoute route,
         bool hasAlignmentDeadline) =>

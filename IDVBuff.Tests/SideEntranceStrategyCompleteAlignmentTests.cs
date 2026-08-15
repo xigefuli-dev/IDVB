@@ -221,6 +221,36 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     }
 
     [Fact]
+    public async Task SideSession_GenericAlignSelectedCannotEnterDoubleGatePipeline()
+    {
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        using var scanFrame = scenario.MainFrame(VisibleGates.SideOnly);
+        var session = SeedWithSideEntranceStrategy(scenario, scanFrame);
+        using var dualGateFrame = scenario.MainFrame(
+            VisibleGates.Both,
+            new MapScreenRect(420d, 210d, 800d, 600d));
+
+        var attempt = scenario.Service.AlignSelected(
+            dualGateFrame,
+            scenario.Map.Id,
+            session,
+            MapOverlayAlignmentMode.Uniform,
+            CompleteAlignmentTestScenario.RecognitionTuning,
+            CompleteAlignmentTestScenario.StructureTuning);
+
+        var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
+        Assert.True(attempt.Diagnostics.GateCandidateCount >= 2);
+        Assert.NotEqual(
+            MapRecognitionSource.SelectedMapGatePair,
+            recognition.Result.Source);
+        Assert.NotEqual(
+            MapAlignmentEvidenceKind.DualGate,
+            recognition.Result.EvidenceKind);
+        Assert.False(session.HasGatePairLock);
+        Assert.True(session.SideEntranceScanPriorConfidence > 0d);
+    }
+
+    [Fact]
     public async Task SideStrategy_SingleGateFrame_AlignsWithSidePriorAndStructure()
     {
         await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();

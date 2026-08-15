@@ -1,9 +1,11 @@
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using System.Diagnostics;
 using IDVBuff.UpdateCore;
+using Microsoft.UI;
 
 namespace IDVBuff.Views;
 
@@ -241,14 +243,20 @@ public sealed class SettingsPage : Page
 
     private Border CreateUpdateCard()
     {
+        var effectiveChannel = Lifecycle.UpdateChannelPolicy.Resolve();
         var text = new StackPanel { Spacing = 5 };
-        text.Children.Add(new TextBlock
+        var titleButton = new Button
         {
-            Text = "软件更新",
+            Content = "软件更新",
             FontSize = 16,
             FontWeight = FontWeights.SemiBold,
-            Foreground = PrimaryTextBrush
-        });
+            Foreground = PrimaryTextBrush,
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = !AppDataPaths.IsTestBuild
+        };
+        text.Children.Add(titleButton);
         text.Children.Add(new TextBlock
         {
             Text = "手动检查新版本。下载期间可以继续使用主程序，安装前会引导安全关闭并在更新后重新启动。",
@@ -256,6 +264,73 @@ public sealed class SettingsPage : Page
             Foreground = SecondaryTextBrush,
             TextWrapping = TextWrapping.Wrap
         });
+        text.Children.Add(new TextBlock
+        {
+            Text = GetUpdateChannelText(effectiveChannel),
+            FontSize = 12,
+            Foreground = SecondaryTextBrush
+        });
+
+        var isPreviewEnabled = string.Equals(effectiveChannel, UpdateProtocol.TestChannel, StringComparison.Ordinal);
+        var enablePreview = !isPreviewEnabled;
+        var tipAction = new Button
+        {
+            Content = enablePreview ? "加入预览计划" : "退出预览计划",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            MinWidth = 180,
+            Foreground = new SolidColorBrush(Colors.White),
+            Background = enablePreview
+                ? AccentBrush
+                : new SolidColorBrush(Colors.Firebrick)
+        };
+        var flyoutContent = new StackPanel
+        {
+            Spacing = 10,
+            Width = 320
+        };
+        flyoutContent.Children.Add(new TextBlock
+        {
+            Text = enablePreview ? "抢先体验预览版本" : "已加入预览计划",
+            FontSize = 18,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = PrimaryTextBrush
+        });
+        flyoutContent.Children.Add(new TextBlock
+        {
+            Text = enablePreview
+                ? "加入后将接收测试通道更新。预览版本可能包含尚未完全验证的功能。"
+                : "退出后将仅接收经过正式发布的稳定版本。",
+            FontSize = 13,
+            Foreground = SecondaryTextBrush,
+            TextWrapping = TextWrapping.Wrap
+        });
+        flyoutContent.Children.Add(tipAction);
+        var channelFlyout = new Flyout
+        {
+            Content = flyoutContent,
+            Placement = FlyoutPlacementMode.Bottom
+        };
+        titleButton.Flyout = AppDataPaths.IsTestBuild ? null : channelFlyout;
+        tipAction.Click += async (_, _) =>
+        {
+            channelFlyout.Hide();
+            try
+            {
+                Lifecycle.UpdateChannelPreference.SetPreviewEnabled(enablePreview);
+                DispatcherQueue.TryEnqueue(() => Content = CreateContent());
+            }
+            catch (Exception exception)
+            {
+                await new ContentDialog
+                {
+                    XamlRoot = XamlRoot,
+                    Title = "无法保存更新通道",
+                    Content = exception.Message,
+                    CloseButtonText = "知道了"
+                }.ShowAsync();
+            }
+        };
 
         var grid = new Grid { ColumnSpacing = 18 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -280,6 +355,11 @@ public sealed class SettingsPage : Page
             Child = grid
         };
     }
+
+    private static string GetUpdateChannelText(string effectiveChannel) =>
+        AppDataPaths.IsTestBuild ? "当前通道：测试版（测试构建固定）" : string.Equals(effectiveChannel, UpdateProtocol.TestChannel, StringComparison.Ordinal)
+            ? "当前通道：预览版（可接收测试更新）"
+            : "当前通道：正式版";
 
     private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
     {

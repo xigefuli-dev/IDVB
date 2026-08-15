@@ -143,6 +143,15 @@ public sealed partial class SessionOrchestrator
             context.Toggle.Version,
             transform);
 
+    private bool TryLockCurrentAdaptiveScale(
+        RuntimeMapRecognition recognition,
+        double scale) =>
+        TryGetActiveAdaptiveKey(recognition, out var key)
+        && _adaptiveScale.TryLockCurrentScale(
+            key,
+            _gameMapToggleState.Version,
+            scale);
+
     private bool IsAdaptiveScaleEnabled => _adaptiveScale.Enabled;
 
     private bool IsAdaptiveInitialScaleQualified(

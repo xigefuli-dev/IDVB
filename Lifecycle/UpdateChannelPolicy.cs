@@ -11,6 +11,9 @@ internal static class UpdateChannelPolicy
 #if IDVBUFF_TEST_BUILD
         return UpdateProtocol.TestChannel;
 #else
+        var preferredChannel = UpdateChannelPreference.TryRead();
+        if (preferredChannel is not null)
+            return preferredChannel;
 
         try
         {

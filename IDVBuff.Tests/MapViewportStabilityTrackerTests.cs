@@ -6,6 +6,40 @@ namespace IDVBuff.Tests;
 public sealed class MapViewportStabilityTrackerTests
 {
     [Fact]
+    public void PresenceDetectorAcceptsBlueGrayMapAndRejectsBrownGameplay()
+    {
+        using var map = CreateHsvFrame(new Scalar(108, 100, 50));
+        using var gameplay = CreateHsvFrame(new Scalar(15, 170, 100));
+
+        var mapResult = MapViewportPresenceDetector.Evaluate(map);
+        var gameplayResult = MapViewportPresenceDetector.Evaluate(gameplay);
+
+        Assert.True(mapResult.IsPresent);
+        Assert.False(gameplayResult.IsPresent);
+        Assert.Equal("blue-gray-fallback", mapResult.Mode);
+    }
+
+    [Fact]
+    public void PresenceDetectorUsesReliableReferenceInsteadOfBrightness()
+    {
+        using var referenceFrame = CreateHsvFrame(new Scalar(108, 100, 50));
+        using var changedMap = CreateHsvFrame(new Scalar(108, 100, 90));
+        using var darkGameplay = CreateHsvFrame(new Scalar(15, 170, 45));
+        var reference = MapViewportPresenceDetector.CreateSignature(referenceFrame);
+
+        var mapResult = MapViewportPresenceDetector.Evaluate(changedMap, reference);
+        var gameplayResult = MapViewportPresenceDetector.Evaluate(
+            darkGameplay,
+            reference);
+
+        Assert.True(mapResult.IsPresent);
+        Assert.False(gameplayResult.IsPresent);
+        Assert.Equal("reference-hsv", mapResult.Mode);
+        Assert.True(mapResult.Score >= MapViewportPresenceDetector.MinimumReferenceSimilarity);
+        Assert.True(gameplayResult.Score < MapViewportPresenceDetector.MinimumReferenceSimilarity);
+    }
+
+    [Fact]
     public void RequiresThreeConsecutiveStableFrames()
     {
         using var frame = new Mat(
@@ -48,5 +82,16 @@ public sealed class MapViewportStabilityTrackerTests
         Assert.False(tracker.Observe(first, 0.015d, 3, ignore));
         Assert.False(tracker.Observe(changed, 0.015d, 3, ignore));
         Assert.True(tracker.Observe(first, 0.015d, 3, ignore));
+    }
+
+    private static Mat CreateHsvFrame(Scalar hsvColor)
+    {
+        using var hsv = new Mat(
+            new Size(320, 200),
+            MatType.CV_8UC3,
+            hsvColor);
+        var bgr = new Mat();
+        Cv2.CvtColor(hsv, bgr, ColorConversionCodes.HSV2BGR);
+        return bgr;
     }
 }

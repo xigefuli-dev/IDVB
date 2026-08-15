@@ -95,6 +95,7 @@ public sealed partial class SessionOrchestrator
             _reliableFloorAlignmentMatchVersion =
                 _matchSession.Snapshot.Version;
         }
+        ClearMapViewportPresenceReferences();
 
         // Do not allow samples collected for a wrongly selected map to be
         // persisted after a later scan corrects the identity.
@@ -136,6 +137,7 @@ public sealed partial class SessionOrchestrator
         _alignmentTrackingMode = MapAlignmentTrackingMode.None;
         _lastGameBounds = default;
         _lastGameWindowHandle = IntPtr.Zero;
+        ClearMapViewportPresenceReferences();
 
         if (resetAutomaticCacheSamples)
             ResetAutomaticMapCacheSamples();

@@ -22,18 +22,21 @@ internal static class AutomaticUpdateLauncher
             if (!File.Exists(updaterPath))
                 return;
 
+            var channel = UpdateChannelPolicy.Resolve();
             var statePath = Path.Combine(AppDataPaths.RootDirectory, StateFileName);
             if (File.Exists(statePath))
             {
                 var state = JsonSerializer.Deserialize<UpdateCheckState>(File.ReadAllText(statePath));
-                if (state is not null && DateTimeOffset.UtcNow - state.LastAttemptUtc < CheckInterval)
+                if (state is not null
+                    && string.Equals(state.Channel, channel, StringComparison.Ordinal)
+                    && DateTimeOffset.UtcNow - state.LastAttemptUtc < CheckInterval)
                     return;
             }
 
             Directory.CreateDirectory(AppDataPaths.RootDirectory);
             File.WriteAllText(
                 statePath,
-                JsonSerializer.Serialize(new UpdateCheckState(DateTimeOffset.UtcNow)));
+                JsonSerializer.Serialize(new UpdateCheckState(DateTimeOffset.UtcNow, channel)));
 
             var startInfo = new ProcessStartInfo
             {
@@ -43,7 +46,7 @@ internal static class AutomaticUpdateLauncher
             };
             startInfo.ArgumentList.Add("--background");
             startInfo.ArgumentList.Add("--channel");
-            startInfo.ArgumentList.Add(UpdateChannelPolicy.Resolve());
+            startInfo.ArgumentList.Add(channel);
             startInfo.ArgumentList.Add("--from-main-pid");
             startInfo.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
             _ = Process.Start(startInfo);
@@ -58,5 +61,5 @@ internal static class AutomaticUpdateLauncher
         }
     }
 
-    private sealed record UpdateCheckState(DateTimeOffset LastAttemptUtc);
+    private sealed record UpdateCheckState(DateTimeOffset LastAttemptUtc, string? Channel);
 }

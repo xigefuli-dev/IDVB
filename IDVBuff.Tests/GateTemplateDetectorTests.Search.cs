@@ -186,6 +186,9 @@ public sealed partial class GateTemplateDetectorTests
             new GateSearchContext
             {
                 Mode = GateSearchMode.FullSearch,
+                // One millisecond is not a deterministic timeout on an idle,
+                // fast machine: the search can legitimately finish first.
+                // Zero exercises the same stop reason without a wall-clock race.
                 TimeBudgetMilliseconds = 0, // deterministic immediate timeout
             });
 

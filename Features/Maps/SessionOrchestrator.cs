@@ -48,6 +48,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private readonly MapAlignmentCommitGuard _alignmentCommitGuard = new();
     private readonly MapGameToggleState _gameMapToggleState = new();
     private readonly MapMatchSession _matchSession = new();
+    private readonly object _mapViewportReferenceGate = new();
+    private readonly Dictionary<MapViewportReferenceKey, MapViewportColorSignature>
+        _mapViewportReferences = [];
 
     private readonly SemaphoreSlim _initializeGate = new(1, 1);
     private readonly SemaphoreSlim _scanGate = new(1, 1);
@@ -507,54 +510,11 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     /// </summary>
     private static MapAlignmentSession UpdateAlignmentSession(
         MapAlignmentSession? previous,
-        RuntimeMapRecognition recognition)
-    {
-        var rebuilt = MapAlignmentSession.FromRecognition(
+        RuntimeMapRecognition recognition) =>
+        MapAlignmentSession.RebuildPreservingFirstScanIdentity(
+            previous,
             recognition.Map,
             recognition.Result);
-        if (previous is null
-            || previous.SideEntranceScanPriorConfidence <= 0d
-            || rebuilt.SideEntranceScanPriorConfidence > 0d
-            || previous.MapId != rebuilt.MapId
-            || previous.MapUpdatedAt != rebuilt.MapUpdatedAt)
-        {
-            return rebuilt;
-        }
-
-        return new MapAlignmentSession
-        {
-            MapId = rebuilt.MapId,
-            MapUpdatedAt = rebuilt.MapUpdatedAt,
-            FloorKey = rebuilt.FloorKey,
-            LockedTransform = rebuilt.LockedTransform,
-            LockedGateEvidence = previous.SideEntranceScanPriorConfidence > 0d
-                && previous.LockedGateEvidence.Count > 0
-                ? previous.LockedGateEvidence
-                : rebuilt.LockedGateEvidence,
-            BaselineGateScale = rebuilt.BaselineGateScale,
-            LastConfidence = rebuilt.LastConfidence,
-            LastBestScore = rebuilt.LastBestScore,
-            LastSecondScore = rebuilt.LastSecondScore,
-            LastCandidateMargin = rebuilt.LastCandidateMargin,
-            LastRejectionReason = rebuilt.LastRejectionReason,
-            LastObservationConfidence = rebuilt.LastObservationConfidence,
-            LastObservationBestScore = rebuilt.LastObservationBestScore,
-            LastObservationSecondScore = rebuilt.LastObservationSecondScore,
-            LastObservationCandidateMargin = rebuilt.LastObservationCandidateMargin,
-            LastObservationRejectionReason = rebuilt.LastObservationRejectionReason,
-            LastObservationAt = rebuilt.LastObservationAt,
-            ConsecutiveRejections = rebuilt.ConsecutiveRejections,
-            LastSuccessfulAt = rebuilt.LastSuccessfulAt,
-            HasGatePairLock = false,
-            SideEntranceScanPriorConfidence = previous.SideEntranceScanPriorConfidence,
-            Mode = rebuilt.Mode,
-            LastStructureAttempted = rebuilt.LastStructureAttempted,
-            LastStructureAccepted = rebuilt.LastStructureAccepted,
-            LastStructureFailureReason = rebuilt.LastStructureFailureReason,
-            ConsecutiveStructureFailures = rebuilt.ConsecutiveStructureFailures,
-            LastSearchStage = rebuilt.LastSearchStage,
-        };
-    }
 
     private void RememberPrimaryFloorSession(
         RuntimeMapRecognition recognition,

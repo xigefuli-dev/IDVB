@@ -144,6 +144,19 @@ internal sealed class AdaptiveScaleController
         _window.Clear();
     }
 
+    public bool LockCurrentScale(double scale)
+    {
+        if (!IsOpen || !double.IsFinite(scale) || scale <= 0d)
+            return false;
+        _runtime.SetRuntime(scale, isRuntimeZoom: false);
+        _hasReliableScale = true;
+        State = AdaptiveScaleState.Stable;
+        _fixedScaleFailures = 0;
+        _challengeStartedAt = null;
+        _window.Clear();
+        return true;
+    }
+
     public void CommitProvisionalRecovery(AdaptiveScaleConsensus consensus)
     {
         if (!IsOpen || _hasReliableScale)

@@ -287,6 +287,7 @@ public sealed partial class SessionOrchestrator
     {
         if (IsMatchEnding || !_matchSession.Snapshot.IsStarted)
             return;
+        RememberMapViewportPresenceReference(recognition, frame);
         var transform = recognition.Result.OverlayTransform;
         var resolution = GetResolution(frame);
         _lastAlignmentResolution = resolution.IsSupported ? resolution : null;

@@ -113,19 +113,22 @@ public sealed partial class SessionOrchestrator
                 using var ambientDeadline = noDoorDeadline?.EnterAmbient();
                 // 复用持久化的对齐会话以保留侧门身份先验与门对锁定状态。若持久化
                 // 会话与当前锁定地图不一致（如手动识别或换图），则从结果重建。
-                var session = recoveringSelectedIdentity
-                        && _pendingAlignmentSeed is { } pendingSeed
-                    ? pendingSeed
-                    : _lastAlignmentSession is { } lastSession
-                        && lastSession.MapId == locked.Map.Id
-                        && lastSession.MapUpdatedAt == locked.Map.UpdatedAt
-                        && (!IsAdaptiveScaleEnabled
-                            || _lastReliableAdaptiveKey == adaptiveKey)
-                        && CanUseAdaptiveReliableSession(lastSession, adaptiveKey)
-                    ? lastSession
-                    : MapAlignmentSession.FromRecognition(
-                        locked.Map,
-                        locked.Result);
+                var lastSession = _lastAlignmentSession;
+                var canReuseLastSession = lastSession is not null
+                    && lastSession.MapId == locked.Map.Id
+                    && lastSession.MapUpdatedAt == locked.Map.UpdatedAt
+                    && (!IsAdaptiveScaleEnabled
+                        || _lastReliableAdaptiveKey == adaptiveKey)
+                    && CanUseAdaptiveReliableSession(lastSession, adaptiveKey);
+                var session = MapOpenAlignmentRouteRules
+                    .ResolveMapOpenAlignmentSession(
+                    locked.Map,
+                    locked.Result,
+                    recoveringSelectedIdentity
+                        ? _pendingAlignmentSeed
+                        : null,
+                    lastSession,
+                    canReuseLastSession);
 
                 // Secondary floors are locked to the map identity already, so
                 // they must use their own static structure directly.  This
@@ -160,7 +163,14 @@ public sealed partial class SessionOrchestrator
                                     tuning,
                                     useInitialHighPrecisionRecovery: true));
                     }
-                    if (alignmentSession.SideEntranceScanPriorConfidence > 0d)
+                    // The configured first-scan strategy owns the alignment
+                    // route for the entire match. Session evidence selects a
+                    // seed within that route; it must never switch a side-door
+                    // match into the default dual-gate pipeline.
+                    if (MapOpenAlignmentRouteRules.ResolveMatchRoute(
+                            _settings!.FirstScanStrategy,
+                            alignmentSession)
+                        == SelectedAlignmentRoute.SideEntrance)
                     {
                         return AlignLockedSideEntranceFloor(
                             frame,

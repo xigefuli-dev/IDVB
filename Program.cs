@@ -29,7 +29,9 @@ public static class Program
 
         var isCli = args.Any(argument =>
             string.Equals(argument, "--cli", StringComparison.OrdinalIgnoreCase));
-        if (!isCli)
+        var isIsolatedDevelopmentInstance = args.Any(argument =>
+            string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
+        if (!isCli && !isIsolatedDevelopmentInstance)
         {
             _guiInstance = new GuiInstanceCoordinator();
             if (!_guiInstance.TryAcquirePrimary())

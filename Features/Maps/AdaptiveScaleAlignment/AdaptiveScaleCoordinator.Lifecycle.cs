@@ -107,6 +107,31 @@ internal sealed partial class AdaptiveScaleCoordinator
                 && controller.CanUseReliableScale(UniformScale(transform));
     }
 
+    public bool TryLockCurrentScale(
+        AdaptiveScaleKey expectedKey,
+        long openId,
+        double scale)
+    {
+        if (!_options.Enabled)
+            return false;
+        lock (_stateGate)
+        {
+            if (!TryGetOpenController(expectedKey, openId, out var controller)
+                || !controller.LockCurrentScale(scale))
+            {
+                return false;
+            }
+            _log?.Invoke(
+                "adaptive floor scale manually locked",
+                AdaptiveScaleDiagnostics.State(
+                    expectedKey,
+                    controller,
+                    "manual-runtime-lock",
+                    scale));
+            return true;
+        }
+    }
+
     public bool RequiresWideScaleSearch(AdaptiveScaleKey expectedKey, long openId)
     {
         lock (_stateGate)

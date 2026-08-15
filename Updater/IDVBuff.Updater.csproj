@@ -1,11 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
-    <UseWinUI>true</UseWinUI>
-    <WindowsPackageType>None</WindowsPackageType>
-    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -19,8 +16,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
     <PackageReference Include="Velopack" Version="1.2.0" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>

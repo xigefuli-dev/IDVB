@@ -597,7 +597,10 @@ public sealed partial class MainPage : Page
         {
             var view = _catalog.GetRequired(moduleId).CreateView();
             ModuleContentHost.Content = view;
-            animateMainContent = view is not MapListPage;
+            // TeachingTip performs native popup placement from its target's visual.
+            // Keep pages that host targeted tips out of the translated composition
+            // chain; MapListPage already uses this stable path for its import tip.
+            animateMainContent = view is not MapListPage and not SettingsPage;
             if (view is MapListPage mapListPage)
             {
                 mapListPage.ParentScrollViewer = MainContentHost;

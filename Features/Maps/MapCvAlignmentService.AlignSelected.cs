@@ -63,6 +63,20 @@ internal static partial class MapCvAlignmentService
                 ? session
                 : null;
 
+        // A side-entrance identity is a match-level invariant. Protect the
+        // lower-level generic API as well as the orchestrator so an accidental
+        // AlignSelected call cannot reinterpret two detected glyphs as a
+        // default dual-gate lock.
+        if (route == SelectedAlignmentRoute.Default
+            && compatibleSession is
+            {
+                SideEntranceScanPriorConfidence: > 0d,
+                HasGatePairLock: false
+            })
+        {
+            route = SelectedAlignmentRoute.SideEntrance;
+        }
+
         if (route == SelectedAlignmentRoute.SideEntrance
             && (compatibleSession is null
                 || compatibleSession.SideEntranceScanPriorConfidence <= 0d

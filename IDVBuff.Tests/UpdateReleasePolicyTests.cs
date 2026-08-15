@@ -175,10 +175,13 @@ public sealed class UpdateReleasePolicyTests
         var mainProject = Read("IDVBuff.csproj");
         var project = Read("Updater", "IDVBuff.Updater.csproj");
         var window = Read("Updater", "UpdaterWindow.cs");
+        var updateRelease = Read("release", "Invoke-IDVBRelease.ps1");
 
-        Assert.Contains("<SelfContained>true</SelfContained>", project);
+        Assert.DoesNotContain("<SelfContained>true</SelfContained>", project);
         Assert.Contains("<UseWindowsForms>true</UseWindowsForms>", project);
         Assert.DoesNotContain("Microsoft.WindowsAppSDK", project);
+        Assert.Contains("(Join-Path $Context.Source 'Updater\\IDVBuff.Updater.csproj')", updateRelease);
+        Assert.Contains("'--self-contained'", updateRelease);
         Assert.Contains("Updater\\IDVBuff.Updater.csproj", mainProject);
         Assert.Contains("AdditionalProperties=\"SelfContained=false\"", mainProject);
         Assert.Contains("CopyUpdaterToApplicationOutput", mainProject);

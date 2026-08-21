@@ -40,7 +40,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private readonly MapFeatureCacheRepository _mapFeatureCacheRepository;
     private readonly MapOverlayStatusCoordinator _overlayStatus;
     private readonly MapControlPanelWindow? _controlPanel;
-    private readonly GameOverlayProgressBar _scanProgressOverlay = new();
+    private readonly ICaptureProtectionService? _captureProtection;
+    private readonly GameOverlayProgressBar _scanProgressOverlay;
 
     // Session state
     private readonly MapOpenSession _mapOpenSession = new();
@@ -48,6 +49,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private readonly MapAlignmentCommitGuard _alignmentCommitGuard = new();
     private readonly MapGameToggleState _gameMapToggleState = new();
     private readonly MapMatchSession _matchSession = new();
+    private readonly MapMatchMapLease _mapLease = new();
     private readonly object _mapViewportReferenceGate = new();
     private readonly Dictionary<MapViewportReferenceKey, MapViewportColorSignature>
         _mapViewportReferences = [];
@@ -103,6 +105,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         MapAlignmentResearchCollector researchCollector,
         ISurveyCoordinator surveyCoordinator,
         SurveyCaptureTuning? surveyCaptureTuning = null,
+        ICaptureProtectionService? captureProtection = null,
         bool headless = false)
     {
         _dispatcher = dispatcher;
@@ -122,6 +125,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _surveyCoordinator = surveyCoordinator;
         _surveyCaptureTuning = surveyCaptureTuning ?? new SurveyCaptureTuning();
         _surveyCaptureTuning.Validate();
+        _captureProtection = captureProtection;
+        _scanProgressOverlay = new GameOverlayProgressBar(_captureProtection);
         _surveyCoordinator.StatusChanged += SurveyCoordinator_StatusChanged;
         _headless = headless;
 
@@ -161,12 +166,19 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         if (!headless)
         {
             _controlPanel = new MapControlPanelWindow(
-                (slot, mapClass) => BeginMatchAsync(slot, mapClass),
+                mapClass => BeginMatchAsync(mapClass),
                 GetMapClassesAsync,
+                () => _settings?.LastSelectedMapClass,
+                SetLastSelectedMapClassAsync,
                 () => _settings?.AllowAutomaticMapCache is true,
                 saveAutomaticMapCache =>
                     EndMatchAsync(saveAutomaticMapCache),
-                () => _surveyCoordinator.Status);
+                () => _surveyCoordinator.Status,
+                mapClass => BeginSurveyMatchAsync(mapClass),
+                ActivateSurveyMatchAsync,
+                GetCurrentVariantContextAsync,
+                SwitchVariantAsync,
+                _captureProtection);
         }
 
         // 全局输入事件仅在 GUI 模式订阅（headless CLI 无输入设备）
@@ -389,8 +401,14 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public MapAlignmentResearchCollector ResearchCollector => _researchCollector;
     public ISurveyCoordinator SurveyCoordinator => _surveyCoordinator;
     public MapMatchSnapshot MatchSnapshot => _matchSession.Snapshot;
+    public bool IsMatchStarted => _matchSession.Snapshot.IsStarted;
+    public string? CurrentMatchId => _matchSession.Snapshot is { IsStarted: true }
+        ? _matchSession.Snapshot.MatchId.ToString()
+        : null;
     public MapSessionSnapshot SessionSnapshot => _mapOpenSession.Snapshot;
     public RuntimeMapRecognition? LastRecognition => _lastRecognition;
+    /// <summary>仅确认了地图身份、尚无完整变换的待对齐识别（侧门/参考线索路径）。</summary>
+    public RuntimeMapRecognition? PendingAlignmentIdentity => _pendingAlignmentIdentity;
     public MapAlignmentSession? LastAlignmentSession => _lastAlignmentSession;
     public MapScanDiagnostics? LastDiagnostics => _lastDiagnostics;
 
@@ -417,7 +435,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public Task BeginMatchAsync() => Task.CompletedTask;
     public async Task RunScanAsync() => await Task.CompletedTask;
 
-    public async Task BeginMatchAsync(PlayerSlot playerSlot, string mapClass)
+    public async Task BeginMatchAsync(string mapClass)
     {
         await _matchLifecycleGate.WaitAsync();
         try
@@ -428,14 +446,12 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 throw new InvalidOperationException("A match is already in progress.");
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
             StartMatchCancellationScope();
-            var match = _matchSession.Begin(playerSlot, mapClass);
-            _statusMessage =
-                $"对局已开始 · {mapClass} · 槽位 {(int)playerSlot}";
+            var match = _matchSession.Begin(mapClass);
+            _statusMessage = $"对局已开始 · {mapClass}";
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
-                $"进入对局 · version={match.Version} · class={match.MapClass} "
-                + $"· slot={(int)playerSlot}");
+                $"进入对局 · version={match.Version} · class={match.MapClass}");
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
         finally
@@ -443,6 +459,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             _matchLifecycleGate.Release();
         }
     }
+
+    [Obsolete("Player slots are no longer used. Call BeginMatchAsync(mapClass).")]
+    public Task BeginMatchAsync(PlayerSlot playerSlot, string mapClass) =>
+        BeginMatchAsync(mapClass);
 
     public Task EndMatchAsync() => EndMatchAsync(saveAutomaticMapCache: false);
 
@@ -533,3 +553,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     }
 
 }
+/*
+ * 文件职责：SessionOrchestrator。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

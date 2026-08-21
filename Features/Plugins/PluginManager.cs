@@ -69,6 +69,11 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
 
     public void Start()
     {
+        foreach (var plugin in _host.Plugins)
+        {
+            if (plugin is IPluginSettingsProvider provider)
+                _preferences.RestoreSettings(provider, plugin.Id);
+        }
         _host.Start();
         _tickTimer.Start();
     }

@@ -358,7 +358,7 @@ public sealed class MapRepositoryTests
             Assert.Equal(["S1"], (await repository.GetCatalogSnapshotAsync()).Classes);
             Assert.All(migrated, map =>
             {
-                Assert.Equal(7, map.Recognition.SchemaVersion);
+                Assert.Equal(8, map.Recognition.SchemaVersion);
                 Assert.Equal(
                     3,
                     map.Recognition.FirstFloor.Anchors.Count);
@@ -376,7 +376,7 @@ public sealed class MapRepositoryTests
                 {
                     var recognition = map.GetProperty("Recognition");
                     Assert.Equal(
-                        7,
+                        8,
                         recognition.GetProperty("SchemaVersion")
                             .GetInt32());
                     Assert.True(
@@ -605,7 +605,7 @@ public sealed class MapRepositoryTests
             Assert.True(repairedFloor["ImageFileLength"]!.GetValue<long>() > 0);
             Assert.True(repairedFloor["ImageLastWriteUtcTicks"]!.GetValue<long>() > 0);
             Assert.False(string.IsNullOrWhiteSpace(repairedFloor["ThumbnailFileName"]!.GetValue<string>()));
-            Assert.Equal(14, repaired["StorageSchemaVersion"]!.GetValue<int>());
+            Assert.Equal(16, repaired["StorageSchemaVersion"]!.GetValue<int>());
         }
         finally
         {

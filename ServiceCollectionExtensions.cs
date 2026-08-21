@@ -3,6 +3,7 @@
 using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
 using IDVBuff.Features.Maps.Adapters;
+using IDVBuff.Features.Capture;
 using IDVBuff.Infrastructure.Configuration;
 using IDVBuff.Pipeline;
 using IDVBuff.Pipeline.Stages;
@@ -59,6 +60,11 @@ public static class ServiceCollectionExtensions
             Path.Combine(AppDataPaths.RootDirectory, "SurveyProjects")));
         services.AddSingleton<ISurveyProjectRepository, SqliteSurveyProjectRepository>();
         services.AddSingleton<ISurveyAssetStore, ContentAddressedSurveyAssetStore>();
+        services.AddSingleton<ISurveyTemplateStore>(_ => new JsonSurveyTemplateStore(
+            Path.Combine(
+                AppDataPaths.RootDirectory,
+                "Survey",
+                JsonSurveyTemplateStore.DefaultFileName)));
         var surveyCapture = configProvider.Get<SurveyCaptureTuning>("survey.capture");
         var surveyPreprocessing = configProvider.Get<SurveyPreprocessingTuning>("survey.preprocessing");
         var surveyRegistration = configProvider.Get<SurveyRegistrationTuning>("survey.registration");
@@ -111,12 +117,14 @@ public static class ServiceCollectionExtensions
         // ════════════════════════════════════════════════════════════
         services.AddSingleton<IMapIdentifier, MapIdentifierAdapter>();
         services.AddSingleton<MapStructurePreprocessor>();
+        services.AddSingleton<MapStructureFiller>();
         services.AddSingleton<IStructureRegistrar>(sp =>
             new StructureRegistrarAdapter(sp.GetRequiredService<MapStructurePreprocessor>()));
 
         // ════════════════════════════════════════════════════════════
         // Services — Overlay
         // ════════════════════════════════════════════════════════════
+        services.AddSingleton<ICaptureProtectionService, WindowCaptureProtectionService>();
         services.AddSingleton<IOverlayWindow, OverlayWindowAdapter>();
         services.AddSingleton<IOverlayRenderer, OverlayRendererAdapter>();
 
@@ -167,6 +175,7 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<MapAlignmentResearchCollector>(),
                 sp.GetRequiredService<ISurveyCoordinator>(),
                 sp.GetRequiredService<SurveyCaptureTuning>(),
+                sp.GetRequiredService<ICaptureProtectionService>(),
                 headless: headless));
         services.AddSingleton<ISessionOrchestrator>(sp =>
             sp.GetRequiredService<SessionOrchestrator>());

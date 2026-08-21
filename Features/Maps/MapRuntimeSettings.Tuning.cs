@@ -4,11 +4,11 @@ namespace IDVBuff.Features.Maps;
 
 public sealed class MapSessionTuning
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public int OpeningAnimationDelayMilliseconds { get; set; } = 10;
     public int OpeningTimeoutMilliseconds { get; set; } = 3000;
-    public int StableFrameIntervalMilliseconds { get; set; } = 20;
+    public int StableFrameIntervalMilliseconds { get; set; } = 10;
     public int StableFrameCount { get; set; } = 3;
     public double StableFrameDifference { get; set; } = 0.005d;
     public int PresencePollingMilliseconds { get; set; } = 200;
@@ -68,6 +68,16 @@ public sealed class MapSessionTuning
             StableFrameDifference = 0.005d;
             SkipStabilityConfirmation = false;
         }
+        if (previousSchema < 4
+            && StableFrameIntervalMilliseconds == 20
+            && StableFrameCount == 3
+            && Math.Abs(StableFrameDifference - 0.005d) < 0.0000001d
+            && !SkipStabilityConfirmation)
+        {
+            // 稳定帧间隔旧默认 20ms → 新默认 10ms：连续三帧确认的帧间等待减半。
+            // 仅当仍是完整旧默认元组时迁移，避免改写用户显式调过的值。
+            StableFrameIntervalMilliseconds = 10;
+        }
         SchemaVersion = CurrentSchemaVersion;
         OpeningAnimationDelayMilliseconds = Math.Clamp(
             OpeningAnimationDelayMilliseconds,
@@ -79,7 +89,7 @@ public sealed class MapSessionTuning
             10000);
         StableFrameIntervalMilliseconds = Math.Clamp(
             StableFrameIntervalMilliseconds,
-            20,
+            10,
             250);
         StableFrameCount = Math.Clamp(StableFrameCount, 2, 8);
         StableFrameDifference = Finite(
@@ -258,3 +268,10 @@ public sealed class ResolutionTuningProfile
             .FirstOrDefault();
     }
 }
+/*
+ * 文件职责：MapRuntimeSettings.Tuning。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

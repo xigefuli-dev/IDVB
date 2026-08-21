@@ -36,6 +36,22 @@ public sealed partial class MapListPage : UserControl
     private static readonly Color RecognitionRegionRed = Color.FromArgb(255, 235, 55, 55);
     private static readonly Color DeleteRed = Color.FromArgb(255, 222, 45, 50);
     private static readonly Color DisabledGray = Color.FromArgb(255, 210, 210, 210);
+    private static readonly (Color LightFill, Color LightOutline, Color DarkFill, Color DarkOutline)[]
+        VariantPalette =
+    [
+        (Hex("FDE7EC"), Hex("B4234D"), Hex("3A1722"), Hex("FF809F")),
+        (Hex("FBE9E4"), Hex("B13A21"), Hex("3A1C16"), Hex("FF9275")),
+        (Hex("FBEEDC"), Hex("A85B00"), Hex("382414"), Hex("FFB45B")),
+        (Hex("F8F0CF"), Hex("8A6800"), Hex("32290E"), Hex("E8C84E")),
+        (Hex("EEF0D4"), Hex("6C7300"), Hex("282B12"), Hex("C6D35C")),
+        (Hex("E1F2E7"), Hex("1F7A3F"), Hex("143021"), Hex("65D58B")),
+        (Hex("DDF2ED"), Hex("147363"), Hex("12302B"), Hex("5ED0B9")),
+        (Hex("EEE7FA"), Hex("6842A6"), Hex("261B3A"), Hex("B69AE9")),
+        (Hex("F2E5FA"), Hex("8038A5"), Hex("2D1738"), Hex("D899EF")),
+        (Hex("FAE4F1"), Hex("9B2D70"), Hex("35162B"), Hex("E58AC0")),
+        (Hex("FAE5E6"), Hex("9E3941"), Hex("34191C"), Hex("E68D94")),
+        (Hex("F2E9E1"), Hex("7C5234"), Hex("2E2119"), Hex("D1A27E"))
+    ];
     private static readonly Color[] AnnotationColors =
     [
         Color.FromArgb(255, 255, 59, 48),   // 0: 红
@@ -62,11 +78,18 @@ public sealed partial class MapListPage : UserControl
         new(StringComparer.OrdinalIgnoreCase);
     private Button? _editButton;
     private Button? _deleteButton;
+    private Button? _variantButton;
+    private Button? _classEditButton;
+    private Button? _importButton;
+    private Button? _exportButton;
     private HashSet<Guid> _selectedMapIds = [];
     private Guid? _lastClickedMapId;
     private IReadOnlyList<MapRecord> _loadedMaps = [];
+    private IReadOnlyList<MapVariantGroup> _variantGroups = [];
     private IReadOnlyList<SurveyProjectSummary> _surveyProjects = [];
     private IReadOnlyList<string> _classes = ["S1"];
+    private IReadOnlyDictionary<string, MapClassProperties> _classProperties =
+        new Dictionary<string, MapClassProperties>(StringComparer.OrdinalIgnoreCase);
     private string _selectedClass = "S1";
     private bool _isClassDeleteMode;
     private bool _isPackageOperation;
@@ -121,10 +144,17 @@ public sealed partial class MapListPage : UserControl
         Content = _workflowHost;
         Loaded += MapListPage_Loaded;
         Unloaded += OnUnloaded;
+        ActualThemeChanged += (_, _) => UpdateSelectedCardVisuals();
         KeyDown += MapListPage_KeyDown;
     }
 
     private bool HasSelection => _selectedMapIds.Count > 0;
+
+    private static Color Hex(string value) => Color.FromArgb(
+        255,
+        Convert.ToByte(value[..2], 16),
+        Convert.ToByte(value.Substring(2, 2), 16),
+        Convert.ToByte(value.Substring(4, 2), 16));
 
     private bool IsBatchOperation => _batchQueue is { Count: > 0 };
 
@@ -278,7 +308,9 @@ public sealed partial class MapListPage : UserControl
         ResetBatchOperation();
         var snapshot = await _repository.GetCatalogSnapshotAsync();
         _classes = snapshot.Classes;
+        _classProperties = snapshot.ClassProperties;
         _loadedMaps = snapshot.Maps;
+        _variantGroups = snapshot.VariantGroups;
         _surveyProjects = await App.Session.GetSurveyProjectsAsync();
         _previewImages.Clear();
         if (!_classes.Any(name => string.Equals(name, _selectedClass, StringComparison.OrdinalIgnoreCase)))
@@ -312,6 +344,7 @@ public sealed partial class MapListPage : UserControl
             Spacing = 24
         };
         var importButton = CreateActionButton("导入", AccentBlue);
+        _importButton = importButton;
         importButton.IsEnabled = !_isPackageOperation;
         _editButton = CreateActionButton("编辑", RecognitionRegionOrange);
         _editButton.IsEnabled = HasSelection;
@@ -342,10 +375,24 @@ public sealed partial class MapListPage : UserControl
         actions.Children.Add(importButton);
         actions.Children.Add(_editButton);
         actions.Children.Add(_deleteButton);
+        _variantButton = CreateActionButton("🔗", AccentBlue);
+        // This action is icon-only; do not let the text-button defaults make
+        // it consume the same width as the labelled actions beside it.
+        _variantButton.Width = 45;
+        _variantButton.MinWidth = 45;
+        _variantButton.Padding = new Thickness(0);
+        _variantButton.IsEnabled = _selectedMapIds.Count >= 2;
+        ToolTipService.SetToolTip(_variantButton, "绑定/解绑变体");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
+            _variantButton,
+            "绑定或解绑地图变体");
+        _variantButton.Click += async (_, _) => await ToggleSelectedVariantGroupAsync();
+        actions.Children.Add(_variantButton);
         actions.Children.Add(CreateClassPicker());
         actionRow.Children.Add(actions);
 
         var exportButton = CreateActionButton("导出", AccentBlue);
+        _exportButton = exportButton;
         exportButton.HorizontalAlignment = HorizontalAlignment.Right;
         exportButton.IsEnabled = !_isPackageOperation && _loadedMaps.Count > 0;
         exportButton.Click += async (_, _) => await ShowExportDialogAsync(importButton, exportButton);
@@ -523,12 +570,20 @@ public sealed partial class MapListPage : UserControl
         controls.Children.Add(add);
         controls.Children.Add(remove);
 
-        var batchRename = CreateSecondaryButton("批量重命名");
-        batchRename.MinWidth = 0;
-        batchRename.MinHeight = 45;
-        batchRename.Padding = new Thickness(12, 0, 12, 0);
-        batchRename.Click += async (_, _) => await BatchRenameAllMapsToDefaultNamesAsync();
-        controls.Children.Add(batchRename);
+        var reorder = CreateSecondaryButton("重新排序");
+        reorder.MinWidth = 0;
+        reorder.MinHeight = 45;
+        reorder.Padding = new Thickness(12, 0, 12, 0);
+        reorder.Click += async (_, _) => await ReorderCurrentClassAsync();
+        controls.Children.Add(reorder);
+
+        _classEditButton = CreateSecondaryButton("地图类编辑");
+        _classEditButton.MinWidth = 0;
+        _classEditButton.MinHeight = 45;
+        _classEditButton.Padding = new Thickness(12, 0, 12, 0);
+        _classEditButton.IsEnabled = !_isPackageOperation;
+        _classEditButton.Click += async (_, _) => await ShowClassPropertiesDialogAsync();
+        controls.Children.Add(_classEditButton);
 
         return controls;
     }

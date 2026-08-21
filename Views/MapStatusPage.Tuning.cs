@@ -138,6 +138,7 @@ public sealed partial class MapStatusPage : UserControl
         _structureBudget.Value = structureTuning.StructureFallbackBudgetMilliseconds;
         _firstScanStrategyToggle.IsOn =
             _runtime.Settings.FirstScanStrategy == FirstScanStrategy.SideEntrance;
+        _backgroundScanToggle.IsOn = _runtime.Settings.BackgroundScanEnabled;
 
         // 预设选择器（「自动」+ 各分辨率预设）
         if (_presetSelector.Items.Count == 0)
@@ -230,6 +231,7 @@ public sealed partial class MapStatusPage : UserControl
         _structureBudget.IsEnabled = controlsEnabled;
         _alignmentMode.IsEnabled = controlsEnabled;
         _firstScanStrategyToggle.IsEnabled = controlsEnabled;
+        _backgroundScanToggle.IsEnabled = controlsEnabled;
         _sideEntranceFeatureRadius.IsEnabled = controlsEnabled;
         _scanButton.IsEnabled =
             controlsEnabled && _runtime.MatchSnapshot.IsStarted;
@@ -241,8 +243,6 @@ public sealed partial class MapStatusPage : UserControl
         _controlPanelBinding.Text =
             $"当前：{_runtime.Settings.ControlPanelToggleBinding.DisplayName}";
         _quickBinding.Text = $"当前：{_runtime.Settings.QuickScanBinding.DisplayName}";
-        _overlayBinding.Text = $"当前：{_runtime.Settings.OverlayToggleBinding.DisplayName}";
-        _manualBinding.Text = $"当前：{_runtime.Settings.ManualRecognitionBinding.DisplayName}";
         _switchFloorBinding.Text = $"当前：{_runtime.Settings.SwitchFloorBinding.DisplayName}";
         _saveMapCacheBinding.Text =
             $"当前：{_runtime.Settings.SaveMapCacheBinding.DisplayName}";
@@ -265,9 +265,6 @@ public sealed partial class MapStatusPage : UserControl
             : _runtime.Settings.FloorDisplayRegion?.IsValid is true
                 ? "需要重新校准（旧校准区域已保留）"
                 : "尚未校准";
-        _playerCalibrationState.Text = _runtime.ArePlayerAssetsReady
-            ? "4/4 张序号图片已就绪"
-            : "玩家序号图片不完整；无法开始对局";
         _floorState.Text = _runtime.LastFloorRecognition is { } floorResult
             ? floorResult.Succeeded && floorResult.Floor is { } floor
                 ? $"{floor.ToUpperInvariant()} · 置信度 {floorResult.Confidence:P0}"
@@ -299,7 +296,7 @@ public sealed partial class MapStatusPage : UserControl
         _sessionState.Text = FormatSessionSnapshot(snapshot);
         var match = _runtime.MatchSnapshot;
         _matchState.Text = match.IsStarted
-            ? $"已开始 · 自己是 {(int)match.PlayerSlot!.Value} 号玩家 · 模式 {match.MapClass} · 版本 {match.Version}"
+            ? $"已开始 · 模式 {match.MapClass} · 版本 {match.Version}"
             : $"已结束 · 未选择玩家 · 版本 {match.Version}";
         _controlPanelState.Text = _runtime.IsControlPanelVisible
             ? "正在显示（可交互）"

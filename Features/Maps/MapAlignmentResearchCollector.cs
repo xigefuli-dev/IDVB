@@ -14,7 +14,20 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
         string CaseDirectory,
         string ManifestJson,
         string? AttemptJsonLine,
-        IReadOnlyDictionary<string, byte[]> Artifacts);
+        IReadOnlyDictionary<string, byte[]> Artifacts,
+        PendingEncode? Encode = null);
+
+    /// <summary>
+    /// 待编码的 case 图像。PNG 编码（4 张，其中 viewport / overlay 各约 256KB）
+    /// 实测约 70ms，此前发生在对齐结果与 overlay 发布之间的同步段上。改为只在
+    /// 采集线程克隆像素（约 1~2ms），编码本身交给后台写入器。
+    /// </summary>
+    private sealed record PendingEncode(
+        MapAlignmentResearchAttempt Attempt,
+        Mat Viewport);
+
+    private static readonly IReadOnlyDictionary<string, byte[]> NoArtifacts =
+        new Dictionary<string, byte[]>();
 
     private readonly MapStructurePreprocessor? _preprocessor;
     private readonly object _gate = new();
@@ -146,14 +159,17 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
                     string.Empty,
                     string.Empty,
                     JsonSerializer.Serialize(attempt, SerializerOptions),
-                    new Dictionary<string, byte[]>());
+                    NoArtifacts);
                 channel.Writer.TryWrite(request);
                 Interlocked.Increment(ref _recordCount);
                 return;
             }
 
-            // 编码图片
-            var artifacts = EncodeCase(attempt, liveViewport);
+            // 只克隆像素，PNG 编码推迟到后台写入器执行：编码约 70ms，而这里
+            // 位于对齐结果与 overlay 发布之间，必须保持在毫秒级。
+            var pendingEncode = liveViewport is null || liveViewport.Empty()
+                ? null
+                : new PendingEncode(attempt, liveViewport.Clone());
 
             // 路径
             var caseDir = Path.Combine(
@@ -169,10 +185,15 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
             var attemptLine = JsonSerializer.Serialize(attempt, SerializerOptions);
 
             var request2 = new WriteRequest(
-                caseDir, manifestJson, attemptLine, artifacts);
+                caseDir, manifestJson, attemptLine, NoArtifacts, pendingEncode);
             if (channel.Writer.TryWrite(request2))
             {
                 Interlocked.Increment(ref _recordCount);
+            }
+            else
+            {
+                // 通道已关闭：克隆帧不会再有人消费，必须就地释放。
+                pendingEncode?.Viewport.Dispose();
             }
         }
         catch (Exception exception)
@@ -423,9 +444,14 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
                 if (written % 50 == 0)
                     CleanupSessions();
 
+                // PNG 编码在这里完成，不占用对齐发布路径。
+                var artifacts = request.Artifacts;
+                if (request.Encode is { } encode)
+                    artifacts = EncodeCase(encode.Attempt, encode.Viewport);
+
                 // 写 case 图片
                 if (!string.IsNullOrEmpty(request.CaseDirectory)
-                    && request.Artifacts.Count > 0)
+                    && artifacts.Count > 0)
                 {
                     Directory.CreateDirectory(request.CaseDirectory);
 
@@ -436,7 +462,7 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
                             request.ManifestJson);
                     }
 
-                    foreach (var (name, bytes) in request.Artifacts)
+                    foreach (var (name, bytes) in artifacts)
                     {
                         await File.WriteAllBytesAsync(
                             Path.Combine(request.CaseDirectory, name), bytes);
@@ -446,6 +472,10 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
             catch (Exception exception)
             {
                 Warn(exception);
+            }
+            finally
+            {
+                request.Encode?.Viewport.Dispose();
             }
         }
     }
@@ -602,3 +632,10 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
             _disposed = true;
     }
 }
+/*
+ * 文件职责：MapAlignmentResearchCollector。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

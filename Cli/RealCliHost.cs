@@ -267,6 +267,9 @@ internal sealed class RealCliHost : IAsyncDisposable
                         {
                             scanPhaseTimings = _session.LastScanPhaseTimings,
                             alignmentPhaseTimings = _session.LastAlignmentPhaseTimings,
+                            scanOperationTrace = _session.LastScanOperationTrace,
+                            alignmentOperationTrace = _session.LastAlignmentOperationTrace,
+                            candidateOperationTrace = _session.LastCandidateOperationTrace,
                             diagnostics = _session.LastDiagnostics
                         },
                         timingsOverlayState);
@@ -304,16 +307,10 @@ internal sealed class RealCliHost : IAsyncDisposable
         IReadOnlyList<string> tokens,
         Stopwatch stopwatch)
     {
-        var slot = ParseOptionInt(tokens, "--slot") ?? 1;
+        _ = ParseOptionInt(tokens, "--slot"); // Deprecated compatibility no-op.
         var mapClass = ParseOption(tokens, "--class") ?? "S1";
-        if (slot is < 1 or > 4)
-            return CliCommandResult.Failed(
-                input,
-                "--slot 必须是 1 到 4。",
-                stopwatch.Elapsed.TotalMilliseconds,
-                BuildSnapshot());
 
-        await _session.BeginMatchAsync((PlayerSlot)slot, mapClass);
+        await _session.BeginMatchAsync(mapClass);
         var beginOverlayState = await TryGetOverlayStateAsync();
         if (beginOverlayState is not null)
         {
@@ -649,6 +646,9 @@ internal sealed class RealCliHost : IAsyncDisposable
             ["totalMapCount"] = _session.TotalMapCount,
             ["scanPhaseTimings"] = _session.LastScanPhaseTimings,
             ["alignmentPhaseTimings"] = _session.LastAlignmentPhaseTimings,
+            ["scanOperationTrace"] = _session.LastScanOperationTrace,
+            ["alignmentOperationTrace"] = _session.LastAlignmentOperationTrace,
+            ["candidateOperationTrace"] = _session.LastCandidateOperationTrace,
             ["diagnostics"] = _session.LastDiagnostics,
             ["logSessionPath"] = _session.LogCollector.CurrentSessionPath,
             ["integrity"] = _session.IntegrityStatus,
@@ -736,8 +736,26 @@ internal sealed class RealCliHost : IAsyncDisposable
             Console.WriteLine($"扫描耗时：{string.Join(", ", scanTimings.Select(pair => $"{pair.Key}={pair.Value:0.##}ms"))}");
         if (_session.LastAlignmentPhaseTimings is { } alignmentTimings)
             Console.WriteLine($"对齐耗时：{string.Join(", ", alignmentTimings.Select(pair => $"{pair.Key}={pair.Value:0.##}ms"))}");
+        if (_session.LastScanOperationTrace is { } scanTrace)
+            Console.WriteLine(
+                $"扫描黑洞：wall={scanTrace.WallClockMs:0.##}ms "
+                    + $"covered={scanTrace.CoveredTopLevelMs:0.##}ms "
+                    + $"unaccounted={scanTrace.UnaccountedMs:0.##}ms "
+                    + $"outcome={scanTrace.Outcome}");
+        if (_session.LastAlignmentOperationTrace is { } alignmentTrace)
+            Console.WriteLine(
+                $"对齐黑洞：wall={alignmentTrace.WallClockMs:0.##}ms "
+                    + $"covered={alignmentTrace.CoveredTopLevelMs:0.##}ms "
+                    + $"unaccounted={alignmentTrace.UnaccountedMs:0.##}ms "
+                    + $"outcome={alignmentTrace.Outcome}");
+        if (_session.LastCandidateOperationTrace is { } candidateTrace)
+            Console.WriteLine(
+                $"候选黑洞：wall={candidateTrace.WallClockMs:0.##}ms "
+                    + $"covered={candidateTrace.CoveredTopLevelMs:0.##}ms "
+                    + $"unaccounted={candidateTrace.UnaccountedMs:0.##}ms "
+                    + $"outcome={candidateTrace.Outcome}");
         Console.WriteLine();
-        Console.WriteLine("begin --slot 1 --class S1 | scan [--candidate N] | align | end | status | logs | timings");
+        Console.WriteLine("begin --class S1 | scan [--candidate N] | align | end | status | logs | timings");
         Console.WriteLine("game start/status/map open|close/map-only on|off/floor N/image N/next/previous/clear");
         Console.WriteLine("quit");
     }
@@ -745,7 +763,7 @@ internal sealed class RealCliHost : IAsyncDisposable
     private static readonly IReadOnlyDictionary<string, string> CommandHelp =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["begin"] = "begin --slot <1-4> --class <class>",
+            ["begin"] = "begin --class <class>",
             ["scan"] = "scan [--candidate <1-N>]；RealCLI 默认优先选择结构已验证候选",
             ["align"] = "只对已锁定地图执行 IDVB 的仅对齐入口",
             ["end"] = "结束当前对局并释放锁定地图",

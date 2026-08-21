@@ -305,7 +305,7 @@ public sealed partial class MapListPage : UserControl
 
         // 导出与交互场景完全解耦：直接程序化绘制，不受 ScrollViewer 缩放/裁剪或纹理上限影响。
         var encoded = await Task.Run(() =>
-            RenderModernPngExport(profile, imagePath, options, isVisible));
+            RenderModernPngExport(profile, imagePath, options, isVisible, _draft.ClassProperties.RemoveBackground));
         await File.WriteAllBytesAsync(destination, encoded);
     }
 

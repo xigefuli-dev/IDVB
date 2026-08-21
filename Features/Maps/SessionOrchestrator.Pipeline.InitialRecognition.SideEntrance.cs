@@ -13,7 +13,8 @@ public sealed partial class SessionOrchestrator
 {
     private void RunInitialSideEntranceRecognition(
         CapturedGameFrame frame,
-        InitialRecognitionPipelineState result)
+        InitialRecognitionPipelineState result,
+        bool recognizeOnly = false)
     {
         ref var recognition = ref result.Recognition;
         ref var failureReason = ref result.FailureReason;
@@ -34,18 +35,33 @@ public sealed partial class SessionOrchestrator
         var sideMapId = Guid.Empty;
         var displayName = string.Empty;
         var sideTimings = new Dictionary<string, double>();
+        MapOperationTrace.MapOperationSpanScope? initialPostProcess = null;
         try
         {
             var sideSw = Stopwatch.StartNew();
-            var sideScan = _recognition.RunSideEntranceScan(
-                frame,
-                _settings!.RecognitionTuning,
-                topK: 5,
-                mapClass: _matchSession.Snapshot.MapClass,
-                // 进度由门检测、每张地图的粗搜及精化完成数实时驱动。
-                progress: value => _scanProgressOverlay.Report(
-                    0.38d + value * 0.38d,
-                    "正在扫描地图特征..."));
+            var initialRecognition = MapOperationTraceAmbient.StartTopLevel(
+                "initial_recognition",
+                MapOperationWaitKind.Compute);
+            SideEntranceScanResult sideScan;
+            try
+            {
+                sideScan = _recognition.RunSideEntranceScan(
+                    frame,
+                    _settings!.RecognitionTuning,
+                    topK: 5,
+                    mapClass: _matchSession.Snapshot.MapClass,
+                    // 进度由门检测、每张地图的粗搜及精化完成数实时驱动。
+                    progress: value => _scanProgressOverlay.Report(
+                        0.38d + value * 0.38d,
+                        "正在扫描地图特征..."));
+            }
+            finally
+            {
+                initialRecognition.Complete();
+            }
+            initialPostProcess = MapOperationTraceAmbient.StartTopLevel(
+                "initial_recognition",
+                MapOperationWaitKind.Compute);
             pendingSideEntranceScan = sideScan;
             _lastDiagnostics = new MapScanDiagnostics
             {
@@ -68,6 +84,7 @@ public sealed partial class SessionOrchestrator
                     MapLogCategory.ScanLifecycle,
                     MapLogLevel.Warning,
                     failureReason);
+                initialPostProcess.Complete();
                 return;
             }
             if (candidates.Count == 0)
@@ -78,6 +95,7 @@ public sealed partial class SessionOrchestrator
                     MapLogCategory.ScanLifecycle,
                     MapLogLevel.Warning,
                     failureReason);
+                initialPostProcess.Complete();
                 return;
             }
 
@@ -103,48 +121,63 @@ public sealed partial class SessionOrchestrator
             var verificationCandidates = SideEntranceCandidateEvidence
                 .SelectVerificationCandidates(candidates);
 
+            initialPostProcess.Complete();
             var verifiedCount = 0;
-            foreach (var candidate in verificationCandidates)
+            foreach (var (candidate, candidateIndex) in verificationCandidates
+                .Select((candidate, index) => (candidate, index)))
             {
-                if (!_recognition.TryCreateSideEntranceAlignmentSeed(
-                        candidate,
-                        frame.ViewportBounds,
-                        out var candidateSeed,
-                        out var seedReason))
+                var candidateAlignment = MapOperationTraceAmbient.StartTopLevel(
+                    "selected_candidate_alignment",
+                    MapOperationWaitKind.Compute,
+                    mapId: candidate.Map.Id.ToString("D"),
+                    floorKey: candidate.FloorKey,
+                    attemptIndex: candidateIndex);
+                try
                 {
-                    candidate.RejectionReason =
-                        SideEntranceRejectionReason.InvalidFeatureData;
-                    candidate.RejectionDetail = seedReason;
-                    continue;
-                }
+                    if (!_recognition.TryCreateSideEntranceAlignmentSeed(
+                            candidate,
+                            frame.ViewportBounds,
+                            out var candidateSeed,
+                            out var seedReason))
+                    {
+                        candidate.RejectionReason =
+                            SideEntranceRejectionReason.InvalidFeatureData;
+                        candidate.RejectionDetail = seedReason;
+                        continue;
+                    }
 
-                var attempt = AlignSideEntranceWithScaleFallback(
-                    frame,
-                    candidate,
-                    candidateSeed,
-                    sideAlignmentTuning,
-                    sideStructureTuning,
-                    out candidateSeed);
-                if (SideEntranceCandidateEvidence.ApplyStructureAttempt(
+                    var attempt = AlignSideEntranceWithScaleFallback(
+                        frame,
                         candidate,
-                        attempt))
-                {
-                    reliable.Add((candidate, candidateSeed, attempt));
+                        candidateSeed,
+                        sideAlignmentTuning,
+                        sideStructureTuning,
+                        out candidateSeed);
+                    if (SideEntranceCandidateEvidence.ApplyStructureAttempt(
+                            candidate,
+                            attempt))
+                    {
+                        reliable.Add((candidate, candidateSeed, attempt));
+                    }
+
+                    RecordResearchAttemptForMap(
+                        candidate.Map,
+                        candidate.FloorKey,
+                        frame,
+                        attempt,
+                        "side-entrance-candidate-verification");
+
+                    // 结构验证是扫描中最慢的一段（逐候选做 VPSG/结构配准），
+                    // 侧门扫描回调在 76% 处结束；这里逐候选实时推进，避免进度条停滞。
+                    verifiedCount++;
+                    _scanProgressOverlay.Report(
+                        0.76d + 0.12d * verifiedCount / verificationCandidates.Count,
+                        "正在验证地图结构...");
                 }
-
-                RecordResearchAttemptForMap(
-                    candidate.Map,
-                    candidate.FloorKey,
-                    frame,
-                    attempt,
-                    "side-entrance-candidate-verification");
-
-                // 结构验证是扫描中最慢的一段（逐候选做 VPSG/结构配准），
-                // 侧门扫描回调在 76% 处结束；这里逐候选实时推进，避免进度条停滞。
-                verifiedCount++;
-                _scanProgressOverlay.Report(
-                    0.76d + 0.12d * verifiedCount / verificationCandidates.Count,
-                    "正在验证地图结构...");
+                finally
+                {
+                    candidateAlignment.Complete();
+                }
             }
 
             var orderedReliable = SideEntranceCandidateEvidence.OrderVerified(
@@ -216,6 +249,7 @@ public sealed partial class SessionOrchestrator
                 failureReason = reliable.Count == 0
                     ? $"侧门扫描无可靠候选（侧门就绪 {sideScan.ReadyMapCount}/{sideScan.EligibleMapCount}）。"
                     : null;
+                initialPostProcess.Complete();
                 return;
             }
 
@@ -236,6 +270,7 @@ public sealed partial class SessionOrchestrator
         }
         catch (Exception alignEx)
         {
+            initialPostProcess?.Complete();
             RecordResearchAttemptForMap(
                 _recognition.TryGetMap(sideMapId), seed?.FloorKey, frame,
                 new MapRecognitionAttempt { FailureReason = alignEx.Message },
@@ -281,7 +316,13 @@ public sealed partial class SessionOrchestrator
         if (sideAttempt.Recognition is { } sideRec)
         {
             recognition = sideRec;
+            // 后台扫描（recognizeOnly）：只产出身份 + 侧门种子，延迟到开图
+            // 消费时再提交对齐。不锁定 _lastRecognition / 不提交可靠会话，
+            // 防止劫持手动识别；_statusMessage 由 CompleteBackgroundScan 设置。
+            if (recognizeOnly)
+                return;
             _lastRecognition = sideRec;
+            _mapLease.Bind(_matchSession.Snapshot, sideRec.Map.Id);
             // 用侧门扫描种子（而非 null）作为 previous，保留
             // SideEntranceScanPriorConfidence，使后续仅对齐调用
             // 能正确识别侧门路由（AllowScaleSearch = true）。
@@ -475,3 +516,10 @@ public sealed partial class SessionOrchestrator
             : attempt.StructureFailureReason;
 
 }
+/*
+ * 文件职责：SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

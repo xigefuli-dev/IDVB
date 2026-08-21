@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>IDVBuff.Plugins.DynamicMiniMapZoom</RootNamespace>
+    <AssemblyName>IDVB.DynamicMiniMapZoom</AssemblyName>
+    <PackageId>IdentityVisionBridge.DynamicMiniMapZoom</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+  </ItemGroup>
+</Project>

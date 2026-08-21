@@ -9,11 +9,13 @@ public sealed class MapRuntimeDefaultSettingsTests
     {
         var settings = MapRuntimeSettings.CreateDefault();
 
-        Assert.Equal(12, settings.SchemaVersion);
+        Assert.Equal(13, settings.SchemaVersion);
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
+        Assert.False(settings.BackgroundScanEnabled);
         Assert.False(settings.CollectLogs);
         Assert.False(settings.CollectAlignmentResearchData);
+        Assert.Null(settings.LastSelectedMapClass);
         Assert.False(settings.SkipFloorRecognition);
         Assert.False(settings.AllowMapExtendBeyondBounds);
         Assert.False(settings.PersistentMiniMapEnabled);
@@ -50,7 +52,7 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.True(settings.RecognitionTuning.ForceCandidateSelection);
         Assert.Equal(80, settings.RecognitionTuning.SideEntranceFeatureRadius);
         Assert.Equal(10, settings.SessionTuning.OpeningAnimationDelayMilliseconds);
-        Assert.Equal(20, settings.SessionTuning.StableFrameIntervalMilliseconds);
+        Assert.Equal(10, settings.SessionTuning.StableFrameIntervalMilliseconds);
         Assert.Equal(3, settings.SessionTuning.StableFrameCount);
         Assert.Equal(0.005d, settings.SessionTuning.StableFrameDifference);
         Assert.Equal(0.70d, settings.SessionTuning.HighConfidence);
@@ -102,6 +104,42 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.Equal(4, tuning.StableFrameCount);
         Assert.Equal(0.015d, tuning.StableFrameDifference);
         Assert.True(tuning.SkipStabilityConfirmation);
+    }
+
+    [Fact]
+    public void LegacyDefaultFrameIntervalMigratesToTenMilliseconds()
+    {
+        var tuning = new MapSessionTuning
+        {
+            SchemaVersion = 3,
+            StableFrameIntervalMilliseconds = 20,
+            StableFrameCount = 3,
+            StableFrameDifference = 0.005d,
+            SkipStabilityConfirmation = false
+        };
+
+        tuning.Normalize();
+
+        Assert.Equal(MapSessionTuning.CurrentSchemaVersion, tuning.SchemaVersion);
+        Assert.Equal(10, tuning.StableFrameIntervalMilliseconds);
+    }
+
+    [Fact]
+    public void CustomizedFrameIntervalIsPreservedDuringMigration()
+    {
+        var tuning = new MapSessionTuning
+        {
+            SchemaVersion = 3,
+            StableFrameIntervalMilliseconds = 30,
+            StableFrameCount = 3,
+            StableFrameDifference = 0.005d,
+            SkipStabilityConfirmation = false
+        };
+
+        tuning.Normalize();
+
+        Assert.Equal(MapSessionTuning.CurrentSchemaVersion, tuning.SchemaVersion);
+        Assert.Equal(30, tuning.StableFrameIntervalMilliseconds);
     }
 
     [Fact]

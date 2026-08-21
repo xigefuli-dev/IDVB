@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -33,6 +34,10 @@ internal static partial class MapCvAlignmentService
         var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(
             service.ReadyMapCount,
             service.TotalMapCount);
+        using var selectedRoute = MapOperationTraceAmbient.StartChild(
+            "selected_alignment_route",
+            MapOperationWaitKind.Compute,
+            mapId: selectedMapId.ToString("D"));
         var searchCtx = alignmentSearchContext;
 
         diagnostics.SearchStage =
@@ -88,14 +93,30 @@ internal static partial class MapCvAlignmentService
                 "侧门对齐缺少当前地图的侧门扫描种子；请重新执行侧门扫描。");
         }
 
+        var hasAlignmentDeadline =
+            MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is not null;
         var prioritizeStructureValidation =
             MapOpenAlignmentRouteRules.ShouldPrioritizeStructureValidation(
                 route,
-                MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is not null);
+                hasAlignmentDeadline)
+            // 兜底已锁定身份：无门楼层不需要门检测。双门 RankGeometry 只用于
+            // 身份选择，此处会话已匹配当前地图；实测本场景门检测 290 次从未
+            // 找到双门、仅 14 次找到单个门且还要过身份确认门槛，白白付出
+            // 150ms+。有 NoDoor 预算且会话匹配时直接走结构配准，跳过
+            // CreateMatchImage + FullSearch/WarmScaleSearch。
+            || (route == SelectedAlignmentRoute.Default
+                && compatibleSession is not null
+                && hasAlignmentDeadline);
         var stopwatch = Stopwatch.StartNew();
+        using var inputPreprocess = MapOperationTraceAmbient.StartChild(
+            "alignment_input_preprocess",
+            MapOperationWaitKind.Compute,
+            mapId: selectedMapId.ToString("D"),
+            floorKey: fingerprint.FloorKey);
         using var liveMatchImage = prioritizeStructureValidation
             ? new Mat()
             : GateTemplateDetector.CreateMatchImage(frame.Image);
+        inputPreprocess.Complete();
         stopwatch.Stop();
         diagnostics.PreprocessMilliseconds = prioritizeStructureValidation
             ? 0d
@@ -108,20 +129,53 @@ internal static partial class MapCvAlignmentService
                 Mode = GateSearchMode.FullSearch,
             };
 
-        var gateResult = prioritizeStructureValidation
-            ? new GateDetectionResult
+        GateDetectionResult gateResult;
+        using (var gateDetection = MapOperationTraceAmbient.StartChild(
+                   "alignment_gate_detection",
+                   MapOperationWaitKind.Compute,
+                   mapId: selectedMapId.ToString("D"),
+                   floorKey: fingerprint.FloorKey))
+        {
+            gateResult = prioritizeStructureValidation
+                ? new GateDetectionResult
+                {
+                    SearchModeUsed = gateContext.Mode,
+                    StopReason = GateSearchStopReason.Completed,
+                }
+                : service.GateDetector.Detect(
+                    liveMatchImage,
+                    frame.ViewportBounds,
+                    frame.ClientBounds.Width,
+                    tuning.GateTemplateThreshold,
+                    gateContext);
+            if (prioritizeStructureValidation)
             {
-                SearchModeUsed = gateContext.Mode,
-                StopReason = GateSearchStopReason.Completed,
+                gateDetection.Complete(
+                    MapOperationSpanStatus.Skipped,
+                    "identity-locked-structure-priority");
             }
-            : service.GateDetector.Detect(
-                liveMatchImage,
-                frame.ViewportBounds,
-                frame.ClientBounds.Width,
-                tuning.GateTemplateThreshold,
-                gateContext);
+        }
         var gates = gateResult.Gates;
         stopwatch.Stop();
+        // 记录兜底已锁定身份时的门检测跳过（区别于侧门路由的既有跳过），
+        // 便于从日志验证影响面与后续结构配准成功率。
+        if (prioritizeStructureValidation
+            && route == SelectedAlignmentRoute.Default)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.GateDetection,
+                MapLogLevel.Info,
+                $"兜底已锁定身份，跳过门检测直接结构配准 · floor={fingerprint.FloorKey}",
+                elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
+                details: new()
+                {
+                    ["mapId"] = selectedMapId,
+                    ["floor"] = fingerprint.FloorKey,
+                    ["hasDeadline"] = hasAlignmentDeadline,
+                    ["sessionMatched"] = compatibleSession is not null,
+                    ["searchMode"] = gateContext.Mode.ToString(),
+                });
+        }
         diagnostics.GateDetectionMilliseconds = prioritizeStructureValidation
             ? 0d
             : stopwatch.Elapsed.TotalMilliseconds;
@@ -155,12 +209,19 @@ internal static partial class MapCvAlignmentService
                         tuning.WarmGateSearchBudgetMs;
 
                 stopwatch.Restart();
-                gateResult = service.GateDetector.Detect(
-                    liveMatchImage,
-                    frame.ViewportBounds,
-                    frame.ClientBounds.Width,
-                    tuning.GateTemplateThreshold,
-                    warmContext);
+                using (var warmGate = MapOperationTraceAmbient.StartChild(
+                           "warm_gate_detection",
+                           MapOperationWaitKind.Compute,
+                           mapId: selectedMapId.ToString("D"),
+                           floorKey: fingerprint.FloorKey))
+                {
+                    gateResult = service.GateDetector.Detect(
+                        liveMatchImage,
+                        frame.ViewportBounds,
+                        frame.ClientBounds.Width,
+                        tuning.GateTemplateThreshold,
+                        warmContext);
+                }
                 gates = gateResult.Gates;
                 stopwatch.Stop();
                 diagnostics.GateDetectionMilliseconds =
@@ -219,9 +280,15 @@ internal static partial class MapCvAlignmentService
         session = compatibleSession;
 
         stopwatch.Restart();
+        using var referenceLoad = MapOperationTraceAmbient.StartChild(
+            "reference_image_load",
+            MapOperationWaitKind.Io,
+            mapId: selectedMapId.ToString("D"),
+            floorKey: fingerprint.FloorKey);
         using var reference = Cv2.ImRead(
             fingerprint.RecognitionImagePath,
             ImreadModes.Unchanged);
+        referenceLoad.Complete();
         stopwatch.Stop();
         diagnostics.ReferenceImageLoadMilliseconds =
             stopwatch.Elapsed.TotalMilliseconds;
@@ -304,3 +371,10 @@ internal static partial class MapCvAlignmentService
     }
 
 }
+/*
+ * 文件职责：MapCvAlignmentService.AlignSelected。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

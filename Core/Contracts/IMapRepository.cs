@@ -65,9 +65,27 @@ public interface IMapRepository
     Task BatchRenameAllMapsToDefaultNamesAsync();
 
     /// <summary>
+    /// 绑定一组尚未分组的地图，或在选择恰好覆盖完整组合时解除绑定。
+    /// </summary>
+    Task<object> ToggleVariantGroupAsync(
+        string className,
+        IReadOnlyCollection<Guid> selectedMapIds);
+
+    /// <summary>
+    /// 将当前 Class 的变体组合按块归拢并稳定重排为连续序号。
+    /// </summary>
+    Task ReorderClassAsync(string className);
+
+    /// <summary>
     /// 重命名单个 Class。
     /// </summary>
     Task RenameClassAsync(string oldName, string newName);
+
+    /// <summary>Rebuilds a Class and commits its background-removal property atomically.</summary>
+    Task<IReadOnlyList<Guid>> SetClassRemoveBackgroundAsync(
+        string className,
+        bool enabled,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取目录文件修订标识（用于检测外部变更）。

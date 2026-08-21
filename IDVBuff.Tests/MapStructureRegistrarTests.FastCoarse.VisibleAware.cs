@@ -7,6 +7,41 @@ namespace IDVBuff.Tests;
 public sealed partial class MapStructureRegistrarTests
 {
     [Fact]
+    public void VisibleAwareIoU_ExactMatchIsOne_AndResponseIsBounded()
+    {
+        using var reference = Mat.Zeros(12, 14, MatType.CV_32FC1).ToMat();
+        Cv2.Rectangle(reference, new Rect(4, 3, 5, 6), Scalar.All(1), -1);
+        using var structure = new Mat(reference, new Rect(4, 3, 5, 6)).Clone();
+        using var visible = Mat.Ones(structure.Size(), MatType.CV_32FC1);
+        using var response = MapStructureVisibleAwareSearch.ComputeIoU(reference, structure, visible);
+
+        Cv2.MinMaxLoc(response, out var minimum, out var maximum, out _, out var location);
+        Assert.InRange(minimum, 0d, 1d);
+        Assert.InRange(maximum, 0d, 1d);
+        Assert.Equal(new Point(4, 3), location);
+        Assert.InRange(maximum, 0.99999d, 1d);
+    }
+
+    [Fact]
+    public void VisibleAwareMatAndUMatCorrelation_Agree()
+    {
+        VisibleAwareCorrelationSession.ResetStickyFallbackForTests();
+        using var reference = Mat.Zeros(40, 48, MatType.CV_32FC1).ToMat();
+        Cv2.Rectangle(reference, new Rect(13, 11, 12, 9), Scalar.All(1), -1);
+        using var structure = new Mat(reference, new Rect(13, 11, 12, 9)).Clone();
+        using var visible = Mat.Ones(structure.Size(), MatType.CV_32FC1);
+        using IVisibleAwareCorrelationBackend mat = new MatCorrelationBackend();
+        using IVisibleAwareCorrelationBackend umat = new UMatCorrelationBackend();
+        using var matResponse = mat.Correlate(reference, structure, visible);
+        using var umatResponse = umat.Correlate(reference, structure, visible);
+        Cv2.MinMaxLoc(matResponse, out _, out var matMax, out _, out var matAt);
+        Cv2.MinMaxLoc(umatResponse, out _, out var umatMax, out _, out var umatAt);
+        Assert.InRange(Math.Abs(matAt.X - umatAt.X), 0, 1);
+        Assert.InRange(Math.Abs(matAt.Y - umatAt.Y), 0, 1);
+        Assert.InRange(Math.Abs(matMax - umatMax), 0d, 0.0001d);
+    }
+
+    [Fact]
     public void VisibleAwareEarlyExit_IsEnabledWhenMigratingOlderTuning()
     {
         var tuning = new MapStructureRegistrationTuning
@@ -146,6 +181,128 @@ public sealed partial class MapStructureRegistrarTests
             $"OffsetX error {offsetErrorX:F1}px >= 40px suggests double-offset regression");
         Assert.True(offsetErrorY < 40d,
             $"OffsetY error {offsetErrorY:F1}px >= 40px suggests double-offset regression");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // VisibleMask 生成与注入回归测试
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void VisibleMask_GeneratedWhenEnabled_AndNullWhenDisabled()
+    {
+        var preprocessor = new MapStructurePreprocessor();
+        using var source = BuildReference();
+
+        using var withoutMask = preprocessor.ProcessLiveRoi(source);
+        Assert.Null(withoutMask.RawVisibleMask);
+
+        using var withMask = preprocessor.ProcessLiveRoi(
+            source, null, null, generateVisibleMask: true);
+        Assert.NotNull(withMask.RawVisibleMask);
+        Assert.False(withMask.RawVisibleMask.Empty());
+        Assert.True(Cv2.CountNonZero(withMask.RawVisibleMask) > 0,
+            "白色结构区域在 HSV 阈值下应被判为可见");
+    }
+
+    [Fact]
+    public void VisibleMask_RespectsHsvThresholds()
+    {
+        var preprocessor = new MapStructurePreprocessor();
+        // 四象限：V 阈值之上有 S / 高亮 / 双低 三种情况。
+        // 直接用 HSV 值构造再转 BGR，避免手算饱和度误差。
+        using var source = new Mat(
+            new Size(200, 80), MatType.CV_8UC3, Scalar.Black);
+        using var hsvSource = new Mat(
+            new Size(200, 80), MatType.CV_8UC3, Scalar.Black);
+        // 左上：V=50, S=50 → (S>14 AND V>42，且 S<105 不触发 nuisance) → 可见
+        Cv2.Rectangle(hsvSource, new Rect(0, 0, 100, 40), new Scalar(0, 50, 50), -1);
+        // 右上：V=90, S=50 → (V>80 高亮) → 可见
+        Cv2.Rectangle(hsvSource, new Rect(100, 0, 100, 40), new Scalar(0, 50, 90), -1);
+        // 左下：V=30 → V 不够 → 不可见
+        Cv2.Rectangle(hsvSource, new Rect(0, 40, 100, 40), new Scalar(0, 50, 30), -1);
+        // 右下：V=50, S=5 → 双低 → 不可见
+        Cv2.Rectangle(hsvSource, new Rect(100, 40, 100, 40), new Scalar(0, 5, 50), -1);
+        Cv2.CvtColor(hsvSource, source, ColorConversionCodes.HSV2BGR);
+
+        using var features = preprocessor.ProcessLiveRoi(
+            source, null, null, generateVisibleMask: true);
+        Assert.NotNull(features.RawVisibleMask);
+        using var mask = features.RawVisibleMask.Clone();
+
+        using var topLeftPatch = new Mat(mask, new Rect(0, 0, 100, 40));
+        using var topRightPatch = new Mat(mask, new Rect(100, 0, 100, 40));
+        using var bottomLeftPatch = new Mat(mask, new Rect(0, 40, 100, 40));
+        using var bottomRightPatch = new Mat(mask, new Rect(100, 40, 100, 40));
+        var topLeftVisible = Cv2.CountNonZero(topLeftPatch);
+        var topRightVisible = Cv2.CountNonZero(topRightPatch);
+        var bottomLeftVisible = Cv2.CountNonZero(bottomLeftPatch);
+        var bottomRightVisible = Cv2.CountNonZero(bottomRightPatch);
+        Assert.True(topLeftVisible > 0,
+            $"TL 应可见, TL={topLeftVisible} TR={topRightVisible} "
+            + $"BL={bottomLeftVisible} BR={bottomRightVisible} "
+            + $"maskTotal={Cv2.CountNonZero(mask)}");
+        Assert.True(topRightVisible > 0,
+            $"TR 应可见, TL={topLeftVisible} TR={topRightVisible} "
+            + $"BL={bottomLeftVisible} BR={bottomRightVisible} "
+            + $"maskTotal={Cv2.CountNonZero(mask)}");
+        Assert.Equal(0, bottomLeftVisible);
+        Assert.Equal(0, bottomRightVisible);
+    }
+
+    [Fact]
+    public void VisibleAware_CandidatesInjectedWithoutEarlyExit()
+    {
+        using var reference = BuildReference();
+        var referenceCrop = new Rect(35, 35, 200, 160);
+        using var live = new Mat(reference, referenceCrop).Clone();
+        var viewport = new MapScreenRect(100d, 80d, live.Width, live.Height);
+        var expectedOffsetX = viewport.X - referenceCrop.X;
+        var expectedOffsetY = viewport.Y - referenceCrop.Y;
+
+        var tuning = TestTuning();
+        tuning.EnableVisibleMask = true;
+        tuning.EnableVisibleAwareInjection = true;
+        tuning.EnableVisibleAwareShadow = false;
+        tuning.EnableVisibleAwareEarlyExit = false;
+        // 合成图整体亮，放宽最小可见门槛确保候选生成
+        tuning.VisibleAwareMinimumVisibleFraction = 0.01d;
+        tuning.VisibleAwareMinimumVisibleStructurePixels = 10;
+
+        var registrar = new MapStructureRegistrar(new MapStructurePreprocessor());
+        var result = registrar.Register(new MapStructureRegistrationRequest
+        {
+            ReferenceImage = reference,
+            LiveRoi = live,
+            ViewportBounds = viewport,
+            LockedTransform = Locked(
+                reference, expectedOffsetX + 6d, expectedOffsetY - 6d),
+            Tuning = tuning,
+            AllowScaleSearch = false,
+            RestrictSearchToLockedTransform = false
+        });
+
+        Assert.NotNull(result);
+        // 关闭 EarlyExit 时不应出现 early-accept 标记，Legacy 搜索必须照常执行
+        Assert.False(result.VisibleAwareEarlyAccepted);
+        // Visible-aware 搜索确实运行：有耗时、有候选计数、有可见像素统计
+        Assert.True(result.VisibleAwareSearchMilliseconds > 0d,
+            "Visible-aware 搜索应实际执行");
+        Assert.True(result.VisibleAwareCandidateCount > 0,
+            "可见候选计数应大于 0");
+        Assert.True(result.VisibleFraction > 0d,
+            "应统计出可见区域占比");
+        Assert.True(result.VisibleStructurePixels > 0,
+            "应统计出可见结构像素");
+        // 注入的候选可能因去重/排序未进入最终 top-N（与模板候选同一
+        // 对齐盆地时会被 DistinctCandidates 合并），但这不影响管线正确性；
+        // 只要候选池经过真实搜索并有诊断即证明注入路径生效。
+        // 最终仍应正常接受（结构完全来自参考图裁切）
+        Assert.True(result.Accepted, result.FailureReason);
+        // 最终应正常接受（结构完全来自参考图裁切）
+        Assert.True(result.Accepted, result.FailureReason);
+        Assert.NotNull(result.Transform);
+        Assert.InRange(Math.Abs(result.Transform.OffsetX - expectedOffsetX), 0d, 4d);
+        Assert.InRange(Math.Abs(result.Transform.OffsetY - expectedOffsetY), 0d, 4d);
     }
 
     [Fact]

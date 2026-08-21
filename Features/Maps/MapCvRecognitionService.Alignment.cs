@@ -54,7 +54,8 @@ public sealed partial class MapCvRecognitionService
     private static AlignmentSearchContext? CreateSideEntranceWarmSearchContext(
         MapAlignmentSession session,
         MapRecognitionTuning tuning,
-        bool useInitialHighPrecisionRecovery = false)
+        bool useInitialHighPrecisionRecovery = false,
+        bool useLockedFixedStructureValidation = false)
     {
         var warmScale = session.GateTemplateScale
             ?? (GateTemplateRules.ReferenceScale * session.BaselineGateScale);
@@ -67,6 +68,8 @@ public sealed partial class MapCvRecognitionService
                 useInitialHighPrecisionRecovery,
             UseInitialHighPrecisionRecovery =
                 useInitialHighPrecisionRecovery,
+            UseLockedFixedStructureValidation =
+                useLockedFixedStructureValidation,
             GateSearch = new GateSearchContext
             {
                 Mode = GateSearchMode.WarmScaleSearch,
@@ -296,6 +299,83 @@ public sealed partial class MapCvRecognitionService
         };
     }
 
+    /// <summary>
+    /// Solves the user's manually marked gate pair against one explicitly
+    /// selected map. This is used when the chooser selection came from the
+    /// catalog tail rather than the recognition candidate set.
+    /// </summary>
+    public RuntimeMapRecognition? RecognizeManualSelectedMap(
+        Guid selectedMapId,
+        MapScreenRect viewportBounds,
+        MapScreenRect mainGateBounds,
+        MapScreenRect sideGateBounds,
+        MapOverlayAlignmentMode alignmentMode,
+        MapRecognitionTuning tuning,
+        out string failureReason)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning);
+        alignmentMode = MapOverlayAlignmentMode.Uniform;
+        var fingerprint = _fingerprints.FirstOrDefault(item =>
+            item.Map.Id == selectedMapId
+            && string.Equals(
+                item.FloorKey,
+                MapFloorRules.GetPrimaryFloorKey(item.Map),
+                StringComparison.Ordinal));
+        if (fingerprint is null)
+        {
+            failureReason = "所选地图缺少可用的一楼双门识别配置。";
+            return null;
+        }
+        if (!viewportBounds.IsValid
+            || !mainGateBounds.IsValid
+            || !sideGateBounds.IsValid)
+        {
+            failureReason = "手动框选的地图区域或门矩形无效。";
+            return null;
+        }
+
+        var ranked = MapCvRecognitionScript.RankGeometry(
+            [fingerprint],
+            [
+                new GateDetection
+                {
+                    Score = 1d,
+                    ScreenBounds = mainGateBounds
+                },
+                new GateDetection
+                {
+                    Score = 1d,
+                    ScreenBounds = sideGateBounds
+                }
+            ],
+            viewportBounds,
+            double.PositiveInfinity,
+            testSwappedAssignments: false);
+        var selected = ranked.FirstOrDefault();
+        if (selected is null)
+        {
+            failureReason = "所选地图无法与手动框选的双门建立几何关系。";
+            return null;
+        }
+
+        if (!MapCvRecognitionBuilders.TryBuildRecognition(
+                selected,
+                alignmentMode,
+                tuning,
+                double.PositiveInfinity,
+                usedConfirmation: false,
+                MapRecognitionSource.ManualGateSelection,
+                wasForcedBestResult: false,
+                out var recognition,
+                out failureReason))
+        {
+            return null;
+        }
+
+        return recognition;
+    }
+
     internal IReadOnlyList<MapGeometryFingerprint> FilterFingerprints(string? mapClass)
     {
         if (string.IsNullOrWhiteSpace(mapClass))
@@ -347,3 +427,10 @@ public sealed partial class MapCvRecognitionService
     }
 
 }
+/*
+ * 文件职责：MapCvRecognitionService.Alignment。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

@@ -19,6 +19,12 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
         var laterTracking = new AlignmentSearchContext
         {
             GateSearch = new GateSearchContext(),
+            UseRestrictedStructureFallback = true,
+            UseTrackingStructureSearch = true
+        };
+        var ordinaryFallback = new AlignmentSearchContext
+        {
+            GateSearch = new GateSearchContext(),
             UseRestrictedStructureFallback = true
         };
 
@@ -27,6 +33,15 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
         Assert.True(
             MapAlignmentSearchPolicy.UseTrackingForGlobalRecovery(
                 laterTracking));
+        Assert.False(MapAlignmentSearchPolicy.UseTrackingForStructureValidation(
+            true,
+            initial));
+        Assert.True(MapAlignmentSearchPolicy.UseTrackingForStructureValidation(
+            true,
+            laterTracking));
+        Assert.False(MapAlignmentSearchPolicy.UseTrackingForStructureValidation(
+            true,
+            ordinaryFallback));
     }
 
     [Fact]
@@ -51,7 +66,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
 
         var context = Assert.IsType<AlignmentSearchContext>(method!.Invoke(
             null,
-            [session, new MapRecognitionTuning(), true]));
+            [session, new MapRecognitionTuning(), true, false]));
 
         Assert.False(context.GateSearch.AllowSingleGateEarlyExit);
         Assert.False(context.GateSearch.AllowDualGateEarlyExit);
@@ -130,6 +145,10 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
         Assert.Equal(
             MapRecognitionSource.StructureMatching,
             recognition.Result.Source);
+        var structure = Assert.IsType<MapStructureRegistrationResult>(
+            attempt.StructureResult);
+        Assert.Equal(1, structure.ScaleHypothesisCount);
+        Assert.True(structure.UsedRestrictedSearch);
     }
 
     [Fact]

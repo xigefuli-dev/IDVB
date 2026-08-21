@@ -56,6 +56,16 @@ public interface ISurveyCoordinator : ISurveyStatusSource, IAsyncDisposable
         SurveyLayerColorNormalizationRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyColorTemplateAsync(
+        SurveyLayerColorTemplateRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyColorBrushAsync(
+        SurveyColorBrushRequest request, CancellationToken cancellationToken = default);
+
+    Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyColorFillAsync(
+        SurveyColorFillRequest request, CancellationToken cancellationToken = default);
+
     Task<SurveyOperationResult<SurveyLayerOperationResult>> CorrectLayerVignetteAsync(
         SurveyLayerVignetteCorrectionRequest request,
         CancellationToken cancellationToken = default);

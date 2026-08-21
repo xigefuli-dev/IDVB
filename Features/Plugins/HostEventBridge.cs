@@ -49,6 +49,7 @@ public sealed class HostEventBridge : IDisposable
         _input.ControlPanelToggleInvoked += OnControlPanelToggleInvoked;
         _input.SwitchFloorInvoked += OnSwitchFloorInvoked;
         _input.SaveMapCacheInvoked += OnSaveMapCacheInvoked;
+        _input.AltInvoked += OnAltInvoked;
 
         _survey.StatusChanged += OnSurveyStatusChanged;
         _config.ConfigChanged += OnConfigChanged;
@@ -67,6 +68,7 @@ public sealed class HostEventBridge : IDisposable
         _input.ControlPanelToggleInvoked -= OnControlPanelToggleInvoked;
         _input.SwitchFloorInvoked -= OnSwitchFloorInvoked;
         _input.SaveMapCacheInvoked -= OnSaveMapCacheInvoked;
+        _input.AltInvoked -= OnAltInvoked;
 
         _survey.StatusChanged -= OnSurveyStatusChanged;
         _config.ConfigChanged -= OnConfigChanged;
@@ -124,6 +126,9 @@ public sealed class HostEventBridge : IDisposable
 
     private void OnSaveMapCacheInvoked(object? sender, object e) =>
         PublishHotkey(PluginHotkeyKind.SaveMapCache);
+
+    private void OnAltInvoked(object? sender, object e) =>
+        PublishHotkey(PluginHotkeyKind.Alt);
 
     private void PublishHotkey(PluginHotkeyKind kind) =>
         _bus.Publish(HostMessageMapper.ToHotkeyInvoked(kind));

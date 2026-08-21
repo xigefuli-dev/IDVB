@@ -90,25 +90,65 @@ internal static partial class MapCvAlignmentService
                 $"Floor '{floorKey}' structure alignment requires 0-degree orientation.");
         }
 
-        var referencePath = service.Repository.GetFloorRecognitionPath(map, floorKey);
-        if (!File.Exists(referencePath))
-        {
-            return MapCvRecognitionDiagnostics.Failure(
-                diagnostics,
-                $"The recognition image for floor '{floorKey}' is missing.");
-        }
+        // 结构缓存常驻命中时不需要参考图像素——Registrar 只在缺少
+        // PreparedReference 时才拿它现场预处理。此前每次对齐都要解码一张上百万
+        // 像素的识别图（实测均值 15ms），只为通过判空与缓存的尺寸校验。
+        var cacheTimer = Stopwatch.StartNew();
+        var residentLease = service.StructureCache.TryRentResident(
+            map.Id,
+            map.UpdatedAt,
+            floorKey,
+            structureTuning.Generation);
+        cacheTimer.Stop();
+        diagnostics.ReferenceCacheMilliseconds =
+            cacheTimer.Elapsed.TotalMilliseconds;
 
-        var referenceLoadTimer = Stopwatch.StartNew();
-        using var reference = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
-        referenceLoadTimer.Stop();
-        diagnostics.ReferenceImageLoadMilliseconds =
-            referenceLoadTimer.Elapsed.TotalMilliseconds;
-        if (reference.Empty())
+        Mat? decodedReference = null;
+        MapStructureFeatures? ownedPreparedReference = null;
+        if (residentLease is null)
         {
-            return MapCvRecognitionDiagnostics.Failure(
-                diagnostics,
-                $"The recognition image for floor '{floorKey}' cannot be read.");
+            var referencePath = service.Repository.GetFloorRecognitionPath(
+                map,
+                floorKey);
+            if (!File.Exists(referencePath))
+            {
+                return MapCvRecognitionDiagnostics.Failure(
+                    diagnostics,
+                    $"The recognition image for floor '{floorKey}' is missing.");
+            }
+
+            var referenceLoadTimer = Stopwatch.StartNew();
+            decodedReference = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
+            referenceLoadTimer.Stop();
+            diagnostics.ReferenceImageLoadMilliseconds =
+                referenceLoadTimer.Elapsed.TotalMilliseconds;
+            if (decodedReference.Empty())
+            {
+                decodedReference.Dispose();
+                return MapCvRecognitionDiagnostics.Failure(
+                    diagnostics,
+                    $"The recognition image for floor '{floorKey}' cannot be read.");
+            }
+
+            cacheTimer.Restart();
+            ownedPreparedReference = service.StructureCache.GetOrCreate(
+                map.Id,
+                map.UpdatedAt,
+                decodedReference,
+                profile.WholeImageIgnoreRegions,
+                floorKey,
+                structureTuning.Generation);
+            cacheTimer.Stop();
+            diagnostics.ReferenceCacheMilliseconds +=
+                cacheTimer.Elapsed.TotalMilliseconds;
         }
+        using var ownedDecodedReference = decodedReference;
+        using var leaseScope = residentLease;
+        using var ownedPreparedReferenceScope = ownedPreparedReference;
+        // 常驻命中时这是缓存持有的共享实例（只读使用，不得释放）；未命中时是
+        // GetOrCreate 交出的副本，由上面的 using 负责释放。
+        var preparedReference = residentLease?.Features ?? ownedPreparedReference!;
+        diagnostics.CacheMilliseconds = diagnostics.ReferenceCacheMilliseconds;
 
         IReadOnlyList<Rect> dynamicIgnoreRegions = useProjectedBoundaryMask
             ? MapCvRecognitionBuilders.BuildProjectedOutsideIgnoreRegions(
@@ -116,31 +156,22 @@ internal static partial class MapCvAlignmentService
             : [];
 
         var stopwatch = Stopwatch.StartNew();
-        using var preparedReference = service.StructureCache.GetOrCreate(
-            map.Id,
-            map.UpdatedAt,
-            reference,
-            profile.WholeImageIgnoreRegions,
-            floorKey);
-        stopwatch.Stop();
-        diagnostics.CacheMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
-        diagnostics.ReferenceCacheMilliseconds =
-            stopwatch.Elapsed.TotalMilliseconds;
         MapLogCollector.Instance.Append(
             MapLogCategory.StructureRegistration,
             MapLogLevel.Info,
             $"结构参考输入就绪 · floor={floorKey}",
-            elapsedMs: referenceLoadTimer.Elapsed.TotalMilliseconds
-                + stopwatch.Elapsed.TotalMilliseconds,
+            elapsedMs: diagnostics.ReferenceImageLoadMilliseconds
+                + diagnostics.ReferenceCacheMilliseconds,
             details: new()
             {
                 ["mapId"] = map.Id,
                 ["floor"] = floorKey,
                 ["referenceImageLoadMs"] =
-                    referenceLoadTimer.Elapsed.TotalMilliseconds,
-                ["referenceCacheMs"] = stopwatch.Elapsed.TotalMilliseconds,
-                ["referenceWidth"] = reference.Width,
-                ["referenceHeight"] = reference.Height
+                    diagnostics.ReferenceImageLoadMilliseconds,
+                ["referenceCacheMs"] = diagnostics.ReferenceCacheMilliseconds,
+                ["referenceDecoded"] = decodedReference is not null,
+                ["referenceWidth"] = preparedReference.Edges.Width,
+                ["referenceHeight"] = preparedReference.Edges.Height
             });
 
         MapStructureFeatures preparedLive;
@@ -158,7 +189,9 @@ internal static partial class MapCvAlignmentService
                 livePreprocessingProfile,
                 out liveFrameCacheHit,
                 out originalExtractionMilliseconds,
-                out liveTiming);
+                out liveTiming,
+                generateVisibleMask: structureTuning.EnableVisibleMask,
+                generationTuning: structureTuning.Generation);
         }
         else
         {
@@ -169,7 +202,9 @@ internal static partial class MapCvAlignmentService
                     liveIgnoreRegions,
                     dynamicIgnoreRegions,
                     out liveTiming,
-                    profile: livePreprocessingProfile);
+                    profile: livePreprocessingProfile,
+                    generateVisibleMask: structureTuning.EnableVisibleMask,
+                    generationTuning: structureTuning.Generation);
             stopwatch.Stop();
             preparedLive = ownedPreparedLive;
             liveFrameCacheHit = false;
@@ -246,13 +281,16 @@ internal static partial class MapCvAlignmentService
         var structure = service.StructureRegistrar.Register(
             new MapStructureRegistrationRequest
             {
-                ReferenceImage = reference,
+                // 缓存常驻命中时没有解码过的参考图；PreparedReference 已经是
+                // Registrar 需要的全部输入，ReferenceImage 保持默认空 Mat。
+                ReferenceImage = decodedReference ?? new Mat(),
                 LiveRoi = frame.Image,
                 ViewportBounds = frame.ViewportBounds,
                 LockedTransform = scaleSeed,
                 Tuning = structureTuning,
                 ScaleSearchPolicy = scaleSearchPolicy,
-                RestrictSearchToLockedTransform = false,
+                RestrictSearchToLockedTransform =
+                    scaleSearchPolicy == MapScaleSearchPolicy.Fixed,
                 TrackingMode = isTracking,
                 ForceBestCandidate = false,
                 PreparedReference = preparedReference,
@@ -366,3 +404,10 @@ internal static partial class MapCvAlignmentService
         };
     }
 }
+/*
+ * 文件职责：MapCvAlignmentService.AlignStructureOnly。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

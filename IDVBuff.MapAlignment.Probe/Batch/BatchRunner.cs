@@ -191,6 +191,8 @@ public sealed class BatchRunner
                 TopCandidates = template.TopCandidates,
                 DownscaleFactor = template.DownscaleFactor,
                 SettingsPath = template.SettingsPath,
+                StructureFillOutputDirectory = template.StructureFillOutputDirectory,
+                StructureFillGuideMap = template.StructureFillGuideMap,
                 OutputPath = null
             };
             var probeResult = await strategy.RunAsync(context, ct);

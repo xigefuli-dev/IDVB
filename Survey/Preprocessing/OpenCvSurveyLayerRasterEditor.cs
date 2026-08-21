@@ -4,7 +4,7 @@ using OpenCvSharp;
 
 namespace IDVBuff.Survey.Preprocessing.OpenCv;
 
-public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
+public sealed partial class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
 {
     private const double MaximumVignetteGain = 2d;
     private readonly ISurveyAssetStore _assets;
@@ -320,6 +320,128 @@ public sealed class OpenCvSurveyLayerRasterEditor : ISurveyLayerRasterEditor
                 mask.Height,
                 observation.Capture),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SurveyAssetReference?> ApplyColorBrushAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        IReadOnlyList<SurveyWorldPoint> worldPoints,
+        double size,
+        SurveyBrushShape shape,
+        SurveyColor color,
+        CancellationToken cancellationToken = default)
+    {
+        if (worldPoints.Count == 0 || !double.IsFinite(size) || size is < 1d or > 1024d)
+            return null;
+        var selected = layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+            ? observation.DisplayAsset : observation.SourceAsset);
+        using var source = await ReadImageAsync(projectId, selected, ImreadModes.Unchanged, cancellationToken).ConfigureAwait(false);
+        using var image = ToBgraForPainting(source);
+        using var original = image.Clone();
+        var transform = layer.EffectiveTransform;
+        foreach (var point in Interpolate(worldPoints, Math.Max(1d, size / 4d)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var pixel = transform.InverseTransform(point);
+            var center = new Point2f((float)pixel.X, (float)pixel.Y);
+            var radius = (float)(size / 2d);
+            var bounds = new Rect((int)Math.Floor(pixel.X - radius), (int)Math.Floor(pixel.Y - radius),
+                (int)Math.Ceiling(size) + 1, (int)Math.Ceiling(size) + 1);
+            var clipped = new Rect(Math.Max(0, bounds.X), Math.Max(0, bounds.Y),
+                Math.Min(image.Width, bounds.Right) - Math.Max(0, bounds.X),
+                Math.Min(image.Height, bounds.Bottom) - Math.Max(0, bounds.Y));
+            if (clipped.Width <= 0 || clipped.Height <= 0) continue;
+            using var stamp = new Mat(image.Size(), MatType.CV_8UC1, Scalar.Black);
+            if (shape == SurveyBrushShape.Circle)
+                Cv2.Circle(stamp, new Point((int)Math.Round(pixel.X), (int)Math.Round(pixel.Y)),
+                    (int)Math.Ceiling(radius), Scalar.White, -1, LineTypes.Link8);
+            else
+                Cv2.Rectangle(stamp, new Rect((int)Math.Round(pixel.X - radius), (int)Math.Round(pixel.Y - radius),
+                    Math.Max(1, (int)Math.Ceiling(size)), Math.Max(1, (int)Math.Ceiling(size))), Scalar.White, -1, LineTypes.Link8);
+            var channels = Cv2.Split(image);
+            try
+            {
+                channels[0].SetTo(new Scalar(color.B), stamp);
+                channels[1].SetTo(new Scalar(color.G), stamp);
+                channels[2].SetTo(new Scalar(color.R), stamp);
+                Cv2.Merge(channels, image);
+            }
+            finally { foreach (var channel in channels) channel.Dispose(); }
+        }
+        if (Cv2.Norm(image, original, NormTypes.INF) <= 0d) return null;
+        return await PutPngAsync(projectId, image, observation, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SurveyAssetReference?> ApplyColorFillAsync(
+        Guid projectId, SurveyMapLayer layer, SurveyObservation observation,
+        int pixelX, int pixelY, byte tolerance, SurveyColor color,
+        CancellationToken cancellationToken = default)
+    {
+        var selected = layer.ColorFilterAsset ?? (layer.UsesCleanedDisplay && observation.DisplayAsset is not null
+            ? observation.DisplayAsset : observation.SourceAsset);
+        using var source = await ReadImageAsync(projectId, selected, ImreadModes.Unchanged, cancellationToken).ConfigureAwait(false);
+        using var image = ToBgraForPainting(source);
+        if (pixelX < 0 || pixelY < 0 || pixelX >= image.Width || pixelY >= image.Height) return null;
+        var seed = image.At<Vec4b>(pixelY, pixelX);
+        var replacement = new Vec4b(color.B, color.G, color.R, seed.Item3);
+        if (seed.Item0 == replacement.Item0 && seed.Item1 == replacement.Item1 && seed.Item2 == replacement.Item2)
+            return null;
+        var visited = new bool[image.Rows * image.Cols];
+        var pending = new Queue<(int X, int Y)>();
+        pending.Enqueue((pixelX, pixelY));
+        var changed = false;
+        var brightness = double.IsFinite(layer.Brightness) ? layer.Brightness : 1d;
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var (x, y) = pending.Dequeue();
+            if (x < 0 || y < 0 || x >= image.Width || y >= image.Height) continue;
+            var index = (y * image.Width) + x;
+            if (visited[index]) continue;
+            visited[index] = true;
+            var current = image.At<Vec4b>(y, x);
+            var displayB = ToDisplayedByte(current.Item0, brightness);
+            var displayG = ToDisplayedByte(current.Item1, brightness);
+            var displayR = ToDisplayedByte(current.Item2, brightness);
+            var seedB = ToDisplayedByte(seed.Item0, brightness);
+            var seedG = ToDisplayedByte(seed.Item1, brightness);
+            var seedR = ToDisplayedByte(seed.Item2, brightness);
+            if (Math.Max(Math.Abs(displayB - seedB), Math.Max(Math.Abs(displayG - seedG), Math.Abs(displayR - seedR))) > tolerance)
+                continue;
+            if (current.Item0 != replacement.Item0 || current.Item1 != replacement.Item1 || current.Item2 != replacement.Item2)
+            {
+                image.Set(y, x, replacement);
+                changed = true;
+            }
+            pending.Enqueue((x - 1, y));
+            pending.Enqueue((x + 1, y));
+            pending.Enqueue((x, y - 1));
+            pending.Enqueue((x, y + 1));
+        }
+        if (!changed) return null;
+        return await PutPngAsync(projectId, image, observation, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static int ToDisplayedByte(byte value, double brightness) =>
+        (int)Math.Clamp(Math.Round(value * brightness), 0d, 255d);
+
+    private async Task<SurveyAssetReference> PutPngAsync(Guid projectId, Mat image, SurveyObservation observation, CancellationToken cancellationToken)
+    {
+        Cv2.ImEncode(".png", image, out var bytes);
+        return await _assets.PutAsync(projectId, new SurveyEncodedFrame(bytes, ".png", "image/png",
+            image.Width, image.Height, observation.Capture), cancellationToken).ConfigureAwait(false);
+    }
+
+    private static Mat ToBgraForPainting(Mat image)
+    {
+        var result = new Mat();
+        if (image.Channels() == 4) image.CopyTo(result);
+        else if (image.Channels() == 3) Cv2.CvtColor(image, result, ColorConversionCodes.BGR2BGRA);
+        else if (image.Channels() == 1) Cv2.CvtColor(image, result, ColorConversionCodes.GRAY2BGRA);
+        else if (image.Channels() == 2) Cv2.CvtColor(image, result, ColorConversionCodes.GRAY2BGRA);
+        else throw new InvalidDataException($"Unsupported survey image channel count: {image.Channels()}.");
+        return result;
     }
 
     public async Task<ReadOnlyMemory<byte>> RenderLayerAsync(

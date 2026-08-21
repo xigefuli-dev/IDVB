@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace IDVBuff.Features.Maps;
 
@@ -9,9 +11,138 @@ public enum MapAuxiliaryAnchorRecognitionMode
     Always = 2
 }
 
+public enum MapStructureEdgeComposition
+{
+    CannyOnly = 0,
+    GradientAndCanny = 1
+}
+
+public sealed class MapStructureGenerationTuning
+{
+    public const int CurrentSchemaVersion = 1;
+
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+    public MapStructureEdgeComposition ReferenceEdgeComposition { get; set; } =
+        MapStructureEdgeComposition.GradientAndCanny;
+    public MapStructureEdgeComposition LiveEdgeComposition { get; set; } =
+        MapStructureEdgeComposition.GradientAndCanny;
+    public double CannyLowThreshold { get; set; } = 35d;
+    public double CannyHighThreshold { get; set; } = 110d;
+    public int StructureCloseKernelSize { get; set; } = 5;
+    public int StructureOpenKernelSize { get; set; } = 3;
+    public int EdgeClosingKernelSize { get; set; } = 3;
+    public int EdgeClosingIterations { get; set; }
+    public int LiveGradientSupportRadiusPixels { get; set; } = 4;
+    public int DominantClusterAttachmentDistancePixels { get; set; }
+    public double DominantClusterMinimumAttachedAreaRatio { get; set; } = 0.001d;
+    public int MinimumEdgeComponentAreaPixels { get; set; } = 8;
+
+    [JsonIgnore]
+    public string CacheFingerprint
+    {
+        get
+        {
+            var normalized = Clone();
+            normalized.Normalize();
+            var canonical = string.Join(
+                "|",
+                normalized.SchemaVersion,
+                (int)normalized.ReferenceEdgeComposition,
+                (int)normalized.LiveEdgeComposition,
+                normalized.CannyLowThreshold.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                normalized.CannyHighThreshold.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                normalized.StructureCloseKernelSize,
+                normalized.StructureOpenKernelSize,
+                normalized.EdgeClosingKernelSize,
+                normalized.EdgeClosingIterations,
+                normalized.LiveGradientSupportRadiusPixels,
+                normalized.DominantClusterAttachmentDistancePixels,
+                normalized.DominantClusterMinimumAttachedAreaRatio.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                normalized.MinimumEdgeComponentAreaPixels);
+            return Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+                .ToLowerInvariant()[..16];
+        }
+    }
+
+    public MapStructureGenerationTuning Clone() => new()
+    {
+        SchemaVersion = SchemaVersion,
+        ReferenceEdgeComposition = ReferenceEdgeComposition,
+        LiveEdgeComposition = LiveEdgeComposition,
+        CannyLowThreshold = CannyLowThreshold,
+        CannyHighThreshold = CannyHighThreshold,
+        StructureCloseKernelSize = StructureCloseKernelSize,
+        StructureOpenKernelSize = StructureOpenKernelSize,
+        EdgeClosingKernelSize = EdgeClosingKernelSize,
+        EdgeClosingIterations = EdgeClosingIterations,
+        LiveGradientSupportRadiusPixels = LiveGradientSupportRadiusPixels,
+        DominantClusterAttachmentDistancePixels =
+            DominantClusterAttachmentDistancePixels,
+        DominantClusterMinimumAttachedAreaRatio =
+            DominantClusterMinimumAttachedAreaRatio,
+        MinimumEdgeComponentAreaPixels = MinimumEdgeComponentAreaPixels
+    };
+
+    public static MapStructureGenerationTuning CreateLegacyBaseline() => new()
+    {
+        LiveEdgeComposition = MapStructureEdgeComposition.CannyOnly
+    };
+
+    public void Normalize()
+    {
+        SchemaVersion = CurrentSchemaVersion;
+        if (!Enum.IsDefined(ReferenceEdgeComposition))
+            ReferenceEdgeComposition = MapStructureEdgeComposition.GradientAndCanny;
+        if (!Enum.IsDefined(LiveEdgeComposition))
+            LiveEdgeComposition = MapStructureEdgeComposition.GradientAndCanny;
+        CannyLowThreshold = Finite(CannyLowThreshold, 35d, 0d, 254d);
+        CannyHighThreshold = Finite(CannyHighThreshold, 110d, 1d, 255d);
+        if (CannyHighThreshold <= CannyLowThreshold)
+            CannyHighThreshold = Math.Min(255d, CannyLowThreshold + 1d);
+        StructureCloseKernelSize = OddKernel(
+            StructureCloseKernelSize, 5, 1, 31);
+        StructureOpenKernelSize = OddKernel(
+            StructureOpenKernelSize, 3, 1, 31);
+        EdgeClosingKernelSize = OddKernel(
+            EdgeClosingKernelSize, 3, 1, 31);
+        EdgeClosingIterations = Math.Clamp(EdgeClosingIterations, 0, 4);
+        LiveGradientSupportRadiusPixels = Math.Clamp(
+            LiveGradientSupportRadiusPixels, 0, 32);
+        DominantClusterAttachmentDistancePixels = Math.Clamp(
+            DominantClusterAttachmentDistancePixels, 0, 96);
+        DominantClusterMinimumAttachedAreaRatio = Finite(
+            DominantClusterMinimumAttachedAreaRatio,
+            0.001d,
+            0.00001d,
+            0.10d);
+        MinimumEdgeComponentAreaPixels = Math.Clamp(
+            MinimumEdgeComponentAreaPixels, 1, 10000);
+    }
+
+    private static int OddKernel(
+        int value,
+        int fallback,
+        int minimum,
+        int maximum)
+    {
+        value = Math.Clamp(value, minimum, maximum);
+        if ((value & 1) == 0)
+            value = value < maximum ? value + 1 : value - 1;
+        return value > 0 ? value : fallback;
+    }
+
+    private static double Finite(
+        double value,
+        double fallback,
+        double minimum,
+        double maximum) =>
+        double.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
+}
+
 public sealed class MapStructureRegistrationTuning
 {
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 8;
 
     public int SchemaVersion { get; set; }
     public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
@@ -34,6 +165,8 @@ public sealed class MapStructureRegistrationTuning
     public int MaximumAuxiliaryTemplates { get; set; } = 4;
     public double AuxiliaryDirectLockConfidence { get; set; } = 0.82d;
     public int StructureFallbackBudgetMilliseconds { get; set; } = 1500;
+    /// <summary>When false, the value above is diagnostic only.</summary>
+    public bool EnforceTimeBudget { get; set; } = true;
     public int PreviousAlignmentSearchRadiusPixels { get; set; } = 96;
     public int TrackingSearchRadiusPixels { get; set; } = 48;
     public double TrackingScaleSearchRadius { get; set; } = 0.005d;
@@ -66,6 +199,7 @@ public sealed class MapStructureRegistrationTuning
     public double FeatureInlierTolerancePixels { get; set; } = 6d;
     public double MaximumPlayerPriorDistanceRatio { get; set; } = 0.45d;
     public double MapViewportEdgeMargin { get; set; } = 0.20d;
+    public MapStructureGenerationTuning Generation { get; set; } = new();
 
     // ═══════════════════════════════════════════════════════════════
     // Visible-aware 实验开关（生产默认全部关闭）
@@ -90,6 +224,8 @@ public sealed class MapStructureRegistrationTuning
     public double VisibleAwareMinimumVisibleFraction { get; set; } = 0.05;
     public int VisibleAwareMinimumVisibleStructurePixels { get; set; } = 50;
     public int SafeVisibleMaskErodePixels { get; set; } = 1;
+    internal VisibleAwareCorrelationMode VisibleAwareCorrelationMode { get; set; } =
+        VisibleAwareCorrelationMode.CoarseMat;
 
     // VisibleMask 生成阈值
     public int VisibleVMin { get; set; } = 42;
@@ -139,6 +275,7 @@ public sealed class MapStructureRegistrationTuning
         AuxiliaryDirectLockConfidence = AuxiliaryDirectLockConfidence,
         StructureFallbackBudgetMilliseconds =
             StructureFallbackBudgetMilliseconds,
+        EnforceTimeBudget = EnforceTimeBudget,
         PreviousAlignmentSearchRadiusPixels =
             PreviousAlignmentSearchRadiusPixels,
         TrackingSearchRadiusPixels = TrackingSearchRadiusPixels,
@@ -168,6 +305,7 @@ public sealed class MapStructureRegistrationTuning
         FeatureInlierTolerancePixels = FeatureInlierTolerancePixels,
         MaximumPlayerPriorDistanceRatio = MaximumPlayerPriorDistanceRatio,
         MapViewportEdgeMargin = MapViewportEdgeMargin,
+        Generation = Generation?.Clone() ?? new(),
         // Visible-aware
         EnableVisibleMask = EnableVisibleMask,
         EnableVisibleAwareShadow = EnableVisibleAwareShadow,
@@ -179,6 +317,7 @@ public sealed class MapStructureRegistrationTuning
         VisibleAwareMinimumVisibleFraction = VisibleAwareMinimumVisibleFraction,
         VisibleAwareMinimumVisibleStructurePixels = VisibleAwareMinimumVisibleStructurePixels,
         SafeVisibleMaskErodePixels = SafeVisibleMaskErodePixels,
+        VisibleAwareCorrelationMode = VisibleAwareCorrelationMode,
         VisibleVMin = VisibleVMin,
         VisibleSMin = VisibleSMin,
         VisibleHighlightVMin = VisibleHighlightVMin,
@@ -222,7 +361,11 @@ public sealed class MapStructureRegistrationTuning
             AuxiliaryAnchorMode =
                 MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
         }
+        if (SchemaVersion < 8)
+            Generation ??= new();
         SchemaVersion = CurrentSchemaVersion;
+        Generation ??= new();
+        Generation.Normalize();
         if (!Enum.IsDefined(AuxiliaryAnchorMode))
         {
             AuxiliaryAnchorMode =
@@ -352,3 +495,10 @@ public sealed class MapStructureRegistrationTuning
             _ => false
         };
 }
+/*
+ * 文件职责：MapStructureRegistrationModels.Tuning。
+ * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

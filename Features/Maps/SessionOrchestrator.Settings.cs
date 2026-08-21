@@ -14,6 +14,33 @@ public sealed partial class SessionOrchestrator
             await _settingsRepo.SaveAsync(_settings);
     }
 
+    /// <summary>
+    /// Persists the last map Class selected in the match control panel.
+    /// This preference does not affect the current match identity.
+    /// </summary>
+    public async Task SetLastSelectedMapClassAsync(string mapClass)
+    {
+        if (_settings is null)
+            throw new InvalidOperationException(
+                "SessionOrchestrator has not been initialized.");
+
+        var normalized = string.IsNullOrWhiteSpace(mapClass)
+            ? null
+            : mapClass.Trim();
+        if (normalized is null)
+            return;
+        if (string.Equals(
+            _settings.LastSelectedMapClass,
+            normalized,
+            StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _settings.LastSelectedMapClass = normalized;
+        await SaveSettingsAsync();
+    }
+
     public async Task SetEnabledAsync(bool v)
     {
         _settings!.IsEnabled = v;
@@ -307,6 +334,33 @@ public sealed partial class SessionOrchestrator
     { _settings!.FirstScanStrategy = s; await SaveSettingsAsync(); }
 
     /// <summary>
+    /// 后台扫描开关：开启后快捷扫描仅识别不对齐；关闭时防御性作废未消费的后台结果。
+    /// </summary>
+    public async Task SetBackgroundScanEnabledAsync(bool enabled)
+    {
+        _settings!.BackgroundScanEnabled = enabled;
+        await SaveSettingsAsync();
+        if (!enabled)
+            ClearPendingBackgroundScan();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 会话级后台扫描开关（非持久化）：仅本次运行生效，不写回 settings。
+    /// RealCLI 强制候选选择（--candidate）要求后台模式关闭，此方法让自动化
+    /// 临时切换而不污染用户配置；关闭时同样防御性作废未消费的后台结果。
+    /// </summary>
+    public void SetBackgroundScanEnabledForSession(bool enabled)
+    {
+        if (_settings is null)
+            return;
+        _settings.BackgroundScanEnabled = enabled;
+        if (!enabled)
+            ClearPendingBackgroundScan();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
     /// 记录「使用配置文件」的用户选择（null/空 = 自动）并持久化。
     /// 仅保存选择，不即时重载 TOML——实际预设在对局控件激活时解析生效。
     /// </summary>
@@ -436,3 +490,10 @@ public sealed partial class SessionOrchestrator
 
     private static string Bool(bool value) => value ? "true" : "false";
 }
+/*
+ * 文件职责：SessionOrchestrator.Settings。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

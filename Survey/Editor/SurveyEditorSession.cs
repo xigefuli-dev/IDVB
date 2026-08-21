@@ -39,6 +39,75 @@ internal sealed class SurveyEditorSession : IDisposable
         CancellationToken cancellationToken = default) =>
         _coordinator.OpenAssetAsync(ProjectId, asset, cancellationToken);
 
+    public async Task<SurveySampledPixel?> SampleRenderedPixelAsync(
+        Guid layerId,
+        int x,
+        int y,
+        CancellationToken cancellationToken = default)
+    {
+        await using var rendered = await OpenRenderedLayerAsync(layerId, cancellationToken);
+        return await SurveyBitmapLoader.ReadPixelAsync(rendered, x, y, cancellationToken);
+    }
+
+    public async Task<SurveySampledPixel?> SampleCompositedPixelAsync(
+        string floorKey,
+        SurveyWorldPoint worldPoint,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var snapshot = Snapshot
+            ?? throw new InvalidOperationException("测绘项目尚未加载。");
+        var floor = snapshot.Floors.FirstOrDefault(item =>
+            string.Equals(item.FloorKey, floorKey, StringComparison.OrdinalIgnoreCase));
+        if (floor is null)
+            return null;
+
+        var observations = snapshot.Observations.ToDictionary(item => item.ObservationId);
+        var layers = snapshot.Layers
+            .Where(item => item.FloorId == floor.FloorId && !item.IsDeleted && item.IsVisible)
+            .OrderByDescending(item => item.ZOrder)
+            .ToArray();
+        var samples = new List<SurveyCompositeLayerPixel>(layers.Length);
+        foreach (var layer in layers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!observations.TryGetValue(layer.ObservationId, out var observation))
+                continue;
+
+            var width = observation.SourceAsset.PixelWidth;
+            var height = observation.SourceAsset.PixelHeight;
+            SurveyRasterPixel? pixel = null;
+            if (layer.EffectiveTransform.IsValid && layer.Opacity > 0d)
+            {
+                var local = layer.EffectiveTransform.InverseTransform(worldPoint);
+                if (local.X >= 0d && local.Y >= 0d
+                    && local.X < width && local.Y < height)
+                {
+                    var sampled = await SampleRenderedPixelAsync(
+                        layer.LayerId,
+                        (int)Math.Floor(local.X),
+                        (int)Math.Floor(local.Y),
+                        cancellationToken).ConfigureAwait(false);
+                    if (sampled is { } value)
+                        pixel = new SurveyRasterPixel(value.R, value.G, value.B, value.A);
+                }
+            }
+            samples.Add(new SurveyCompositeLayerPixel(
+                layer.ZOrder,
+                layer.IsVisible,
+                layer.IsDeleted,
+                layer.Opacity,
+                layer.EffectiveTransform,
+                width,
+                height,
+                pixel));
+        }
+        var composite = SurveyCompositePixelSampler.Composite(worldPoint, samples);
+        return composite is { } result
+            ? new SurveySampledPixel(result.R, result.G, result.B, result.A)
+            : null;
+    }
+
     public async Task<Stream> OpenRenderedLayerAsync(
         Guid layerId,
         CancellationToken cancellationToken = default)
@@ -149,6 +218,41 @@ internal sealed class SurveyEditorSession : IDisposable
         return result.Value;
     }
 
+    public async Task<SurveyLayerOperationResult?> ApplyColorTemplateAsync(
+        IReadOnlyList<Guid> layerIds,
+        IReadOnlyList<SurveyColorTemplateEntry> entries,
+        CancellationToken cancellationToken = default)
+    {
+        var selectedLayerIds = layerIds.Distinct().ToArray();
+        if (Snapshot is null || selectedLayerIds.Length == 0 || entries.Count == 0)
+            return null;
+        var before = SnapshotState(selectedLayerIds);
+        var result = await _coordinator.ApplyColorTemplateAsync(
+            new SurveyLayerColorTemplateRequest(
+                Guid.NewGuid(),
+                ProjectId,
+                Snapshot.Project.Revision,
+                selectedLayerIds,
+                entries),
+            cancellationToken);
+        if (!result.Succeeded || result.Value is null)
+        {
+            Error?.Invoke(this, result.Message ?? "The color template could not be applied.");
+            return null;
+        }
+        Snapshot = result.Value.Snapshot;
+        var succeeded = result.Value.Items
+            .Where(item => item.Succeeded)
+            .Select(item => item.LayerId)
+            .ToArray();
+        if (succeeded.Length > 0)
+            PushBatchHistory(FilterState(before, succeeded), SnapshotState(succeeded));
+        lock (_renderCacheGate)
+            _renderCache.Clear();
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+        return result.Value;
+    }
+
     public async Task<SurveyLayerOperationResult?> CorrectVignetteAsync(
         IReadOnlyList<Guid> layerIds,
         double compensationStart,
@@ -207,6 +311,38 @@ internal sealed class SurveyEditorSession : IDisposable
         var succeeded = result.Value.Items.Where(item => item.Succeeded).Select(item => item.LayerId).ToArray();
         if (succeeded.Length > 0)
             PushBatchHistory(FilterState(before, succeeded), SnapshotState(succeeded));
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+        return result.Value;
+    }
+
+    public async Task<SurveyLayerOperationResult?> ApplyColorBrushAsync(
+        Guid layerId, IReadOnlyList<SurveyWorldPoint> points, double size, SurveyBrushShape shape,
+        SurveyColor color, CancellationToken cancellationToken = default)
+    {
+        if (Snapshot is null || points.Count == 0) return null;
+        var before = SnapshotState([layerId]);
+        var result = await _coordinator.ApplyColorBrushAsync(new SurveyColorBrushRequest(Guid.NewGuid(), ProjectId,
+            layerId, Snapshot.Project.Revision, points, size, shape, color), cancellationToken);
+        if (!result.Succeeded || result.Value is null) { Error?.Invoke(this, result.Message ?? "画笔保存失败。"); return null; }
+        Snapshot = result.Value.Snapshot;
+        if (result.Value.Items.Any(item => item.Succeeded)) PushBatchHistory(before, SnapshotState([layerId]));
+        lock (_renderCacheGate) _renderCache.Clear();
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+        return result.Value;
+    }
+
+    public async Task<SurveyLayerOperationResult?> ApplyColorFillAsync(
+        Guid layerId, int pixelX, int pixelY, byte tolerance, SurveyColor color,
+        CancellationToken cancellationToken = default)
+    {
+        if (Snapshot is null) return null;
+        var before = SnapshotState([layerId]);
+        var result = await _coordinator.ApplyColorFillAsync(new SurveyColorFillRequest(Guid.NewGuid(), ProjectId,
+            layerId, Snapshot.Project.Revision, pixelX, pixelY, tolerance, color), cancellationToken);
+        if (!result.Succeeded || result.Value is null) { Error?.Invoke(this, result.Message ?? "颜料桶保存失败。"); return null; }
+        Snapshot = result.Value.Snapshot;
+        if (result.Value.Items.Any(item => item.Succeeded)) PushBatchHistory(before, SnapshotState([layerId]));
+        lock (_renderCacheGate) _renderCache.Clear();
         SnapshotChanged?.Invoke(this, EventArgs.Empty);
         return result.Value;
     }

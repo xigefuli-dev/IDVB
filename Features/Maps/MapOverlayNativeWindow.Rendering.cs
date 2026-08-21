@@ -95,11 +95,18 @@ internal sealed record MapOverlayRenderScene(
 
 internal static partial class MapOverlayBitmapRenderer
 {
+    private sealed record ScaledImageCacheEntry(
+        int Width,
+        int Height,
+        Bitmap Bitmap);
+
     private const float DefaultDpi = 96f;
     private const float MiniMapOpacity = 0.55f;
     private const float MiniMapMargin = 12f;
 
     private static readonly Dictionary<string, Bitmap> ImageCache = [];
+    private static readonly Dictionary<string, ScaledImageCacheEntry>
+        ScaledImageCache = [];
     private static readonly Lock ImageCacheLock = new();
 
     /// <summary>
@@ -113,6 +120,18 @@ internal static partial class MapOverlayBitmapRenderer
             foreach (var image in ImageCache.Values)
                 image.Dispose();
             ImageCache.Clear();
+            foreach (var entry in ScaledImageCache.Values)
+                entry.Bitmap.Dispose();
+            ScaledImageCache.Clear();
+        }
+    }
+
+    internal static int ScaledImageCacheCount
+    {
+        get
+        {
+            lock (ImageCacheLock)
+                return ScaledImageCache.Count;
         }
     }
 
@@ -273,6 +292,48 @@ internal static partial class MapOverlayBitmapRenderer
                 return ImageCache[imagePath];
             }
             return loaded;
+        }
+    }
+
+    internal static Bitmap GetOrLoadScaledMapImage(
+        string imagePath,
+        int width,
+        int height,
+        uint dpi)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        // A scale can drift by fractions of a pixel on every alignment. Keep
+        // only the latest raster for each source image/DPI instead of retaining
+        // one full-size bitmap for every observed dimension.
+        var key = $"{Path.GetFullPath(imagePath)}|dpi={dpi}";
+        lock (ImageCacheLock)
+        {
+            if (ScaledImageCache.TryGetValue(key, out var cached))
+            {
+                if (cached.Width == width && cached.Height == height)
+                    return cached.Bitmap;
+                cached.Bitmap.Dispose();
+                ScaledImageCache.Remove(key);
+            }
+
+            var source = GetOrLoadMapImage(imagePath);
+            var scaled = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
+            scaled.SetResolution(
+                dpi == 0 ? DefaultDpi : dpi,
+                dpi == 0 ? DefaultDpi : dpi);
+            using (var graphics = Graphics.FromImage(scaled))
+            {
+                graphics.CompositingQuality = CompositingQuality.HighQuality;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.DrawImage(source, new Rectangle(0, 0, width, height));
+            }
+            ScaledImageCache[key] = new ScaledImageCacheEntry(
+                width,
+                height,
+                scaled);
+            return scaled;
         }
     }
 
@@ -527,3 +588,10 @@ internal sealed partial class MapOverlayNativeWindow
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DeleteObject(IntPtr graphicsObject);
 }
+/*
+ * 文件职责：MapOverlayNativeWindow.Rendering。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

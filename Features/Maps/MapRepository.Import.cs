@@ -22,6 +22,7 @@ public sealed partial class MapRepository
         var journal = new IdvmImportJournal { ProcessId = Environment.ProcessId };
         WriteImportJournal(journalPath, journal);
         var imported = new List<MapRecord>();
+        var importedVariantGroups = new List<MapVariantGroup>();
 
         try
         {
@@ -33,6 +34,8 @@ public sealed partial class MapRepository
                     journal.CreatedClasses.Add(uniqueName);
                     WriteImportJournal(journalPath, journal);
                 });
+                await SetImportedClassPropertiesAsync(localClass, sourceClass.Properties);
+                var sourceToLocalMapIds = new Dictionary<Guid, Guid>();
 
                 foreach (var sourceDraft in sourceClass.Maps)
                 {
@@ -44,13 +47,25 @@ public sealed partial class MapRepository
                     WriteImportJournal(journalPath, journal);
                     var saved = await SaveAsync(sourceDraft);
                     imported.Add(saved);
+                    if (sourceDraft.SourcePackageMapId is { } sourceMapId)
+                        sourceToLocalMapIds.Add(sourceMapId, saved.Id);
                 }
+                var createdGroups = await CreateImportedVariantGroupsAsync(
+                    localClass,
+                    sourceClass.VariantGroups ?? [],
+                    sourceToLocalMapIds);
+                importedVariantGroups.AddRange(createdGroups);
+                journal.ImportedVariantGroupIds.AddRange(createdGroups.Select(group => group.Id));
+                WriteImportJournal(journalPath, journal);
             }
 
             journal.Completed = true;
             WriteImportJournal(journalPath, journal);
             File.Delete(journalPath);
-            return new MapImportBatchResult(journal.CreatedClasses.ToArray(), imported.ToArray());
+            return new MapImportBatchResult(
+                journal.CreatedClasses.ToArray(),
+                imported.ToArray(),
+                importedVariantGroups.Select(group => group.Clone()).ToArray());
         }
         catch
         {
@@ -58,6 +73,65 @@ public sealed partial class MapRepository
             if (rolledBack && File.Exists(journalPath))
                 File.Delete(journalPath);
             throw;
+        }
+    }
+
+    private async Task SetImportedClassPropertiesAsync(
+        string className,
+        MapClassProperties? properties)
+    {
+        await Gate.WaitAsync();
+        try
+        {
+            var catalog = await ReadCatalogAsync();
+            catalog.ClassProperties[className] = properties?.Clone() ?? new MapClassProperties();
+            await WriteCatalogAsync(catalog);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<MapVariantGroup>> CreateImportedVariantGroupsAsync(
+        string className,
+        IReadOnlyList<MapImportVariantGroupDraft> sourceGroups,
+        IReadOnlyDictionary<Guid, Guid> sourceToLocalMapIds)
+    {
+        if (sourceGroups.Count == 0)
+            return [];
+        await Gate.WaitAsync();
+        try
+        {
+            var catalog = await ReadCatalogAsync();
+            var created = new List<MapVariantGroup>(sourceGroups.Count);
+            foreach (var source in sourceGroups)
+            {
+                if (source.PaletteSlot is < 0 or >= MapVariantGroup.PaletteSize
+                    || source.SourceMapIds.Count < 2
+                    || source.SourceMapIds.Count != source.SourceMapIds.Distinct().Count()
+                    || source.SourceMapIds.Any(mapId => !sourceToLocalMapIds.ContainsKey(mapId)))
+                {
+                    throw new InvalidDataException("IDVM 变体组无法映射到本次导入的地图。");
+                }
+                var group = new MapVariantGroup
+                {
+                    Id = Guid.NewGuid(),
+                    Class = className,
+                    PaletteSlot = source.PaletteSlot,
+                    MapIds = source.SourceMapIds
+                        .Select(mapId => sourceToLocalMapIds[mapId])
+                        .ToList()
+                };
+                catalog.VariantGroups.Add(group);
+                created.Add(group);
+            }
+            await WriteCatalogAsync(catalog);
+            return created.Select(group => group.Clone()).ToArray();
+        }
+        finally
+        {
+            Gate.Release();
         }
     }
 
@@ -141,6 +215,10 @@ public sealed partial class MapRepository
                         SerializerOptions) ?? new MapCatalogDocument();
                     var importedIds = journal.ImportedMapIds.ToHashSet();
                     catalog.Maps.RemoveAll(map => importedIds.Contains(map.Id));
+                    catalog.VariantGroups ??= [];
+                    catalog.VariantGroups.RemoveAll(group =>
+                        journal.CreatedClasses.Contains(group.Class, StringComparer.OrdinalIgnoreCase)
+                        || group.MapIds.Any(importedIds.Contains));
                     catalog.Classes.RemoveAll(name => journal.CreatedClasses.Contains(
                         name,
                         StringComparer.OrdinalIgnoreCase));
@@ -185,5 +263,13 @@ public sealed partial class MapRepository
         public bool Completed { get; set; }
         public List<string> CreatedClasses { get; set; } = [];
         public List<Guid> ImportedMapIds { get; set; } = [];
+        public List<Guid> ImportedVariantGroupIds { get; set; } = [];
     }
 }
+/*
+ * 文件职责：MapRepository.Import。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

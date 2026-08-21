@@ -31,13 +31,15 @@ public sealed class MapStructureReferenceCacheTests
             }
 
             var version = MapStructurePreprocessor.AlgorithmVersion;
+            var generationFingerprint =
+                new MapStructureGenerationTuning().CacheFingerprint;
             var mapDirectory = Path.Combine(root, mapId.ToString("N"));
             var firstDirectory = Path.Combine(
                 mapDirectory,
-                $"{updatedAt.UtcTicks}-1f-{version}");
+                $"{updatedAt.UtcTicks}-1f-{version}-{generationFingerprint}");
             var secondDirectory = Path.Combine(
                 mapDirectory,
-                $"{updatedAt.UtcTicks}-2f-{version}");
+                $"{updatedAt.UtcTicks}-2f-{version}-{generationFingerprint}");
 
             Assert.True(Directory.Exists(firstDirectory));
             Assert.True(Directory.Exists(secondDirectory));

@@ -13,7 +13,8 @@ public sealed partial class SessionOrchestrator
 {
     private void RunInitialDefaultRecognition(
         CapturedGameFrame frame,
-        InitialRecognitionPipelineState result)
+        InitialRecognitionPipelineState result,
+        bool recognizeOnly = false)
     {
         ref var recognition = ref result.Recognition;
         ref var failureReason = ref result.FailureReason;
@@ -25,9 +26,15 @@ public sealed partial class SessionOrchestrator
         var repairCacheKeys = result.RepairCacheKeys;
         ref var scanSucceeded = ref result.ScanSucceeded;
 
+        ScanPipelineContext scanCtx;
+        var initialRecognition = MapOperationTraceAmbient.Current?.StartTopLevel(
+            "initial_recognition",
+            MapOperationWaitKind.Compute);
+        try
+        {
         // 运行扫描管线
         var scanPipeline = _pipelineFactory.CreateScanPipeline();
-        var scanCtx = new ScanPipelineContext
+        scanCtx = new ScanPipelineContext
         {
             ViewportImage = frame.Image,
             ViewportBoundsRaw = frame.ViewportBounds,
@@ -41,20 +48,37 @@ public sealed partial class SessionOrchestrator
         };
 
         // 预构建地图指纹
+        using var repositoryRead = MapOperationTraceAmbient.StartChild(
+            "map_repository_read",
+            MapOperationWaitKind.Io);
         var maps = _mapRepo.GetMapsAsync().GetAwaiter().GetResult();
+        repositoryRead.Complete();
         var fingerprints = new List<object>();
+        using var fingerprintBuild = MapOperationTraceAmbient.StartChild(
+            "fingerprint_build",
+            MapOperationWaitKind.Compute);
         foreach (var mapObj in maps)
         {
             if (mapObj is MapRecord map)
             {
+                using var mapFingerprint = MapOperationTraceAmbient.StartChild(
+                    "map_fingerprint",
+                    MapOperationWaitKind.Compute,
+                    mapId: map.Id.ToString("D"),
+                    floorKey: MapFloorRules.GetPrimaryFloorKey(map));
                 map.NormalizeRecognition();
                 var fp = BuildFingerprint(map);
                 if (fp != null) fingerprints.Add(fp);
             }
         }
+        fingerprintBuild.Complete();
         scanCtx.FingerprintsRaw = fingerprints;
 
+        using var scanPipelineSpan = MapOperationTraceAmbient.StartChild(
+            "default_scan_pipeline",
+            MapOperationWaitKind.Compute);
         scanCtx = (ScanPipelineContext)scanPipeline.RunAsync(scanCtx).GetAwaiter().GetResult();
+        scanPipelineSpan.Complete();
         _lastScanPhaseTimings = scanCtx.PhaseTimings;
 
         _logCollector.Append(
@@ -82,7 +106,20 @@ public sealed partial class SessionOrchestrator
         }
 
         scanSucceeded = true;
+        }
+        finally
+        {
+            initialRecognition?.Complete();
+        }
 
+        // Keep the identity/candidate preparation time attached to the same
+        // recognition phase. Candidate alignment starts only after this closes.
+        var initialPostProcess = MapOperationTraceAmbient.StartTopLevel(
+            "initial_recognition",
+            MapOperationWaitKind.Compute);
+
+        try
+        {
         // 对齐引擎使用与扫描相同的有效门阈值
         var alignmentTuning = CreateInitialAlignmentRecognitionTuning();
         if (alignmentTuning.GateTemplateThreshold > GateTemplateRules.FallbackPairThreshold)
@@ -92,71 +129,112 @@ public sealed partial class SessionOrchestrator
         if (alignmentTuning.ForceCandidateSelection
             && scanCtx.Candidates.Count >= 1)
         {
-            var choiceList = new List<MapRecognitionChoice>();
-            var topCandidates = scanCtx.Candidates.Take(
-                Math.Min(scanCtx.Candidates.Count, 5));
-            foreach (var candidate in topCandidates)
+            // 后台扫描仅识别不对齐：跳过逐候选对齐，直接把候选包装为
+            // 无变换身份选择项，等玩家开图时确认并执行一次对齐。
+            if (recognizeOnly)
             {
-                if (!Guid.TryParse(candidate.MapId, out var cMapId))
-                    continue;
-                try
+                pendingChoices = BackgroundScanRules.BuildBackgroundCandidateChoices(
+                    scanCtx.Candidates,
+                    maxCandidates: 5,
+                    mapId => _recognition.TryGetMap(mapId),
+                    (map, floorKey, score) =>
+                        BackgroundScanRules.BuildIdentityOnlyRecognition(
+                            map,
+                            floorKey,
+                            score,
+                            _mapRepository.GetFloorOverlayPath),
+                    out failureReason);
+                if (pendingChoices is not null)
                 {
-                    var candidateStructureTuning =
-                        CreateInitialAlignmentStructureTuning();
-                    MapRecognitionAttempt AlignCandidate() =>
-                        MapCvAlignmentService.AlignSelectedCore(
-                            _recognition, frame, cMapId,
-                            session: null,
-                            alignmentMode: _settings.OverlayAlignmentMode,
-                            tuning: alignmentTuning,
-                            structureTuning: candidateStructureTuning,
-                            playerPrior: null, predictedViewportOrigin: null,
-                            liveIgnoreRegions: null, candidateHistory: null,
-                            alignmentSearchContext: null,
-                            nativeScaleChangeRatio: 1.0,
-                            mapClass: null,
-                            route: SelectedAlignmentRoute.Default);
-                    var candidateMap = _recognition.TryGetMap(cMapId);
-                    MapFeatureCacheKey? candidateRepairKey = null;
-                    var cAttempt = candidateMap is null
-                        ? AlignCandidate()
-                        : AlignUsingScaleCache(
-                            frame,
-                            candidateMap,
-                            MapFloorRules.GetPrimaryFloorKey(candidateMap),
-                            alignmentTuning,
-                            candidateStructureTuning,
-                            0d,
-                            AlignCandidate,
-                            out candidateRepairKey);
-                    if (candidateRepairKey is not null)
-                        repairCacheKeys[cMapId] = candidateRepairKey;
-                    _lastDiagnostics = cAttempt.Diagnostics;
-                    if (cAttempt.Recognition is { } cRec)
+                    pendingChoicesReason =
+                        "后台扫描候选：请打开游戏地图后确认。";
+                    initialPostProcess.Complete();
+                    return;
+                }
+                // 无可用候选：跳过逐候选对齐（后台扫描仅识别不对齐），
+                // 回退到标准路径让 Top-1 尝试构建身份。
+            }
+            else
+            {
+                initialPostProcess.Complete();
+                var choiceList = new List<MapRecognitionChoice>();
+                var topCandidates = scanCtx.Candidates.Take(
+                    Math.Min(scanCtx.Candidates.Count, 5));
+                foreach (var candidate in topCandidates)
+                {
+                    if (!Guid.TryParse(candidate.MapId, out var cMapId))
+                        continue;
+                    var candidateAlignment = MapOperationTraceAmbient.StartTopLevel(
+                        "selected_candidate_alignment",
+                        MapOperationWaitKind.Compute,
+                        mapId: candidate.MapId,
+                        floorKey: candidate.FloorKey,
+                        attemptIndex: candidate.Rank);
+                    try
                     {
-                        choiceList.Add(new MapRecognitionChoice
+                        var candidateStructureTuning =
+                            CreateInitialAlignmentStructureTuning();
+                        MapRecognitionAttempt AlignCandidate() =>
+                            MapCvAlignmentService.AlignSelectedCore(
+                                _recognition, frame, cMapId,
+                                session: null,
+                                alignmentMode: _settings.OverlayAlignmentMode,
+                                tuning: alignmentTuning,
+                                structureTuning: candidateStructureTuning,
+                                playerPrior: null, predictedViewportOrigin: null,
+                                liveIgnoreRegions: null, candidateHistory: null,
+                                alignmentSearchContext: null,
+                                nativeScaleChangeRatio: 1.0,
+                                mapClass: null,
+                                route: SelectedAlignmentRoute.Default);
+                        var candidateMap = _recognition.TryGetMap(cMapId);
+                        MapFeatureCacheKey? candidateRepairKey = null;
+                        var cAttempt = candidateMap is null
+                            ? AlignCandidate()
+                            : AlignUsingScaleCache(
+                                frame,
+                                candidateMap,
+                                MapFloorRules.GetPrimaryFloorKey(candidateMap),
+                                alignmentTuning,
+                                candidateStructureTuning,
+                                0d,
+                                AlignCandidate,
+                                out candidateRepairKey);
+                        if (candidateRepairKey is not null)
+                            repairCacheKeys[cMapId] = candidateRepairKey;
+                        _lastDiagnostics = cAttempt.Diagnostics;
+                        if (cAttempt.Recognition is { } cRec)
                         {
-                            Recognition = cRec,
-                            VectorError = 0d
-                        });
+                            choiceList.Add(new MapRecognitionChoice
+                            {
+                                Recognition = cRec,
+                                VectorError = 0d
+                            });
+                        }
+                    }
+                    catch { /* 单个候选对齐失败不影响其他候选 */ }
+                    finally
+                    {
+                        candidateAlignment.Complete();
                     }
                 }
-                catch { /* 单个候选对齐失败不影响其他候选 */ }
+                initialPostProcess.Complete();
+                if (choiceList.Count > 0)
+                {
+                    pendingChoices = choiceList;
+                    pendingChoicesReason =
+                        "强制候选模式已开启，请选择正确地图。";
+                    return;
+                }
+                // 所有候选对齐失败：回退到标准路径，让 Top-1 尝试一次
             }
-            if (choiceList.Count > 0)
-            {
-                pendingChoices = choiceList;
-                pendingChoicesReason =
-                    "强制候选模式已开启，请选择正确地图。";
-                return;
-            }
-            // 所有候选对齐失败：回退到标准路径，让 Top-1 尝试一次
         }
 
         // ── 标准路径：仅对齐选中的 Top-1 ──
         if (!Guid.TryParse(scanCtx.SelectedCandidate.MapId, out var mapId))
         {
             failureReason = $"识别失败：候选地图 ID 无效 ({scanCtx.SelectedCandidate.MapId})";
+            initialPostProcess.Complete();
             return;
         }
 
@@ -192,12 +270,36 @@ public sealed partial class SessionOrchestrator
             };
         }
 
+        // 后台扫描仅识别不对齐：保留无变换身份，由玩家开图时消费对齐。
+        if (recognizeOnly)
+        {
+            if (pendingSideEntranceIdentity is { } identity)
+            {
+                recognition = identity;
+                _statusMessage =
+                    $"后台扫描已识别地图：{scanCtx.SelectedCandidate.MapDisplayName}（打开游戏地图后对齐）";
+                initialPostProcess.Complete();
+                return;
+            }
+
+            failureReason = "识别失败：无法加载所选地图身份。";
+            initialPostProcess.Complete();
+            return;
+        }
+
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
             $"开始对齐 · mapId={mapId} · name={scanCtx.SelectedCandidate.MapDisplayName}");
 
+        initialPostProcess.Complete();
         MapRecognitionAttempt attempt;
+        var selectedAlignment = MapOperationTraceAmbient.StartTopLevel(
+            "selected_candidate_alignment",
+            MapOperationWaitKind.Compute,
+            mapId: mapId.ToString("D"),
+            floorKey: scanCtx.SelectedCandidate.FloorKey,
+            attemptIndex: 0);
         try
         {
             var selectedStructureTuning =
@@ -246,8 +348,12 @@ public sealed partial class SessionOrchestrator
                 {
                     ["exceptionType"] = alignEx.GetType().FullName,
                     ["stackTrace"] = alignEx.ToString()
-                });
+            });
             return;
+        }
+        finally
+        {
+            selectedAlignment.Complete();
         }
 
         _lastDiagnostics = attempt.Diagnostics;
@@ -272,6 +378,7 @@ public sealed partial class SessionOrchestrator
         {
             recognition = rec;
             _lastRecognition = rec;
+            _mapLease.Bind(_matchSession.Snapshot, rec.Map.Id);
             _statusMessage = $"对齐成功：{scanCtx.SelectedCandidate.MapDisplayName} · 置信度 {rec.Result.Confidence:P0}";
         }
         else if (attempt.Choices.Count > 0)
@@ -284,5 +391,17 @@ public sealed partial class SessionOrchestrator
         {
             failureReason = $"对齐失败：{attempt.FailureReason}";
         }
+        }
+        finally
+        {
+            initialPostProcess.Complete();
+        }
     }
 }
+/*
+ * 文件职责：SessionOrchestrator.Pipeline.InitialRecognition.Default。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

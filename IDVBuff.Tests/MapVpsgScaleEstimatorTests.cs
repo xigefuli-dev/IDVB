@@ -48,8 +48,10 @@ public sealed class MapVpsgScaleEstimatorTests
         Assert.True(succeeded, rejection);
         Assert.NotNull(estimate);
         Assert.InRange(estimate!.Scale, expectedScale - 0.002d, expectedScale + 0.002d);
-        Assert.True(estimate.Evidence.UniqueMatches >= 12);
-        Assert.True(estimate.Evidence.PairVotes >= 24);
+        Assert.True(estimate.Evidence.UniqueMatches
+            >= MapVpsgScaleEstimator.MinimumUniqueMatches);
+        Assert.True(estimate.Evidence.PairVotes
+            >= MapVpsgScaleEstimator.MinimumPairVotes);
         Assert.InRange(estimate.Evidence.ResidualPixels, 0d, 0.2d);
     }
 

@@ -2,6 +2,19 @@
 
 namespace IDVBuff.Core.Contracts;
 
+/// <summary>
+/// 全局鼠标滚轮输入。<see cref="CapsHeld"/> 表示事件发生时 Caps 键仍处于
+/// 物理按下状态，不受 CapsLock 的切换状态影响。
+/// </summary>
+public sealed class MouseWheelInputEventArgs(long timestamp, int delta, bool capsHeld) : EventArgs
+{
+    public long Timestamp { get; } = timestamp;
+
+    public int Delta { get; } = delta;
+
+    public bool CapsHeld { get; } = capsHeld;
+}
+
 // TODO: Phase 0.4 — 替换为 Core/Models 中的实际类型
 // using IDVBuff.Core.Models;
 
@@ -43,6 +56,12 @@ public interface IGlobalInput : IDisposable
 
     /// <summary>保存当前地图缩放缓存热键被触发。</summary>
     event EventHandler</* MapInputInvokedEventArgs */ object>? SaveMapCacheInvoked;
+
+    /// <summary>Alt 键按下事件，供需要全局快捷键的插件使用。</summary>
+    event EventHandler</* MapInputInvokedEventArgs */ object>? AltInvoked;
+
+    /// <summary>全局鼠标滚轮事件，供需要组合键滚轮操作的插件使用。</summary>
+    event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
 
     /// <summary>
     /// 应用新的按键绑定配置。

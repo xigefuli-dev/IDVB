@@ -32,6 +32,59 @@ public sealed class NormalizedPoint
     public NormalizedPoint Clone() => new() { X = X, Y = Y };
 }
 
+public enum MapBackgroundLayerShape
+{
+    Circle,
+    Square
+}
+
+/// <summary>
+/// A non-destructive conceal stroke. Coordinates are always relative to the
+/// complete source floor image, even when the recognition region is cropped.
+/// </summary>
+public sealed class MapBackgroundLayer
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Semantic { get; set; } = "background";
+    public MapBackgroundLayerShape Shape { get; set; } = MapBackgroundLayerShape.Circle;
+    public int BrushSizePixels { get; set; } = 64;
+    public List<NormalizedPoint> Points { get; set; } = [];
+
+    public bool IsValid => Id != Guid.Empty
+        && string.Equals(Semantic, "background", StringComparison.Ordinal)
+        && Enum.IsDefined(Shape)
+        && BrushSizePixels is >= 1 and <= 1024
+        && Points is { Count: > 0 }
+        && Points.All(point => point?.IsValid is true);
+
+    public MapBackgroundLayer Clone() => new()
+    {
+        Id = Id,
+        Semantic = Semantic,
+        Shape = Shape,
+        BrushSizePixels = BrushSizePixels,
+        Points = (Points ?? []).Where(point => point is not null).Select(point => point.Clone()).ToList()
+    };
+
+    public void Normalize()
+    {
+        if (Id == Guid.Empty)
+            Id = Guid.NewGuid();
+        Semantic = "background";
+        if (!Enum.IsDefined(Shape))
+            Shape = MapBackgroundLayerShape.Circle;
+        BrushSizePixels = Math.Clamp(BrushSizePixels <= 0 ? 64 : BrushSizePixels, 1, 1024);
+        Points = (Points ?? [])
+            .Where(point => point is not null && point.IsValid)
+            .Select(point => new NormalizedPoint
+            {
+                X = Math.Clamp(point.X, 0d, 1d),
+                Y = Math.Clamp(point.Y, 0d, 1d)
+            })
+            .ToList();
+    }
+}
+
 public enum MapFloor
 {
     First = 1,
@@ -382,6 +435,8 @@ public sealed class MapDraft
     public List<FloorDefinition> Floors { get; set; } = [];
     /// <summary>V6: map classification label.</summary>
     public string Class { get; set; } = "S1";
+    /// <summary>Read-only-at-save-time snapshot used by the editor UI.</summary>
+    public MapClassProperties ClassProperties { get; internal set; } = new();
     public string Title { get; set; } = string.Empty;
     public int ContentVersion { get; set; } = 1;
     public string Source { get; set; } = "manual";
@@ -391,6 +446,8 @@ public sealed class MapDraft
     public string? SourceStructureSha256 { get; set; }
     public List<MapGateDefinition> PortableGates { get; set; } = [];
     internal bool CreateAsImportedCopy { get; set; }
+    internal Guid? SourcePackageMapId { get; set; }
+    internal bool? RemoveBackgroundOverride { get; set; }
     public MapRecognitionProfile Recognition { get; set; } = new();
     /// <summary>IDVM 导入时，各楼层侧门特征图的临时暂存路径（floorKey → 磁盘绝对路径）。</summary>
     internal Dictionary<string, string> SideEntranceFeaturePaths { get; set; } = [];
@@ -398,8 +455,23 @@ public sealed class MapDraft
 
 public sealed record MapImportClassDraft(
     string SourceName,
-    IReadOnlyList<MapDraft> Maps);
+    IReadOnlyList<MapDraft> Maps,
+    MapClassProperties? Properties = null,
+    IReadOnlyList<MapImportVariantGroupDraft>? VariantGroups = null);
+
+public sealed record MapImportVariantGroupDraft(
+    Guid SourceGroupId,
+    int PaletteSlot,
+    IReadOnlyList<Guid> SourceMapIds);
 
 public sealed record MapImportBatchResult(
     IReadOnlyList<string> CreatedClasses,
-    IReadOnlyList<MapRecord> ImportedMaps);
+    IReadOnlyList<MapRecord> ImportedMaps,
+    IReadOnlyList<MapVariantGroup>? ImportedVariantGroups = null);
+/*
+ * 文件职责：MapModels.Record。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

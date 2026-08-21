@@ -6,27 +6,17 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
-    private const int MaximumReliableFloorHistory = 4;
+    private const int MaximumReliableFloorHistory = 8;
     private readonly object _reliableFloorAlignmentGate = new();
-    private readonly Dictionary<ReliableFloorAlignmentKey, ReliableFloorAlignmentState>
+    private readonly Dictionary<MapAlignmentContextKey, WarmAlignmentState>
         _reliableFloorAlignments = [];
-    private int _reliableFloorAlignmentMatchVersion = -1;
-
-    private readonly record struct ReliableFloorAlignmentKey(
-        Guid MapId,
-        DateTimeOffset MapUpdatedAt,
-        string FloorKey);
-
-    private sealed class ReliableFloorAlignmentState
-    {
-        public required MapAlignmentSession Session { get; set; }
-        public AdaptiveScaleKey? AdaptiveKey { get; set; }
-        public List<MapSimilarityTransform> CandidateHistory { get; } = [];
-    }
 
     private sealed record ReliableFloorAlignmentSeed(
         MapAlignmentSession Session,
-        IReadOnlyList<MapSimilarityTransform> CandidateHistory);
+        IReadOnlyList<MapSimilarityTransform> CandidateHistory,
+        MapAlignmentContextKey ContextKey,
+        double Confidence,
+        double CandidateMargin);
 
     /// <summary>
     /// One deadline shared by stable-frame capture and every synchronous
@@ -113,52 +103,122 @@ public sealed partial class SessionOrchestrator
     {
         lock (_reliableFloorAlignmentGate)
         {
-            if (_reliableFloorAlignmentMatchVersion == match.Version)
-                return;
-            _reliableFloorAlignments.Clear();
-            _reliableFloorAlignmentMatchVersion = match.Version;
+            // Operation epochs change on open/close/floor operations. They are
+            // not match identity changes and must not erase another floor's
+            // reliable transform. A new MatchId naturally starts empty.
+            if (!match.IsStarted)
+                _reliableFloorAlignments.Clear();
         }
+    }
+
+    private MapAlignmentContextKey CreateAlignmentContextKey(
+        MapMatchSnapshot match,
+        CapturedGameFrame frame,
+        MapRecord map,
+        string floorKey)
+    {
+        var generation = _settings?.StructureRegistrationTuning.Generation
+            ?.CacheFingerprint ?? string.Empty;
+        return new MapAlignmentContextKey(
+            match.MatchId,
+            map.Id,
+            map.UpdatedAt,
+            floorKey,
+            Math.Max(0, (int)Math.Round(frame.ClientBounds.Width)),
+            Math.Max(0, (int)Math.Round(frame.ClientBounds.Height)),
+            Math.Max(0, (int)Math.Round(frame.ViewportBounds.Width)),
+            Math.Max(0, (int)Math.Round(frame.ViewportBounds.Height)),
+            generation).Normalize();
+    }
+
+    private static string? GetWarmStateMissReason(
+        MapAlignmentContextKey requested,
+        WarmAlignmentState? state,
+        MapRecord map,
+        string floorKey)
+    {
+        if (state is null)
+            return "missing-state";
+        if (state.ContextKey.MapId != requested.MapId
+            || state.ContextKey.MapUpdatedAt != requested.MapUpdatedAt)
+            return "map-mismatch";
+        if (!string.Equals(state.ContextKey.FloorKey, requested.FloorKey,
+                StringComparison.Ordinal))
+            return "floor-mismatch";
+        if (state.ContextKey.ClientWidth != requested.ClientWidth
+            || state.ContextKey.ClientHeight != requested.ClientHeight
+            || state.ContextKey.ViewportWidth != requested.ViewportWidth
+            || state.ContextKey.ViewportHeight != requested.ViewportHeight)
+            return "resolution-mismatch";
+        if (!string.Equals(state.ContextKey.StructureGeneration,
+                requested.StructureGeneration, StringComparison.Ordinal))
+            return "generation-mismatch";
+        if (!MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
+                state.Session,
+                map.Id,
+                map.UpdatedAt,
+                floorKey,
+                0d))
+            return "transform-invalid";
+        return "confidence-insufficient";
     }
 
     private ReliableFloorAlignmentSeed? TryGetReliableFloorAlignment(
         MapMatchSnapshot match,
         CapturedGameFrame frame,
         MapRecord map,
-        string floorKey)
+        string floorKey,
+        out string missReason)
     {
         EnsureReliableFloorAlignmentScope(match);
-        var key = new ReliableFloorAlignmentKey(
-            map.Id,
-            map.UpdatedAt,
-            floorKey);
-        var adaptiveKey = CreateAdaptiveScaleKey(frame, map, floorKey);
+        var key = CreateAlignmentContextKey(match, frame, map, floorKey);
+        missReason = string.Empty;
         lock (_reliableFloorAlignmentGate)
         {
-            if (!_reliableFloorAlignments.TryGetValue(key, out var state)
+            _reliableFloorAlignments.TryGetValue(key, out var state);
+            if (state is null
                 || !MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
                     state.Session,
                     map.Id,
                     map.UpdatedAt,
                     floorKey,
                     _settings!.SessionTuning.HighConfidence)
-                || (IsAdaptiveScaleEnabled && state.AdaptiveKey != adaptiveKey)
-                || !CanUseAdaptiveReliableSession(state.Session, adaptiveKey))
+                || !state.LastTransform.IsValid)
             {
+                var nearestState = state ?? _reliableFloorAlignments.Values
+                    .Where(candidate => candidate.ContextKey.MatchId == key.MatchId)
+                    .OrderByDescending(candidate => candidate.LastValidatedAt)
+                    .FirstOrDefault();
+                missReason = GetWarmStateMissReason(key, nearestState, map, floorKey)
+                    ?? "confidence-insufficient";
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    $"Steady 热状态未命中 · reason={missReason}",
+                    details: new()
+                    {
+                        ["warmStateMissReason"] = missReason,
+                        ["alignmentContextKey"] = key.ToString(),
+                        ["adaptiveScaleNoLongerGatesWarmState"] = true
+                    });
                 return null;
             }
 
             return new ReliableFloorAlignmentSeed(
                 state.Session,
-                state.CandidateHistory.ToArray());
+                state.RecentTransforms.ToArray(),
+                state.ContextKey,
+                state.Confidence,
+                state.CandidateMargin);
         }
     }
 
     private void RememberReliableFloorAlignment(
         MapMatchSnapshot match,
         RuntimeMapRecognition recognition,
-        MapAlignmentSession? session)
+        MapAlignmentSession? session,
+        CapturedGameFrame frame)
     {
-        var hasAdaptiveKey = TryGetActiveAdaptiveKey(recognition, out var adaptiveKey);
         if (!match.IsStarted
             || !_matchSession.IsCurrent(match)
             || session is null
@@ -174,34 +234,46 @@ public sealed partial class SessionOrchestrator
                 recognition.Map.UpdatedAt,
                 recognition.Result.Floor,
                 _settings.SessionTuning.HighConfidence)
-            || (IsAdaptiveScaleEnabled && !hasAdaptiveKey)
-            || (hasAdaptiveKey
-                && !CanUseAdaptiveReliableSession(session, adaptiveKey)))
+            || !MapSimilarityTransform.FromOverlay(transform).IsValid)
         {
             return;
         }
 
+        var reliableSession = session!;
         EnsureReliableFloorAlignmentScope(match);
-        var key = new ReliableFloorAlignmentKey(
-            recognition.Map.Id,
-            recognition.Map.UpdatedAt,
+        var key = CreateAlignmentContextKey(
+            match,
+            frame,
+            recognition.Map,
             recognition.Result.Floor);
         var similarity = MapSimilarityTransform.FromOverlay(transform);
+        int successCount;
         lock (_reliableFloorAlignmentGate)
         {
             if (!_reliableFloorAlignments.TryGetValue(key, out var state))
             {
-                state = new ReliableFloorAlignmentState
+                state = new WarmAlignmentState
                 {
-                    Session = session,
-                    AdaptiveKey = hasAdaptiveKey ? adaptiveKey : null
+                    ContextKey = key,
+                    Session = reliableSession,
+                    LastTransform = similarity,
+                    Confidence = recognition.Result.LocalizationConfidence,
+                    CandidateMargin = MapFeatureCacheRules.GetCandidateMargin(
+                        recognition.Result),
+                    LastValidatedAt = DateTimeOffset.UtcNow,
+                    SuccessCount = 1
                 };
                 _reliableFloorAlignments[key] = state;
             }
             else
             {
-                state.Session = session;
-                state.AdaptiveKey = hasAdaptiveKey ? adaptiveKey : null;
+                state.Session = reliableSession;
+                state.LastTransform = similarity;
+                state.Confidence = recognition.Result.LocalizationConfidence;
+                state.CandidateMargin = MapFeatureCacheRules.GetCandidateMargin(
+                    recognition.Result);
+                state.LastValidatedAt = DateTimeOffset.UtcNow;
+                state.SuccessCount++;
             }
 
             RememberAdaptiveReliableKey(
@@ -211,15 +283,27 @@ public sealed partial class SessionOrchestrator
                     MapFloorRules.GetPrimaryFloorKey(recognition.Map),
                     StringComparison.Ordinal));
 
-            var duplicate = state.CandidateHistory.Any(candidate =>
+            var duplicate = state.RecentTransforms.Any(candidate =>
                 Math.Abs(candidate.Scale - similarity.Scale) <= 0.0005d
                 && Math.Abs(candidate.TranslationX - similarity.TranslationX) <= 1d
                 && Math.Abs(candidate.TranslationY - similarity.TranslationY) <= 1d);
             if (!duplicate)
-                state.CandidateHistory.Add(similarity);
-            while (state.CandidateHistory.Count > MaximumReliableFloorHistory)
-                state.CandidateHistory.RemoveAt(0);
+                state.RecentTransforms.Add(similarity);
+            while (state.RecentTransforms.Count > MaximumReliableFloorHistory)
+                state.RecentTransforms.RemoveAt(0);
+            successCount = state.SuccessCount;
         }
+
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            $"Steady 热状态已写入 · context={key}",
+            details: new()
+            {
+                ["warmStateHit"] = true,
+                ["successCount"] = successCount,
+                ["adaptiveScaleNoLongerGatesWarmState"] = true
+            });
     }
 
     private static bool TryCreateNoDoorStageTuning(
@@ -381,43 +465,67 @@ public sealed partial class SessionOrchestrator
                 $"地图中不存在楼层 '{floorKey}'。");
         }
 
-        var referencePath = _recognition.Repository.GetFloorRecognitionPath(
-            locked.Map,
-            floorKey);
-        var referenceTimer = Stopwatch.StartNew();
-        using var reference = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
-        referenceTimer.Stop();
-        diagnostics.ReferenceImageLoadMilliseconds =
-            referenceTimer.Elapsed.TotalMilliseconds;
-        if (reference.Empty())
-        {
-            return MapCvRecognitionDiagnostics.Failure(
-                diagnostics,
-                $"无法读取楼层 '{floorKey}' 的识别图。");
-        }
-
         var cacheTimer = Stopwatch.StartNew();
-        using var preparedReference = _recognition.StructureCache.GetOrCreate(
+        var residentLease = _recognition.StructureCache.TryRentResident(
             locked.Map.Id,
             locked.Map.UpdatedAt,
-            reference,
-            profile.WholeImageIgnoreRegions,
-            floorKey);
+            floorKey,
+            structureTuning.Generation);
         cacheTimer.Stop();
-        diagnostics.CacheMilliseconds = cacheTimer.Elapsed.TotalMilliseconds;
-        diagnostics.ReferenceCacheMilliseconds =
-            cacheTimer.Elapsed.TotalMilliseconds;
+        diagnostics.ReferenceCacheMilliseconds = cacheTimer.Elapsed.TotalMilliseconds;
+        MapStructureFeatures? ownedPreparedReference = null;
+        Mat? decodedReference = null;
+        if (residentLease is null)
+        {
+            var referencePath = _recognition.Repository.GetFloorRecognitionPath(
+                locked.Map,
+                floorKey);
+            var referenceTimer = Stopwatch.StartNew();
+            decodedReference = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
+            referenceTimer.Stop();
+            diagnostics.ReferenceImageLoadMilliseconds =
+                referenceTimer.Elapsed.TotalMilliseconds;
+            diagnostics.ReferenceDiskReadCount = 1;
+            if (decodedReference.Empty())
+            {
+                decodedReference.Dispose();
+                residentLease?.Dispose();
+                return MapCvRecognitionDiagnostics.Failure(
+                    diagnostics,
+                    $"无法读取楼层 '{floorKey}' 的识别图。");
+            }
+
+            cacheTimer.Restart();
+            ownedPreparedReference = _recognition.StructureCache.GetOrCreate(
+                locked.Map.Id,
+                locked.Map.UpdatedAt,
+                decodedReference,
+                profile.WholeImageIgnoreRegions,
+                floorKey,
+                structureTuning.Generation);
+            cacheTimer.Stop();
+            diagnostics.ReferenceCacheMilliseconds += cacheTimer.Elapsed.TotalMilliseconds;
+        }
+        using var ownedDecodedReference = decodedReference;
+        using var leaseScope = residentLease;
+        using var ownedPreparedReferenceScope = ownedPreparedReference;
+        using var emptyReference = decodedReference is null ? new Mat() : null;
+        var reference = decodedReference ?? emptyReference!;
+        var preparedReference = residentLease?.Features ?? ownedPreparedReference!;
         var preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
             _recognition.StructurePreprocessor,
             MapStructurePreprocessingProfile.EdgesOnly,
             out var liveCacheHit,
             out var liveExtractionMilliseconds,
-            out _);
+            out _,
+            generateVisibleMask: structureTuning.EnableVisibleMask,
+            generationTuning: structureTuning.Generation);
         diagnostics.StructurePreprocessMilliseconds = liveCacheHit
             ? 0d
             : liveExtractionMilliseconds;
         diagnostics.LiveStructurePreprocessMilliseconds =
             diagnostics.StructurePreprocessMilliseconds;
+        diagnostics.StructurePreprocessCount = liveCacheHit ? 0 : 1;
         if (NoDoorAlignmentDeadline.Current?.IsExpired == true)
             return CreateNoDoorBudgetFailure("same-floor-local-preprocess", diagnostics);
 
@@ -438,19 +546,45 @@ public sealed partial class SessionOrchestrator
         localTuning.TrackingSearchRadiusPixels =
             localTuning.PreviousAlignmentSearchRadiusPixels;
         localTuning.EnableFeatureVoting = false;
-        var structure = _recognition.StructureRegistrar.Register(
-            new MapStructureRegistrationRequest
+        // The acceptance window is a diagnostic target for this route. Do not
+        // terminate the locked transform evaluation just because a warm path
+        // crossed the target while the result is still being validated.
+        localTuning.EnforceTimeBudget = false;
+        // The first Steady attempt is deliberately local. A miss is not a
+        // terminal result: below we keep the exact same floor scale and
+        // current frame, then expand translation search without borrowing
+        // another floor's seed.
+        localTuning.EnableFastAlignment = true;
+        localTuning.FastFallbackToLegacy = false;
+        localTuning.FastCoarseDownsampleFactor = 4;
+        localTuning.FastCoarseTopK = 3;
+        localTuning.EnableVisibleMask = true;
+        localTuning.VisibleAwareCorrelationMode =
+            VisibleAwareCorrelationMode.CoarseMat;
+        localTuning.VisibleAwareCoarseDownsample = 4;
+        localTuning.VisibleAwareTopK = 3;
+        localTuning.EnableVisibleAwareShadow = false;
+        localTuning.EnableVisibleAwareInjection = true;
+        diagnostics.GateDetectionAttempted = false;
+        diagnostics.VpsgAttempted = false;
+        diagnostics.UmatAttempted = false;
+        diagnostics.FullResolutionTemplateMatchCount = 0;
+        MapStructureRegistrationRequest CreateRequest(
+            MapStructureRegistrationTuning requestTuning,
+            bool restrictTranslation,
+            bool trackingMode) =>
+            new()
             {
                 ReferenceImage = reference,
                 LiveRoi = frame.Image,
                 ViewportBounds = frame.ViewportBounds,
                 LockedTransform = sameFloorSession.LockedTransform,
-                Tuning = localTuning,
+                Tuning = requestTuning,
                 ScaleSearchPolicy = allowTrackingScaleSearch
                     ? MapScaleSearchPolicy.Search
                     : MapScaleSearchPolicy.Fixed,
-                RestrictSearchToLockedTransform = true,
-                TrackingMode = true,
+                RestrictSearchToLockedTransform = restrictTranslation,
+                TrackingMode = trackingMode,
                 ForceBestCandidate = false,
                 PreparedReference = preparedReference,
                 PreparedLive = preparedLive,
@@ -458,13 +592,62 @@ public sealed partial class SessionOrchestrator
                 ValidMapBounds = profile.GetEffectiveValidMapBounds(),
                 CandidateHistory = candidateHistory,
                 SideEntrancePrior = 0d
-            });
+            };
+
+        var localStructure = _recognition.StructureRegistrar.Register(
+            CreateRequest(localTuning, restrictTranslation: true, trackingMode: true));
+        var structure = localStructure;
+        var usedGlobalTranslationRecovery = false;
+        if (!allowTrackingScaleSearch
+            && (!localStructure.Accepted
+                || localStructure.Transform is null
+                || localStructure.Confidence < tuning.MinimumConfidence))
+        {
+            // Local evidence can leave the 96px tracking window as the game
+            // recenters its large map. Continue on the same observation with
+            // fixed scale and unrestricted translation. Fast global peaks are
+            // tried first; only an exceptional fast miss reaches the complete
+            // fixed-scale legacy search. No elapsed-time target truncates it.
+            var recoveryTuning = localTuning.Clone();
+            MapOpenAlignmentRouteRules
+                .ApplySteadyGlobalTranslationRecoveryPolicy(recoveryTuning);
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                $"Steady 局部验证未通过，继续固定尺度全局平移恢复 · floor={floorKey}",
+                details: new()
+                {
+                    ["floor"] = floorKey,
+                    ["scale"] = sameFloorSession.LockedTransform.ScaleX,
+                    ["localRejection"] = localStructure.RejectionReason.ToString(),
+                    ["localConfidence"] = localStructure.Confidence,
+                    ["localCandidateMargin"] = localStructure.CandidateMargin,
+                    ["localSearchMs"] = localStructure.SearchMilliseconds,
+                    ["candidateHistoryCount"] = candidateHistory.Count,
+                    ["scaleSearchPolicy"] = nameof(MapScaleSearchPolicy.Fixed),
+                    ["restrictTranslation"] = false
+                });
+            structure = _recognition.StructureRegistrar.Register(
+                CreateRequest(
+                    recoveryTuning,
+                    restrictTranslation: false,
+                    trackingMode: false));
+            usedGlobalTranslationRecovery = true;
+        }
         totalTimer.Stop();
         MapCvAlignmentService.PopulateStructureDiagnostics(
             diagnostics,
             structure);
-        diagnostics.StructureSearchMilliseconds = structure.SearchMilliseconds;
-        diagnostics.StructureRefineMilliseconds = structure.RefineMilliseconds;
+        diagnostics.StructureSearchMilliseconds =
+            localStructure.SearchMilliseconds
+            + (usedGlobalTranslationRecovery
+                ? structure.SearchMilliseconds
+                : 0d);
+        diagnostics.StructureRefineMilliseconds =
+            localStructure.RefineMilliseconds
+            + (usedGlobalTranslationRecovery
+                ? structure.RefineMilliseconds
+                : 0d);
         diagnostics.StructureBestScore = structure.BestScore;
         diagnostics.StructureSecondScore = structure.SecondScore;
         diagnostics.StructureCandidateMargin = structure.CandidateMargin;
@@ -472,6 +655,10 @@ public sealed partial class SessionOrchestrator
         diagnostics.StructureDisposition =
             structure.RejectionReason.ToDisposition(structure.Accepted);
         diagnostics.AlignmentEvidence = MapAlignmentEvidenceKind.Structure;
+        diagnostics.FullResolutionTemplateMatchCount =
+            usedGlobalTranslationRecovery && !structure.UsedFastStrategy
+                ? 1
+                : 0;
         diagnostics.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
         if (NoDoorAlignmentDeadline.Current?.IsExpired == true)
             return CreateNoDoorBudgetFailure("same-floor-local", diagnostics);
@@ -517,3 +704,10 @@ public sealed partial class SessionOrchestrator
 
     // 辅助锚点已停用（TryAlignNoDoorWithAuxiliaryAnchors 已移除）。
 }
+/*
+ * 文件职责：SessionOrchestrator.NoDoorAlignment。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

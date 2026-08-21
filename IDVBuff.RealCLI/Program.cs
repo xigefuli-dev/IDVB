@@ -12,6 +12,7 @@ using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
 using IDVBuff.Infrastructure.Configuration;
 using IDVBuff.Pipeline;
+using IDVBuff.RealCLI.Cli;
 using IDVBuff.RealCLI.Output;
 using IDVBuff.RealCLI.Stubs;
 using IDVBuff.RealCLI;
@@ -38,6 +39,7 @@ return command switch
 {
     "run" => await RunSingleAsync(args[1..], dispatcher),
     "batch" => await RunBatchAsync(args[1..], dispatcher),
+    "mapopen" => await MapOpenCommand.RunAsync(args[1..], dispatcher),
     "survey" => await SurveyReplayCommand.RunAsync(args[1..]),
     _ => UnknownCommand(command)
 };
@@ -51,6 +53,7 @@ static async Task<int> RunSingleAsync(string[] args, DispatcherQueue dispatcher)
     string? imagePath = null;
     string? outputPath = null;
     string? settingsRoot = null;
+    var consume = false;
 
     for (var i = 0; i < args.Length; i++)
     {
@@ -65,6 +68,8 @@ static async Task<int> RunSingleAsync(string[] args, DispatcherQueue dispatcher)
             case "--settings":
             case "-s":
                 settingsRoot = args[++i]; break;
+            case "--consume":
+                consume = true; break;
         }
     }
 
@@ -81,8 +86,8 @@ static async Task<int> RunSingleAsync(string[] args, DispatcherQueue dispatcher)
 
     try
     {
-        var orchestrator = BuildOrchestrator(dispatcher, imagePath, settingsRoot);
-        var result = await RunRecognitionAsync(orchestrator, imagePath);
+        var orchestrator = OrchestratorFactory.BuildOrchestrator(dispatcher, imagePath, settingsRoot, out var overlay);
+        var result = await RunRecognitionAsync(orchestrator, overlay, imagePath, consume);
 
         if (outputPath is not null)
             await RealCliOutputWriter.WriteAsync(result, outputPath);
@@ -152,8 +157,8 @@ static async Task<int> RunBatchAsync(string[] args, DispatcherQueue dispatcher)
         {
             var file = files[i];
             Console.Error.WriteLine($"[{i + 1}/{files.Length}] {Path.GetFileName(file)}");
-            var orchestrator = BuildOrchestrator(dispatcher, file, settingsRoot);
-            var result = await RunRecognitionAsync(orchestrator, file);
+            var orchestrator = OrchestratorFactory.BuildOrchestrator(dispatcher, file, settingsRoot, out var overlay);
+            var result = await RunRecognitionAsync(orchestrator, overlay, file);
             results.Add(result);
         }
     }
@@ -166,8 +171,8 @@ static async Task<int> RunBatchAsync(string[] args, DispatcherQueue dispatcher)
             try
             {
                 Console.Error.WriteLine($"[并行] {Path.GetFileName(file)}");
-                var orchestrator = BuildOrchestrator(dispatcher, file, settingsRoot);
-                return await RunRecognitionAsync(orchestrator, file);
+                var orchestrator = OrchestratorFactory.BuildOrchestrator(dispatcher, file, settingsRoot, out var overlay);
+                return await RunRecognitionAsync(orchestrator, overlay, file);
             }
             finally { semaphore.Release(); }
         });
@@ -207,85 +212,14 @@ static async Task<int> RunBatchAsync(string[] args, DispatcherQueue dispatcher)
 }
 
 // ════════════════════════════════════════════════════════════════
-// 核心：构建 DI 容器 → 获取 SessionOrchestrator
-// ════════════════════════════════════════════════════════════════
-
-static SessionOrchestrator BuildOrchestrator(
-    DispatcherQueue dispatcher,
-    string imagePath,
-    string? settingsRoot)
-{
-    var services = new ServiceCollection();
-
-    // Step 1: 注册 ConfigProvider（使用与主应用相同的数据目录）
-    var configRoot = settingsRoot ?? AppDataPaths.RootDirectory;
-    var configProvider = new TomlConfigProvider(configRoot);
-    services.AddSingleton<IConfigProvider>(configProvider);
-    services.AddSingleton<TomlConfigProvider>(configProvider);
-
-    // Step 2: 根据截图分辨率自动匹配专属 TOML 预设
-    // ⚠️ 必须在 AddIdvbServices 之前执行，确保 ApplyConfig 读取正确的预设值
-    var capture = new FileBasedCapture(imagePath);
-    var imageBounds = capture.FullBounds;
-    if (imageBounds.IsValid)
-    {
-        var profileManager = new ResolutionProfileManager(configProvider);
-        var match = profileManager.MatchProfile(
-            (int)imageBounds.Width, (int)imageBounds.Height, dpi: 120);
-        if (match is not null)
-        {
-            configProvider.SetActivePreset(match);
-        }
-    }
-
-    // Step 3: 注入真实的 IDVB 服务管线（传入已匹配分辨率的 ConfigProvider）
-    services.AddIdvbServices(dispatcher, configProvider);
-
-    // Step 4: 替换 IO 边界层为 Stub——这三个是唯一的"非真实"组件
-    services.AddSingleton<IGameWindowCapture>(capture);
-    services.AddSingleton<IOverlayWindow>(new RecordingOverlayWindow());
-    services.AddSingleton<IGlobalInput>(new NoopGlobalInput());
-    services.AddSingleton<IOverlayRenderer>(new NoopOverlayRenderer());
-
-    // Step 3.5: 覆盖 SessionOrchestrator 注册，传入 headless: true
-    // AddIdvbServices 中注册的版本不带 headless 参数（默认 false），
-    // 会导致 MapControlPanelWindow 创建失败（需要 WinUI 运行时）。
-    // 这里用完全相同的依赖解析逻辑，仅额外传递 headless: true。
-    services.AddSingleton<SessionOrchestrator>(sp =>
-        new SessionOrchestrator(
-            dispatcher,
-            sp.GetRequiredService<ISettingsRepository>(),
-            sp.GetRequiredService<IMapRepository>(),
-            sp.GetRequiredService<IGameWindowCapture>(),
-            sp.GetRequiredService<IOverlayWindow>(),
-            sp.GetRequiredService<IGlobalInput>(),
-            sp.GetRequiredService<IGateDetector>(),
-            sp.GetRequiredService<IFloorRecognizer>(),
-            sp.GetRequiredService<IMapIdentifier>(),
-            sp.GetRequiredService<IStructureRegistrar>(),
-            sp.GetRequiredService<IPlayerMarkerDetector>(),
-            sp.GetRequiredService<IConfigProvider>(),
-            sp.GetRequiredService<IResolutionProfileService>(),
-            sp.GetRequiredService<PipelineFactory>(),
-            sp.GetRequiredService<MapAlignmentResearchCollector>(),
-            sp.GetRequiredService<IDVBuff.Survey.Contracts.ISurveyCoordinator>(),
-            sp.GetRequiredService<IDVBuff.Survey.Contracts.SurveyCaptureTuning>(),
-            headless: true));
-    services.AddSingleton<ISessionOrchestrator>(sp =>
-        sp.GetRequiredService<SessionOrchestrator>());
-
-    // Step 4: 构建并返回真实 SessionOrchestrator
-    var sp = services.BuildServiceProvider();
-    return sp.GetRequiredService<SessionOrchestrator>();
-}
-
-// ════════════════════════════════════════════════════════════════
 // 核心：驱动 SessionOrchestrator 执行完整识别管线
 // ════════════════════════════════════════════════════════════════
 
 static async Task<RealCliSessionResult> RunRecognitionAsync(
     SessionOrchestrator orchestrator,
-    string imagePath)
+    RecordingOverlayWindow overlay,
+    string imagePath,
+    bool consume = false)
 {
     var sw = Stopwatch.StartNew();
 
@@ -308,10 +242,20 @@ static async Task<RealCliSessionResult> RunRecognitionAsync(
         //       → IOverlayWindow.Show()                   ← RecordingOverlayWindow（记录）
         await orchestrator.RunQuickScanAsync();
 
+        // 后台扫描 E2E：若 --consume，且后台扫描已完成未消费，则公开缝合点
+        // 消费结果（headless 下候选窗自动选可靠项、PlayerDecidesScale 默认 false 跳过缩放）。
+        // 消费缝合点要求游戏地图处于打开状态（模拟玩家按下地图键）——后台扫描
+        // 完成后不再预置地图为打开，CLI 需显式同步。
+        if (consume)
+        {
+            orchestrator.SynchronizeExternalGameMapState(true);
+            await orchestrator.ConsumeBackgroundScanAsync();
+        }
+
         sw.Stop();
 
         // 收集结果
-        var result = ExtractResult(orchestrator, imagePath, sw.Elapsed.TotalMilliseconds, null);
+        var result = ExtractResult(orchestrator, overlay, imagePath, sw.Elapsed.TotalMilliseconds, null);
         await orchestrator.EndMatchAsync();
         return result;
     }
@@ -339,126 +283,31 @@ static async Task<RealCliSessionResult> RunRecognitionAsync(
 
 static RealCliSessionResult ExtractResult(
     SessionOrchestrator orchestrator,
+    RecordingOverlayWindow overlay,
     string imagePath,
     double totalMs,
     string? error)
 {
     var rec = orchestrator.LastRecognition;
 
-    // 构建 Recognition 输出
-    RealCliRecognitionOutput? recognition = null;
-    if (rec is not null)
-    {
-        recognition = new RealCliRecognitionOutput
-        {
-            MapId = rec.Map.Id.ToString(),
-            MapDisplayName = rec.Map.DisplayName,
-            Floor = rec.Result.Floor,
-            Confidence = rec.Result.Confidence,
-            RecognitionSource = rec.Result.Source.ToString(),
-            HasAllRequiredAnchorEvidence = rec.Result.HasAllRequiredAnchorEvidence,
-            GeometryMargin = rec.Result.GeometryMargin,
-            FloorImagePath = rec.FloorImagePath,
-            Transform = rec.Result.OverlayTransform is { } t
-                ? new RealCliTransformOutput
-                {
-                    ScaleX = t.ScaleX,
-                    ScaleY = t.ScaleY,
-                    OffsetX = t.OffsetX,
-                    OffsetY = t.OffsetY,
-                    ReferenceWidth = t.ReferenceWidth,
-                    ReferenceHeight = t.ReferenceHeight
-                }
-                : null
-        };
-    }
-
     // 扫描管线各阶段耗时
     var scanPhaseTimings = orchestrator.LastScanPhaseTimings?
         .ToDictionary(kv => kv.Key, kv => kv.Value);
-
-    // 对齐细分耗时与策略分类
-    RealCliDiagnosticsOutput? diagnostics = null;
-    var diag = orchestrator.LastDiagnostics;
-    if (diag is not null)
-    {
-        diagnostics = new RealCliDiagnosticsOutput
-        {
-            PreprocessMs = diag.PreprocessMilliseconds,
-            GateDetectionMs = diag.GateDetectionMilliseconds,
-            GeometryMs = diag.GeometryMilliseconds,
-            CacheMs = diag.CacheMilliseconds,
-            StructureSearchMs = diag.StructureSearchMilliseconds,
-            StructureRefineMs = diag.StructureRefineMilliseconds,
-            OverlayMs = diag.OverlayMilliseconds,
-            TotalMs = diag.TotalMilliseconds,
-            GateCandidateCount = diag.GateCandidateCount,
-            EvidenceKind = diag.AlignmentEvidence.ToString(),
-            StructureAttempted = diag.StructureAttempted,
-            StructureAccepted = diag.StructureAccepted,
-            SearchStage = diag.SearchStage.ToString(),
-            StructureBestScore = diag.StructureBestScore,
-            StructureCandidateMargin = diag.StructureCandidateMargin
-        };
-    }
-
-    // 日志摘要
-    var logEntries = new List<RealCliLogEntrySummary>();
-    var entries = orchestrator.LogCollector.GetEntries();
-    if (entries is { Count: > 0 })
-    {
-        foreach (var e in entries.TakeLast(50))
-        {
-            logEntries.Add(new RealCliLogEntrySummary
-            {
-                Category = e.Category.ToString(),
-                Level = e.Level.ToString(),
-                Message = $"[{e.Timestamp:HH:mm:ss}] {e.Message}",
-                ElapsedMs = e.ElapsedMs ?? 0
-            });
-        }
-    }
-
-    // 对齐会话状态诊断
-    RealCliAlignmentSessionOutput? alignmentSession = null;
-    var alignSession = orchestrator.LastAlignmentSession;
-    if (alignSession is not null)
-    {
-        var predictedRoute = alignSession.SideEntranceScanPriorConfidence > 0d
-            ? "SideEntrance"
-            : alignSession.HasGatePairLock
-                ? "DualGate (Standard)"
-                : "StructureOnly / Fallback";
-        var confidenceAsPercent = $"{alignSession.SideEntranceScanPriorConfidence:P1}";
-        alignmentSession = new RealCliAlignmentSessionOutput
-        {
-            MapId = alignSession.MapId.ToString(),
-            FloorKey = alignSession.FloorKey,
-            Mode = alignSession.Mode.ToString(),
-            SideEntranceScanPriorConfidence = alignSession.SideEntranceScanPriorConfidence,
-            HasGatePairLock = alignSession.HasGatePairLock,
-            BaselineGateScale = alignSession.BaselineGateScale,
-            LastConfidence = alignSession.LastConfidence,
-            LastBestScore = alignSession.LastBestScore,
-            ConsecutiveRejections = alignSession.ConsecutiveRejections,
-            LastStructureAccepted = alignSession.LastStructureAccepted,
-            LastStructureFailureReason = alignSession.LastStructureFailureReason,
-            ConsecutiveStructureFailures = alignSession.ConsecutiveStructureFailures,
-            PredictedAlignmentRoute = predictedRoute,
-        };
-    }
 
     return new RealCliSessionResult
     {
         ImagePath = imagePath,
         Succeeded = rec is not null,
         StatusMessage = orchestrator.StatusMessage,
-        Recognition = recognition,
+        Recognition = SessionResultBuilder.BuildRecognition(orchestrator),
         FailureReason = rec is null ? (orchestrator.StatusMessage ?? "识别失败：无结果") : null,
-        AlignmentSession = alignmentSession,
+        BackgroundScanStatus = orchestrator.BackgroundScanStatus.ToString(),
+        IsBackgroundScanCompleted = orchestrator.IsBackgroundScanCompleted,
+        OverlayEvents = overlay.Events.ToList(),
+        AlignmentSession = SessionResultBuilder.BuildAlignmentSession(orchestrator),
         ScanPhaseTimings = scanPhaseTimings,
-        Diagnostics = diagnostics,
-        LogEntries = logEntries,
+        Diagnostics = SessionResultBuilder.BuildDiagnostics(orchestrator),
+        LogEntries = SessionResultBuilder.BuildLogEntries(orchestrator),
         TotalWallMs = totalMs,
         FatalError = error
     };
@@ -496,7 +345,7 @@ static string[] ResolveGlob(string pattern)
 static int UnknownCommand(string command)
 {
     Console.Error.WriteLine($"未知命令：{command}");
-    Console.Error.WriteLine("可用命令：run | batch");
+    Console.Error.WriteLine("可用命令：run | batch | mapopen | survey");
     return 1;
 }
 
@@ -508,11 +357,13 @@ static void PrintUsage()
         用法：
           IDVB.RealCLI.exe run --image <path> [--out <path>] [--settings <path>]
           IDVB.RealCLI.exe batch --files <glob> [--parallel N] [--out <path>]
+          IDVB.RealCLI.exe mapopen --image <path> [--candidate N] [--out <path>] [--settings <path>]
 
         run 命令：
           --image, -i <path>    输入截图路径（必需）
           --out, -o <path>      输出 JSON 路径（可选，默认 stdout）
           --settings, -s <path> 自定义 settings.json 目录（可选）
+          --consume             后台扫描完成后立即消费（仅识别→对齐提交 E2E）
 
         batch 命令：
           --files, -f <glob>    文件匹配模式（必需，如 "samples/**/*.png"）
@@ -520,9 +371,16 @@ static void PrintUsage()
           --out, -o <path>      汇总 JSON 输出路径
           --settings, -s <path> 自定义 settings.json 目录
 
+        mapopen 命令（仅对齐 E2E：先锁定 → 关图 → 重开 → 仅对齐）：
+          --image, -i <path>    输入截图路径（必需）
+          --candidate, -c N     强制选择第 N 个候选（1-based，可选）
+          --out, -o <path>      输出 JSON 路径（可选，默认 stdout）
+          --settings, -s <path> 自定义 settings.json 目录（可选）
+
         示例：
           IDVB.RealCLI.exe run --image screenshot.png
           IDVB.RealCLI.exe run --image screenshot.png --out result.json
           IDVB.RealCLI.exe batch --files "samples/**/*.png" --parallel 4 --out summary.json
+          IDVB.RealCLI.exe mapopen --image two_gate.png --candidate 1 --out mapopen.json
         """);
 }

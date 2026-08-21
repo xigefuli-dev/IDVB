@@ -72,6 +72,15 @@ public sealed class ProbeContext
     /// <summary>输出 JSON 路径（可选）。</summary>
     public string? OutputPath { get; set; }
 
+    /// <summary>结构填充单图输出路径。</summary>
+    public string? StructureFillOutputPath { get; set; }
+
+    /// <summary>结构填充批处理输出目录。</summary>
+    public string? StructureFillOutputDirectory { get; set; }
+
+    /// <summary>Use the guide-map tone profile before structure extraction.</summary>
+    public bool StructureFillGuideMap { get; set; }
+
     /// <summary>侧门扫描指定地图 ID（可空，为空扫描全部）。</summary>
     public Guid? SideScanMapId { get; set; }
 

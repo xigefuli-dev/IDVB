@@ -16,6 +16,12 @@ public sealed class RealCliSessionResult
     public RealCliRecognitionOutput? Recognition { get; init; }
     public string? FailureReason { get; init; }
 
+    /// <summary>后台扫描状态（Idle / Running / CompletedIdentified / CompletedAmbiguous / CompletedFailed）。</summary>
+    public string BackgroundScanStatus { get; init; } = "Idle";
+
+    /// <summary>后台扫描是否已完成且结果尚未被开图消费。</summary>
+    public bool IsBackgroundScanCompleted { get; init; }
+
     /// <summary>对齐会话状态（用于诊断"扫描成功但仅对齐不动"问题）。</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RealCliAlignmentSessionOutput? AlignmentSession { get; init; }
@@ -34,6 +40,33 @@ public sealed class RealCliSessionResult
 
     /// <summary>总耗时（毫秒）。</summary>
     public double TotalWallMs { get; init; }
+
+    /// <summary>仅对齐阶段各阶段耗时（毫秒，键=阶段名）。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, double>? AlignmentPhaseTimings { get; init; }
+
+    /// <summary>阶段①锁定（首次扫描）耗时（毫秒）。</summary>
+    public double ScanLockWallMs { get; init; }
+
+    /// <summary>阶段③仅对齐耗时（毫秒）。</summary>
+    public double AlignmentWallMs { get; init; }
+
+    /// <summary>锁定分类：FullLock / LockNoTransform / IdentityOnly / NoLock。</summary>
+    public string LockStatus { get; init; } = "NoLock";
+
+    /// <summary>仅对齐是否产出有效锁定（结果保持完整 transform）。</summary>
+    public bool AlignmentSucceeded { get; init; }
+
+    /// <summary>请求的候选位置（1-based，未指定为 null）。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RequestedCandidate { get; init; }
+
+    /// <summary>本次扫描的候选数量（无候选为 0）。</summary>
+    public int CandidateCount { get; init; }
+
+    /// <summary>候选地图列表（候选确认时非空）。</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<RealCliCandidateChoiceOutput>? CandidateChoices { get; init; }
 
     /// <summary>日志条目摘要。</summary>
     public List<RealCliLogEntrySummary> LogEntries { get; init; } = new();
@@ -135,6 +168,20 @@ public sealed class RealCliAlignmentSessionOutput
 
     /// <summary>根据当前会话状态，下一次仅对齐应走的路由。</summary>
     public string PredictedAlignmentRoute { get; init; } = "Unknown";
+}
+
+/// <summary>
+/// 候选地图选择项摘要（从 MapRecognitionChoice 提取，用于诊断候选歧义）。
+/// </summary>
+public sealed class RealCliCandidateChoiceOutput
+{
+    public string MapId { get; init; } = string.Empty;
+    public string MapDisplayName { get; init; } = string.Empty;
+    public string Floor { get; init; } = string.Empty;
+    public double RawConfidence { get; init; }
+    public bool IsReferenceOnly { get; init; }
+    public string EvidenceLabel { get; init; } = string.Empty;
+    public int PreferredOrder { get; init; }
 }
 
 /// <summary>

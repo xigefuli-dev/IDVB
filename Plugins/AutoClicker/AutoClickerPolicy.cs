@@ -16,8 +16,10 @@ public static class AutoClickerPolicy
     public const int HoldBeforeClickMilliseconds = 100;
 
     /// <summary>
-    /// Target period of one complete F-down/F-up event. Missed periods are
-    /// skipped instead of replayed as a burst.
+    /// Default target period of one complete F-down/F-up event. Missed periods
+    /// are skipped instead of replayed as a burst. 运行时的实际周期由
+    /// <see cref="AutoClickerOptions"/> 的按下/抬手延迟之和决定
+    /// （默认 5 + 10 = 15ms）。
     /// </summary>
     public const int ClickIntervalMilliseconds = 15;
 

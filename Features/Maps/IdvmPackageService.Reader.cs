@@ -78,9 +78,11 @@ public sealed partial class IdvmPackageService
 
     private static ParsedHeader ParseHeader(byte[] bytes)
     {
+        var major = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(4, 2));
+        var minor = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2));
         if (!bytes.AsSpan(0, 4).SequenceEqual("IDVM"u8)
-            || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(4, 2)) != 1
-            || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2)) != 0
+            || major != 1
+            || minor is not (0 or 1)
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2)) != HeaderSize
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(10, 2)) != 0
             || bytes.AsSpan(68, 12).IndexOfAnyExcept((byte)0) >= 0)
@@ -88,6 +90,8 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException("IDVM header 的 magic、版本、flags 或保留字段无效。");
         }
         return new ParsedHeader(
+            major,
+            minor,
             ReadRfc4122Guid(bytes.AsSpan(12, 16)),
             BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(28, 8)),
             bytes.AsSpan(36, 32).ToArray());
@@ -191,6 +195,12 @@ public sealed partial class IdvmPackageService
         CancellationToken cancellationToken)
     {
         var draftsByClass = new Dictionary<Guid, List<MapDraft>>();
+        var classPropertiesById = manifest.Classes.ToDictionary(
+            item => item.ClassId,
+            item => new MapClassProperties
+            {
+                RemoveBackground = item.Properties?.RemoveBackground is true
+            });
         foreach (var item in manifest.Classes)
             draftsByClass[item.ClassId] = [];
 
@@ -230,7 +240,8 @@ public sealed partial class IdvmPackageService
                         recognitionSize.Width,
                         recognitionSize.Height),
                     WholeImageIgnoreRegions = anchorFloor.WholeImageIgnoreRegions.Select(ToRequiredModel).ToList(),
-                    Annotations = anchorFloor.Annotations.Select(ToModel).ToList()
+                    Annotations = anchorFloor.Annotations.Select(ToModel).ToList(),
+                    BackgroundLayers = (anchorFloor.BackgroundLayers ?? []).Select(ToModel).ToList()
                 };
                 foreach (var anchor in anchorFloor.Anchors)
                 {
@@ -288,7 +299,7 @@ public sealed partial class IdvmPackageService
             var orderedProfiles = metadata.Floors.Select(floor => profiles[floor.Key]).ToArray();
             var recognition = new MapRecognitionProfile
             {
-                SchemaVersion = 6,
+                SchemaVersion = 8,
                 FirstFloor = orderedProfiles[0],
                 SecondFloor = orderedProfiles.Length > 1
                     ? orderedProfiles[1]
@@ -305,7 +316,9 @@ public sealed partial class IdvmPackageService
             recognition.EnsureStandardAnchors();
             var draft = new MapDraft
             {
+                SourcePackageMapId = map.MapId,
                 Title = metadata.Map.Title,
+                ClassProperties = classPropertiesById[map.ClassId].Clone(),
                 ContentVersion = map.MapVersion,
                 Source = string.Equals(metadata.Map.Source, "survey", StringComparison.Ordinal)
                     ? "survey"
@@ -334,7 +347,15 @@ public sealed partial class IdvmPackageService
 
         return manifest.Classes.Select(item => new MapImportClassDraft(
             item.Name.Trim(),
-            draftsByClass[item.ClassId])).ToArray();
+            draftsByClass[item.ClassId],
+            classPropertiesById[item.ClassId].Clone(),
+            manifest.VariantGroups
+                .Where(group => group.ClassId == item.ClassId)
+                .Select(group => new MapImportVariantGroupDraft(
+                    group.GroupId,
+                    group.PaletteSlot,
+                    group.MapIds.ToArray()))
+                .ToArray())).ToArray();
     }
 
     // ── 导入 DTO 映射辅助方法 ──────────────────────────────────────────
@@ -408,4 +429,26 @@ public sealed partial class IdvmPackageService
         IsItalic = annotation.IsItalic,
         IsStrikethrough = annotation.IsStrikethrough
     };
+
+    private static MapBackgroundLayer ToModel(BackgroundLayerDto layer) => new()
+    {
+        Id = layer.Id,
+        Semantic = layer.Semantic,
+        Shape = layer.Shape == "square"
+            ? MapBackgroundLayerShape.Square
+            : MapBackgroundLayerShape.Circle,
+        BrushSizePixels = layer.BrushSizePixels,
+        Points = layer.Points.Select(point => new NormalizedPoint
+        {
+            X = point.X,
+            Y = point.Y
+        }).ToList()
+    };
 }
+/*
+ * 文件职责：IdvmPackageService.Reader。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

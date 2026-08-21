@@ -43,6 +43,8 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+        FluentTheme.RegisterThemeRoot(this);
+        RootSurface.Background = FluentTheme.WindowBrush();
         foreach (var entry in NavigationEntry.CreateRoots(_navigationNodes))
             NavigationItems.Add(entry);
         Loaded += MainPage_Loaded;
@@ -619,7 +621,7 @@ public sealed partial class MainPage : Page
             // TeachingTip performs native popup placement from its target's visual.
             // Keep pages that host targeted tips out of the translated composition
             // chain; MapListPage already uses this stable path for its import tip.
-            animateMainContent = view is not MapListPage and not SettingsPage;
+            animateMainContent = view is not MapListPage and not SettingsPage and not PluginsPage;
             if (view is MapListPage mapListPage)
             {
                 mapListPage.ParentScrollViewer = MainContentHost;

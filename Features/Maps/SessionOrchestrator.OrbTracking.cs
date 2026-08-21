@@ -41,7 +41,7 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        if (!_overlay.TryEnableCaptureExclusion(out var exclusionFailure))
+        if (!_overlay.IsCaptureExclusionEnabled)
         {
             if (Interlocked.Exchange(ref _orbCaptureExclusionWarningLogged, 1) == 0)
             {
@@ -51,7 +51,7 @@ public sealed partial class SessionOrchestrator
                     "ORB tracking disabled because the overlay cannot be excluded from capture.",
                     details: new()
                     {
-                        ["failureReason"] = exclusionFailure
+                        ["failureReason"] = "直播模式未实际应用 Overlay 捕获保护。"
                     });
             }
             return;
@@ -375,14 +375,11 @@ public sealed partial class SessionOrchestrator
                     recognition.Result,
                     effectiveScaleLimit);
                 _lastRecognition = recognition;
+                _mapLease.Bind(_matchSession.Snapshot, recognition.Map.Id);
                 _lastAlignmentSession = advanced;
                 if (CanUseAdaptiveReliableSession(advanced, context.AdaptiveKey))
                 {
                     RememberPrimaryFloorSession(recognition, advanced);
-                    RememberReliableFloorAlignment(
-                        context.Match,
-                        recognition,
-                        advanced);
                 }
                 _alignmentTrackingMode = recognition.Result.Source
                     == MapRecognitionSource.OrbTracking
@@ -435,6 +432,21 @@ public sealed partial class SessionOrchestrator
 
     private bool IsOrbTrackingContextCurrent(OrbTrackingContext context)
     {
+        if (!_overlay.IsCaptureExclusionEnabled)
+        {
+            if (Interlocked.Exchange(ref _orbCaptureExclusionWarningLogged, 1) == 0)
+            {
+                _logCollector.Append(
+                    MapLogCategory.OrbTracking,
+                    MapLogLevel.Warning,
+                    "ORB tracking stopped because Overlay capture protection is no longer active.",
+                    details: new()
+                    {
+                        ["failureReason"] = "直播模式已关闭显示层保护。"
+                    });
+            }
+            return false;
+        }
         if (_disposed
             || context.Generation != Volatile.Read(ref _orbTrackingGeneration)
             || !IsCurrentMatchOperation(context.Match)
@@ -513,3 +525,10 @@ public sealed partial class SessionOrchestrator
     }
 
 }
+/*
+ * 文件职责：SessionOrchestrator.OrbTracking。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

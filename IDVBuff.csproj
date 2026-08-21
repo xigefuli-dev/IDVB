@@ -28,11 +28,12 @@
         <PackageId>IdentityVisionBridge</PackageId>
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
-        <IDVBProductVersion>1.4.3</IDVBProductVersion>
-        <IDVBReleaseLine>b01.4</IDVBReleaseLine>
+        <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
+        <IDVBProductVersion>1.5.0-preview</IDVBProductVersion>
+        <IDVBReleaseLine>b01.5</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
-        <AssemblyVersion>1.4.3.0</AssemblyVersion>
-        <FileVersion>1.4.3.0</FileVersion>
+        <AssemblyVersion>1.5.0.0</AssemblyVersion>
+        <FileVersion>1.5.0.0</FileVersion>
         <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>
@@ -80,6 +81,9 @@
         <ProjectReference Include="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
         <ProjectReference Include="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
         <ProjectReference Include="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
+        <ProjectReference Include="Plugins\NightVision\IDVBuff.NightVision.csproj" />
+        <ProjectReference Include="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
+        <ProjectReference Include="Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
 
         <Content Include="Assets\SplashScreen.scale-200.png" />
         <Content Include="Assets\LockScreenLogo.scale-200.png" />
@@ -150,6 +154,7 @@
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
         <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+        <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
         <PackageReference Include="Microsoft.Web.WebView2" Version="1.*" />
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />

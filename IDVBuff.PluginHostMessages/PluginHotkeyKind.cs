@@ -12,5 +12,6 @@ public enum PluginHotkeyKind
     GameMapToggle,
     ControlPanelToggle,
     SwitchFloor,
-    SaveMapCache
+    SaveMapCache,
+    Alt
 }

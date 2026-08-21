@@ -31,26 +31,48 @@ public sealed class PipelineOrchestrator
         foreach (var stage in _stages)
         {
             if (ct.IsCancellationRequested)
+            {
+                context.IsFailed = true;
+                context.FailureReason = "Pipeline cancelled before the next stage.";
                 break;
+            }
 
             var phaseSw = Stopwatch.StartNew();
+            var stageTrace = MapOperationTraceAmbient.StartChild(
+                stage.StageName,
+                MapOperationWaitKind.Compute);
+            var stageStatus = MapOperationSpanStatus.Completed;
+            string? stageTerminalReason = null;
             try
             {
                 context = await stage.ExecuteAsync(context, ct);
+                if (context.IsFailed)
+                {
+                    stageStatus = MapOperationSpanStatus.Failed;
+                    stageTerminalReason = context.FailureReason;
+                }
             }
             catch (OperationCanceledException)
             {
                 context.IsFailed = true;
                 context.FailureReason = $"Stage '{stage.StageName}' cancelled.";
+                stageStatus = MapOperationSpanStatus.Cancelled;
+                stageTerminalReason = context.FailureReason;
                 break;
             }
             catch (Exception ex)
             {
                 context.IsFailed = true;
                 context.FailureReason = $"Stage '{stage.StageName}' threw: {ex.Message}";
+                stageStatus = MapOperationSpanStatus.Failed;
+                stageTerminalReason = context.FailureReason;
             }
-            phaseSw.Stop();
-            context.RecordPhase(stage.StageName, phaseSw.Elapsed.TotalMilliseconds);
+            finally
+            {
+                phaseSw.Stop();
+                context.RecordPhase(stage.StageName, phaseSw.Elapsed.TotalMilliseconds);
+                stageTrace.Complete(stageStatus, stageTerminalReason);
+            }
 
             // Check for non-exception failure and try fallback
             if (context.IsFailed)
@@ -59,21 +81,55 @@ public sealed class PipelineOrchestrator
                 if (fallbackStage != null)
                 {
                     var fbSw = Stopwatch.StartNew();
+                    var fallbackTrace = MapOperationTraceAmbient.StartChild(
+                        $"{stage.StageName}:fallback",
+                        MapOperationWaitKind.Compute);
+                    var fallbackStatus = MapOperationSpanStatus.Completed;
+                    string? fallbackTerminalReason = null;
                     try
                     {
                         context.IsFailed = false; // reset for fallback attempt
                         context.FailureReason = null;
                         context = await fallbackStage.ExecuteAsync(context, ct);
-                        if (!context.IsFailed)
+                        if (context.IsFailed)
                         {
-                            context.RecordPhase($"{stage.StageName}:fallback", fbSw.Elapsed.TotalMilliseconds);
-                            context.PhaseTimings.Remove(stage.StageName);
-                            continue;
+                            fallbackStatus = MapOperationSpanStatus.Failed;
+                            fallbackTerminalReason = context.FailureReason;
                         }
                     }
-                    catch
+                    catch (OperationCanceledException)
                     {
                         context.IsFailed = true;
+                        context.FailureReason =
+                            $"Fallback for stage '{stage.StageName}' cancelled.";
+                        fallbackStatus = MapOperationSpanStatus.Cancelled;
+                        fallbackTerminalReason = context.FailureReason;
+                    }
+                    catch (Exception ex)
+                    {
+                        context.IsFailed = true;
+                        context.FailureReason =
+                            $"Fallback for stage '{stage.StageName}' threw: {ex.Message}";
+                        fallbackStatus = MapOperationSpanStatus.Failed;
+                        fallbackTerminalReason = context.FailureReason;
+                    }
+                    finally
+                    {
+                        fbSw.Stop();
+                        context.RecordPhase(
+                            $"{stage.StageName}:fallback",
+                            fbSw.Elapsed.TotalMilliseconds);
+                        fallbackTrace.Complete(
+                            fallbackStatus,
+                            fallbackTerminalReason);
+                    }
+
+                    if (!context.IsFailed)
+                    {
+                        // Keep the failed original attempt. Removing it made
+                        // a successful fallback look like the first route and
+                        // hid the time spent on the rejected strategy.
+                        continue;
                     }
                 }
                 break;

@@ -67,6 +67,7 @@ public sealed class UpdateFrameworkTests
     [Theory]
     [InlineData("b01.4-26.08.12.0001", "1.4.1", "1.4.1-build.20260812.1")]
     [InlineData("b01.4-26.12.31.0042", "1.4.9", "1.4.9-build.20261231.42")]
+    [InlineData("b01.5-26.08.21.0042", "1.5.0-preview", "1.5.0-preview-build.20260821.42")]
     public void PublicVersionMapsToDeterministicVelopackVersion(
         string publicVersion,
         string productVersion,

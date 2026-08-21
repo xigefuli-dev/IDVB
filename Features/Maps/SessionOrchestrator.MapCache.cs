@@ -1,3 +1,5 @@
+using IDVBuff.Pipeline;
+
 namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
@@ -60,10 +62,39 @@ public sealed partial class SessionOrchestrator
         return true;
     }
 
+    /// <summary>
+    /// 本帧是否已有可信的缩放种子（自适应标定 / 未降级的落盘缓存）。纯查询，
+    /// 不写日志、不改状态，供路线选择在跑昂贵的证据采集之前短路使用。
+    /// </summary>
+    private bool HasTrustedScaleSeed(
+        CapturedGameFrame frame,
+        MapRecord map,
+        string floorKey)
+    {
+        if (TryGetAdaptiveScaleSeed(frame, map, floorKey, out var adaptiveSeed)
+            && adaptiveSeed is not null)
+        {
+            return true;
+        }
+
+        var resolution = GetResolution(frame);
+        if (!resolution.IsSupported)
+            return false;
+        var key = MapFeatureCacheRules.CreateKey(map, floorKey, resolution);
+        return _mapFeatureCacheRepository.TryGet(key, out var entry)
+            && entry is not null
+            && MapFeatureCacheRules.IsCacheEntryTrusted(entry);
+    }
+
     private void MarkMapCacheForRepair(MapFeatureCacheKey key)
     {
+        if (!IsCacheKeyForCurrentLease(key))
+            return;
         lock (_automaticMapCacheGate)
-            _mapCacheRepairPendingKeys.Add(key);
+        {
+            if (IsCacheKeyForCurrentLease(key))
+                _mapCacheRepairPendingKeys.Add(key);
+        }
     }
 
     private bool TryGetPendingMapCacheRepairKey(
@@ -109,6 +140,29 @@ public sealed partial class SessionOrchestrator
         out MapFeatureCacheKey? repairKey)
     {
         repairKey = null;
+        using var cacheRoute = MapOperationTraceAmbient.StartChild(
+            "scale_cache_route",
+            MapOperationWaitKind.Io,
+            mapId: map.Id.ToString("D"),
+            floorKey: floorKey);
+        MapRecognitionAttempt RunScaleFallback(string reason)
+        {
+            using var fallbackSpan = MapOperationTraceAmbient.StartChild(
+                "scale_cache_fallback",
+                MapOperationWaitKind.Compute,
+                mapId: map.Id.ToString("D"),
+                floorKey: floorKey);
+            try
+            {
+                return fallback();
+            }
+            finally
+            {
+                fallbackSpan.Complete(
+                    MapOperationSpanStatus.Completed,
+                    reason);
+            }
+        }
         var resolution = GetResolution(frame);
         if (!resolution.IsSupported)
         {
@@ -125,11 +179,19 @@ public sealed partial class SessionOrchestrator
                     ["viewportWidth"] = resolution.ViewportWidth,
                     ["viewportHeight"] = resolution.ViewportHeight
                 });
-            return fallback();
+            return RunScaleFallback("unsupported-resolution");
         }
 
         var key = MapFeatureCacheRules.CreateKey(map, floorKey, resolution);
-        if (TryAlignWithAdaptiveCalibrationSeed(
+        bool adaptiveSeedAttempted;
+        MapRecognitionAttempt? adaptiveAttempt;
+        using (var bootstrapSpan = MapOperationTraceAmbient.StartChild(
+                   "vpsg_scale_bootstrap",
+                   MapOperationWaitKind.Compute,
+                   mapId: map.Id.ToString("D"),
+                   floorKey: floorKey))
+        {
+            adaptiveSeedAttempted = TryAlignWithAdaptiveCalibrationSeed(
                 frame,
                 map,
                 floorKey,
@@ -138,7 +200,9 @@ public sealed partial class SessionOrchestrator
                 structureTuning,
                 identityPriorConfidence,
                 out _,
-                out var adaptiveAttempt))
+                out adaptiveAttempt);
+        }
+        if (adaptiveSeedAttempted)
         {
             if (IsAdaptiveInitialScaleQualified(adaptiveAttempt, structureTuning)
                 && adaptiveAttempt!.Recognition is { } adaptiveRecognition)
@@ -160,10 +224,20 @@ public sealed partial class SessionOrchestrator
                     ["requiredCandidateMargin"] = structureTuning.MinimumCandidateMargin
                 });
             repairKey = key;
-            return fallback();
+            return RunScaleFallback("adaptive-seed-rejected");
         }
-        if (!_mapFeatureCacheRepository.TryGet(key, out var entry)
-            || entry is null)
+        MapFeatureCacheEntry? entry;
+        bool cacheHit;
+        using (var cacheRead = MapOperationTraceAmbient.StartChild(
+                   "scale_cache_read",
+                   MapOperationWaitKind.Io,
+                   mapId: map.Id.ToString("D"),
+                   floorKey: floorKey))
+        {
+            cacheHit = _mapFeatureCacheRepository.TryGet(key, out entry)
+                && entry is not null;
+        }
+        if (!cacheHit || entry is null)
         {
             _logCollector.Append(
                 MapLogCategory.StructureRegistration,
@@ -178,7 +252,7 @@ public sealed partial class SessionOrchestrator
                     ["viewportWidth"] = resolution.ViewportWidth,
                     ["viewportHeight"] = resolution.ViewportHeight
                 });
-            return fallback();
+            return RunScaleFallback("cache-miss");
         }
 
         _logCollector.Append(
@@ -214,24 +288,35 @@ public sealed partial class SessionOrchestrator
                     ["cacheDecision"] = "distrusted-skipped"
                 });
             repairKey = key;
-            return fallback();
+            return RunScaleFallback("cache-untrusted");
         }
         var cachedAlignmentTimer =
             System.Diagnostics.Stopwatch.StartNew();
-        var cachedAttempt = _recognition.AlignWithCachedScale(
-            frame,
-            map.Id,
-            floorKey,
-            MapFeatureCacheRules.CreateScaleSeed(
-                map,
+        MapRecognitionAttempt cachedAttempt;
+        using (var cachedValidation = MapOperationTraceAmbient.StartChild(
+                   "cached_scale_validation",
+                   MapOperationWaitKind.Compute,
+                   mapId: map.Id.ToString("D"),
+                   floorKey: floorKey))
+        {
+            cachedAttempt = _recognition.AlignWithCachedScale(
+                frame,
+                map.Id,
                 floorKey,
-                entry.Scale.UniformScale),
-            _settings!.OverlayAlignmentMode,
-            tuning,
-            structureTuning,
-            identityPriorConfidence);
+                MapFeatureCacheRules.CreateScaleSeed(
+                    map,
+                    floorKey,
+                    entry.Scale.UniformScale),
+                _settings!.OverlayAlignmentMode,
+                tuning,
+                structureTuning,
+                identityPriorConfidence);
+        }
         cachedAlignmentTimer.Stop();
-        var adaptiveQualified = IsAdaptiveInitialScaleQualified(
+        // 已锁定地图的缓存命中验证用宽松门槛（RecoveryConfidence）：缓存条目
+        // 本身即高置信证据（VPSG accepted / 历史命中），fixed 验证到 0.80~0.82
+        // 即可采纳，避免边缘置信命中被拒后 fallback 回 VPSG 全局恢复（P1-2）。
+        var adaptiveQualified = IsAdaptiveInitialScaleUsable(
             cachedAttempt,
             structureTuning);
         _logCollector.Append(
@@ -278,7 +363,7 @@ public sealed partial class SessionOrchestrator
         }
 
         repairKey = key;
-        return fallback();
+        return RunScaleFallback("cached-validation-rejected");
     }
 
     private void RecordSuccessfulAlignment(
@@ -287,7 +372,6 @@ public sealed partial class SessionOrchestrator
     {
         if (IsMatchEnding || !_matchSession.Snapshot.IsStarted)
             return;
-        RememberMapViewportPresenceReference(recognition, frame);
         var transform = recognition.Result.OverlayTransform;
         var resolution = GetResolution(frame);
         _lastAlignmentResolution = resolution.IsSupported ? resolution : null;
@@ -312,8 +396,12 @@ public sealed partial class SessionOrchestrator
             recognition.Map,
             recognition.Result.Floor,
             resolution);
+        if (!IsCacheKeyForCurrentLease(key))
+            return;
         lock (_automaticMapCacheGate)
         {
+            if (!IsCacheKeyForCurrentLease(key))
+                return;
             if (!_automaticMapCacheSamples.TryGetValue(key, out var samples))
             {
                 samples = [];
@@ -327,3 +415,10 @@ public sealed partial class SessionOrchestrator
     }
 
 }
+/*
+ * 文件职责：SessionOrchestrator.MapCache。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

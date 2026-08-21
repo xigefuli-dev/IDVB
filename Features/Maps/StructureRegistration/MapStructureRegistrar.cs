@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -7,7 +8,7 @@ namespace IDVBuff.Features.Maps;
 /// Registers positive live map structure against one already-selected full
 /// reference map. The only permitted transform is uniform scale + translation.
 /// </summary>
-public sealed class MapStructureRegistrar
+public sealed partial class MapStructureRegistrar
 {
     private readonly MapStructurePreprocessor _preprocessor;
 
@@ -41,6 +42,9 @@ public sealed class MapStructureRegistrar
         MapStructureRegistrationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        using var registration = MapOperationTraceAmbient.StartChild(
+            "structure_registration",
+            MapOperationWaitKind.Compute);
         lock (_registrationGate)
         {
             var tuning = request.Tuning.Clone();
@@ -51,93 +55,6 @@ public sealed class MapStructureRegistrar
             try { return RegisterInternal(request, tuning); }
             finally { _currentReciprocalScale = savedReciprocalScale; }
         }
-    }
-
-    private MapStructureRegistrationResult RegisterInternal(
-        MapStructureRegistrationRequest request,
-        MapStructureRegistrationTuning tuning)
-    {
-        const bool canUseFast = true;
-
-        if (tuning.FastAlignmentShadowMode && canUseFast)
-        {
-            var legacyResult = RegisterLegacy(request);
-            try
-            {
-                var shadowFast = TryFastCoarseAlign(request);
-                var ft = shadowFast.Transform;
-                var lt = legacyResult.Transform;
-                var td = 0d; var sd = 0d;
-                if (ft is not null && lt is not null)
-                {
-                    td = Math.Sqrt(Math.Pow(ft.OffsetX - lt.OffsetX, 2d)
-                        + Math.Pow(ft.OffsetY - lt.OffsetY, 2d));
-                    sd = Math.Abs(ft.ScaleX - lt.ScaleX);
-                }
-                MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration,
-                    MapLogLevel.Info,
-                    $"Shadow对比 · Fast={(shadowFast.Accepted ? "通过" : "未通过")} "
-                    + $"Legacy={(legacyResult.Accepted ? "通过" : "未通过")} "
-                    + $"Δ={td:F1}px Δs={sd:F4}",
-                    details: new()
-                    {
-                        ["fastAccepted"] = shadowFast.Accepted,
-                        ["legacyAccepted"] = legacyResult.Accepted,
-                        ["transformDeltaPx"] = td, ["scaleDelta"] = sd,
-                        ["fastTotalMs"] = shadowFast.SearchMilliseconds + shadowFast.RefineMilliseconds,
-                        ["legacyTotalMs"] = legacyResult.SearchMilliseconds + legacyResult.RefineMilliseconds,
-                        ["fastRejection"] = shadowFast.RejectionReason.ToString(),
-                        ["legacyRejection"] = legacyResult.RejectionReason.ToString(),
-                    });
-            }
-            catch { }
-            return legacyResult;
-        }
-
-        if (tuning.EnableFastAlignment && canUseFast)
-        {
-            try
-            {
-                var fastResult = TryFastCoarseAlign(request);
-                MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration,
-                    fastResult.Accepted ? MapLogLevel.Info : MapLogLevel.Warning,
-                    fastResult.Accepted
-                        ? "快速粗搜索通过"
-                        : tuning.FastFallbackToLegacy
-                            ? "快速粗搜索未早停，将进入完整搜索"
-                            : "快速粗搜索未通过",
-                    elapsedMs: fastResult.PreprocessMilliseconds
-                        + fastResult.SearchMilliseconds
-                        + fastResult.RefineMilliseconds,
-                    details: new()
-                    {
-                        ["usedFastStrategy"] = true, ["accepted"] = fastResult.Accepted,
-                        ["fallbackToLegacy"] =
-                            !fastResult.Accepted && tuning.FastFallbackToLegacy,
-                        ["preprocessMs"] = fastResult.PreprocessMilliseconds,
-                        ["fastCoarseMs"] = fastResult.FastCoarseSearchMilliseconds,
-                        ["fastCandidates"] = fastResult.FastCoarseCandidateCount,
-                        ["rejection"] = fastResult.RejectionReason.ToString(),
-                        ["lockedScale"] = fastResult.LockedScale,
-                        ["referenceWidth"] = fastResult.ReferenceWidth,
-                        ["referenceHeight"] = fastResult.ReferenceHeight,
-                        ["queryEdgePixels"] = fastResult.QueryEdgePixels,
-                        ["queryBoundsX"] = fastResult.QueryBoundsX,
-                        ["queryBoundsY"] = fastResult.QueryBoundsY,
-                        ["queryBoundsWidth"] = fastResult.QueryBoundsWidth,
-                        ["queryBoundsHeight"] = fastResult.QueryBoundsHeight
-                    });
-                if (fastResult.Accepted) return fastResult;
-                if (!tuning.FastFallbackToLegacy) return fastResult;
-            }
-            catch (Exception ex)
-            {
-                MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration,
-                    MapLogLevel.Error, $"快速粗搜索异常，回退 Legacy：{ex.Message}");
-            }
-        }
-
-        return RegisterLegacy(request);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -161,15 +78,23 @@ public sealed class MapStructureRegistrar
 
         // ── 预处理 ──
         var preprocessTimer = Stopwatch.StartNew();
+        var preprocessSpan = MapOperationTraceAmbient.StartChild(
+            "structure_preprocess",
+            MapOperationWaitKind.Compute);
         using var ownedReference = request.PreparedReference is null
-            ? _preprocessor.Process(request.ReferenceImage) : null;
+            ? _preprocessor.Process(
+                request.ReferenceImage,
+                generationTuning: tuning.Generation) : null;
         var reference = request.PreparedReference ?? ownedReference!;
         using var ownedLive = request.PreparedLive is null
             ? _preprocessor.ProcessLiveRoi(request.LiveRoi, request.LiveIgnoreRegions,
-                request.DynamicIgnoreRegions, generateVisibleMask: tuning.EnableVisibleMask)
+                request.DynamicIgnoreRegions,
+                generateVisibleMask: tuning.EnableVisibleMask,
+                generationTuning: tuning.Generation)
             : null;
         var live = request.PreparedLive ?? ownedLive!;
         preprocessTimer.Stop();
+        preprocessSpan.Complete();
         MapLogCollector.Instance.Append(
             MapLogCategory.StructureRegistration,
             MapLogLevel.Info,
@@ -192,6 +117,9 @@ public sealed class MapStructureRegistrar
         // ── 互逆参考图缩放 ──
         var effectiveBaseline = baselineScale;
         Mat? dsEdges = null, dsStructure = null;
+        // 仅互逆缩放分支需要现算距离图（它的输入是降采样边缘图）；非互逆分支
+        // 直接复用参考特征上已缓存的裁剪距离图，故这里可能保持为 null。
+        Mat? ownedReferenceDistance = null;
         var isReciprocalScale = false;
         if (baselineScale < 1.0 && !request.RestrictSearchToLockedTransform)
         {
@@ -213,10 +141,20 @@ public sealed class MapStructureRegistrar
         try
         {
             var searchTimer = Stopwatch.StartNew();
-            var distanceEdges = dsEdges ?? reference.Edges;
-            using var referenceDistance = MapStructureScaleSearch.CreateDistanceMapFromEdges(
-                distanceEdges, tuning.DistanceClipPixels);
-
+            // 结构参考缓存在 Remember() 里已按同一 clip 预算过裁剪距离图，并随
+            // PreparedReference 一起交到这里。此前每次配准都用 edges 重跑一次
+            // 全图 DistanceTransform(Precise)（1190×1012 实测约 20~40ms，且
+            // Fast/Legacy 两轮各跑一次），产出与缓存那份逐像素相同。
+            var distanceSpan = MapOperationTraceAmbient.StartChild(
+                "distance_map",
+                MapOperationWaitKind.Compute);
+            var referenceDistance = dsEdges is null
+                ? reference.GetOrCreateClippedReferenceDistanceMap(
+                    tuning.DistanceClipPixels)
+                : ownedReferenceDistance =
+                    MapStructureScaleSearch.CreateDistanceMapFromEdges(
+                        dsEdges, tuning.DistanceClipPixels);
+            distanceSpan.Complete();
             var scaleSearchRadius = request.TrackingMode
                 ? Math.Max(
                     tuning.TrackingScaleSearchRadius,
@@ -229,22 +167,24 @@ public sealed class MapStructureRegistrar
                 request.ScaleSearchPolicy == MapScaleSearchPolicy.Search,
                 scaleSearchRadius,
                 tuning.ScaleSearchStep);
-
-            var ctx = new MapStructureScaleSearch.ScaleSearchContext();
+            using var ctx = new MapStructureScaleSearch.ScaleSearchContext();
             Mat? bestHeatmap = null;
             QueryGeometry? bestQuery = null;
             QueryGeometry? diagnosticQuery = null;
-
-            foreach (var scale in hypotheses)
+            var scaleSearchSpan = MapOperationTraceAmbient.StartChild(
+                "structure_scale_search",
+                MapOperationWaitKind.Compute);
+            foreach (var (scale, hypothesisIndex) in hypotheses.Select(
+                (scale, index) => (scale, index)))
             {
-                if (searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
+                if (tuning.EnforceTimeBudget
+                    && searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
                 { ctx.TimeBudgetExceeded = true; break; }
                 if (!tuning.DisableScaleEarlyTermination
                     && ctx.Candidates.Count > 0
                     && ctx.Candidates[0].CompositeCost
                         <= tuning.EarlyTerminationScoreThreshold)
                     break;
-
                 var queryTimer = Stopwatch.StartNew();
                 using var query = MapStructureScaleSearch.CreateQuery(
                     live, request.LiveRoi.Size(), scale,
@@ -253,7 +193,6 @@ public sealed class MapStructureRegistrar
                 queryTimer.Stop();
                 ctx.QueryConstructionMs += queryTimer.Elapsed.TotalMilliseconds;
                 diagnosticQuery ??= query.CloneForDebug();
-
                 if (query.EdgeCount < tuning.MinimumEdgePixels
                     || query.Bounds.Width < tuning.MinimumSpanPixels
                     || query.Bounds.Height < tuning.MinimumSpanPixels)
@@ -263,34 +202,42 @@ public sealed class MapStructureRegistrar
                 if (query.Bounds.Width >= refEdgesForCheck.Width
                     || query.Bounds.Height >= refEdgesForCheck.Height)
                 { ctx.OversizedHypotheses++; continue; }
-
                 var expected = MapStructureScaleSearch.ExpectedReferenceLocation(
                     request, scale, query.Bounds);
-
                 var historyTimer = Stopwatch.StartNew();
                 MapStructureCandidateCollector.CollectHistoryCandidates(
                     query, reference, referenceDistance, request, scale, tuning,
                     _currentReciprocalScale, ctx.Candidates);
                 historyTimer.Stop();
                 ctx.HistoryCandidateMs += historyTimer.Elapsed.TotalMilliseconds;
-
                 if (request.RestrictSearchToLockedTransform)
                 {
+                    using var restrictedSearch = MapOperationTraceAmbient.StartChild(
+                        "restricted_search",
+                        MapOperationWaitKind.Compute,
+                        attemptIndex: hypothesisIndex);
                     MapStructureScaleSearch.SearchRestrictedBranch(
                         query, reference, referenceDistance, live,
-                        request, scale, expected, tuning, _currentReciprocalScale, ctx);
+                        request, scale, expected, tuning, _currentReciprocalScale, ctx,
+                        tuning.EnforceTimeBudget
+                            ? Math.Max(0, tuning.StructureFallbackBudgetMilliseconds
+                                - (int)searchTimer.ElapsedMilliseconds)
+                            : int.MaxValue);
                 }
                 else
                 {
+                    using var globalSearch = MapOperationTraceAmbient.StartChild(
+                        "global_search",
+                        MapOperationWaitKind.Compute,
+                        attemptIndex: hypothesisIndex);
                     MapStructureScaleSearch.SearchGlobalBranch(
                         query, reference, referenceDistance, live,
                         request, scale, expected, tuning,
                         _currentReciprocalScale, isReciprocalScale, ctx);
                 }
-
-                if (searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
+                if (tuning.EnforceTimeBudget
+                    && searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
                 { ctx.TimeBudgetExceeded = true; break; }
-
                 var scaleBest = ctx.Candidates
                     .Where(c => Math.Abs(c.Scale - scale) < StructureRegistrationRules.ScaleDuplicateTolerance)
                     .OrderBy(c => c.CompositeCost).FirstOrDefault();
@@ -305,7 +252,7 @@ public sealed class MapStructureRegistrar
                 }
             }
             searchTimer.Stop();
-
+            scaleSearchSpan.Complete();
             MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
                 $"结构搜索完成 · {ctx.Candidates.Count} 个候选",
                 elapsedMs: searchTimer.Elapsed.TotalMilliseconds,
@@ -323,9 +270,22 @@ public sealed class MapStructureRegistrar
                     ["usedFastStrategy"] = false,
                     ["usedRestrictedSearch"] = request.RestrictSearchToLockedTransform,
                     ["timeBudgetExceeded"] = ctx.TimeBudgetExceeded,
+                    ["workPreflightRejected"] = ctx.WorkPreflightRejected,
+                    ["estimatedRestrictedTemplateMs"] = ctx.EstimatedRestrictedTemplateMilliseconds,
                     ["queryConstructionMs"] = ctx.QueryConstructionMs,
                     ["historyCandidateMs"] = ctx.HistoryCandidateMs,
                     ["visibleAwareSearchMs"] = ctx.VisibleAwareTotalMs,
+                    ["visibleAwareRequestedBackend"] = ctx.VisibleAwareSession?.RequestedBackend,
+                    ["visibleAwareActualBackend"] = ctx.VisibleAwareSession?.ActualBackend,
+                    ["visibleAwareUMatFallbackReason"] = ctx.VisibleAwareSession?.FallbackReason,
+                    ["visibleAwareCoarseMs"] = ctx.VisibleAwareCoarseMs,
+                    ["visibleAwareRefineMs"] = ctx.VisibleAwareRefineMs,
+                    ["visibleAwareUploadMs"] = ctx.VisibleAwareSession?.UploadMilliseconds ?? 0d,
+                    ["visibleAwareDownloadMs"] = ctx.VisibleAwareSession?.DownloadMilliseconds ?? 0d,
+                    ["visibleAwareCompletedScales"] = ctx.VisibleAwareCompletedScales,
+                    ["visibleAwareBudgetSkippedScales"] = ctx.VisibleAwareBudgetSkippedScales,
+                    ["visibleAwareCoarsePeaks"] = ctx.VisibleAwareCoarsePeaks,
+                    ["visibleAwareRefinedCandidates"] = ctx.VisibleAwareRefinedCandidates,
                     ["featureVotingMs"] = ctx.FeatureVotingMs,
                     ["pyramidSearchMs"] = ctx.PyramidSearchMs,
                     ["localTemplateSearchMs"] = ctx.LocalTemplateSearchMs,
@@ -342,10 +302,12 @@ public sealed class MapStructureRegistrar
                     ["visibleAwareEarlyAccepted"] = ctx.VisibleAwareEarlyAccepted,
                     ["visibleAwareFallbackReason"] = ctx.VisibleAwareFallbackReason
                 });
-
             try
             {
                 // ── 排名 + 去重 ──
+                var rankingSpan = MapOperationTraceAmbient.StartChild(
+                    "candidate_ranking",
+                    MapOperationWaitKind.Compute);
                 var rankingTimer = Stopwatch.StartNew();
                 var ranked = MapStructureCandidateCollector.DistinctCandidates(
                         ctx.Candidates, tuning, request.LockedTransform)
@@ -357,7 +319,7 @@ public sealed class MapStructureRegistrar
                 MapStructureDebugOutput.WriteSearchDebug(
                     debugDirectory, reference, bestHeatmap, bestQuery, ranked);
                 rankingTimer.Stop();
-
+                rankingSpan.Complete();
                 // ── 诊断数据包（供后续所有 BuildLegacyResult 调用复用）──
                 var d = new MapStructureValidator.LegacyDiagnostics(
                     ctx,
@@ -392,16 +354,28 @@ public sealed class MapStructureRegistrar
                 // ── 精修 ──
                 var refineTimer = Stopwatch.StartNew();
                 var forcedRefinementFallback = false;
-                var refined = MapStructureRefiner.CanSkipLocalRefinement(
-                        ranked, tuning, request.RestrictSearchToLockedTransform)
-                    ? ranked[0]
-                    : MapStructureRefiner.RefineCandidate(ranked[0], live, reference,
-                        referenceDistance, request, tuning, _currentReciprocalScale);
+                MapStructureRefiner.EccRefinementDiagnostics? eccDiagnostics = null;
+                var refined = ranked[0];
+                if (!MapStructureRefiner.CanSkipLocalRefinement(
+                        ranked,
+                        tuning,
+                        request.RestrictSearchToLockedTransform))
+                {
+                    using var refineSpan = MapOperationTraceAmbient.StartChild(
+                        "structure_refinement",
+                        MapOperationWaitKind.Compute);
+                    refined = MapStructureRefiner.RefineCandidate(
+                        ranked[0], live, reference,
+                        referenceDistance, request, tuning, _currentReciprocalScale,
+                        tuning.EnforceTimeBudget
+                            ? Math.Max(0, tuning.StructureFallbackBudgetMilliseconds
+                                - (int)Math.Ceiling(searchTimer.Elapsed.TotalMilliseconds))
+                            : int.MaxValue,
+                        out eccDiagnostics);
+                }
                 refineTimer.Stop();
-                MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
-                    $"ECC精修完成 · 收敛={refined.EccConverged}",
-                    elapsedMs: refineTimer.Elapsed.TotalMilliseconds,
-                    details: new() { ["eccConverged"] = refined.EccConverged, ["eccCorrelation"] = refined.EccCorrelation });
+                LogEccRefinement(refined, eccDiagnostics,
+                    refineTimer.Elapsed.TotalMilliseconds);
 
                 if (refined.CompositeCost > ranked[0].CompositeCost + StructureRegistrationRules.RefinementWorsenTolerance)
                 {
@@ -507,6 +481,7 @@ public sealed class MapStructureRegistrar
         }
         finally
         {
+            ownedReferenceDistance?.Dispose();
             dsEdges?.Dispose();
             dsStructure?.Dispose();
             // The reciprocal context owns dsStructure only for this
@@ -526,18 +501,24 @@ public sealed class MapStructureRegistrar
         var tuning = request.Tuning.Clone();
         tuning.Normalize();
 
-        var vr = MapStructureValidator.ValidateRequest(request, usedRestrictedSearch: false);
+        var vr = MapStructureValidator.ValidateRequest(
+            request,
+            usedRestrictedSearch: request.RestrictSearchToLockedTransform);
         if (vr is not null) return vr;
 
         var baselineScale = request.LockedTransform.ScaleX;
 
         var preprocessTimerFast = Stopwatch.StartNew();
         using var ownedReferenceFast = request.PreparedReference is null
-            ? _preprocessor.Process(request.ReferenceImage) : null;
+            ? _preprocessor.Process(
+                request.ReferenceImage,
+                generationTuning: tuning.Generation) : null;
         var referenceFast = request.PreparedReference ?? ownedReferenceFast!;
         using var ownedLiveFast = request.PreparedLive is null
             ? _preprocessor.ProcessLiveRoi(request.LiveRoi, request.LiveIgnoreRegions,
-                request.DynamicIgnoreRegions, generateVisibleMask: false)
+                request.DynamicIgnoreRegions,
+                generateVisibleMask: tuning.EnableVisibleMask,
+                generationTuning: tuning.Generation)
             : null;
         var liveFast = request.PreparedLive ?? ownedLiveFast!;
         preprocessTimerFast.Stop();
@@ -545,6 +526,7 @@ public sealed class MapStructureRegistrar
         // ── 互逆参考图缩放 ──
         var effectiveBaseline = baselineScale;
         Mat? dsEdgesFast = null, dsStructureFast = null;
+        Mat? ownedReferenceDistanceFast = null;
         if (baselineScale < 1.0)
         {
             effectiveBaseline = 1.0;
@@ -562,16 +544,22 @@ public sealed class MapStructureRegistrar
 
         try
         {
-            var distanceEdges = dsEdgesFast ?? referenceFast.Edges;
-            using var referenceDistance = MapStructureScaleSearch.CreateDistanceMapFromEdges(
-                distanceEdges, tuning.DistanceClipPixels);
+            // 与 RegisterLegacy 同理：非互逆缩放时复用参考特征上已缓存的裁剪
+            // 距离图，避免 Fast 与 Legacy 两轮各跑一次全图 DistanceTransform。
+            var referenceDistance = dsEdgesFast is null
+                ? referenceFast.GetOrCreateClippedReferenceDistanceMap(
+                    tuning.DistanceClipPixels)
+                : ownedReferenceDistanceFast =
+                    MapStructureScaleSearch.CreateDistanceMapFromEdges(
+                        dsEdgesFast, tuning.DistanceClipPixels);
             var preprocessMs = preprocessTimerFast.Elapsed.TotalMilliseconds;
             var coarseTimer = Stopwatch.StartNew();
             var candidates = new List<MapStructureCandidate>();
 
             using var query = MapStructureScaleSearch.CreateQuery(
                 liveFast, request.LiveRoi.Size(), effectiveBaseline,
-                includeVisibleMask: false);
+                includeVisibleMask: tuning.EnableVisibleAwareShadow
+                    || tuning.EnableVisibleAwareInjection);
             var refEdgesForCheck = dsEdgesFast ?? referenceFast.Edges;
             if (query.EdgeCount < tuning.MinimumEdgePixels
                 || query.Bounds.Width < tuning.MinimumSpanPixels
@@ -601,9 +589,26 @@ public sealed class MapStructureRegistrar
                     queryBounds: query.Bounds);
             }
 
-            MapStructureScaleSearch.CollectFastCoarseCandidates(
-                query, referenceFast, referenceDistance,
-                request, effectiveBaseline, tuning, _currentReciprocalScale, candidates);
+            using var visibleContext =
+                new MapStructureScaleSearch.ScaleSearchContext();
+            var visibleAware =
+                MapStructureVisibleAwareSearch.CollectVisibleAwareCandidates(
+                    query,
+                    referenceFast,
+                    referenceDistance,
+                    request,
+                    effectiveBaseline,
+                    tuning,
+                    _currentReciprocalScale,
+                    visibleContext,
+                    candidates);
+            if (!visibleAware.Ran || candidates.Count == 0)
+            {
+                MapStructureScaleSearch.CollectFastCoarseCandidates(
+                    query, referenceFast, referenceDistance,
+                    request, effectiveBaseline, tuning,
+                    _currentReciprocalScale, candidates);
+            }
             MapStructureCandidateCollector.CollectHistoryCandidates(
                 query, referenceFast, referenceDistance,
                 request, effectiveBaseline, tuning, _currentReciprocalScale, candidates);
@@ -623,7 +628,10 @@ public sealed class MapStructureRegistrar
                 return MapStructureValidator.BuildResult(
                     MapStructureRejectionReason.NoCandidate, candidates: ranked,
                     preprocessMs: preprocessMs,
-                    searchMs: coarseMs, usedFastStrategy: true,
+                    searchMs: coarseMs,
+                    usedFastStrategy: true,
+                    scaleHypothesisCount: 1,
+                    usedRestrictedSearch: request.RestrictSearchToLockedTransform,
                     fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                     lockedScale: baselineScale,
                     referenceWidth: refEdgesForCheck.Width,
@@ -633,10 +641,16 @@ public sealed class MapStructureRegistrar
             }
 
             var refineTimer = Stopwatch.StartNew();
-            var refined = MapStructureRefiner.RefineCandidate(
-                ranked[0], liveFast, referenceFast, referenceDistance,
-                request, tuning, _currentReciprocalScale);
+            var refined = MapStructureRefiner.RefineCandidate(ranked[0],
+                liveFast, referenceFast, referenceDistance, request, tuning,
+                _currentReciprocalScale,
+                tuning.EnforceTimeBudget
+                    ? Math.Max(0, tuning.StructureFallbackBudgetMilliseconds
+                        - (int)Math.Ceiling(coarseMs))
+                    : int.MaxValue, out var eccDiagnostics);
             refineTimer.Stop();
+            LogEccRefinement(refined, eccDiagnostics,
+                refineTimer.Elapsed.TotalMilliseconds);
 
             if (refined.CompositeCost > ranked[0].CompositeCost + StructureRegistrationRules.RefinementWorsenTolerance
                 && !request.ForceBestCandidate)
@@ -646,6 +660,8 @@ public sealed class MapStructureRegistrar
                     preprocessMs: preprocessMs,
                     searchMs: coarseMs, refineMs: refineTimer.Elapsed.TotalMilliseconds,
                     usedFastStrategy: true,
+                    scaleHypothesisCount: 1,
+                    usedRestrictedSearch: request.RestrictSearchToLockedTransform,
                     fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                     lockedScale: baselineScale,
                     referenceWidth: refEdgesForCheck.Width,
@@ -709,6 +725,8 @@ public sealed class MapStructureRegistrar
                     preprocessMs: preprocessMs,
                     searchMs: coarseMs, refineMs: refineTimer.Elapsed.TotalMilliseconds,
                     usedFastStrategy: true,
+                    scaleHypothesisCount: 1,
+                    usedRestrictedSearch: request.RestrictSearchToLockedTransform,
                     fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                     lockedScale: baselineScale,
                     referenceWidth: refEdgesForCheck.Width,
@@ -740,6 +758,8 @@ public sealed class MapStructureRegistrar
                 preprocessMs: preprocessMs,
                 searchMs: coarseMs, refineMs: refineTimer.Elapsed.TotalMilliseconds,
                 usedFastStrategy: true,
+                scaleHypothesisCount: 1,
+                usedRestrictedSearch: request.RestrictSearchToLockedTransform,
                 fastCoarseSearchMs: coarseMs, fastCoarseCandidateCount: candidates.Count,
                 lockedScale: baselineScale,
                 referenceWidth: refEdgesForCheck.Width,
@@ -753,6 +773,7 @@ public sealed class MapStructureRegistrar
         }
         finally
         {
+            ownedReferenceDistanceFast?.Dispose();
             dsEdgesFast?.Dispose();
             dsStructureFast?.Dispose();
             // TryFastCoarseAlign may fall back to Legacy in the same
@@ -762,20 +783,11 @@ public sealed class MapStructureRegistrar
         }
     }
 
-    private static Dictionary<string, object?> CreateConfidenceLogDetails(
-        MapStructureConfidenceBreakdown breakdown) => new()
-        {
-            ["confidence"] = breakdown.LockConfidence,
-            ["chamferQuality"] = breakdown.ChamferQuality,
-            ["edgeCoverage"] = breakdown.EdgeCoverage,
-            ["occupancyCoverage"] = breakdown.OccupancyCoverage,
-            ["partitionQuality"] = breakdown.PartitionQuality,
-            ["geometricFitQuality"] = breakdown.GeometricFitQuality,
-            ["evidenceConfidence"] = breakdown.EvidenceConfidence,
-            ["geometricLockConfidence"] = breakdown.GeometricLockConfidence,
-            ["lockConfidence"] = breakdown.LockConfidence,
-            ["candidateMargin"] = breakdown.CandidateSeparation,
-            ["hardGateFailure"] = breakdown.HardGateFailure,
-            ["lowEvidenceReason"] = breakdown.LowEvidenceReason
-        };
 }
+/*
+ * 文件职责：MapStructureRegistrar。
+ * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

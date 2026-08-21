@@ -15,7 +15,8 @@ public sealed partial class MapListPage
         ResetBatchOperation();
         EnterModernEditorEnvironment();
         var coordinator = App.Services.GetRequiredService<ISurveyCoordinator>();
-        var editor = new SurveyProjectEditor(coordinator, projectId);
+        var templateStore = App.Services.GetRequiredService<ISurveyTemplateStore>();
+        var editor = new SurveyProjectEditor(coordinator, projectId, templateStore);
         editor.CloseRequested += async (_, _) => await ShowListAsync();
         _surveyProjectEditor = editor;
         _workflowHost.HorizontalAlignment = HorizontalAlignment.Stretch;

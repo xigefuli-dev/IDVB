@@ -14,7 +14,8 @@ public enum IdvmExportScope
 public sealed record IdvmImportResult(
     Guid PackageId,
     IReadOnlyList<string> CreatedClasses,
-    IReadOnlyList<MapRecord> ImportedMaps);
+    IReadOnlyList<MapRecord> ImportedMaps,
+    IReadOnlyList<MapVariantGroup>? ImportedVariantGroups = null);
 
 public sealed class IdvmImportPlan : IAsyncDisposable
 {
@@ -123,11 +124,11 @@ public sealed partial class IdvmPackageService
             var manifest = new ManifestDto
             {
                 Format = "idvm",
-                FormatVersion = "1.0",
+                FormatVersion = "1.1",
                 PackageType = "class-set",
                 PackageId = packageId,
                 CreatedAt = createdAt,
-                MinimumReader = "1.0",
+                MinimumReader = "1.1",
                 Capabilities = new CapabilitiesDto()
             };
 
@@ -142,7 +143,12 @@ public sealed partial class IdvmPackageService
                 {
                     ClassId = classId,
                     Name = classLabel,
-                    MapIds = maps.Select(map => map.Id).ToList()
+                    MapIds = maps.Select(map => map.Id).ToList(),
+                    Properties = new ManifestClassPropertiesDto
+                    {
+                        RemoveBackground = snapshot.ClassProperties.TryGetValue(classLabel, out var properties)
+                            && properties.RemoveBackground
+                    }
                 });
                 foreach (var map in maps)
                 {
@@ -151,8 +157,26 @@ public sealed partial class IdvmPackageService
                         staging,
                         classId,
                         map,
+                        snapshot.ClassProperties.TryGetValue(classLabel, out var classProperties)
+                            ? classProperties
+                            : new MapClassProperties(),
                         cancellationToken));
                 }
+            }
+
+            var selectedMapIds = selectedMaps.Select(map => map.Id).ToHashSet();
+            foreach (var group in snapshot.VariantGroups
+                .Where(group => group.MapIds.All(selectedMapIds.Contains))
+                .OrderBy(group => group.Class, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(group => group.PaletteSlot))
+            {
+                manifest.VariantGroups.Add(new ManifestVariantGroupDto
+                {
+                    GroupId = group.Id,
+                    ClassId = classIds[group.Class],
+                    PaletteSlot = group.PaletteSlot,
+                    MapIds = group.MapIds.ToList()
+                });
             }
 
             foreach (var file in Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories)
@@ -221,7 +245,11 @@ public sealed partial class IdvmPackageService
         try
         {
             var result = await _repository.ImportBatchAsync(plan.Classes, cancellationToken);
-            return new IdvmImportResult(plan.PackageId, result.CreatedClasses, result.ImportedMaps);
+            return new IdvmImportResult(
+                plan.PackageId,
+                result.CreatedClasses,
+                result.ImportedMaps,
+                result.ImportedVariantGroups);
         }
         finally
         {
@@ -232,6 +260,8 @@ public sealed partial class IdvmPackageService
     // ── 内部类型 ──────────────────────────────────────────────────────
 
     private readonly record struct ParsedHeader(
+        ushort MajorVersion,
+        ushort MinorVersion,
         Guid PackageId,
         long CreatedAtUnixMilliseconds,
         byte[] ManifestSha256);
@@ -246,6 +276,7 @@ public sealed partial class IdvmPackageService
         public string MinimumReader { get; set; } = string.Empty;
         public List<ManifestClassDto> Classes { get; set; } = [];
         public List<ManifestMapDto> Maps { get; set; } = [];
+        public List<ManifestVariantGroupDto> VariantGroups { get; set; } = [];
         public List<ManifestFileDto> Files { get; set; } = [];
         public CapabilitiesDto Capabilities { get; set; } = new();
     }
@@ -254,6 +285,20 @@ public sealed partial class IdvmPackageService
     {
         public Guid ClassId { get; set; }
         public string Name { get; set; } = string.Empty;
+        public List<Guid> MapIds { get; set; } = [];
+        public ManifestClassPropertiesDto Properties { get; set; } = new();
+    }
+
+    private sealed class ManifestClassPropertiesDto
+    {
+        public bool RemoveBackground { get; set; }
+    }
+
+    private sealed class ManifestVariantGroupDto
+    {
+        public Guid GroupId { get; set; }
+        public Guid ClassId { get; set; }
+        public int PaletteSlot { get; set; }
         public List<Guid> MapIds { get; set; } = [];
     }
 
@@ -290,6 +335,9 @@ public sealed partial class IdvmPackageService
         public bool MultiFloor { get; set; } = true;
         public bool RecognitionAnchors { get; set; } = true;
         public bool DerivedCache { get; set; }
+        public bool BackgroundLayers { get; set; } = true;
+        public bool ClassBackgroundRemoval { get; set; } = true;
+        public bool VariantGroups { get; set; } = true;
     }
 
     private sealed class MetadataDto
@@ -375,7 +423,7 @@ public sealed partial class IdvmPackageService
 
     private sealed class AnchorsDto
     {
-        public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 4;
         public Dictionary<string, AnchorFloorDto> Floors { get; set; } = new(StringComparer.Ordinal);
     }
 
@@ -384,6 +432,18 @@ public sealed partial class IdvmPackageService
         public List<AnchorDto> Anchors { get; set; } = [];
         public List<RectangleDto> WholeImageIgnoreRegions { get; set; } = [];
         public List<AnnotationDto> Annotations { get; set; } = [];
+        // Nullable so schema 4 can distinguish a required field that is
+        // missing from the legacy schema 1–3 shape.
+        public List<BackgroundLayerDto>? BackgroundLayers { get; set; }
+    }
+
+    private sealed class BackgroundLayerDto
+    {
+        public Guid Id { get; set; }
+        public string Semantic { get; set; } = string.Empty;
+        public string Shape { get; set; } = string.Empty;
+        public int BrushSizePixels { get; set; }
+        public List<PointDto> Points { get; set; } = [];
     }
 
     private sealed class AnchorDto
@@ -429,3 +489,10 @@ public sealed partial class IdvmPackageService
         public double Height { get; set; }
     }
 }
+/*
+ * 文件职责：IdvmPackageService。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

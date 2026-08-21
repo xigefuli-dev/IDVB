@@ -19,8 +19,8 @@ public sealed class AdaptiveScaleRegressionTests
             FloorKey = "1f",
             LockedTransform = Transform(1.02),
             BaselineGateScale = 1.02,
-            LastConfidence = 0.82,
-            SideEntranceScanPriorConfidence = 0.82,
+            LastConfidence = 0.65,
+            SideEntranceScanPriorConfidence = 0.65,
             HasGatePairLock = false
         };
 
@@ -33,7 +33,7 @@ public sealed class AdaptiveScaleRegressionTests
 
         Assert.NotSame(sideSession, rebuilt);
         Assert.Equal(1.06, rebuilt.LockedTransform.ScaleX, 8);
-        Assert.Equal(0.82, rebuilt.SideEntranceScanPriorConfidence, 8);
+        Assert.Equal(0.65, rebuilt.SideEntranceScanPriorConfidence, 8);
         Assert.False(rebuilt.HasGatePairLock);
         Assert.Equal(
             SelectedAlignmentRoute.SideEntrance,
@@ -57,7 +57,7 @@ public sealed class AdaptiveScaleRegressionTests
     {
         var sideSession = new MapAlignmentSession
         {
-            SideEntranceScanPriorConfidence = 0.82,
+            SideEntranceScanPriorConfidence = 0.65,
             HasGatePairLock = false
         };
         var doubleGateSession = new MapAlignmentSession
@@ -176,7 +176,7 @@ public sealed class AdaptiveScaleRegressionTests
     [Fact]
     public async Task ConsistentRecoveryFramesReplaceTemporaryScaleWithoutBecomingReliable()
     {
-        var coordinator = Coordinator();
+        var coordinator = RecoveryCoordinator();
         using var frame = Frame();
         var map = Map();
         var key = Key(map, frame);
@@ -226,7 +226,7 @@ public sealed class AdaptiveScaleRegressionTests
     [Fact]
     public async Task MediumConfidenceRecoveryCannotReplaceReliableLockedScale()
     {
-        var coordinator = Coordinator();
+        var coordinator = RecoveryCoordinator();
         using var frame = Frame();
         var map = Map();
         var key = Key(map, frame);
@@ -335,6 +335,15 @@ public sealed class AdaptiveScaleRegressionTests
         new(
             new AdaptiveScaleOptions { MinimumObservationSpacingMilliseconds = 50 },
             store);
+
+    private static AdaptiveScaleCoordinator RecoveryCoordinator() =>
+        new(
+            new AdaptiveScaleOptions
+            {
+                ReliableConfidence = 0.75d,
+                RecoveryConfidence = 0.65d,
+                MinimumObservationSpacingMilliseconds = 50
+            });
 
     private static AdaptiveScaleInitialEvidence Evidence(long frameId) =>
         new(frameId, 0.04, StructureValidated: true);

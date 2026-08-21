@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Composition.SystemBackdrops;
 using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
 using IDVBuff.Features.Plugins;
@@ -10,6 +11,7 @@ using IDVBuff.Diagnostics;
 using IDVBuff.Cli;
 using System.Runtime.InteropServices;
 using IDVBuff.Lifecycle;
+using WinRT.Interop;
 
 // Windows App SDK 单文件发布要求：在程序入口前设置此环境变量，
 // 以便运行时能在单文件包内找到原生 DLL。
@@ -39,7 +41,9 @@ namespace IDVBuff
         private IdvbControlServer? _idvbControlServer;
         private UpdateShutdownServer? _updateShutdownServer;
         private PluginManager? _pluginManager;
+        private TeachingTipManager? _teachingTipManager;
         private HostEventBridge? _hostEventBridge;
+        private ICaptureProtectionRegistration? _mainWindowCaptureProtection;
 
         /// <summary>全局 DI 容器（供 Views 等非 DI 感知组件使用）。</summary>
         public static ServiceProvider Services =>
@@ -52,6 +56,9 @@ namespace IDVBuff
 
         /// <summary>快捷访问插件宿主（供插件管理页读取已注册插件）。</summary>
         public static PluginManager? Plugins => _currentApp?._pluginManager;
+
+        /// <summary>快捷访问插件设置 TeachingTip 管理器（供插件管理页挂载/触发设置页）。</summary>
+        public static TeachingTipManager? TeachingTips => _currentApp?._teachingTipManager;
 
         private static App? _currentApp;
 
@@ -102,7 +109,7 @@ namespace IDVBuff
                         ? $"{AppDataPaths.DisplayName} [DEV {BuildVersionInfo.BuildVersion}]"
                         : AppDataPaths.DisplayName,
                     ExtendsContentIntoTitleBar = false,
-                    SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop()
+                    SystemBackdrop = new GaussianBlurBackdrop()
                 };
                 TrySetWindowIcon(window);
                 window.AppWindow.Closing += AppWindow_Closing;
@@ -117,6 +124,8 @@ namespace IDVBuff
                 _ = rootFrame.Navigate(typeof(MainPage), e.Arguments);
                 window.Activate();
                 WriteStartupTrace("Main window activated.");
+                WriteStartupTrace(
+                    $"SystemBackdrop support — Acrylic: {DesktopAcrylicController.IsSupported()}, Mica: {MicaController.IsSupported()}");
 
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
                 GuiInstanceCoordinator.ActivationRequested += GuiInstance_ActivationRequested;
@@ -129,6 +138,13 @@ namespace IDVBuff
                 services.AddIdvbServices(dispatcher);
                 _serviceProvider = services.BuildServiceProvider();
                 WriteStartupTrace("DI container built.");
+
+                _mainWindowCaptureProtection = _serviceProvider
+                    .GetRequiredService<ICaptureProtectionService>()
+                    .RegisterWindow(
+                        WindowNative.GetWindowHandle(window),
+                        CaptureProtectionWindowCategory.MainProgram,
+                        "主程序窗口");
 
                 await Task.Yield();
                 WriteStartupTrace("Initializing map runtime.");
@@ -145,10 +161,15 @@ namespace IDVBuff
                     pluginBus,
                     pluginSynchronizer,
                     _serviceProvider);
+                // 单一共享偏好存储：PluginManager 与 TTM 共用同一实例，
+                // 避免两个实例各自读改写而互相覆盖整个文件。
+                var preferencesStore = new PluginPreferencesStore();
                 _pluginManager = new PluginManager(
                     dispatcher,
                     pluginBus,
-                    pluginContextFactory);
+                    pluginContextFactory,
+                    preferences: preferencesStore);
+                _teachingTipManager = new TeachingTipManager(dispatcher, preferencesStore);
                 _hostEventBridge = new HostEventBridge(
                     pluginBus,
                     session,
@@ -461,6 +482,9 @@ namespace IDVBuff
                 }
 
                 // 先停插件、再拆桥、最后销毁 session：卸载期间宿主事件不触达半销毁的插件。
+                // TTM 持有插件设置页的 UI 实例，必须在插件停止前关闭摘除。
+                _teachingTipManager?.Close();
+                _teachingTipManager = null;
                 _pluginManager?.Stop();
                 _pluginManager = null;
                 _hostEventBridge?.Dispose();
@@ -516,6 +540,8 @@ namespace IDVBuff
 
         private void Window_Closed(object sender, WindowEventArgs args)
         {
+            _mainWindowCaptureProtection?.Dispose();
+            _mainWindowCaptureProtection = null;
             if (sender is Window closedWindow)
             {
                 closedWindow.AppWindow.Closing -= AppWindow_Closing;

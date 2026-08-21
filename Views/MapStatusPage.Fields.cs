@@ -28,6 +28,12 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "双门对齐",
         OnContent = "侧门扫描（默认）"
     };
+    private readonly ToggleSwitch _backgroundScanToggle = new()
+    {
+        Header = "后台扫描",
+        OffContent = "扫描后立即确认",
+        OnContent = "仅识别，开图后确认"
+    };
     private readonly ComboBox _presetSelector = new()
     {
         Header = "使用配置文件",
@@ -194,8 +200,6 @@ public sealed partial class MapStatusPage : UserControl
     private readonly TextBlock _gameMapBinding = CreateMutedText();
     private readonly TextBlock _controlPanelBinding = CreateMutedText();
     private readonly TextBlock _quickBinding = CreateMutedText();
-    private readonly TextBlock _overlayBinding = CreateMutedText();
-    private readonly TextBlock _manualBinding = CreateMutedText();
     private readonly TextBlock _switchFloorBinding = CreateMutedText();
     private readonly TextBlock _saveMapCacheBinding = CreateMutedText();
     private readonly ToggleSwitch _allowAutomaticMapCacheToggle = new()
@@ -260,7 +264,7 @@ public sealed partial class MapStatusPage : UserControl
         1);
     private readonly NumberBox _stableFrameInterval = CreateDecimalBox(
         "稳定帧间隔（ms）",
-        20,
+        10,
         250,
         10);
     private readonly NumberBox _stableFrameDifference = CreateDecimalBox(

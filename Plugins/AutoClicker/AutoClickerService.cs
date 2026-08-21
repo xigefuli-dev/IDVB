@@ -31,6 +31,7 @@ public sealed class AutoClickerService : IDisposable
     private readonly object _sync = new();
     private readonly object _sendInputSync = new();
     private readonly LowLevelMouseProc _mouseProc;
+    private readonly AutoClickerOptions _options;
     private IntPtr _hook;
     private Thread? _hookThread;
     private uint _hookThreadId;
@@ -42,8 +43,9 @@ public sealed class AutoClickerService : IDisposable
     private int _pressGeneration;
     private bool _started;
 
-    public AutoClickerService()
+    public AutoClickerService(AutoClickerOptions options)
     {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
         _mouseProc = MouseHookCallback;
     }
 
@@ -240,7 +242,6 @@ public sealed class AutoClickerService : IDisposable
     private void ClickingLoop()
     {
         var tickRate = Stopwatch.Frequency;
-        var intervalTicks = (long)(AutoClickerPolicy.ClickIntervalMilliseconds * tickRate / 1000.0);
         var sessionGeneration = -1;
         timeBeginPeriod(1);
         try
@@ -310,15 +311,23 @@ public sealed class AutoClickerService : IDisposable
                     continue;
                 }
 
-                if (!SendClick(sessionGeneration))
+                // 每轮读取 volatile options，让设置页改动即时生效。F↓ 先发，
+                // 保持按下后延迟再 F↑，余量（抬手后延迟）在等待下一次周期时自然消耗。
+                var keyDownTicks = _options.KeyDownTicks(tickRate);
+                var periodTicks = _options.PeriodTicks(tickRate);
+                if (!SendKeyDown(sessionGeneration))
                     break;
-                nextClickAt += intervalTicks;
+                var downSentAt = Stopwatch.GetTimestamp();
+                WaitUntil(downSentAt + keyDownTicks);
+                if (!SendKeyUp(sessionGeneration))
+                    break;
+                nextClickAt += periodTicks;
                 var now = Stopwatch.GetTimestamp();
                 if (nextClickAt <= now)
                 {
                     // Do not catch up missed ticks. A delayed SendInput or a
                     // scheduler pause must never turn into an input burst.
-                    nextClickAt = now + intervalTicks;
+                    nextClickAt = now + periodTicks;
                 }
                 WaitUntil(nextClickAt);
             }
@@ -330,8 +339,11 @@ public sealed class AutoClickerService : IDisposable
             {
                 releaseOutputs = _outputSessionActive || _clicking;
                 _outputSessionActive = false;
-                if (_pressGeneration == sessionGeneration)
-                    _clicking = false;
+                // 无条件清 _clicking：worker 退出即不再接管。若按 generation 匹配才清，
+                // hold 窗口内快松开+重按（_pressGeneration 已递增）会让 _clicking 残留
+                // true——重按不再连点（无 worker 续跑），下一次物理按下还被 swallow 误吞。
+                // releaseOutputs 已在此前计算，F↑ 兜底不受影响。
+                _clicking = false;
                 if (ReferenceEquals(_clickingThread, Thread.CurrentThread))
                     _clickingThread = null;
                 Monitor.PulseAll(_sync);
@@ -361,10 +373,22 @@ public sealed class AutoClickerService : IDisposable
             return SendInput(1, [input], Marshal.SizeOf<NativeInput>()) == 1;
     }
 
-    /// <summary>一次连点：F↓，等待 1ms，F↑。</summary>
-    private bool SendClick(int sessionGeneration)
+    /// <summary>一次连点中的 F↓。</summary>
+    private bool SendKeyDown(int sessionGeneration) =>
+        SendKey(sessionGeneration, keyUp: false);
+
+    /// <summary>一次连点中的 F↑。</summary>
+    private bool SendKeyUp(int sessionGeneration) =>
+        SendKey(sessionGeneration, keyUp: true);
+
+    /// <summary>
+    /// 发送一次 F 按下/抬起。保留原 <c>SendClick</c> 的状态守卫：会话失效
+    /// 即返回 false → 调用方 break → <see cref="ClickingLoop"/> 的 finally
+    /// 与 <see cref="HandlePhysicalButtonUp"/> 都会兜底补发 F↑，绝无卡键。
+    /// </summary>
+    private bool SendKey(int sessionGeneration, bool keyUp)
     {
-        var inputs = new[]
+        var input = new[]
         {
             new NativeInput
             {
@@ -374,19 +398,7 @@ public sealed class AutoClickerService : IDisposable
                     Keyboard = new KeyboardInput
                     {
                         VirtualKey = AutoClickerPolicy.OutputVirtualKey,
-                        ExtraInfo = InputInjectionMarker
-                    }
-                }
-            },
-            new NativeInput
-            {
-                Type = InputKeyboard,
-                Data = new NativeInputUnion
-                {
-                    Keyboard = new KeyboardInput
-                    {
-                        VirtualKey = AutoClickerPolicy.OutputVirtualKey,
-                        Flags = KeyeventfKeyup,
+                        Flags = keyUp ? KeyeventfKeyup : 0,
                         ExtraInfo = InputInjectionMarker
                     }
                 }
@@ -404,8 +416,8 @@ public sealed class AutoClickerService : IDisposable
                     return false;
                 }
             }
-            return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeInput>())
-                == (uint)inputs.Length;
+            return SendInput((uint)input.Length, input, Marshal.SizeOf<NativeInput>())
+                == (uint)input.Length;
         }
     }
 

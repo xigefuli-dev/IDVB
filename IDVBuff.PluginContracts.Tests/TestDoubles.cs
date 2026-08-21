@@ -82,11 +82,14 @@ internal sealed class FakeContextFactory : IPluginContextFactory
 
 internal sealed class FakeContext : IPluginContext
 {
-    public FakeContext(IPlugin plugin, FakeLogger logger)
+    private readonly object? _service;
+
+    public FakeContext(IPlugin plugin, FakeLogger logger, object? service = null)
     {
         PluginId = plugin.Id;
         PluginDisplayName = plugin.DisplayName;
         Logger = logger;
+        _service = service;
     }
 
     public string PluginId { get; }
@@ -99,9 +102,10 @@ internal sealed class FakeContext : IPluginContext
 
     public IPluginSynchronizer UI { get; } = new NullSynchronizer();
 
-    public object? GetService(Type serviceType) => null;
+    public object? GetService(Type serviceType) =>
+        _service is not null && serviceType.IsInstanceOfType(_service) ? _service : null;
 
-    public T? GetService<T>() where T : class => null;
+    public T? GetService<T>() where T : class => _service as T;
 }
 
 internal sealed class FakeLogger : IPluginLogger

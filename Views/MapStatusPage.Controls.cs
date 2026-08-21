@@ -451,4 +451,20 @@ public sealed partial class MapStatusPage : UserControl
         Refresh();
     }
 
+    private async void BackgroundScan_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing)
+            return;
+        try
+        {
+            await _runtime.SetBackgroundScanEnabledAsync(
+                _backgroundScanToggle.IsOn);
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+        }
+        Refresh();
+    }
+
 }

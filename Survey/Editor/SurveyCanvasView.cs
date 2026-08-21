@@ -30,6 +30,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
     private double _originX;
     private double _originY;
     private Guid? _renderedFloorId;
+    private Guid? _isolatedLayerId;
     private CancellationTokenSource? _renderCancellation;
     private bool _disposed;
 
@@ -44,10 +45,24 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         InitializeViewportInteractions();
         InitializeTransformBox();
         KeyDown += Canvas_KeyDown;
+        KeyUp += Canvas_KeyUp;
     }
 
     public event EventHandler<Guid>? LayerSelected;
     public event EventHandler<SurveyLayerTransformEventArgs>? TransformCommitted;
+
+    public void SetIsolatedLayer(Guid? layerId)
+    {
+        if (_isolatedLayerId == layerId)
+            return;
+        _isolatedLayerId = layerId;
+        foreach (var pair in _visuals)
+        {
+            if (pair.Value.Tag is SurveyMapLayer layer)
+                ApplyLayerDisplayState(pair.Value, layer);
+        }
+        UpdateTransformBox();
+    }
 
     public void SelectLayer(Guid? layerId)
     {
@@ -134,6 +149,10 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
                 PreserveWorldViewportPosition(
                     originX - _originX,
                     originY - _originY);
+            }
+            else
+            {
+                _isolatedLayerId = null;
             }
             _originX = originX;
             _originY = originY;
@@ -229,9 +248,10 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         wrapper.PointerCanceled += Layer_PointerCanceled;
         _visuals[layer.LayerId] = wrapper;
         _canvas.Children.Add(wrapper);
+        ApplyLayerDisplayState(wrapper, layer);
     }
 
-    private static void UpdateLayerVisual(
+    private void UpdateLayerVisual(
         Border wrapper,
         SurveyMapLayer layer,
         SurveyObservation observation,
@@ -250,10 +270,24 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         content.Height = observation.SourceAsset.PixelHeight;
         image.Width = observation.SourceAsset.PixelWidth;
         image.Height = observation.SourceAsset.PixelHeight;
-        image.Opacity = layer.Opacity;
+        image.Opacity = EffectiveLayerOpacity(layer);
         if (replacementBitmap is not null)
             image.Source = replacementBitmap;
     }
+
+    private void ApplyLayerDisplayState(Border wrapper, SurveyMapLayer layer)
+    {
+        wrapper.Visibility = layer.IsVisible ? Visibility.Visible : Visibility.Collapsed;
+        if (wrapper.Child is Grid content && content.Children.FirstOrDefault() is Image image)
+            image.Opacity = EffectiveLayerOpacity(layer);
+    }
+
+    private double EffectiveLayerOpacity(SurveyMapLayer layer) =>
+        layer.Opacity * (_isolatedLayerId is { } isolated
+            && isolated != layer.LayerId
+            && layer.IsVisible
+                ? 0.2d
+                : 1d);
 
     private static Border GetSelectionOutline(Border wrapper) =>
         wrapper.Child is Grid content && content.Children.Count > 1 && content.Children[1] is Border outline
@@ -285,8 +319,47 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
 
     private void Layer_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (_temporaryNavigationActive
+            && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            BeginPan(e, temporary: true);
+            return;
+        }
         if (sender is not Border { Tag: SurveyMapLayer layer } wrapper)
             return;
+        if (IsCompositeColorSamplerActive)
+            return;
+        if (ActiveTool == SurveyEditorTool.Template)
+        {
+            LayerToolInvoked?.Invoke(this, new SurveyLayerToolEventArgs
+            {
+                LayerId = layer.LayerId,
+                Tool = ActiveTool
+            });
+            e.Handled = true;
+            return;
+        }
+        if (ActiveTool == SurveyEditorTool.PaintBucket)
+        {
+            var point = e.GetCurrentPoint(wrapper).Position;
+            ColorFillRequested?.Invoke(this, new SurveyColorFillEventArgs
+            {
+                LayerId = layer.LayerId,
+                PixelX = (int)Math.Floor(point.X),
+                PixelY = (int)Math.Floor(point.Y)
+            });
+            e.Handled = true;
+            return;
+        }
+        if (ActiveTool == SurveyEditorTool.Brush)
+        {
+            _colorStrokeLayerId = layer.LayerId;
+            _colorStrokePoints.Clear();
+            AddColorStrokePoint(e);
+            wrapper.CapturePointer(e.Pointer);
+            e.Handled = true;
+            return;
+        }
         if (ActiveTool is SurveyEditorTool.Decontaminate
             or SurveyEditorTool.VignetteCorrection
             or SurveyEditorTool.Align
@@ -317,6 +390,12 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
 
     private void Layer_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_colorStrokeLayerId is not null)
+        {
+            AddColorStrokePoint(e);
+            e.Handled = true;
+            return;
+        }
         if (_dragLayerId is null || _dragVisualTransform is null)
             return;
         var point = e.GetCurrentPoint(_canvas).Position;
@@ -334,6 +413,20 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
 
     private void Layer_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_colorStrokeLayerId is { } colorLayer)
+        {
+            if (sender is UIElement colorElement) colorElement.ReleasePointerCapture(e.Pointer);
+            if (_colorStrokePoints.Count > 0)
+                ColorStrokeCommitted?.Invoke(this, new SurveyColorStrokeEventArgs
+                {
+                    LayerId = colorLayer, Points = _colorStrokePoints.ToArray()
+                });
+            _colorStrokeLayerId = null;
+            _colorStrokePoints.Clear();
+            ClearLiveMaskPreview();
+            e.Handled = true;
+            return;
+        }
         if (sender is UIElement element)
             element.ReleasePointerCapture(e.Pointer);
         CommitDrag();
@@ -341,6 +434,19 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
     }
 
     private void Layer_PointerCanceled(object sender, PointerRoutedEventArgs e) => CommitDrag();
+
+    private void AddColorStrokePoint(PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(_canvas).Position;
+        PositionBrushPreview(point);
+        var world = new SurveyWorldPoint(point.X - _originX, point.Y - _originY);
+        if (_colorStrokePoints.Count == 0
+            || Distance(_colorStrokePoints[^1], world) >= Math.Max(1d, _brushSize / 8d))
+        {
+            _colorStrokePoints.Add(world);
+            AddLiveMaskPreview(point);
+        }
+    }
 
     private void CommitDrag()
     {
@@ -359,6 +465,12 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
 
     private void Canvas_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (e.Key == Windows.System.VirtualKey.Space)
+        {
+            BeginTemporaryNavigation();
+            e.Handled = true;
+            return;
+        }
         if (ActiveTool != SurveyEditorTool.Select
             || _selectedLayerIds.Count != 1
             || _primaryLayerId is not { } layerId
@@ -389,6 +501,14 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
                 TranslationY = visual.TranslateY - _originY
             }
         });
+        e.Handled = true;
+    }
+
+    private void Canvas_KeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Space)
+            return;
+        EndTemporaryNavigation();
         e.Handled = true;
     }
 
@@ -443,12 +563,18 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         _renderCancellation?.Cancel();
         _renderCancellation = null;
         KeyDown -= Canvas_KeyDown;
+        KeyUp -= Canvas_KeyUp;
+        _canvas.PointerExited -= Viewport_PointerExited;
+        _canvas.PointerEntered -= Viewport_PointerEntered;
+        LostFocus -= Viewport_LostFocus;
+        EndTemporaryNavigation();
         foreach (var wrapper in _visuals.Values)
             ReleaseLayerVisual(wrapper);
         _visuals.Clear();
         _visualContentKeys.Clear();
         _selectedLayerIds.Clear();
         _primaryLayerId = null;
+        _isolatedLayerId = null;
         _dragLayerId = null;
         _dragVisualTransform = null;
         DisposeTransformBox();
@@ -460,6 +586,7 @@ internal sealed partial class SurveyCanvasView : Grid, IDisposable
         TransformCommitted = null;
         ZoomChanged = null;
         LayerToolInvoked = null;
+        LayerPixelSampleRequested = null;
         MaskStrokeCommitted = null;
     }
 

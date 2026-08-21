@@ -14,7 +14,7 @@ namespace IDVBuff.Views;
 
 public sealed partial class MapListPage : UserControl
 {
-    private enum EditorSelectionKind { Annotation, Anchor, Crop }
+    private enum EditorSelectionKind { Annotation, Anchor, Crop, Background }
     private enum EditorInteractionKind { None, Create, Move, Resize, Pan }
 
     private sealed record EditorSelection(EditorSelectionKind Kind, Guid? Id = null);
@@ -86,6 +86,8 @@ public sealed partial class MapListPage : UserControl
     private uint? _modernCapturedPointerId;
     private NormalizedPoint? _modernContinuousLineStart;
     private readonly Stack<ModernUndoAction> _modernCreationUndoStack = new();
+    private readonly MapConcealStrokeBuilder _modernConcealStroke = new();
+    private NormalizedPoint? _modernConcealHoverPoint;
 
     private sealed record ModernUndoAction(
         string FloorKey,
@@ -259,12 +261,12 @@ public sealed partial class MapListPage : UserControl
             return;
         _modernEditorActive = true;
         NavigationCompactStateChanged?.Invoke(true);
-        _editorThemeRoot = XamlRoot?.Content as FrameworkElement;
-        if (_editorThemeRoot is not null)
-        {
-            _editorPreviousTheme = _editorThemeRoot.RequestedTheme;
-            _editorThemeRoot.RequestedTheme = ElementTheme.Dark;
-        }
+        // Scope the temporary theme to this control. XamlRoot.Content can be a
+        // different host (Frame/Grid) depending on how the page was navigated,
+        // which made the old save/restore path a no-op in some editor flows.
+        _editorThemeRoot = this;
+        _editorPreviousTheme = RequestedTheme;
+        RequestedTheme = ElementTheme.Dark;
         if (ParentScrollViewer is not null)
         {
             _editorPreviousVerticalScrollMode = ParentScrollViewer.VerticalScrollMode;
@@ -410,14 +412,17 @@ public sealed partial class MapListPage : UserControl
 
     private void SelectModernTool(MapEditorTool tool, Button? placementTarget = null)
     {
-        if (_modernToolState.ActiveTool == tool && tool is MapEditorTool.Text or MapEditorTool.Line)
+        if (_modernToolState.ActiveTool == tool
+            && tool is MapEditorTool.Text or MapEditorTool.Line or MapEditorTool.Conceal)
         {
             if (placementTarget is not null)
             {
                 if (tool == MapEditorTool.Text)
                     ShowModernTextProperties(placementTarget);
-                else
+                else if (tool == MapEditorTool.Line)
                     ShowModernLineProperties(placementTarget);
+                else
+                    ShowModernConcealProperties(placementTarget);
             }
             return;
         }
@@ -605,6 +610,7 @@ public sealed partial class MapListPage : UserControl
         MapEditorTool.Rectangle => "拖动创建无填充矩形。",
         MapEditorTool.Crop => "拖出当前楼层的识别区域。",
         MapEditorTool.Anchor => "连续拖动创建锚点。",
+        MapEditorTool.Conceal => "拖动涂抹背景；再次点击可调整笔头。",
         MapEditorTool.Pan => "拖动画布视图。",
         _ => string.Empty
     };

@@ -39,15 +39,21 @@ public interface IOverlayWindow : IDisposable
     {
     }
 
+    /// <summary>当前原生 Overlay 是否实际成功启用捕获排除。</summary>
+    bool IsCaptureExclusionEnabled => false;
+
     /// <summary>
-    /// Excludes the native overlay from desktop capture. Continuous screen
-    /// tracking must remain disabled when this cannot be guaranteed.
+    /// 设置 Overlay 的捕获排除状态。该方法只改变捕获可见性，不改变窗口显示状态。
     /// </summary>
-    bool TryEnableCaptureExclusion(out string failureReason)
+    bool TrySetCaptureExclusion(bool enabled, out string failureReason)
     {
         failureReason = "Capture exclusion is not supported by this overlay.";
         return false;
     }
+
+    /// <summary>兼容旧调用方的启用别名。</summary>
+    bool TryEnableCaptureExclusion(out string failureReason) =>
+        TrySetCaptureExclusion(true, out failureReason);
 
     /// <summary>
     /// 更新叠加状态文字。
@@ -76,6 +82,20 @@ public interface IOverlayWindow : IDisposable
     /// 隐藏叠加层。
     /// </summary>
     void Hide();
+
+    /// <summary>
+    /// Defers native presentation until the outermost lease is disposed.
+    /// Implementations that do not render may use the no-op default.
+    /// </summary>
+    IDisposable DeferPresent() => NoopOverlayPresentLease.Instance;
+
+    /// <summary>Number of native presents performed by this overlay instance.</summary>
+    int PresentCount => 0;
+
+    /// <summary>临时控制大地图、状态和玩家标记的绘制，不影响持久小地图。</summary>
+    void SetMainContentVisible(bool visible)
+    {
+    }
 
     /// <summary>
     /// 切换叠加层可见性。
@@ -151,4 +171,22 @@ public interface IOverlayWindow : IDisposable
     void SetMiniMapOffsetX(double offsetX);
     void SetMiniMapOffsetY(double offsetY);
     void SetMiniMapScale(double scale);
+
+    /// <summary>清除当前对局内按楼层保存的临时小地图缩放。</summary>
+    void ClearTemporaryMiniMapScales()
+    {
+    }
+
+    /// <summary>
+    /// 当前已加载小地图的临时显示尺度。没有小地图内容时返回 null。
+    /// 该值是渲染状态，不代表已持久化的用户设置。
+    /// </summary>
+    double? CurrentMiniMapScale => null;
+
+}
+
+internal sealed class NoopOverlayPresentLease : IDisposable
+{
+    public static readonly NoopOverlayPresentLease Instance = new();
+    public void Dispose() { }
 }

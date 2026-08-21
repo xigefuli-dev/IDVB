@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -31,6 +32,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
     private readonly MapVpsgScaleEstimator _vpsgScaleEstimator = new();
     private readonly MapAuxiliaryAnchorTemplateCache _auxiliaryTemplateCache =
         new();
+    private readonly object _floorPrewarmGate = new();
+    private readonly Dictionary<string, Task> _floorPrewarmTasks = new(StringComparer.Ordinal);
     private readonly SideEntranceScanPipeline _sideEntrancePipeline = new();
     // 侧门特征缓存：(mapId, floorKey) → 预加载的灰度模板 Mat
     private Dictionary<(Guid, string), Mat> _sideEntranceFeatureCache = [];
@@ -55,6 +58,58 @@ public sealed partial class MapCvRecognitionService : IDisposable
     internal MapStructurePreprocessor StructurePreprocessor => _structurePreprocessor;
     internal MapStructureRegistrar StructureRegistrar => _structureRegistrar;
     internal MapStructureReferenceCache StructureCache => _structureCache;
+
+    /// <summary>
+    /// Builds one floor's resident reference features at most once. Callers can
+    /// overlap this work with the first capture; alignment rents the same
+    /// resident entry after the task completes and never repeats the decode.
+    /// </summary>
+    internal Task WarmFloorStructureCacheAsync(
+        MapRecord map,
+        string floorKey,
+        MapStructureGenerationTuning generation)
+    {
+        var profile = MapFloorRules.GetFloorProfile(map, floorKey);
+        if (profile is null)
+            return Task.CompletedTask;
+        var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|"
+            + generation.CacheFingerprint;
+        lock (_floorPrewarmGate)
+        {
+            if (_floorPrewarmTasks.TryGetValue(key, out var existing))
+                return existing;
+            var task = Task.Run(() =>
+            {
+                if (_structureCache.TryRentResident(
+                        map.Id, map.UpdatedAt, floorKey, generation) is { } resident)
+                {
+                    resident.Dispose();
+                    return;
+                }
+
+                var path = _repository.GetFloorRecognitionPath(map, floorKey);
+                using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
+                if (image.Empty())
+                    return;
+                using var prepared = _structureCache.GetOrCreate(
+                    map.Id,
+                    map.UpdatedAt,
+                    image,
+                    profile.WholeImageIgnoreRegions,
+                    floorKey,
+                    generation);
+            });
+            _floorPrewarmTasks[key] = task;
+            _ = task.ContinueWith(
+                _ =>
+                {
+                    lock (_floorPrewarmGate)
+                        _floorPrewarmTasks.Remove(key);
+                },
+                TaskScheduler.Default);
+            return task;
+        }
+    }
     internal MapVpsgScaleGraphCache VpsgScaleGraphCache => _vpsgScaleGraphCache;
     internal MapVpsgScaleEstimator VpsgScaleEstimator => _vpsgScaleEstimator;
     internal MapAuxiliaryAnchorTemplateCache AuxiliaryTemplateCache => _auxiliaryTemplateCache;
@@ -96,45 +151,60 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var maps = await _repository.GetMapsAsync();
             await _repository.EnsureDerivedAssetsAsync(maps);
 
-            var cache = await Task.Run(() =>
+            var cacheDispatch = MapOperationTraceAmbient.StartChild(
+                "map_catalog_fingerprint_dispatch_wait",
+                MapOperationWaitKind.Queue);
+            CacheBuildResult cache;
+            try
             {
-                var snapshot = maps.Select(map => map.Clone()).ToArray();
-                if (!_cacheInitialized)
+                cache = await Task.Run(() =>
                 {
-                    return new CacheBuildResult(
-                        snapshot,
-                        snapshot.Select(TryCreateFingerprint)
-                            .Where(fingerprint => fingerprint is not null)
-                            .Cast<MapGeometryFingerprint>()
-                            .ToArray());
-                }
-
-                var previousMaps = _maps.ToDictionary(map => map.Id);
-                var previousFingerprints = _fingerprints.ToDictionary(
-                    fingerprint => fingerprint.Map.Id);
-                var changedIds = snapshot
-                    .Where(map => changedMapId == map.Id
-                        || !previousMaps.TryGetValue(map.Id, out var previous)
-                        || !MapCvRecognitionHelpers.HaveSameFingerprintInputs(previous, map))
-                    .Select(map => map.Id)
-                    .ToHashSet();
-
-                var fingerprints = new List<MapGeometryFingerprint>();
-                foreach (var map in snapshot)
-                {
-                    if (!changedIds.Contains(map.Id)
-                        && previousFingerprints.TryGetValue(map.Id, out var existing))
+                    cacheDispatch.Complete();
+                    using var cacheWorker = MapOperationTraceAmbient.StartChild(
+                        "map_catalog_fingerprint_build",
+                        MapOperationWaitKind.Compute);
+                    var snapshot = maps.Select(map => map.Clone()).ToArray();
+                    if (!_cacheInitialized)
                     {
-                        fingerprints.Add(RebindFingerprint(existing, map));
-                        continue;
+                        return new CacheBuildResult(
+                            snapshot,
+                            snapshot.Select(TryCreateFingerprint)
+                                .Where(fingerprint => fingerprint is not null)
+                                .Cast<MapGeometryFingerprint>()
+                                .ToArray());
                     }
 
-                    if (TryCreateFingerprint(map) is { } rebuilt)
-                        fingerprints.Add(rebuilt);
-                }
+                    var previousMaps = _maps.ToDictionary(map => map.Id);
+                    var previousFingerprints = _fingerprints.ToDictionary(
+                        fingerprint => fingerprint.Map.Id);
+                    var changedIds = snapshot
+                        .Where(map => changedMapId == map.Id
+                            || !previousMaps.TryGetValue(map.Id, out var previous)
+                            || !MapCvRecognitionHelpers.HaveSameFingerprintInputs(previous, map))
+                        .Select(map => map.Id)
+                        .ToHashSet();
 
-                return new CacheBuildResult(snapshot, fingerprints);
-            });
+                    var fingerprints = new List<MapGeometryFingerprint>();
+                    foreach (var map in snapshot)
+                    {
+                        if (!changedIds.Contains(map.Id)
+                            && previousFingerprints.TryGetValue(map.Id, out var existing))
+                        {
+                            fingerprints.Add(RebindFingerprint(existing, map));
+                            continue;
+                        }
+
+                        if (TryCreateFingerprint(map) is { } rebuilt)
+                            fingerprints.Add(rebuilt);
+                    }
+
+                    return new CacheBuildResult(snapshot, fingerprints);
+                });
+            }
+            finally
+            {
+                cacheDispatch.Complete();
+            }
 
             TotalMapCount = cache.Maps.Count;
             _maps = cache.Maps;
@@ -187,27 +257,46 @@ public sealed partial class MapCvRecognitionService : IDisposable
         tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning);
         tuning.ForceBestRecognitionResult = false;
         alignmentMode = MapOverlayAlignmentMode.Uniform;
+        using var recognitionRoute = MapOperationTraceAmbient.StartChild(
+            "recognition_route",
+            MapOperationWaitKind.Compute);
         var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(
             ReadyMapCount,
             TotalMapCount);
-        var fingerprints = FilterFingerprints(mapClass);
+        IReadOnlyList<MapGeometryFingerprint> fingerprints;
+        using (var fingerprintFilter = MapOperationTraceAmbient.StartChild(
+                   "fingerprint_filter",
+                   MapOperationWaitKind.Compute))
+        {
+            fingerprints = FilterFingerprints(mapClass);
+        }
         if (fingerprints.Count == 0)
             return MapCvRecognitionDiagnostics.Failure(
                 diagnostics, "没有已完成主层区域、大门和侧门标记的地图。");
 
         var stopwatch = Stopwatch.StartNew();
+        using var preprocess = MapOperationTraceAmbient.StartChild(
+            "recognition_preprocess",
+            MapOperationWaitKind.Compute);
         using var liveMatchImage = GateTemplateDetector.CreateMatchImage(frame.Image);
         using var liveEdges = GateTemplateDetector.CreateEdges(frame.Image);
+        preprocess.Complete();
         stopwatch.Stop();
         diagnostics.PreprocessMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
 
         stopwatch.Restart();
-        var gateResult = _gateDetector.Detect(
-            liveMatchImage,
-            frame.ViewportBounds,
-            frame.ClientBounds.Width,
-            tuning.GateTemplateThreshold,
-            new GateSearchContext { Mode = GateSearchMode.FullSearch });
+        GateDetectionResult gateResult;
+        using (var gateDetection = MapOperationTraceAmbient.StartChild(
+                   "recognition_gate_detection",
+                   MapOperationWaitKind.Compute))
+        {
+            gateResult = _gateDetector.Detect(
+                liveMatchImage,
+                frame.ViewportBounds,
+                frame.ClientBounds.Width,
+                tuning.GateTemplateThreshold,
+                new GateSearchContext { Mode = GateSearchMode.FullSearch });
+        }
         var gates = gateResult.Gates;
         stopwatch.Stop();
         diagnostics.GateDetectionMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
@@ -238,11 +327,17 @@ public sealed partial class MapCvRecognitionService : IDisposable
         }
 
         stopwatch.Restart();
-        var ranked = MapCvRecognitionScript.RankGeometry(
-            fingerprints,
-            gates,
-            frame.ViewportBounds,
-            tuning.VectorErrorTolerance);
+        IReadOnlyList<MapGeometryCandidate> ranked;
+        using (var geometryRanking = MapOperationTraceAmbient.StartChild(
+                   "geometry_ranking",
+                   MapOperationWaitKind.Compute))
+        {
+            ranked = MapCvRecognitionScript.RankGeometry(
+                fingerprints,
+                gates,
+                frame.ViewportBounds,
+                tuning.VectorErrorTolerance);
+        }
         stopwatch.Stop();
         diagnostics.GeometryMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
         MapLogCollector.Instance.Append(MapLogCategory.GeometryRanking, MapLogLevel.Info,
@@ -281,6 +376,12 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 .ToArray();
             foreach (var candidate in confirmed)
             {
+                using var candidateConfirmation = MapOperationTraceAmbient.StartChild(
+                    "candidate_confirmation",
+                    MapOperationWaitKind.Compute,
+                    mapId: candidate.Fingerprint.Map.Id.ToString("D"),
+                    floorKey: candidate.Fingerprint.FloorKey,
+                    attemptIndex: Array.IndexOf(confirmed, candidate));
                 candidate.ConfirmationScore = MapCvRecognitionHelpers.ConfirmCandidate(
                     candidate,
                     liveEdges,
@@ -288,6 +389,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
             }
             stopwatch.Stop();
             diagnostics.ConfirmationMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+            diagnostics.ConfirmationComputeMilliseconds =
+                diagnostics.ConfirmationMilliseconds;
             var confirmationRanking = confirmed
                 .OrderByDescending(candidate => candidate.ConfirmationScore)
                 .ThenBy(candidate => candidate.VectorError)
@@ -418,3 +521,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
             SelectedAlignmentRoute.Default);
 
 }
+/*
+ * 文件职责：MapCvRecognitionService。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

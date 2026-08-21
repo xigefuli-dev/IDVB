@@ -1,3 +1,5 @@
+using IDVBuff.Pipeline;
+
 namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
@@ -72,7 +74,8 @@ public sealed partial class SessionOrchestrator
                 operationMatch,
                 frame,
                 locked.Map,
-                floorKey);
+                floorKey,
+                out _);
         if (reliable is not null
             && TryGetPendingMapCacheRepairKey(
                 frame,
@@ -110,8 +113,12 @@ public sealed partial class SessionOrchestrator
                 return firstAttempt;
             scaleSeed = reliable.Session.LockedTransform;
         }
-        else if (!hasAdaptiveSeed
-                 && TryGetNoDoorScaleCache(
+        // 自适应种子存在但没过高置信资格门时，仍应尝试可信缩放缓存（其 Usable
+        // 门槛更宽松，是已验证证据）。此前这里带 `!hasAdaptiveSeed`，会在自适应
+        // 路径未过资格门时把这条快路径整个跳过，使无门楼层直接落到 VPSG + 全局
+        // 恢复的慢路径（实测 2F ~340ms → ~1000ms）。自适应路径只有资格门通过才
+        // 提前返回，走到这里即未通过，此时回落可信缓存是正确的快速兜底。
+        else if (TryGetNoDoorScaleCache(
                      frame,
                      locked.Map,
                      floorKey,
@@ -174,7 +181,13 @@ public sealed partial class SessionOrchestrator
                         ["scale"] = cacheEntry.Scale.UniformScale,
                         ["cacheSource"] = cacheEntry.Scale.Source.ToString()
                     });
-                if (IsAdaptiveInitialScaleQualified(firstAttempt, cachedTuning)
+                // 缓存命中验证用宽松门槛（RecoveryConfidence 0.65），与主楼层
+                // AlignUsingScaleCache 保持一致。缓存 scale 本身就是高置信证据，
+                // 固定 scale 结构验证到 0.77~0.81 即可采纳。此前这里用 Qualified
+                // (0.82) 会把 0.777 的高质量结果拒掉，随后串行白跑 repair-search
+                // → VPSG → global-recovery 三连（实测 92ms 该完成，最终 820ms），
+                // 而且最后无门槛接受的 global-recovery 只有 0.745，比被拒的更差。
+                if (IsAdaptiveInitialScaleUsable(firstAttempt, cachedTuning)
                     && firstAttempt.Recognition is { } cachedRecognition)
                 {
                     return CopyAttempt(
@@ -193,7 +206,10 @@ public sealed partial class SessionOrchestrator
                     tuning,
                     structureTuning,
                     identityPriorConfidence);
-                if (IsAdaptiveInitialScaleQualified(repairSearch, structureTuning)
+                // repair search 与 cached-fixed-scale 同为「缓存 scale 验证」，
+                // 用同一宽松门槛（0.65）：它救的正是缓存 scale 的小漂移，结果
+                // 0.72 这类边缘置信命中应直接采纳，而不是被 0.82 拒后继续 VPSG。
+                if (IsAdaptiveInitialScaleUsable(repairSearch, structureTuning)
                     && repairSearch.Recognition is { } repairRecognition)
                 {
                     NoteCacheValidationOutcome(cacheKey, succeeded: true);
@@ -402,13 +418,20 @@ public sealed partial class SessionOrchestrator
             manualFloorKey);
         var recognitionTuning = CreateInitialAlignmentRecognitionTuning();
         var structureTuning = CreateInitialAlignmentStructureTuning();
-        using var deadline = new NoDoorAlignmentDeadline(
-            cancellationToken,
-            structureTuning.StructureFallbackBudgetMilliseconds);
         MapFeatureCacheKey? repairCacheKey = null;
+        var floorDispatch = MapOperationTraceAmbient.StartChild(
+            "floor_dispatch_wait",
+            MapOperationWaitKind.Queue,
+            mapId: identityLock.Map.Id.ToString("D"),
+            floorKey: manualFloorKey);
         var attempt = await Task.Run(() =>
         {
-            using var ambientDeadline = deadline.EnterAmbient();
+            floorDispatch.Complete();
+            using var floorWorker = MapOperationTraceAmbient.StartChild(
+                "floor_worker_execution",
+                MapOperationWaitKind.Compute,
+                mapId: identityLock.Map.Id.ToString("D"),
+                floorKey: manualFloorKey);
             return AlignExactManualFloor(
                 frame,
                 identityLock,
@@ -420,6 +443,7 @@ public sealed partial class SessionOrchestrator
                 0d,
                 out repairCacheKey);
         }, cancellationToken);
+        floorDispatch.Complete();
         if (attempt.Recognition is not null)
         {
             return (
@@ -443,3 +467,10 @@ public sealed partial class SessionOrchestrator
     }
 
 }
+/*
+ * 文件职责：SessionOrchestrator.FloorAlignment。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

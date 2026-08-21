@@ -10,7 +10,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
     {
         await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
         var matches = new MapMatchSession();
-        var matchOne = matches.Begin(PlayerSlot.Player1, "S1");
+        var matchOne = matches.Begin("S1");
         var lease = new MapMatchMapLease();
         lease.Bind(matchOne, scenario.Map.Id);
         using (var frame = scenario.MainFrame(VisibleGates.Both))
@@ -51,7 +51,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
         Assert.Equal(0, lease.MatchVersion);
         Assert.Null(scenario.Service.LastGateTemplateScale);
 
-        var matchTwo = matches.Begin(PlayerSlot.Player2, "S1");
+        var matchTwo = matches.Begin("S1");
         Assert.False(lease.IsCurrent(matchTwo, scenario.Map.Id));
         Assert.True(MapMatchLifecycleRules.CanStart(
             MapAlignmentPrerequisiteKind.SideEntranceInitialScan,
@@ -73,12 +73,12 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
         MapAlignmentPrerequisiteKind operation)
     {
         var matches = new MapMatchSession();
-        var matchOne = matches.Begin(PlayerSlot.Player1, "S1");
+        var matchOne = matches.Begin("S1");
         var staleMapId = Guid.NewGuid();
         var lease = new MapMatchMapLease();
         lease.Bind(matchOne, staleMapId);
         matches.End();
-        var matchTwo = matches.Begin(PlayerSlot.Player2, "S1");
+        var matchTwo = matches.Begin("S1");
 
         Assert.False(MapMatchLifecycleRules.CanStart(
             operation,
@@ -141,7 +141,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
     public void SideStrategyAlignmentPrerequisite_RejectsGatePairOnlySession()
     {
         var matches = new MapMatchSession();
-        var current = matches.Begin(PlayerSlot.Player1, "S1");
+        var current = matches.Begin("S1");
         var mapId = Guid.NewGuid();
         var lease = new MapMatchMapLease();
         lease.Bind(current, mapId);
@@ -160,7 +160,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
     public void OtherFloorStructurePrerequisite_RequiresCurrentMapLeaseAndValidScaleSeed()
     {
         var matches = new MapMatchSession();
-        var current = matches.Begin(PlayerSlot.Player3, "S1");
+        var current = matches.Begin("S1");
         var mapId = Guid.NewGuid();
         var lease = new MapMatchMapLease();
         lease.Bind(current, mapId);
@@ -184,7 +184,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
             floorScaleSeed: new MapOverlayTransform()));
 
         matches.End();
-        var next = matches.Begin(PlayerSlot.Player4, "S1");
+        var next = matches.Begin("S1");
         Assert.False(MapMatchLifecycleRules.CanStart(
             MapAlignmentPrerequisiteKind.OtherFloorStructureAlignment,
             next,
@@ -250,7 +250,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
         Func<Guid, MapAlignmentSession> createSession)
     {
         var matches = new MapMatchSession();
-        var matchOne = matches.Begin(PlayerSlot.Player1, "S1");
+        var matchOne = matches.Begin("S1");
         var mapId = Guid.NewGuid();
         var lease = new MapMatchMapLease();
         lease.Bind(matchOne, mapId);
@@ -266,7 +266,7 @@ public sealed class MapMatchExitAndAlignmentPrerequisiteTests
             alignmentSession: alignmentSession));
 
         matches.End();
-        var matchTwo = matches.Begin(PlayerSlot.Player2, "S1");
+        var matchTwo = matches.Begin("S1");
         Assert.False(MapMatchLifecycleRules.CanStart(
             operation,
             matchTwo,

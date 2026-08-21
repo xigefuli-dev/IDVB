@@ -8,6 +8,7 @@ using IDVBuff.MapAlignment.Probe.Pipeline.DualGate;
 using IDVBuff.MapAlignment.Probe.Pipeline.Floor;
 using IDVBuff.MapAlignment.Probe.Pipeline.Gates;
 using IDVBuff.MapAlignment.Probe.Pipeline.SideEntrance;
+using IDVBuff.MapAlignment.Probe.Pipeline.StructureFill;
 
 namespace IDVBuff.MapAlignment.Probe.Cli;
 
@@ -21,7 +22,8 @@ public static class CliHost
         new DualGatePipelineStrategy(),
         new SideEntrancePipelineStrategy(),
         new GateDetectionPipelineStrategy(),
-        new FloorRecognitionPipelineStrategy()
+        new FloorRecognitionPipelineStrategy(),
+        new StructureFillPipelineStrategy()
     ]);
 
     public static async Task<int> DispatchAsync(string[] args)
@@ -43,6 +45,9 @@ public static class CliHost
             // config 模式（占位符）
             if (firstArg == "config")
                 return await HandleConfigAsync(args);
+
+            if (firstArg == "structure-artifacts")
+                return HandleStructureArtifacts(args);
 
             // 策略 + 命令模式：idvb-probe.exe <strategy> <command> [...]
             if (args.Length < 2)
@@ -106,6 +111,21 @@ public static class CliHost
         {
             ImagePath = Path.GetFullPath(cliOptions.Image),
             OutputPath = cliOptions.Out is not null ? Path.GetFullPath(cliOptions.Out) : null,
+            StructureFillOutputPath = cliOptions.MaskOut is not null
+                ? Path.GetFullPath(cliOptions.MaskOut)
+                : strategy.StrategyName.Equals(
+                    "structure-fill",
+                    StringComparison.OrdinalIgnoreCase)
+                    && cliOptions.Out is not null
+                    && Path.GetExtension(cliOptions.Out).Equals(
+                        ".png",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? Path.GetFullPath(cliOptions.Out)
+                        : null,
+            StructureFillOutputDirectory = cliOptions.MaskDirectory is not null
+                ? Path.GetFullPath(cliOptions.MaskDirectory)
+                : null,
+            StructureFillGuideMap = cliOptions.GuideMap,
             SettingsPath = cliOptions.Settings,
             GateTemplatePath = cliOptions.Gate ?? string.Empty,
             ViewportMargin = cliOptions.ViewportMargin,
@@ -191,7 +211,11 @@ public static class CliHost
             TopCandidates = cliOptions.TopCandidates,
             DownscaleFactor = cliOptions.Downscale,
             SettingsPath = cliOptions.Settings,
-            OutputPath = cliOptions.Out is not null ? Path.GetFullPath(cliOptions.Out) : null
+            OutputPath = cliOptions.Out is not null ? Path.GetFullPath(cliOptions.Out) : null,
+            StructureFillOutputDirectory = cliOptions.MaskDirectory is not null
+                ? Path.GetFullPath(cliOptions.MaskDirectory)
+                : null,
+            StructureFillGuideMap = cliOptions.GuideMap
         };
 
         await TomlConfigLoader.ApplyToContextAsync(templateContext, cliOptions.Settings);
@@ -233,6 +257,25 @@ public static class CliHost
         return Task.FromResult(0);
     }
 
+    private static int HandleStructureArtifacts(string[] args)
+    {
+        var options = CliOptions.Parse(args[1..]);
+        if (string.IsNullOrWhiteSpace(options.Out))
+        {
+            Console.Error.WriteLine(
+                "用法：idvb-probe.exe structure-artifacts --out <directory> "
+                + "[--research <session-directory>] [--map-root <map-directory>]");
+            return 1;
+        }
+
+        var result = StructureGenerationArtifactRunner.Run(
+            options.Out,
+            options.ResearchSession,
+            options.MapRoot);
+        Console.WriteLine($"结构图前后产物已保存：{Path.GetFullPath(options.Out)}");
+        return result;
+    }
+
     private static int HandleNotImplemented(string command, string strategy)
     {
         Console.Error.WriteLine($"{strategy} {command} 命令尚未实现。");
@@ -249,6 +292,7 @@ public static class CliHost
             命令格式：
               idvb-probe.exe <strategy> <command> [options]
               idvb-probe.exe batch <strategy> --files <glob> [options]
+              idvb-probe.exe structure-artifacts --out <directory>
 
             策略：
               dual-gate       双门对齐 + 几何排名 + 可选结构配准
@@ -285,6 +329,11 @@ public static class CliHost
               --full                 使用全帧（跳过视口裁剪）
               --viewport x,y,w,h     归一化视口区域
               --viewport-margin <n>  视口边缘膨胀（默认 0.20）
+
+            结构图前后产物：
+              --out <directory>     输出目录
+              --research <path>     AlignmentResearch 会话目录（可选）
+              --map-root <path>     本机地图目录（可选）
 
             dual-gate 专属选项：
               --structure            启用结构配准复核

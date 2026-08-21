@@ -168,6 +168,13 @@ public sealed record SurveyLayerVignetteCorrectionRequest(
     double CompensationStart,
     double CompensationStrength);
 
+public sealed record SurveyLayerColorTemplateRequest(
+    Guid CommandId,
+    Guid ProjectId,
+    long ExpectedRevision,
+    IReadOnlyList<Guid> LayerIds,
+    IReadOnlyList<SurveyColorTemplateEntry> Entries);
+
 public sealed record SurveyMaskStrokeRequest(
     Guid CommandId,
     Guid ProjectId,
@@ -177,3 +184,23 @@ public sealed record SurveyMaskStrokeRequest(
     IReadOnlyList<SurveyWorldPoint> Points,
     double Size,
     SurveyBrushShape Shape);
+
+public sealed record SurveyColorBrushRequest(
+    Guid CommandId,
+    Guid ProjectId,
+    Guid LayerId,
+    long ExpectedRevision,
+    IReadOnlyList<SurveyWorldPoint> Points,
+    double Size,
+    SurveyBrushShape Shape,
+    SurveyColor Color);
+
+public sealed record SurveyColorFillRequest(
+    Guid CommandId,
+    Guid ProjectId,
+    Guid LayerId,
+    long ExpectedRevision,
+    int PixelX,
+    int PixelY,
+    byte Tolerance,
+    SurveyColor Color);

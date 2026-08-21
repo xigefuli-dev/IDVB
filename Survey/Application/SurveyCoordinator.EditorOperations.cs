@@ -274,6 +274,120 @@ public sealed partial class SurveyCoordinator
         }
     }
 
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyColorTemplateAsync(
+        SurveyLayerColorTemplateRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            if (current.Project.Revision != request.ExpectedRevision)
+            {
+                throw new SurveyRevisionConflictException(
+                    request.ProjectId,
+                    request.ExpectedRevision,
+                    current.Project.Revision);
+            }
+            if (current.Project.State == SurveyProjectState.Archived)
+                return Failure<SurveyLayerOperationResult>(
+                    SurveyErrorCode.ProjectArchived,
+                    "Archived survey projects are read-only.");
+            if (_rasterEditor is null)
+                return Failure<SurveyLayerOperationResult>(
+                    SurveyErrorCode.InvalidState,
+                    "The current environment has no layer color processor.");
+
+            var entries = request.Entries
+                .Where(entry => Enum.IsDefined(entry.Type))
+                .Distinct()
+                .ToArray();
+            if (entries.Length == 0 || entries.Length > 256)
+                return Failure<SurveyLayerOperationResult>(
+                    SurveyErrorCode.InvalidState,
+                    "A color template must contain between 1 and 256 color entries.");
+
+            var requestedIds = request.LayerIds.Distinct().ToArray();
+            if (requestedIds.Length == 0)
+                return Failure<SurveyLayerOperationResult>(
+                    SurveyErrorCode.InvalidState,
+                    "At least one target layer is required.");
+
+            var selected = current.Layers
+                .Where(item => requestedIds.Contains(item.LayerId))
+                .ToArray();
+            if (selected.Length != requestedIds.Length || selected.Any(item => item.IsDeleted))
+                return Failure<SurveyLayerOperationResult>(
+                    SurveyErrorCode.InvalidState,
+                    "One or more target layers do not exist or have been deleted.");
+
+            var observations = current.Observations.ToDictionary(item => item.ObservationId);
+            var items = new List<SurveyLayerOperationItem>(selected.Length);
+            var mutations = new List<SurveyLayerMutation>(selected.Length);
+            foreach (var layer in selected)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var observation = observations[layer.ObservationId];
+                    var filtered = await _rasterEditor.ApplyColorTemplateAsync(
+                        request.ProjectId,
+                        layer,
+                        observation,
+                        entries,
+                        cancellationToken).ConfigureAwait(false);
+                    mutations.Add(new SurveyLayerMutation(
+                        layer.LayerId,
+                        ColorFilterAsset: filtered,
+                        ReplaceColorFilter: true));
+                    items.Add(new SurveyLayerOperationItem(
+                        layer.LayerId,
+                        true,
+                        "The color template was applied."));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    items.Add(new SurveyLayerOperationItem(
+                        layer.LayerId,
+                        false,
+                        $"The color template could not be applied: {exception.Message}"));
+                }
+            }
+
+            var snapshot = mutations.Count == 0
+                ? current
+                : await _projects.ApplyLayerBatchAsync(
+                    new SurveyLayerBatchEditRequest(
+                        request.CommandId,
+                        request.ProjectId,
+                        request.ExpectedRevision,
+                        mutations),
+                    cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(
+                new SurveyLayerOperationResult(
+                    snapshot,
+                    items));
+        }
+        catch (SurveyRevisionConflictException exception)
+        {
+            return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Fault<SurveyLayerOperationResult>(SurveyErrorCode.PreprocessingFailed, exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyMaskStrokeAsync(
         SurveyMaskStrokeRequest request,
         CancellationToken cancellationToken = default)
@@ -345,6 +459,68 @@ public sealed partial class SurveyCoordinator
         {
             _gate.Release();
         }
+    }
+
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyColorBrushAsync(
+        SurveyColorBrushRequest request, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_rasterEditor is null || request.Points.Count == 0 || request.Size is < 1d or > 1024d)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "画笔笔划无效。");
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            var layer = current.Layers.SingleOrDefault(item => item.LayerId == request.LayerId);
+            if (layer is null || layer.IsDeleted || !layer.IsVisible || layer.IsLocked)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "主选图层不可编辑。");
+            var observation = current.Observations.Single(item => item.ObservationId == layer.ObservationId);
+            var asset = await _rasterEditor.ApplyColorBrushAsync(request.ProjectId, layer, observation,
+                request.Points, request.Size, request.Shape, request.Color, cancellationToken).ConfigureAwait(false);
+            if (asset is null)
+                return SurveyOperationResult<SurveyLayerOperationResult>.Success(new SurveyLayerOperationResult(current,
+                    [new SurveyLayerOperationItem(layer.LayerId, false, "笔划没有改变图层内容。" )]));
+            var snapshot = await _projects.ApplyLayerBatchAsync(new SurveyLayerBatchEditRequest(request.CommandId,
+                request.ProjectId, request.ExpectedRevision, [new SurveyLayerMutation(layer.LayerId,
+                    ColorFilterAsset: asset, ReplaceColorFilter: true)]), cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(new SurveyLayerOperationResult(snapshot,
+                [new SurveyLayerOperationItem(layer.LayerId, true)]));
+        }
+        catch (SurveyRevisionConflictException exception) { return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message); }
+        catch (Exception exception) { return Fault<SurveyLayerOperationResult>(SurveyErrorCode.StorageUnavailable, exception); }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<SurveyOperationResult<SurveyLayerOperationResult>> ApplyColorFillAsync(
+        SurveyColorFillRequest request, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_rasterEditor is null || request.Tolerance > 255)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "颜料桶参数无效。");
+            var current = await _projects.GetAsync(request.ProjectId, cancellationToken).ConfigureAwait(false)
+                ?? throw new SurveyProjectNotFoundException(request.ProjectId);
+            var layer = current.Layers.SingleOrDefault(item => item.LayerId == request.LayerId);
+            if (layer is null || layer.IsDeleted || !layer.IsVisible || layer.IsLocked)
+                return Failure<SurveyLayerOperationResult>(SurveyErrorCode.InvalidState, "主选图层不可编辑。");
+            var observation = current.Observations.Single(item => item.ObservationId == layer.ObservationId);
+            var asset = await _rasterEditor.ApplyColorFillAsync(request.ProjectId, layer, observation,
+                request.PixelX, request.PixelY, request.Tolerance, request.Color, cancellationToken).ConfigureAwait(false);
+            if (asset is null)
+                return SurveyOperationResult<SurveyLayerOperationResult>.Success(new SurveyLayerOperationResult(current,
+                    [new SurveyLayerOperationItem(layer.LayerId, false, "填充区域与目标颜色相同或无有效区域。" )]));
+            var snapshot = await _projects.ApplyLayerBatchAsync(new SurveyLayerBatchEditRequest(request.CommandId,
+                request.ProjectId, request.ExpectedRevision, [new SurveyLayerMutation(layer.LayerId,
+                    ColorFilterAsset: asset, ReplaceColorFilter: true)]), cancellationToken).ConfigureAwait(false);
+            return SurveyOperationResult<SurveyLayerOperationResult>.Success(new SurveyLayerOperationResult(snapshot,
+                [new SurveyLayerOperationItem(layer.LayerId, true)]));
+        }
+        catch (SurveyRevisionConflictException exception) { return Failure<SurveyLayerOperationResult>(SurveyErrorCode.RevisionConflict, exception.Message); }
+        catch (Exception exception) { return Fault<SurveyLayerOperationResult>(SurveyErrorCode.StorageUnavailable, exception); }
+        finally { _gate.Release(); }
     }
 
     public async Task<SurveyOperationResult<SurveyLayerOperationResult>> CorrectLayerVignetteAsync(

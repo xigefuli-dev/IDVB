@@ -5,14 +5,14 @@ namespace IDVBuff.Tests;
 public sealed class MapPlayerModelsTests
 {
     [Fact]
-    public void MatchRequiresAValidPlayerAndResetsIdentityWhenEnded()
+    public void MatchStartsWithoutPlayerSlotAndResetsIdentityWhenEnded()
     {
         var session = new MapMatchSession();
 
-        var started = session.Begin(PlayerSlot.Player3);
+        var started = session.Begin("S1");
 
         Assert.True(started.IsStarted);
-        Assert.Equal(PlayerSlot.Player3, started.PlayerSlot);
+        Assert.Null(started.PlayerSlot);
 
         var ended = session.End();
 
@@ -26,10 +26,10 @@ public sealed class MapPlayerModelsTests
     public void MatchCannotBeStartedTwice()
     {
         var session = new MapMatchSession();
-        session.Begin(PlayerSlot.Player1);
+        session.Begin("S1");
 
         Assert.Throws<InvalidOperationException>(
-            () => session.Begin(PlayerSlot.Player2));
+            () => session.Begin("S1"));
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public sealed class MapPlayerModelsTests
     {
         var session = new MapMatchSession();
 
-        var started = session.Begin(PlayerSlot.Player2, "Ranked");
+        var started = session.Begin("Ranked");
 
         Assert.Equal("Ranked", started.MapClass);
         Assert.True(session.IsCurrent(started));

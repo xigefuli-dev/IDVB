@@ -24,6 +24,7 @@
     <ProjectReference Include="..\Survey\Preprocessing\IDVBuff.Survey.Preprocessing.OpenCv.csproj" />
     <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <ProjectReference Include="..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+    <ProjectReference Include="..\Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -73,6 +74,7 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionScript.cs" Link="Production\MapCvRecognitionScript.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionModels.cs" Link="Production\MapRecognitionModels.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionAttempt.cs" Link="Production\MapRecognitionAttempt.cs" />
+    <Compile Include="..\Features\Maps\MapCandidatePresentationRules.cs" Link="Production\MapCandidatePresentationRules.cs" />
     <Compile Include="..\Features\Maps\MapFeatureCacheModels.cs" Link="Production\MapFeatureCacheModels.cs" />
     <Compile Include="..\Features\Maps\MapFeatureCacheRepository.cs" Link="Production\MapFeatureCacheRepository.cs" />
     <Compile Include="..\Features\Maps\MapVpsgScaleGraphCache.cs" Link="Production\MapVpsgScaleGraphCache.cs" />
@@ -81,6 +83,7 @@
     <Compile Include="..\Features\Maps\IMapCandidateSelector.cs" Link="Production\IMapCandidateSelector.cs" />
     <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\RealCliCandidateSelector.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentSession.cs" Link="Production\MapAlignmentSession.cs" />
+    <Compile Include="..\Features\Maps\MapAlignmentWarmState.cs" Link="Production\MapAlignmentWarmState.cs" />
     <Compile Include="..\Features\Maps\MapGeometryFingerprint.cs" Link="Production\MapGeometryFingerprint.cs" />
     <Compile Include="..\Features\Maps\MapOverlayTransformSolver.cs" Link="Production\MapOverlayTransformSolver.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.cs" Link="Production\MapCvRecognitionService.cs" />
@@ -120,6 +123,9 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Processing.cs" Link="Production\MapStructurePreprocessor.Processing.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Features.cs" Link="Production\MapStructurePreprocessor.Features.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.cs" Link="Production\MapStructureRegistrar.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.FastPath.cs" Link="Production\MapStructureRegistrar.FastPath.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.Logging.cs" Link="Production\MapStructureRegistrar.Logging.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ConfidenceLog.cs" Link="Production\MapStructureRegistrar.ConfidenceLog.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureQueryGeometry.cs" Link="Production\MapStructureQueryGeometry.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.cs" Link="Production\MapStructureScaleSearch.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
@@ -132,6 +138,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureDebugOutput.cs" Link="Production\MapStructureDebugOutput.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationRules.cs" Link="Production\StructureRegistrationRules.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
+    <Compile Include="..\Features\Maps\StructureFilling\MapStructureFiller.cs" Link="Production\MapStructureFiller.cs" />
     <Compile Include="..\Features\Maps\MapGameToggleState.cs" Link="Production\MapGameToggleState.cs" />
     <Compile Include="..\Features\Maps\MapFloorSwitchRules.cs" Link="Production\MapFloorSwitchRules.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.cs" Link="Production\MapOverlayNativeWindow.cs" />
@@ -148,6 +155,7 @@
     <Compile Include="..\Features\Maps\MapRuntimeSettings.Tuning.cs" Link="Production\MapRuntimeSettings.Tuning.cs" />
     <Compile Include="..\Features\Maps\ResolutionPresetResolver.cs" Link="Production\ResolutionPresetResolver.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettingsRepository.cs" Link="Production\MapRuntimeSettingsRepository.cs" />
+    <Compile Include="..\Features\Maps\BackgroundScanRules.cs" Link="Production\BackgroundScanRules.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettingsRules.cs" Link="Production\MapRuntimeSettingsRules.cs" />
     <Compile Include="..\Features\Maps\GateTemplateDetector.cs" Link="Production\GateTemplateDetector.cs" />
     <Compile Include="..\Features\Maps\GateTemplateDetector.Types.cs" Link="Production\GateTemplateDetector.Types.cs" />
@@ -161,8 +169,12 @@
     <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Assets.cs" Link="Production\MapRepository.Assets.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Variants.cs" Link="Production\MapRepository.Variants.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.VariantBackup.cs" Link="Production\MapRepository.VariantBackup.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.ClassProperties.cs" Link="Production\MapRepository.ClassProperties.cs" />
     <Compile Include="..\Features\Maps\MapRepository.FloorBindings.cs" Link="Production\MapRepository.FloorBindings.cs" />
     <Compile Include="..\Features\Maps\MapRepository.SideEntrance.cs" Link="Production\MapRepository.SideEntrance.cs" />
+    <Compile Include="..\Features\Maps\MapBackgroundProcessor.cs" Link="Production\MapBackgroundProcessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceFeaturePreprocessor.cs" Link="Production\SideEntranceFeaturePreprocessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.cs" Link="Production\SideEntranceScanPipeline.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Evidence.cs" Link="Production\SideEntranceScanPipeline.Evidence.cs" />
@@ -184,6 +196,7 @@
     <Compile Include="..\Features\Maps\AdaptiveScaleAlignment\AdaptiveScale*.cs" Link="Production\AdaptiveScaleAlignment\%(Filename)%(Extension)" />
     <Compile Include="..\Features\Plugins\HostMessageMapper.cs" Link="Production\Plugins\HostMessageMapper.cs" />
     <Compile Include="..\Plugins\AutoClicker\AutoClickerPolicy.cs" Link="Production\Plugins\AutoClicker\AutoClickerPolicy.cs" />
+    <Compile Include="..\Plugins\AutoClicker\AutoClickerOptions.cs" Link="Production\Plugins\AutoClicker\AutoClickerOptions.cs" />
   </ItemGroup>
 
   <ItemGroup>

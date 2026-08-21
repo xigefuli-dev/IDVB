@@ -368,7 +368,7 @@ public sealed partial class MapListPage : UserControl
         // 外层卡片 — 背景和圆角在 Border 上，不在 Button 上
         var cardSurface = new Border
         {
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
@@ -514,7 +514,7 @@ public sealed partial class MapListPage : UserControl
 
         var card = new Border
         {
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = new SolidColorBrush(
                 _selectedImportFloorKey == entry.FloorKey ? AccentBlue : Color.FromArgb(0, 0, 0, 0)),
             BorderThickness = new Thickness(3),

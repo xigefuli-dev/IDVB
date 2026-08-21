@@ -5,10 +5,17 @@ namespace IDVBuff.Features.Maps.Adapters;
 /// <summary>IOverlayWindow 适配器 — 委托给 MapOverlayWindow。</summary>
 public sealed class OverlayWindowAdapter : IOverlayWindow
 {
-    private readonly MapOverlayWindow _window = new();
+    private readonly MapOverlayWindow _window;
+
+    public OverlayWindowAdapter(ICaptureProtectionService? captureProtection = null)
+    {
+        _window = new MapOverlayWindow(captureProtection);
+    }
 
     public bool IsVisible => _window.IsVisible;
     public bool HasMap => _window.HasMap;
+    public double? CurrentMiniMapScale => _window.CurrentMiniMapScale;
+    public bool IsCaptureExclusionEnabled => _window.IsCaptureExclusionEnabled;
 
     public void UpdateMap(object recognition, object gameBounds, IntPtr gameWindowHandle,
         bool showStatusPreference, object? viewportBounds = null, bool preservePlayer = false)
@@ -23,8 +30,8 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public void UpdateMapTransform(object transform, bool preservePlayer = true)
         => _window.UpdateMapTransform((MapOverlayTransform)transform, preservePlayer);
 
-    public bool TryEnableCaptureExclusion(out string failureReason)
-        => _window.TryEnableCaptureExclusion(out failureReason);
+    public bool TrySetCaptureExclusion(bool enabled, out string failureReason)
+        => _window.TrySetCaptureExclusion(enabled, out failureReason);
 
     public void UpdateStatus(object status, object gameBounds, IntPtr gameWindowHandle,
         bool showStatusPreference, bool showImmediately = true)
@@ -42,6 +49,9 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
 
     public void Show() => _window.Show();
     public void Hide() => _window.Hide();
+    public IDisposable DeferPresent() => _window.DeferPresent();
+    public int PresentCount => _window.PresentCount;
+    public void SetMainContentVisible(bool visible) => _window.SetMainContentVisible(visible);
     public void Toggle() => _window.Toggle();
     public void Clear() => _window.Clear();
     public void ClearMap() => _window.ClearMap();
@@ -96,6 +106,14 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public void SetMiniMapOffsetX(double offsetX) => _window.SetMiniMapOffsetX(offsetX);
     public void SetMiniMapOffsetY(double offsetY) => _window.SetMiniMapOffsetY(offsetY);
     public void SetMiniMapScale(double scale) => _window.SetMiniMapScale(scale);
+    public void ClearTemporaryMiniMapScales() => _window.ClearTemporaryMiniMapScales();
 
     public void Dispose() => _window.Dispose();
 }
+/*
+ * 文件职责：OverlayWindowAdapter。
+ * 所属模块：Features/Maps，主要负责地图功能与基础设施之间的适配边界。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

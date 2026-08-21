@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using IDVBuff.Core.Contracts;
 using IDVBuff.Core.Models;
+using IDVBuff.Pipeline;
 using OpenCvSharp;
 
 namespace IDVBuff.Pipeline.Stages;
@@ -34,6 +35,9 @@ public sealed class CaptureStage : IPipelineStage
         }
 
         var sw = Stopwatch.StartNew();
+        using var captureSpan = MapOperationTraceAmbient.StartChild(
+            "pipeline_capture",
+            MapOperationWaitKind.Capture);
 
         if (!_capture.TryGetForegroundClientBounds(out var clientBoundsObj, out var hwnd, out var reason))
             return context.Fail($"Capture failed: {reason}");
@@ -84,6 +88,9 @@ public sealed class FloorDetectStage : IPipelineStage
     public async Task<PipelineContext> ExecuteAsync(PipelineContext context, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
+        using var floorSpan = MapOperationTraceAmbient.StartChild(
+            "floor_detection",
+            MapOperationWaitKind.Compute);
 
         if (context is ScanPipelineContext { SkipFloorDetection: true } scanCtxSkip)
         {
@@ -146,6 +153,9 @@ public sealed class GateDetectStage : IPipelineStage
     public async Task<PipelineContext> ExecuteAsync(PipelineContext context, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
+        using var gateSpan = MapOperationTraceAmbient.StartChild(
+            "gate_detection",
+            MapOperationWaitKind.Compute);
 
         if (context is ScanPipelineContext { ViewportImage: { } image } scanCtx)
         {
@@ -242,12 +252,19 @@ public sealed class MapIdentifyStage : IPipelineStage
 
                 var viewportBounds = scanCtx.ViewportBoundsRaw ?? new object();
 
+                using var geometrySpan = MapOperationTraceAmbient.StartChild(
+                    "geometry_ranking",
+                    MapOperationWaitKind.Compute);
                 var candidates = _mapIdentifier.RankGeometry(
                     fingerprints, gateObjects, viewportBounds);
+                geometrySpan.Complete();
 
                 // 运行时类型是 IReadOnlyList<MapGeometryCandidate>（来自 Features/Maps）
                 // MapGeometryCandidate 的属性嵌套在 Fingerprint.Map 中，
                 // 通过反射读取以填充 Core.Models.MapCandidate。
+                using var candidateSpan = MapOperationTraceAmbient.StartChild(
+                    "candidate_generation",
+                    MapOperationWaitKind.Compute);
                 scanCtx.Candidates = candidates
                     .Select((c, i) =>
                     {
@@ -279,6 +296,7 @@ public sealed class MapIdentifyStage : IPipelineStage
                     })
                     .OrderBy(c => c.VectorError)
                     .ToList();
+                candidateSpan.Complete();
 
                 if (scanCtx.Candidates.Count > 0)
                 {

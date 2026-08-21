@@ -57,6 +57,13 @@ public interface ISurveyLayerRasterEditor
         SurveyObservation anchorObservation,
         CancellationToken cancellationToken = default);
 
+    Task<SurveyAssetReference> ApplyColorTemplateAsync(
+        Guid projectId,
+        SurveyMapLayer layer,
+        SurveyObservation observation,
+        IReadOnlyList<SurveyColorTemplateEntry> entries,
+        CancellationToken cancellationToken = default);
+
     Task<SurveyAssetReference?> ApplyHiddenMaskAsync(
         Guid projectId,
         SurveyMapLayer layer,
@@ -64,6 +71,17 @@ public interface ISurveyLayerRasterEditor
         IReadOnlyList<SurveyWorldPoint> worldPoints,
         double size,
         SurveyBrushShape shape,
+        CancellationToken cancellationToken = default);
+
+    Task<SurveyAssetReference?> ApplyColorBrushAsync(
+        Guid projectId, SurveyMapLayer layer, SurveyObservation observation,
+        IReadOnlyList<SurveyWorldPoint> worldPoints, double size,
+        SurveyBrushShape shape, SurveyColor color,
+        CancellationToken cancellationToken = default);
+
+    Task<SurveyAssetReference?> ApplyColorFillAsync(
+        Guid projectId, SurveyMapLayer layer, SurveyObservation observation,
+        int pixelX, int pixelY, byte tolerance, SurveyColor color,
         CancellationToken cancellationToken = default);
 
     Task<ReadOnlyMemory<byte>> RenderLayerAsync(

@@ -15,7 +15,12 @@ public sealed class CliOptions
 
     public string? Image { get; set; }
     public string? Out { get; set; }
+    public string? MaskOut { get; set; }
+    public string? MaskDirectory { get; set; }
+    public bool GuideMap { get; set; }
     public string? Settings { get; set; }
+    public string? ResearchSession { get; set; }
+    public string? MapRoot { get; set; }
     public string? Gate { get; set; }
     public string? Viewport { get; set; }
     public double ViewportMargin { get; set; } = 0.20;
@@ -42,7 +47,12 @@ public sealed class CliOptions
         {
             Image = Get(options, "image"),
             Out = Get(options, "out"),
+            MaskOut = Get(options, "mask-out"),
+            MaskDirectory = Get(options, "mask-dir"),
+            GuideMap = Flag(options, "guide-map"),
             Settings = Get(options, "settings"),
+            ResearchSession = Get(options, "research"),
+            MapRoot = Get(options, "map-root"),
             Gate = Get(options, "gate"),
             Viewport = Get(options, "viewport"),
             ViewportMargin = Double(options, "viewport-margin", 0.20),

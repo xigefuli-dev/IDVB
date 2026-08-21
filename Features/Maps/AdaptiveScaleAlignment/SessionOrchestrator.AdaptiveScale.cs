@@ -163,6 +163,21 @@ public sealed partial class SessionOrchestrator
             structureTuning.MinimumCandidateMargin,
             attempt.StructureAccepted);
 
+    /// <summary>
+    /// 已锁定地图快速对齐路径（侧门种子 / 缓存命中验证）的宽松质量门槛：
+    /// 置信度只要达到 RecoveryConfidence，不再要求 ReliableConfidence。
+    /// 这些路径已有侧门扫描先验或落盘缓存支撑，放宽后不再因 0.73~0.81 的
+    /// 边缘置信度被迫转回完整恢复（重复结构搜索 + VPSG + 全局恢复）。
+    /// </summary>
+    private bool IsAdaptiveInitialScaleUsable(
+        MapRecognitionAttempt? attempt,
+        MapStructureRegistrationTuning structureTuning) =>
+        attempt?.Recognition is { } recognition
+        && _adaptiveScale.IsUsableInitialResult(
+            recognition,
+            structureTuning.MinimumCandidateMargin,
+            attempt.StructureAccepted);
+
     private bool AdaptiveScaleRequiresWideSearch(OrbTrackingContext context) =>
         _adaptiveScale.RequiresWideScaleSearch(
             context.AdaptiveKey,
@@ -237,3 +252,10 @@ public sealed partial class SessionOrchestrator
 
     private Task DrainAdaptiveScaleAsync() => _adaptiveScale.DrainAsync();
 }
+/*
+ * 文件职责：SessionOrchestrator.AdaptiveScale。
+ * 所属模块：Features/Maps，主要负责自适应缩放与楼层独立尺度维护。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

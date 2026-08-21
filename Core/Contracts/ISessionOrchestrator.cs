@@ -11,6 +11,12 @@ namespace IDVBuff.Core.Contracts;
 /// </summary>
 public interface ISessionOrchestrator
 {
+    /// <summary>当前是否处于一场已开始的对局。</summary>
+    bool IsMatchStarted => false;
+
+    /// <summary>当前对局标识；没有进行中的对局时返回 null。</summary>
+    string? CurrentMatchId => null;
+
     /// <summary>
     /// 初始化服务：加载设置、预热识别缓存、注册输入绑定。
     /// </summary>

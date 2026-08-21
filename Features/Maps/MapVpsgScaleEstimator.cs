@@ -18,8 +18,14 @@ public sealed class MapVpsgScaleEstimator
 {
     public const double MinimumScale = 0.25d;
     public const double MaximumScale = 2.20d;
-    public const int MinimumUniqueMatches = 12;
-    public const int MinimumPairVotes = 24;
+    // 真实画面 AKAZE 匹配点常偏少（12~20 个），配位边产出率约 1.5~2 votes/点，
+    // 旧门槛 24 votes / 12 matches 把大量可用的 scale 证据拒掉（实测 VPSG 失败
+    // 原因全是 only N pair votes / unstable cluster），随后退到昂贵的全局尺度
+    // 搜索。门槛降到与真实产出匹配；最终质量仍由 fit 的 inliers/residual/span/
+    // MAD 严格把关（见 TryEstimate 末尾），结构验证是第二道闸。降低只影响
+    // 进入候选的"证据量"，不放松"证据质量"。
+    public const int MinimumUniqueMatches = 10;
+    public const int MinimumPairVotes = 14;
     public const double MaximumResidualPixels = 3d;
     public const double MaximumRotationDegrees = 2d;
     public const double MaximumRelativeMad = 0.015d;
@@ -192,8 +198,13 @@ public sealed class MapVpsgScaleEstimator
         IReadOnlyList<KeyPoint> referencePoints,
         IReadOnlyList<KeyPoint> livePoints)
     {
-        const int nearestNeighborCount = 5;
-        const double minimumReferenceDistance = 30d;
+        // 提高建边产出：真实画面匹配点少且聚集（<30px 密集区常见），旧参数
+        // (5 邻 / 30px / 5°) 使每点平均只有 1~2 条有效边，16 个匹配点仅产出
+        // ~19 votes 而门槛 24。8 邻 / 20px / 8° 把产出率提到 ~2.5~3 votes/点，
+        // 配合降低后的 MinimumPairVotes；vote 只做粗筛，最终一致性由
+        // SelectScaleCluster + FitSimilarity 严格把关。
+        const int nearestNeighborCount = 8;
+        const double minimumReferenceDistance = 20d;
 
         var votes = new List<PairVote>();
         if (matches.Count < 4)
@@ -239,7 +250,10 @@ public sealed class MapVpsgScaleEstimator
                 var liveAngle = Math.Atan2(dy, dx) * 180d / Math.PI;
                 var referenceAngle = Math.Atan2(refDy, refDx) * 180d / Math.PI;
                 var rotation = NormalizeAngle(liveAngle - referenceAngle);
-                if (Math.Abs(rotation) > 5d)
+                // 建边粗滤放宽到 8°：仅排除明显不一致的配对；最终 fit 仍要求
+                // 旋转 ≤ MaximumRotationDegrees (2°)，ClusterScaleTolerance 约束
+                // scale 一致性，粗滤放宽不会放行坏 model。
+                if (Math.Abs(rotation) > 8d)
                 {
                     continue;
                 }
@@ -490,3 +504,10 @@ public sealed class MapVpsgScaleEstimator
             : ordered[middle];
     }
 }
+/*
+ * 文件职责：MapVpsgScaleEstimator。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

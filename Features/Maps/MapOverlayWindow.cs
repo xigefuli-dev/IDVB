@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Drawing;
+using IDVBuff.Core.Contracts;
 
 namespace IDVBuff.Features.Maps;
 
@@ -11,7 +12,7 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed class MapOverlayWindow : IDisposable
 {
-    private readonly MapOverlayNativeWindow _nativeWindow = new();
+    private readonly MapOverlayNativeWindow _nativeWindow;
     private MapOverlayRenderMap? _map;
     private MapOverlayRenderPlayer? _player;
     private MapOverlayRenderMap? _persistentMiniMap;
@@ -43,10 +44,28 @@ public sealed class MapOverlayWindow : IDisposable
     private float _miniMapOpacity = 0.55f;
     private float _miniMapOffsetX;
     private float _miniMapOffsetY = 50f;
+    private double? _miniMapScale;
+    private double? _miniMapBaseScale;
+    private string? _miniMapImageKey;
+    private readonly Dictionary<string, double> _temporaryMiniMapScales =
+        new(StringComparer.OrdinalIgnoreCase);
+    private bool _showMainContent = true;
+    private int _presentDepth;
+    private bool _presentDirty;
+    private int _presentCount;
     private bool _disposed;
+
+    public MapOverlayWindow(ICaptureProtectionService? captureProtection = null)
+    {
+        _nativeWindow = new MapOverlayNativeWindow(captureProtection);
+    }
+
+    public bool IsCaptureExclusionEnabled => _nativeWindow.IsCaptureExclusionEnabled;
 
     public bool IsVisible => _nativeWindow.IsVisible;
     public bool HasMap => _map is not null;
+    public int PresentCount => Volatile.Read(ref _presentCount);
+    public double? CurrentMiniMapScale => _persistentMiniMap is not null ? _miniMapScale : null;
     public bool HasStatus => _status is not null;
     private bool HasContent => HasMap || HasStatus || _persistentMiniMap is not null;
 
@@ -241,10 +260,10 @@ public sealed class MapOverlayWindow : IDisposable
             Present();
     }
 
-    public bool TryEnableCaptureExclusion(out string failureReason)
+    public bool TrySetCaptureExclusion(bool enabled, out string failureReason)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _nativeWindow.TryEnableCaptureExclusion(out failureReason);
+        return _nativeWindow.TrySetCaptureExclusion(enabled, out failureReason);
     }
 
     public void UpdatePlayer(MapPlayerState? player)
@@ -322,6 +341,10 @@ public sealed class MapOverlayWindow : IDisposable
         _map = null;
         _player = null;
         _persistentMiniMap = null;
+        _miniMapScale = null;
+        _miniMapBaseScale = null;
+        _miniMapImageKey = null;
+        _showMainContent = true;
         InvalidateLockedBackground();
         _status = null;
         _gameWindowHandle = IntPtr.Zero;
@@ -339,6 +362,23 @@ public sealed class MapOverlayWindow : IDisposable
 
     public void Hide() => _nativeWindow.Hide();
 
+    public IDisposable DeferPresent()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        checked { _presentDepth++; }
+        return new PresentLease(this);
+    }
+
+    public void SetMainContentVisible(bool visible)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_showMainContent == visible)
+            return;
+        _showMainContent = visible;
+        if (IsVisible)
+            Present();
+    }
+
     private void RefreshVisibleContent()
     {
         if (!IsVisible)
@@ -350,6 +390,17 @@ public sealed class MapOverlayWindow : IDisposable
     }
 
     private void Present()
+    {
+        if (Volatile.Read(ref _presentDepth) > 0)
+        {
+            _presentDirty = true;
+            return;
+        }
+
+        PresentCore();
+    }
+
+    private void PresentCore()
     {
         if (!_gameBounds.IsValid || _gameWindowHandle == IntPtr.Zero)
             return;
@@ -373,10 +424,10 @@ public sealed class MapOverlayWindow : IDisposable
             pixelWidth,
             pixelHeight,
             dpi,
-            _map,
-            _status,
-            showStatus,
-            _player,
+            _showMainContent ? _map : null,
+            _showMainContent ? _status : null,
+            _showMainContent && showStatus,
+            _showMainContent ? _player : null,
             MiniMap: _persistentMiniMap,
             AllowMapExtendBeyondBounds: _allowExtend,
             GameScreenBounds: _gameBounds,
@@ -404,6 +455,7 @@ public sealed class MapOverlayWindow : IDisposable
         {
             using var bitmap = RenderScene(scene);
             _nativeWindow.Present(bitmap, _gameBounds);
+            Interlocked.Increment(ref _presentCount);
         }
         catch (Exception ex)
         {
@@ -423,6 +475,28 @@ public sealed class MapOverlayWindow : IDisposable
                     "图层窗口意外取得了输入焦点，已自动隐藏以恢复游戏操作。");
             }
         }
+    }
+
+    private sealed class PresentLease(MapOverlayWindow owner) : IDisposable
+    {
+        private MapOverlayWindow? _owner = owner;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            owner?.EndPresentDeferral();
+        }
+    }
+
+    private void EndPresentDeferral()
+    {
+        if (_presentDepth <= 0)
+            return;
+        _presentDepth--;
+        if (_presentDepth != 0 || !_presentDirty)
+            return;
+        _presentDirty = false;
+        PresentCore();
     }
 
     private static float ToFiniteSingle(double value)
@@ -614,6 +688,9 @@ public sealed class MapOverlayWindow : IDisposable
                 miniMap.ImagePath, scale, out var w, out var h))
             return;
         _persistentMiniMap = miniMap with { Width = w, Height = h };
+        _miniMapScale = scale;
+        if (_miniMapImageKey is not null)
+            _temporaryMiniMapScales[_miniMapImageKey] = scale;
         InvalidateLockedBackground();
         if (IsVisible)
             Present();
@@ -631,13 +708,20 @@ public sealed class MapOverlayWindow : IDisposable
     {
         _gameBounds = gameBounds;
         _gameWindowHandle = gameWindowHandle;
+        var imageKey = Path.GetFullPath(imagePath);
+        var effectiveScale = _temporaryMiniMapScales.TryGetValue(imageKey, out var temporaryScale)
+            ? temporaryScale
+            : miniMapScale;
         if (!MapOverlayBitmapRenderer.TryGetScaledImageSize(
                 imagePath,
-                miniMapScale,
+                effectiveScale,
                 out var scaledWidth,
                 out var scaledHeight))
         {
             _persistentMiniMap = null;
+            _miniMapScale = null;
+            _miniMapBaseScale = null;
+            _miniMapImageKey = null;
             return;
         }
         _persistentMiniMap = new MapOverlayRenderMap(
@@ -649,6 +733,9 @@ public sealed class MapOverlayWindow : IDisposable
             null,
             annotations,
             floorLabel);
+        _miniMapScale = effectiveScale;
+        _miniMapBaseScale = miniMapScale;
+        _miniMapImageKey = imageKey;
         InvalidateLockedBackground();
         if (IsVisible)
             Present();
@@ -657,7 +744,33 @@ public sealed class MapOverlayWindow : IDisposable
     public void ClearPersistentMiniMap()
     {
         _persistentMiniMap = null;
+        _miniMapScale = null;
+        _miniMapBaseScale = null;
+        _miniMapImageKey = null;
         RefreshVisibleContent();
+    }
+
+    public void ClearTemporaryMiniMapScales()
+    {
+        _temporaryMiniMapScales.Clear();
+        if (_miniMapBaseScale is double baseScale)
+            SetMiniMapScaleCore(baseScale);
+    }
+
+    private void SetMiniMapScaleCore(double scale)
+    {
+        if (_persistentMiniMap is not { } miniMap
+            || !MapOverlayBitmapRenderer.TryGetScaledImageSize(
+                miniMap.ImagePath, scale, out var width, out var height))
+        {
+            return;
+        }
+
+        _persistentMiniMap = miniMap with { Width = width, Height = height };
+        _miniMapScale = scale;
+        InvalidateLockedBackground();
+        if (IsVisible)
+            Present();
     }
 
     public void Dispose()
@@ -682,3 +795,10 @@ public sealed class MapOverlayWindow : IDisposable
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr window);
 }
+/*
+ * 文件职责：MapOverlayWindow。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

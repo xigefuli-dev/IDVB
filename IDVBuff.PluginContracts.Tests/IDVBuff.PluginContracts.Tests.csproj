@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
   </ItemGroup>
 
   <ItemGroup>

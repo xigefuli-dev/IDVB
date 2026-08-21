@@ -1,4 +1,5 @@
 using IDVBuff.Features.Maps;
+using OpenCvSharp;
 using Windows.UI;
 using SD = System.Drawing;
 using SD2D = System.Drawing.Drawing2D;
@@ -13,9 +14,18 @@ public sealed partial class MapListPage : UserControl
         FloorRecognitionProfile profile,
         string imagePath,
         ModernPngExportOptions options,
-        Func<string, string, bool> isVisible)
+        Func<string, string, bool> isVisible,
+        bool removeBackground)
     {
-        using var source = new SD.Bitmap(imagePath);
+        using var sourceMat = Cv2.ImRead(imagePath, ImreadModes.Unchanged);
+        if (sourceMat.Empty())
+            throw new InvalidOperationException("无法解码地图原图。");
+        var processingProfile = profile.Clone();
+        processingProfile.RecognitionRegion = null;
+        using var processing = MapBackgroundProcessor.Process(sourceMat, processingProfile, removeBackground);
+        var sourceBytes = processing.Recognition.ImEncode(".png");
+        using var sourceStream = new MemoryStream(sourceBytes);
+        using var source = new SD.Bitmap(sourceStream);
         if (source.Width <= 0 || source.Height <= 0)
             throw new InvalidOperationException("无法解码地图原图。");
         var region = profile.GetEffectiveRecognitionRegion();

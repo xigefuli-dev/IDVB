@@ -219,27 +219,20 @@ public sealed partial class MapRepository
         string sourcePath,
         string destinationPath,
         FloorRecognitionProfile profile,
-        string? overlayPath)
+        string? overlayPath,
+        bool removeBackground = false)
     {
         using var source = Cv2.ImRead(sourcePath, ImreadModes.Unchanged);
         if (source.Empty())
             throw new InvalidOperationException("无法读取地图原图以生成识别区域。");
-        var usesWholeSource = UsesWholeSourceImage(profile);
-        using var recognition = usesWholeSource
-            ? source.Clone()
-            : new Mat(source, GetPixelRegion(profile.GetEffectiveRecognitionRegion(), source.Width, source.Height));
-        profile.RecognitionPixelWidth = recognition.Width;
-        profile.RecognitionPixelHeight = recognition.Height;
-        if (profile.ValidMapBounds?.IsValid is not true)
-        {
-            profile.ValidMapBounds = MapReferenceBounds.FullImage(
-                recognition.Width,
-                recognition.Height);
-        }
-        if (!usesWholeSource && !Cv2.ImWrite(destinationPath, recognition))
+        using var processed = MapBackgroundProcessor.Process(source, profile, removeBackground);
+        var needsIndependentRecognition = removeBackground
+            || profile.BackgroundLayers.Count > 0
+            || !UsesWholeSourceImage(profile);
+        if (needsIndependentRecognition && !Cv2.ImWrite(destinationPath, processed.Recognition))
             throw new InvalidOperationException("无法保存地图识别区域。");
-        if (overlayPath is not null)
-            CreateWhiteKeyOverlay(recognition, overlayPath);
+        if (overlayPath is not null && !Cv2.ImWrite(overlayPath, processed.Overlay))
+            throw new InvalidOperationException("无法保存透明地图图层。");
     }
 
     private static Rect GetPixelRegion(NormalizedRectangle region, int width, int height)
@@ -259,53 +252,9 @@ public sealed partial class MapRepository
 
     private static void CreateWhiteKeyOverlay(Mat source, string destinationPath)
     {
-        using var bgra = new Mat();
-        switch (source.Channels())
-        {
-            case 4:
-                source.CopyTo(bgra);
-                break;
-            case 3:
-                Cv2.CvtColor(source, bgra, ColorConversionCodes.BGR2BGRA);
-                break;
-            default:
-                Cv2.CvtColor(source, bgra, ColorConversionCodes.GRAY2BGRA);
-                break;
-        }
-
-        using var bgr = new Mat();
-        using var hsv = new Mat();
-        Cv2.CvtColor(bgra, bgr, ColorConversionCodes.BGRA2BGR);
-        Cv2.CvtColor(bgr, hsv, ColorConversionCodes.BGR2HSV);
-        var bgraChannels = Cv2.Split(bgra);
-        var hsvChannels = Cv2.Split(hsv);
-        try
-        {
-            using var neutralMask = new Mat();
-            using var whiteness = new Mat();
-            using var alphaReduction = new Mat();
-            using var generatedAlpha = new Mat();
-            using var keyedAlpha = new Mat();
-            using var finalAlpha = bgraChannels[3].Clone();
-            Cv2.InRange(hsvChannels[1], new Scalar(0), new Scalar(25), neutralMask);
-            Cv2.Subtract(hsvChannels[2], new Scalar(230), whiteness);
-            whiteness.ConvertTo(alphaReduction, MatType.CV_8UC1, 255d / 15d);
-            Cv2.Subtract(new Scalar(255), alphaReduction, generatedAlpha);
-            Cv2.Min(bgraChannels[3], generatedAlpha, keyedAlpha);
-            keyedAlpha.CopyTo(finalAlpha, neutralMask);
-
-            using var result = new Mat();
-            Cv2.Merge([bgraChannels[0], bgraChannels[1], bgraChannels[2], finalAlpha], result);
-            if (!Cv2.ImWrite(destinationPath, result))
-                throw new InvalidOperationException("无法保存透明地图图层。");
-        }
-        finally
-        {
-            foreach (var channel in bgraChannels)
-                channel.Dispose();
-            foreach (var channel in hsvChannels)
-                channel.Dispose();
-        }
+        using var overlay = MapBackgroundProcessor.CreateWhiteKeyOverlay(source);
+        if (!Cv2.ImWrite(destinationPath, overlay))
+            throw new InvalidOperationException("无法保存透明地图图层。");
     }
 
     private static bool UsesWholeSourceImage(FloorRecognitionProfile profile)
@@ -421,6 +370,21 @@ public sealed partial class MapRepository
 
     public async Task EnsureDerivedAssetsAsync(IReadOnlyList<MapRecord> maps)
     {
+        await Gate.WaitAsync();
+        Dictionary<string, MapClassProperties> classProperties;
+        try
+        {
+            var catalog = await ReadCatalogAsync();
+            classProperties = catalog.ClassProperties.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Clone(),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+
         var assetsChanged = await Task.Run(() =>
             {
                 var changed = false;
@@ -438,8 +402,19 @@ public sealed partial class MapRepository
 
                         var previousWidth = profile.RecognitionPixelWidth;
                         var previousHeight = profile.RecognitionPixelHeight;
+                        var removeBackground = classProperties.TryGetValue(
+                            map.Class,
+                            out var properties)
+                            && properties.RemoveBackground;
+                        var needsIndependentRecognition = removeBackground
+                            || profile.BackgroundLayers.Count > 0
+                            || !UsesWholeSourceImage(profile);
                         var sourcePath = GetFloorImagePath(map, floor.Key);
-                        var recognitionPath = GetFloorRecognitionPath(map, floor.Key);
+                        var recognitionPath = needsIndependentRecognition
+                            ? Path.Combine(
+                                GetMapDirectory(map.Id),
+                                GetFloorRecognitionFileName(floor.Key))
+                            : GetFloorRecognitionPath(map, floor.Key);
                         var overlayPath = GetFloorOverlayPath(map, floor.Key);
                         if (!File.Exists(sourcePath))
                             continue;
@@ -452,7 +427,7 @@ public sealed partial class MapRepository
                             floor.RecognitionFileLength,
                             floor.RecognitionLastWriteUtcTicks,
                             floor.ImageSha256,
-                            UsesWholeSourceImage(profile));
+                            requiresFile: needsIndependentRecognition);
                         recognitionMatches &= string.Equals(
                             floor.RecognitionSourceSha256,
                             floor.ImageSha256,
@@ -479,13 +454,15 @@ public sealed partial class MapRepository
                                 sourcePath,
                                 recognitionPath,
                                 profile,
-                                overlayPath);
+                                overlayPath,
+                                removeBackground);
                             PopulateDerivedImageMetadataAsync(
                                 floor,
                                 sourcePath,
                                 recognitionPath,
                                 overlayPath,
-                                profile).GetAwaiter().GetResult();
+                                profile,
+                                forceRecognitionPath: needsIndependentRecognition).GetAwaiter().GetResult();
                             changed = true;
                         }
 
@@ -660,3 +637,10 @@ public sealed partial class MapRepository
             throw new InvalidOperationException("请先完成第一张图片的大门和侧门标记。");
     }
 }
+/*
+ * 文件职责：MapRepository.Assets。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

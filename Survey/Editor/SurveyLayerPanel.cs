@@ -13,6 +13,11 @@ internal sealed class SurveyLayerSelectionEventArgs : EventArgs
     public Guid? PrimaryLayerId { get; init; }
 }
 
+internal sealed class SurveyLayerIsolationChangedEventArgs : EventArgs
+{
+    public Guid? LayerId { get; init; }
+}
+
 internal sealed class SurveyLayerPanel : Grid, IDisposable
 {
     private static readonly Color Panel = Color.FromArgb(255, 18, 27, 39);
@@ -31,6 +36,7 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
     private readonly HashSet<Guid> _selectedLayerIds = [];
     private Guid? _primaryLayerId;
     private Guid? _rangeAnchorLayerId;
+    private Guid? _isolatedLayerId;
     private bool _updating;
     private int _rebuildGeneration;
     private bool _keepAspectRatio = true;
@@ -79,19 +85,49 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
     }
 
     public event EventHandler<SurveyLayerSelectionEventArgs>? SelectionChanged;
+    public event EventHandler<SurveyLayerIsolationChangedEventArgs>? IsolationChanged;
     public IReadOnlyCollection<Guid> SelectedLayerIds => _selectedLayerIds;
     public Guid? PrimaryLayerId => _primaryLayerId;
+    public Guid? IsolatedLayerId => _isolatedLayerId;
 
     public void SetFloor(string floorKey)
     {
         if (!string.Equals(_floorKey, floorKey, StringComparison.OrdinalIgnoreCase))
         {
+            SetIsolatedLayer(null);
             _selectedLayerIds.Clear();
             _primaryLayerId = null;
             _rangeAnchorLayerId = null;
         }
         _floorKey = floorKey;
         Rebuild();
+    }
+
+    private void SetIsolatedLayer(Guid? layerId)
+    {
+        if (_isolatedLayerId == layerId)
+            return;
+        _isolatedLayerId = layerId;
+        IsolationChanged?.Invoke(this, new SurveyLayerIsolationChangedEventArgs { LayerId = layerId });
+        if (!_disposed)
+            Rebuild();
+    }
+
+    private async Task CycleVisibilityAsync(SurveyMapLayer layer)
+    {
+        if (_isolatedLayerId == layer.LayerId)
+        {
+            SetIsolatedLayer(null);
+            return;
+        }
+        if (!layer.IsVisible)
+        {
+            await _session.EditAsync(layer.LayerId, state => state with { IsVisible = true });
+            if (_session.Snapshot?.Layers.FirstOrDefault(item => item.LayerId == layer.LayerId)?.IsVisible == true)
+                SetIsolatedLayer(layer.LayerId);
+            return;
+        }
+        await _session.EditAsync(layer.LayerId, state => state with { IsVisible = false });
     }
 
     public void SelectLayer(Guid? layerId)
@@ -124,6 +160,9 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
                 .Where(item => item.FloorId == floor.FloorId && !item.IsDeleted)
                 .OrderByDescending(item => item.ZOrder)
                 .ToArray();
+        if (_isolatedLayerId is { } isolated
+            && layers.FirstOrDefault(item => item.LayerId == isolated) is not { IsVisible: true })
+            SetIsolatedLayer(null);
         var observations = snapshot.Observations.ToDictionary(item => item.ObservationId);
         var validThumbnailKeys = layers
             .Where(layer => observations.ContainsKey(layer.ObservationId))
@@ -199,9 +238,18 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var visible = SmallButton(layer.IsVisible ? "●" : "○", "显示或隐藏图层");
-        visible.Click += async (_, _) =>
-            await _session.EditAsync(layer.LayerId, state => state with { IsVisible = !state.IsVisible });
+        var isIsolated = _isolatedLayerId == layer.LayerId;
+        var isDimmedByIsolation = _isolatedLayerId is not null
+            && !isIsolated
+            && layer.IsVisible;
+        var visible = SmallButton(
+            isIsolated ? "\uD83D\uDC41" : layer.IsVisible ? "●" : "○",
+            isIsolated
+                ? "退出独显，恢复其他图层的原有显示状态"
+                : layer.IsVisible
+                    ? "隐藏图层（持久状态）"
+                    : "恢复可见并独显当前图层");
+        visible.Click += async (_, _) => await CycleVisibilityAsync(layer);
         root.Children.Add(visible);
 
         var thumbnail = new Image
@@ -209,7 +257,7 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
             Width = 50,
             Height = 38,
             Stretch = Stretch.UniformToFill,
-            Opacity = layer.IsVisible ? 1d : 0.45d
+            Opacity = isDimmedByIsolation ? 0.38d : layer.IsVisible ? 1d : 0.45d
         };
         if (observation is not null)
         {
@@ -237,7 +285,7 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
         });
         info.Children.Add(new TextBlock
         {
-            Text = LayerStatusText(layer, observation),
+            Text = LayerStatusText(layer, observation, isDimmedByIsolation),
             FontSize = 11,
             Foreground = new SolidColorBrush(StatusColor(observation))
         });
@@ -253,7 +301,11 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
         actions.Children.Add(down);
         var remove = SmallButton("×", "删除图层（可撤销）");
         remove.Click += async (_, _) =>
+        {
+            if (_isolatedLayerId == layer.LayerId)
+                SetIsolatedLayer(null);
             await _session.EditAsync(layer.LayerId, state => state with { IsDeleted = true });
+        };
         actions.Children.Add(remove);
         Grid.SetColumn(actions, 3);
         root.Children.Add(actions);
@@ -385,9 +437,17 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
                 state => state with { Opacity = value / 100d })));
 
         var switches = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
-        var visible = new CheckBox { Content = "可见", IsChecked = layer.IsVisible };
+        var visible = new CheckBox { Content = "可见（持久状态）", IsChecked = layer.IsVisible };
         visible.Click += async (_, _) =>
-            await _session.EditManyAsync(_selectedLayerIds, state => state with { IsVisible = visible.IsChecked == true });
+        {
+            if (visible.IsChecked != true
+                && _isolatedLayerId is { } isolated
+                && _selectedLayerIds.Contains(isolated))
+                SetIsolatedLayer(null);
+            await _session.EditManyAsync(
+                _selectedLayerIds,
+                state => state with { IsVisible = visible.IsChecked == true });
+        };
         switches.Children.Add(visible);
         var locked = new CheckBox { Content = "锁定", IsChecked = layer.IsLocked };
         locked.Click += async (_, _) =>
@@ -563,13 +623,17 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
         return button;
     }
 
-    private static string LayerStatusText(SurveyMapLayer layer, SurveyObservation? observation)
+    private static string LayerStatusText(
+        SurveyMapLayer layer,
+        SurveyObservation? observation,
+        bool dimmedByIsolation)
     {
         var alignment = observation?.State == SurveyObservationState.Registered ? "已对齐" : "未对齐";
         var transform = layer.ManualTransformOverride is null ? "自动" : "手动固定";
         var display = layer.UsesCleanedDisplay ? "已去污" : "原图";
         var masked = layer.HiddenMaskAsset is null ? string.Empty : " · 已遮罩";
-        return $"{alignment} · {transform} · {display}{masked} · {layer.Opacity:P0}";
+        var isolation = dimmedByIsolation ? " · 临时独显压暗" : string.Empty;
+        return $"{alignment} · {transform} · {display}{masked} · {layer.Opacity:P0}{isolation}";
     }
 
     private static Color StatusColor(SurveyObservation? observation) =>
@@ -595,6 +659,7 @@ internal sealed class SurveyLayerPanel : Grid, IDisposable
         _primaryLayerId = null;
         _rangeAnchorLayerId = null;
         SelectionChanged = null;
+        IsolationChanged = null;
     }
 
     private static void ClearImageSources(DependencyObject root)

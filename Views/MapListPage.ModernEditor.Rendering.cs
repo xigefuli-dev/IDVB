@@ -48,6 +48,11 @@ public sealed partial class MapListPage : UserControl
                     continue;
                 AddModernRectangle(ToModernSourceBounds(anchor.Bounds), GetAnchorColor(anchor), dashed: false, thickness: 3.5);
             }
+            foreach (var layer in profile.BackgroundLayers)
+            {
+                if (layer.IsValid && IsModernItemVisible("special", ModernBackgroundKey(layer.Id)))
+                    AddModernConcealLayer(layer);
+            }
         }
 
         if (!_modernExportRendering && _modernToolState.PendingMainGate?.IsValid is true)
@@ -84,6 +89,9 @@ public sealed partial class MapListPage : UserControl
                     thickness: 3);
             }
         }
+
+        if (!_modernExportRendering && _modernToolState.ActiveTool == MapEditorTool.Conceal)
+            AddModernConcealPreview();
 
         if (!_modernExportRendering)
             AddModernSelectionAdorner();

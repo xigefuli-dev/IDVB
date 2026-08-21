@@ -13,14 +13,21 @@ public sealed partial class MapStructurePreprocessor
         bool useOrb,
         bool generateVisibleMask = false,
         MapStructurePreprocessingProfile profile =
-            MapStructurePreprocessingProfile.EdgesAndFeatures)
+            MapStructurePreprocessingProfile.EdgesAndFeatures,
+        MapStructureGenerationTuning? generationTuning = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.Empty())
             throw new ArgumentException("结构预处理不能处理空图像。", nameof(source));
 
+        generationTuning = generationTuning?.Clone() ?? new();
+        generationTuning.Normalize();
         timing.Profile = profile;
         timing.DescriptorExtractionSkipped = !profile.IncludesDescriptors();
+        timing.GenerationFingerprint = generationTuning.CacheFingerprint;
+        timing.EdgeComposition = retainDominantStructureCluster
+            ? generationTuning.LiveEdgeComposition
+            : generationTuning.ReferenceEdgeComposition;
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -116,10 +123,14 @@ public sealed partial class MapStructurePreprocessor
             RemoveSmallComponents(structure);
             using var closeKernel = Cv2.GetStructuringElement(
                 MorphShapes.Rect,
-                new Size(5, 5));
+                new Size(
+                    generationTuning.StructureCloseKernelSize,
+                    generationTuning.StructureCloseKernelSize));
             using var openKernel = Cv2.GetStructuringElement(
                 MorphShapes.Rect,
-                new Size(3, 3));
+                new Size(
+                    generationTuning.StructureOpenKernelSize,
+                    generationTuning.StructureOpenKernelSize));
             Cv2.MorphologyEx(structure, structure, MorphTypes.Close, closeKernel);
             Cv2.MorphologyEx(structure, structure, MorphTypes.Open, openKernel);
             var border = Math.Max(
@@ -135,24 +146,65 @@ public sealed partial class MapStructurePreprocessor
                 Scalar.Black,
                 border);
             if (retainDominantStructureCluster)
-                RetainDominantStructureCluster(structure, timing);
+                RetainDominantStructureCluster(
+                    structure,
+                    timing,
+                    generationTuning);
             timing.StructureMs = stopwatch.Elapsed.TotalMilliseconds;
 
             stopwatch.Restart();
             using var canny = new Mat();
             using var gradient = new Mat();
             using var expandedStructure = new Mat();
-            Cv2.Canny(blurred, canny, 35d, 110d);
+            Cv2.Canny(
+                blurred,
+                canny,
+                generationTuning.CannyLowThreshold,
+                generationTuning.CannyHighThreshold);
             Cv2.MorphologyEx(structure, gradient, MorphTypes.Gradient, openKernel);
             Cv2.Dilate(structure, expandedStructure, openKernel, iterations: 1);
             Cv2.BitwiseAnd(canny, expandedStructure, canny);
             Cv2.BitwiseAnd(canny, ~nuisance, canny);
             var edges = new Mat();
-            if (retainDominantStructureCluster)
+            var edgeComposition = retainDominantStructureCluster
+                ? generationTuning.LiveEdgeComposition
+                : generationTuning.ReferenceEdgeComposition;
+            if (retainDominantStructureCluster
+                && edgeComposition == MapStructureEdgeComposition.GradientAndCanny
+                && generationTuning.LiveGradientSupportRadiusPixels > 0)
+            {
+                using var gradientSupport = new Mat();
+                var supportDiameter =
+                    (generationTuning.LiveGradientSupportRadiusPixels * 2) + 1;
+                using var supportKernel = Cv2.GetStructuringElement(
+                    MorphShapes.Ellipse,
+                    new Size(supportDiameter, supportDiameter));
+                Cv2.Dilate(canny, gradientSupport, supportKernel);
+                Cv2.BitwiseAnd(gradient, gradientSupport, gradient);
+            }
+            if (edgeComposition == MapStructureEdgeComposition.CannyOnly)
                 canny.CopyTo(edges);
             else
                 Cv2.BitwiseOr(gradient, canny, edges);
-            RemoveSmallComponents(edges, edgeMode: true);
+            if (generationTuning.EdgeClosingIterations > 0)
+            {
+                using var edgeCloseKernel = Cv2.GetStructuringElement(
+                    MorphShapes.Rect,
+                    new Size(
+                        generationTuning.EdgeClosingKernelSize,
+                        generationTuning.EdgeClosingKernelSize));
+                Cv2.MorphologyEx(
+                    edges,
+                    edges,
+                    MorphTypes.Close,
+                    edgeCloseKernel,
+                    iterations: generationTuning.EdgeClosingIterations);
+            }
+            timing.EdgeComponentCount = RemoveSmallComponents(
+                edges,
+                edgeMode: true,
+                minimumEdgeComponentArea:
+                    generationTuning.MinimumEdgeComponentAreaPixels);
             timing.EdgesMs = stopwatch.Elapsed.TotalMilliseconds;
 
             Cv2.Rectangle(
@@ -165,6 +217,7 @@ public sealed partial class MapStructurePreprocessor
                 new Rect(0, 0, edges.Width, edges.Height),
                 Scalar.Black,
                 border);
+            timing.EdgePixelCount = Cv2.CountNonZero(edges);
 
             var descriptors = new Mat();
             KeyPoint[] keyPoints = [];
@@ -281,3 +334,10 @@ public sealed partial class MapStructurePreprocessor
     }
 
 }
+/*
+ * 文件职责：MapStructurePreprocessor.Processing。
+ * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

@@ -675,26 +675,21 @@ public sealed partial class MapListPage : UserControl
         await _repository.RenameClassAsync(oldName, newName);
     }
 
-    private async Task BatchRenameAllMapsToDefaultNamesAsync()
+    private async Task ReorderCurrentClassAsync()
     {
         var confirm = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "批量重命名",
-            Content = "将所有地图名称重置为默认顺序（每个 Class 独立编号）？此操作不可撤销。",
-            PrimaryButtonText = "确认重命名",
+            Title = "重新排序当前 Class",
+            Content = $"将“{_selectedClass}”中的每个变体组合优先归拢为连续块，并按稳定顺序重新编号。此操作会清除当前 Class 的自定义地图名称，但不会改变地图 Guid、资产或缓存键。\n\n迁移备份保存在：\n{_repository.VariantMigrationBackupRoot}",
+            PrimaryButtonText = "确认重新排序",
             CloseButtonText = "取消"
         };
 
         if (await confirm.ShowAsync() != ContentDialogResult.Primary)
             return;
 
-        await RenameAllMapsToDefaultNamesAsync();
+        await _repository.ReorderClassAsync(_selectedClass);
         await ShowListAsync();
-    }
-
-    private async Task RenameAllMapsToDefaultNamesAsync()
-    {
-        await _repository.BatchRenameAllMapsToDefaultNamesAsync();
     }
 }

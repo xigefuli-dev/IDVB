@@ -1,4 +1,5 @@
 using OpenCvSharp;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -318,12 +319,16 @@ public sealed partial class SideEntranceScanPipeline
         if (capturedFrame.Empty() || candidates.Count == 0)
             return [];
 
+        using var grayscale = MapOperationTraceAmbient.StartChild(
+            "side_scan_grayscale",
+            MapOperationWaitKind.Compute);
         // 将捕获帧转为灰度，供模板匹配使用
         using var grayFrame = new Mat();
         if (capturedFrame.Channels() == 1)
             capturedFrame.CopyTo(grayFrame);
         else
             Cv2.CvtColor(capturedFrame, grayFrame, ColorConversionCodes.BGR2GRAY);
+        grayscale.Complete();
 
         // Remove the detected common gate glyph from the live image, matching
         // the persisted v2 feature preprocessing. This prevents one shared UI
@@ -402,6 +407,9 @@ public sealed partial class SideEntranceScanPipeline
         // 并行度受 TOML 约束，避免与 OpenCV 内部线程过订阅。
         var coarseResults = new CoarseResult?[valid.Count];
         var coarseCompleted = 0;
+        using var coarseSearch = MapOperationTraceAmbient.StartChild(
+            "side_map_coarse_search",
+            MapOperationWaitKind.Compute);
         Parallel.For(
             0,
             valid.Count,
@@ -409,6 +417,12 @@ public sealed partial class SideEntranceScanPipeline
             i =>
             {
                 var (map, floorKey, template) = valid[i];
+                using var mapCoarse = MapOperationTraceAmbient.StartChild(
+                    "map_coarse_search",
+                    MapOperationWaitKind.Compute,
+                    mapId: map.Id.ToString("D"),
+                    floorKey: floorKey,
+                    attemptIndex: i);
                 var peak = FindCoarsePeak(
                     coarseFrame, template, coarseFactor,
                     $"{map.SequenceNumber}#{floorKey}");
@@ -417,6 +431,7 @@ public sealed partial class SideEntranceScanPipeline
                     : null;
                 progress?.Invoke(0.7d * Interlocked.Increment(ref coarseCompleted) / valid.Count);
             });
+        coarseSearch.Complete();
 
         // 阶段2：仅应用粗分绝对下限；准确优先模式不按排名截断召回。
         var pruneThreshold = SideEntranceScanRules.CoarseScorePruneThreshold;
@@ -430,6 +445,9 @@ public sealed partial class SideEntranceScanPipeline
         // 阶段3：并行精化（仅入选地图，全分辨率窗口）。
         var refined = new SideEntranceScanCandidate?[toRefine.Count];
         var refineCompleted = 0;
+        using var refinement = MapOperationTraceAmbient.StartChild(
+            "side_map_refinement",
+            MapOperationWaitKind.Compute);
         Parallel.For(
             0,
             toRefine.Count,
@@ -437,6 +455,12 @@ public sealed partial class SideEntranceScanPipeline
             i =>
             {
                 var item = toRefine[i];
+                using var mapRefinement = MapOperationTraceAmbient.StartChild(
+                    "map_refinement",
+                    MapOperationWaitKind.Compute,
+                    mapId: item.Map.Id.ToString("D"),
+                    floorKey: item.FloorKey,
+                    attemptIndex: i);
                 var best = Refine(
                     gateConstrainedFrame,
                     item.Template,
@@ -453,6 +477,7 @@ public sealed partial class SideEntranceScanPipeline
                 refined[i] = best;
                 progress?.Invoke(0.7d + 0.3d * Interlocked.Increment(ref refineCompleted) / Math.Max(1, toRefine.Count));
             });
+        refinement.Complete();
 
         var results = refined.Where(r => r is not null).Select(r => r!).ToList();
         if (searchBounds.X != 0 || searchBounds.Y != 0)
@@ -469,6 +494,9 @@ public sealed partial class SideEntranceScanPipeline
 
         // 模板分数只负责提出线索。绝对分、分离度、门空间关系和缩放
         // 边界均是硬性证据检查；不合格项不得拿来填满 Top-K。
+        using var finalRanking = MapOperationTraceAmbient.StartChild(
+            "side_candidate_final_ranking",
+            MapOperationWaitKind.Compute);
         results.Sort((a, b) => b.MatchScore.CompareTo(a.MatchScore));
         for (var index = 0; index < results.Count; index++)
         {
@@ -763,3 +791,10 @@ public sealed partial class SideEntranceScanPipeline
         };
     }
 }
+/*
+ * 文件职责：SideEntranceScanPipeline。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

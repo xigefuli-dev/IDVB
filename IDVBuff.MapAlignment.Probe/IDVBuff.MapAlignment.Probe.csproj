@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Pipeline\MapOperationTrace.cs" Link="Production\Pipeline\MapOperationTrace.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.cs" Link="Production\MapSessionModels.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.Coordinates.cs" Link="Production\MapSessionModels.Coordinates.cs" />
@@ -67,8 +68,12 @@
     <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Assets.cs" Link="Production\MapRepository.Assets.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Variants.cs" Link="Production\MapRepository.Variants.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.VariantBackup.cs" Link="Production\MapRepository.VariantBackup.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.ClassProperties.cs" Link="Production\MapRepository.ClassProperties.cs" />
     <Compile Include="..\Features\Maps\MapRepository.FloorBindings.cs" Link="Production\MapRepository.FloorBindings.cs" />
     <Compile Include="..\Features\Maps\MapRepository.SideEntrance.cs" Link="Production\MapRepository.SideEntrance.cs" />
+    <Compile Include="..\Features\Maps\MapBackgroundProcessor.cs" Link="Production\MapBackgroundProcessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceFeaturePreprocessor.cs" Link="Production\SideEntranceFeaturePreprocessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.cs" Link="Production\SideEntranceScanPipeline.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Evidence.cs" Link="Production\SideEntranceScanPipeline.Evidence.cs" />
@@ -90,6 +95,9 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Processing.cs" Link="Production\MapStructurePreprocessor.Processing.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Features.cs" Link="Production\MapStructurePreprocessor.Features.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.cs" Link="Production\MapStructureRegistrar.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.FastPath.cs" Link="Production\MapStructureRegistrar.FastPath.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.Logging.cs" Link="Production\MapStructureRegistrar.Logging.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ConfidenceLog.cs" Link="Production\MapStructureRegistrar.ConfidenceLog.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureQueryGeometry.cs" Link="Production\MapStructureQueryGeometry.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.cs" Link="Production\MapStructureScaleSearch.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
@@ -101,6 +109,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRefiner.cs" Link="Production\MapStructureRefiner.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureDebugOutput.cs" Link="Production\MapStructureDebugOutput.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
+    <Compile Include="..\Features\Maps\StructureFilling\MapStructureFiller.cs" Link="Production\MapStructureFiller.cs" />
     <Compile Include="..\Features\Maps\MapLogModels.cs" Link="Production\MapLogModels.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.cs" Link="Production\MapLogCollector.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.Flush.cs" Link="Production\MapLogCollector.Flush.cs" />

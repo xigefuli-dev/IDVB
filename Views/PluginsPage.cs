@@ -10,27 +10,52 @@ namespace IDVBuff.Views;
 
 /// <summary>
 /// 插件管理页：列出宿主已注册的插件卡片（名称 / Id / 版本 / 描述 / 订阅消息）。
+/// 卡片右上角「···」按钮打开该插件的设置页——由 TTM 统一管理的 TeachingTip。
 /// </summary>
 public sealed class PluginsPage : Page
 {
     private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
     private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
 
+    /// <summary>root Grid，同时是 TTM 的 tip 宿主（overlay 槽）。</summary>
+    private Panel? _tipHost;
+
     public PluginsPage()
     {
         Content = CreateContent();
+        Loaded += PluginsPage_Loaded;
+        Unloaded += PluginsPage_Unloaded;
+    }
+
+    private void PluginsPage_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_tipHost is not null)
+            App.TeachingTips?.Attach(_tipHost);
+    }
+
+    private void PluginsPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        // 页面离开导航树前摘除并关闭 tip，避免悬垂的 TeachingTip 引用本页元素。
+        App.TeachingTips?.Close();
     }
 
     private FrameworkElement CreateContent()
     {
-        var root = new StackPanel
+        // root 是 Grid：child[0] 为页面内容，TTM 把 TeachingTip 加为最后一个
+        // child（同 MapListPage 的导入提示先例），作 overlay 使用。
+        var root = new Grid();
+        _tipHost = root;
+
+        var content = new StackPanel
         {
             Margin = new Thickness(40, 36, 40, 64),
             Spacing = 24,
             MaxWidth = 1040,
             HorizontalAlignment = HorizontalAlignment.Left
         };
-        root.Children.Add(new StackPanel
+        root.Children.Add(content);
+
+        content.Children.Add(new StackPanel
         {
             Spacing = 8,
             Children =
@@ -55,7 +80,7 @@ public sealed class PluginsPage : Page
         var plugins = manager?.Plugins ?? [];
         if (plugins.Count == 0)
         {
-            root.Children.Add(new TextBlock
+            content.Children.Add(new TextBlock
             {
                 Text = "尚未注册任何插件。",
                 FontSize = 14,
@@ -64,7 +89,7 @@ public sealed class PluginsPage : Page
             return root;
         }
 
-        root.Children.Add(new TextBlock
+        content.Children.Add(new TextBlock
         {
             Text = $"{plugins.Count} 个插件",
             FontSize = 14,
@@ -87,7 +112,7 @@ public sealed class PluginsPage : Page
             Grid.SetRow(card, index / 2);
             cards.Children.Add(card);
         }
-        root.Children.Add(cards);
+        content.Children.Add(cards);
         return root;
     }
 
@@ -97,6 +122,7 @@ public sealed class PluginsPage : Page
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var iconSurface = new Border
@@ -201,6 +227,10 @@ public sealed class PluginsPage : Page
                 return;
             try
             {
+                // 关闭插件前先关掉它的设置页，避免 TTM 继续引用已停用插件。
+                // 用 Dismiss（不置空 _host）：页面仍存活，Close 会令其余设置按钮失效。
+                if (!toggle.IsOn && App.TeachingTips?.IsShowing(plugin.Id) == true)
+                    App.TeachingTips?.Dismiss();
                 manager.SetEnabled(plugin.Id, toggle.IsOn);
             }
             catch
@@ -213,10 +243,31 @@ public sealed class PluginsPage : Page
         Grid.SetColumn(toggle, 2);
         grid.Children.Add(toggle);
 
+        // 右上角「···」设置按钮：仅当插件声明了设置描述符时出现。
+        if (plugin is IPluginSettingsProvider)
+        {
+            var settingsButton = new Button
+            {
+                Content = new FontIcon { Glyph = "", FontSize = 14 },
+                Padding = new Thickness(8),
+                CornerRadius = new CornerRadius(4),
+                Background = FluentTheme.Brush("SubtleFillColorSecondaryBrush"),
+                BorderThickness = new Thickness(0),
+                Margin = new Thickness(14, -6, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+            ToolTipService.SetToolTip(settingsButton, "插件设置");
+            settingsButton.Click += (_, _) =>
+                App.TeachingTips?.ShowSettings(plugin, settingsButton);
+            Grid.SetColumn(settingsButton, 3);
+            grid.Children.Add(settingsButton);
+        }
+
         return new Border
         {
             Padding = new Thickness(20),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),

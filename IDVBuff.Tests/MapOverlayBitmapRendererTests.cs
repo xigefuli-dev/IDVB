@@ -311,6 +311,33 @@ public sealed class MapOverlayBitmapRendererTests
     }
 
     [Fact]
+    public void ScaledImageCache_ReplacesPriorSizeForSameImageAndDpi()
+    {
+        var imagePath = CreateSolidImage(Color.Red, 40, 20);
+        MapOverlayBitmapRenderer.InvalidateImageCache();
+        try
+        {
+            _ = MapOverlayBitmapRenderer.GetOrLoadScaledMapImage(
+                imagePath,
+                40,
+                20,
+                DisplayTestMatrix.Baseline.Dpi);
+            _ = MapOverlayBitmapRenderer.GetOrLoadScaledMapImage(
+                imagePath,
+                41,
+                21,
+                DisplayTestMatrix.Baseline.Dpi);
+
+            Assert.Equal(1, MapOverlayBitmapRenderer.ScaledImageCacheCount);
+        }
+        finally
+        {
+            MapOverlayBitmapRenderer.InvalidateImageCache();
+            File.Delete(imagePath);
+        }
+    }
+
+    [Fact]
     public void Render_LineUsesArbitraryRgbAndLargeMapVisibility()
     {
         var imagePath = CreateSolidImage(Color.Transparent, 100, 100);

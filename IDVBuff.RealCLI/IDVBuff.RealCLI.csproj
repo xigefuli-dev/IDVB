@@ -13,6 +13,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- 与主项目 IDVBuff.csproj 一致：自包含打包 WindowsAppSDK 运行时，
+         使 RealCLI 可独立运行，无需机器上单独安装 Windows App Runtime。 -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
   <!-- 引用真实 IDVB 程序集（Core/Infrastructure/Pipeline）
@@ -32,12 +35,16 @@
     <ProjectReference Include="..\Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
     <ProjectReference Include="..\Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
     <ProjectReference Include="..\Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
+    <!-- MapGlobalInputService 使用 PluginHostMessages.InputInjectionMarkers 区分
+         宿主生成的注入输入；RealCLI 链接 Features/Maps 源码，必须能解析该命名空间。 -->
+    <ProjectReference Include="..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
   </ItemGroup>
 
   <!-- 链接主项目源码：Features 全部（纯 Win32 窗口，无 XAML）+ 根目录必要文件 -->
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
     <Compile Include="..\ServiceCollectionExtensions.cs" Link="Production\ServiceCollectionExtensions.cs" />
+    <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\Cli\RealCliCandidateSelector.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
     <Compile Include="..\Features\Maps\**\*.cs" Link="Production\Features\Maps\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>

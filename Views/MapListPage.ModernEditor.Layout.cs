@@ -187,6 +187,7 @@ public sealed partial class MapListPage : UserControl
         special.Children.Add(CreateModernToolButton(MapEditorTool.Gate, "\uE839", "门特征"));
         special.Children.Add(CreateModernToolButton(MapEditorTool.Crop, "\uE7A8", "裁剪"));
         special.Children.Add(CreateModernToolButton(MapEditorTool.Anchor, "\uE707", "锚点"));
+        special.Children.Add(CreateModernToolButton(MapEditorTool.Conceal, "\uE74A", "遮瑕"));
         special.Children.Add(CreateModernColorButton());
         rail.Children.Add(CreateToolGroup(special));
 

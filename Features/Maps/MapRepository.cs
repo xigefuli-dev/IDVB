@@ -12,7 +12,7 @@ public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Le
 /// </summary>
 public sealed partial class MapRepository
 {
-    private const int CurrentStorageSchemaVersion = 14;
+    private const int CurrentStorageSchemaVersion = 16;
     private const string FloorOneRecognitionFileName = "floor-1-recognition.png";
     private const string FloorTwoRecognitionFileName = "floor-2-recognition.png";
     private const string FloorOneOverlayFileName = "floor-1-overlay.png";
@@ -101,6 +101,7 @@ public sealed partial class MapRepository
                     SortOrder = f.SortOrder
                 }).ToList(),
                 Class = record.Class,
+                ClassProperties = GetClassProperties(catalog, record.Class),
                 Title = record.Title,
                 ContentVersion = record.ContentVersion,
                 Source = record.Source,
@@ -164,9 +165,16 @@ public sealed partial class MapRepository
 
             // A draft can only be saved into an existing canonical class.
             var requestedClass = NormalizeClassName(draft.Class) ?? "S1";
-            record.Class = catalog.Classes.SingleOrDefault(candidate => string.Equals(
+            var targetClass = catalog.Classes.SingleOrDefault(candidate => string.Equals(
                 candidate, requestedClass, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("所选 Class 已不存在，请返回列表后重试。");
+            if (existing is not null
+                && !string.Equals(existing.Class, targetClass, StringComparison.OrdinalIgnoreCase)
+                && catalog.VariantGroups.Any(group => group.MapIds.Contains(existing.Id)))
+            {
+                throw new InvalidOperationException("已绑定变体的地图不能移动到其他 Class，请先解绑变体组合。");
+            }
+            record.Class = targetClass;
             if (draft.Floors.Count > 0)
                 record.Floors = draft.Floors
                     .OrderBy(floor => floor.SortOrder)
@@ -251,22 +259,40 @@ public sealed partial class MapRepository
                     out var surveyStructurePath)
                     && IsSupportedImage(surveyStructurePath)
                     && File.Exists(surveyStructurePath);
+                var removeBackground = draft.RemoveBackgroundOverride
+                    ?? GetClassProperties(catalog, record.Class).RemoveBackground;
+                var needsIndependentRecognition = removeBackground
+                    || profile.BackgroundLayers.Count > 0
+                    || !UsesWholeSourceImage(profile);
                 if (hasSurveyStructure)
                 {
-                    await CopyRecognitionSourceAsync(surveyStructurePath!, recognitionPath);
-                    using var recognitionImage = Cv2.ImRead(recognitionPath, ImreadModes.Unchanged);
-                    if (recognitionImage.Empty())
+                    using var surveyImage = Cv2.ImRead(surveyStructurePath!, ImreadModes.Unchanged);
+                    if (surveyImage.Empty())
                         throw new InvalidOperationException("测绘识别结构无法解码。");
-                    profile.RecognitionPixelWidth = recognitionImage.Width;
-                    profile.RecognitionPixelHeight = recognitionImage.Height;
+                    using var processed = MapBackgroundProcessor.Process(
+                        surveyImage,
+                        profile,
+                        removeBackground);
+                    if (!needsIndependentRecognition && UsesWholeSourceImage(profile))
+                        await CopyRecognitionSourceAsync(surveyStructurePath!, recognitionPath);
+                    else if (!Cv2.ImWrite(recognitionPath, processed.Recognition))
+                        throw new InvalidOperationException("无法保存测绘识别图。");
+                    if (!Cv2.ImWrite(overlayPath, processed.Overlay))
+                        throw new InvalidOperationException("无法保存测绘透明叠加图。");
+                    profile.RecognitionPixelWidth = processed.Recognition.Width;
+                    profile.RecognitionPixelHeight = processed.Recognition.Height;
                     profile.ValidMapBounds ??= MapReferenceBounds.FullImage(
-                        recognitionImage.Width,
-                        recognitionImage.Height);
-                    CreateWhiteKeyOverlay(recognitionImage, overlayPath);
+                        processed.Recognition.Width,
+                        processed.Recognition.Height);
                 }
                 else
                 {
-                    CreateRecognitionAssets(sourcePath, recognitionPath, profile, overlayPath);
+                    CreateRecognitionAssets(
+                        sourcePath,
+                        recognitionPath,
+                        profile,
+                        overlayPath,
+                        removeBackground);
                 }
                 await PopulateDerivedImageMetadataAsync(
                     floor,
@@ -274,7 +300,7 @@ public sealed partial class MapRepository
                     recognitionPath,
                     overlayPath,
                     profile,
-                    forceRecognitionPath: hasSurveyStructure);
+                    forceRecognitionPath: hasSurveyStructure || needsIndependentRecognition);
 
                 // 侧门特征预处理：若侧门锚点已标注，生成特征图
                 // IDVM 导入时优先复制包内预计算特征；普通编辑时重新生成
@@ -291,9 +317,9 @@ public sealed partial class MapRepository
                         stagingDirectory, profile, sideEntranceFeatureRadius);
                 }
 
-                var recognitionSourcePath = UsesWholeSourceImage(profile)
-                    ? sourcePath
-                    : Path.Combine(stagingDirectory, recognitionFileName);
+                var recognitionSourcePath = needsIndependentRecognition || !UsesWholeSourceImage(profile)
+                    ? Path.Combine(stagingDirectory, recognitionFileName)
+                    : sourcePath;
                 var thumbnailPath = Path.Combine(
                     stagingDirectory,
                     GetFloorThumbnailFileName(key));
@@ -343,7 +369,8 @@ public sealed partial class MapRepository
                             sourcePath,
                             compatibilityRecognitionPath,
                             profile,
-                            compatibilityOverlayPath);
+                            compatibilityOverlayPath,
+                            removeBackground);
                     }
                 }
             }
@@ -410,7 +437,6 @@ public sealed partial class MapRepository
         await input.CopyToAsync(output);
         await output.FlushAsync();
     }
-
     public async Task DeleteAsync(Guid id)
     {
         await Gate.WaitAsync();
@@ -428,10 +454,9 @@ public sealed partial class MapRepository
                     Directory.Delete(stagedDeletion, recursive: true);
                 Directory.Move(directory, stagedDeletion);
             }
-
             catalog.Maps.Remove(record);
+            RemoveMapFromVariantGroups(catalog, record.Id);
             await WriteCatalogAsync(catalog);
-
             if (stagedDeletion is not null && Directory.Exists(stagedDeletion))
                 Directory.Delete(stagedDeletion, recursive: true);
         }
@@ -450,7 +475,6 @@ public sealed partial class MapRepository
             Gate.Release();
         }
     }
-
     public string GetFloorOnePath(MapRecord record)
     {
         var firstFloor = MapFloorRules.GetOrderedFloors(record).FirstOrDefault();
@@ -458,7 +482,6 @@ public sealed partial class MapRepository
             ? GetSafeMapFilePath(GetMapDirectory(record.Id), firstFloor.ImageFileName)
             : GetStoredFloorImagePath(record.Id, record.FloorOneFileName, "floor-1");
     }
-
     public string GetFloorTwoPath(MapRecord record)
     {
         var secondFloor = MapFloorRules.GetOrderedFloors(record).Skip(1).FirstOrDefault();
@@ -466,25 +489,21 @@ public sealed partial class MapRepository
             ? GetSafeMapFilePath(GetMapDirectory(record.Id), secondFloor.ImageFileName)
             : GetStoredFloorImagePath(record.Id, record.FloorTwoFileName, "floor-2");
     }
-
     public string GetFloorOneRecognitionPath(MapRecord record) =>
         GetFloorRecognitionPath(
             record,
             MapFloorRules.GetOrderedFloors(record).FirstOrDefault()?.Key
-                ?? record.Recognition.FirstFloor.FloorKey);
-
+                 ?? record.Recognition.FirstFloor.FloorKey);
     public string GetFloorTwoRecognitionPath(MapRecord record) =>
         GetFloorRecognitionPath(
             record,
             MapFloorRules.GetOrderedFloors(record).Skip(1).FirstOrDefault()?.Key
-                ?? record.Recognition.SecondFloor.FloorKey);
-
+                 ?? record.Recognition.SecondFloor.FloorKey);
     public string GetFloorOneOverlayPath(MapRecord record) =>
         GetFloorOverlayPath(
             record,
             MapFloorRules.GetOrderedFloors(record).FirstOrDefault()?.Key
-                ?? record.Recognition.FirstFloor.FloorKey);
-
+                 ?? record.Recognition.FirstFloor.FloorKey);
     public string GetFloorTwoOverlayPath(MapRecord record) =>
         GetFloorOverlayPath(
             record,
@@ -492,7 +511,6 @@ public sealed partial class MapRepository
                 ?? record.Recognition.SecondFloor.FloorKey);
 
     // ── V6: floor-key-based path helpers ──────────────────────────
-
     public string GetFloorImagePath(MapRecord record, string floorKey)
     {
         var floor = record.Floors.FirstOrDefault(f => f.Key == floorKey);
@@ -519,7 +537,16 @@ public sealed partial class MapRepository
             return new MapCatalogSnapshot(
                 catalog.Classes.ToArray(),
                 catalog.Maps.OrderBy(record => record.SequenceNumber)
-                    .Select(record => record.Clone()).ToArray());
+                    .Select(record => record.Clone()).ToArray())
+            {
+                ClassProperties = catalog.ClassProperties.ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.Clone(),
+                    StringComparer.OrdinalIgnoreCase),
+                VariantGroups = catalog.VariantGroups
+                    .Select(group => group.Clone())
+                    .ToArray()
+            };
         }
         finally
         {
@@ -555,6 +582,7 @@ public sealed partial class MapRepository
                     candidate, requestedName, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("已存在同名 Class。");
             catalog.Classes.Add(requestedName);
+            catalog.ClassProperties[requestedName] = new MapClassProperties();
             await WriteCatalogAsync(catalog);
             return requestedName;
         }
@@ -581,6 +609,7 @@ public sealed partial class MapRepository
             var uniqueName = BuildUniqueImportedClassName(requestedName, catalog.Classes);
             beforeCommit?.Invoke(uniqueName);
             catalog.Classes.Add(uniqueName);
+            catalog.ClassProperties[uniqueName] = new MapClassProperties();
             await WriteCatalogAsync(catalog);
             return uniqueName;
         }
@@ -618,7 +647,12 @@ public sealed partial class MapRepository
             }
 
             catalog.Maps.RemoveAll(map => mapsToDelete.Any(candidate => candidate.Id == map.Id));
+            catalog.VariantGroups.RemoveAll(group => string.Equals(
+                group.Class,
+                canonicalName,
+                StringComparison.OrdinalIgnoreCase));
             catalog.Classes.Remove(canonicalName);
+            catalog.ClassProperties.Remove(canonicalName);
             await WriteCatalogAsync(catalog);
             foreach (var (_, staged) in stagedDirectories)
                 if (Directory.Exists(staged)) Directory.Delete(staged, recursive: true);
@@ -629,81 +663,6 @@ public sealed partial class MapRepository
             foreach (var (original, staged) in stagedDirectories.AsEnumerable().Reverse())
                 if (Directory.Exists(staged) && !Directory.Exists(original)) Directory.Move(staged, original);
             throw;
-        }
-        finally
-        {
-            Gate.Release();
-        }
-    }
-
-    /// <summary>
-    /// 一次性批量重命名所有地图默认名称（每个 Class 独立序列号）
-    /// </summary>
-    public async Task BatchRenameAllMapsToDefaultNamesAsync()
-    {
-        await Gate.WaitAsync();
-        try
-        {
-            var catalog = await ReadCatalogAsync();
-            var orderedClasses = catalog.Classes.OrderBy(c => c).ToList();
-
-            foreach (var className in orderedClasses)
-            {
-                var mapsInClass = catalog.Maps
-                    .Where(m => string.Equals(m.Class, className, StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(m => m.SequenceNumber)
-                    .ToList();
-
-                for (int i = 0; i < mapsInClass.Count; i++)
-                {
-                    var map = mapsInClass[i];
-                    map.Title = string.Empty;
-                    map.SequenceNumber = i + 1;
-                }
-            }
-
-            await WriteCatalogAsync(catalog);
-        }
-        finally
-        {
-            Gate.Release();
-        }
-    }
-
-    /// <summary>
-    /// 重命名单个 Class
-    /// </summary>
-    public async Task RenameClassAsync(string oldName, string newName)
-    {
-        if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName))
-            throw new ArgumentException("Class 名称不能为空。");
-
-        var normalizedNew = NormalizeClassName(newName) ?? throw new InvalidOperationException("无效的 Class 名称。");
-
-        await Gate.WaitAsync();
-        try
-        {
-            var catalog = await ReadCatalogAsync();
-
-            var canonicalOld = catalog.Classes.SingleOrDefault(c => string.Equals(c, oldName, StringComparison.OrdinalIgnoreCase));
-            if (canonicalOld is null)
-                throw new InvalidOperationException($"找不到 Class '{oldName}'。");
-
-            // 检查新名称是否已存在
-            if (catalog.Classes.Any(c => string.Equals(c, normalizedNew, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException($"Class '{normalizedNew}' 已存在。");
-
-            // 更新 Class 名称
-            catalog.Classes.Remove(canonicalOld);
-            catalog.Classes.Add(normalizedNew);
-
-            // 更新所有属于这个 Class 的地图
-            foreach (var map in catalog.Maps.Where(m => string.Equals(m.Class, canonicalOld, StringComparison.OrdinalIgnoreCase)))
-            {
-                map.Class = normalizedNew;
-            }
-
-            await WriteCatalogAsync(catalog);
         }
         finally
         {
@@ -739,7 +698,7 @@ public sealed partial class MapRepository
 
         var profile = record.Recognition.GetFloor(floorKey)
             ?? throw new InvalidOperationException($"地图楼层 '{floorKey}' 缺少识别配置。");
-        return UsesWholeSourceImage(profile)
+        return UsesWholeSourceImage(profile) && profile.BackgroundLayers.Count == 0
             ? GetFloorImagePath(record, floorKey)
             : Path.Combine(GetMapDirectory(record.Id), GetFloorRecognitionFileName(floorKey));
     }
@@ -761,7 +720,6 @@ public sealed partial class MapRepository
             return GetSafeMapFilePath(GetMapDirectory(record.Id), floor.ThumbnailFileName);
         return Path.Combine(GetMapDirectory(record.Id), GetFloorThumbnailFileName(floorKey));
     }
-
     public MapCatalogRevision GetCatalogRevision()
     {
         if (!File.Exists(CatalogPath))
@@ -769,7 +727,6 @@ public sealed partial class MapRepository
         var info = new FileInfo(CatalogPath);
         return new MapCatalogRevision(info.LastWriteTimeUtc.Ticks, info.Length);
     }
-
     public static bool IsSupportedImage(string? path)
     {
         var extension = Path.GetExtension(path ?? string.Empty);

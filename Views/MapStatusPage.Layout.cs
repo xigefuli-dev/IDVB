@@ -10,6 +10,9 @@ namespace IDVBuff.Views;
 
 public sealed partial class MapStatusPage : UserControl
 {
+    private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
+    private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
+
     private FrameworkElement CreatePageFailureView(Exception exception) =>
         new StackPanel
         {
@@ -67,6 +70,12 @@ public sealed partial class MapStatusPage : UserControl
             MinHeight = 700,
             IsTabStop = true
         };
+        // A number of these controls are created in code and otherwise inherit
+        // an implementation-dependent TextBlock color from the default template.
+        // Make the page's unqualified text follow the active light/dark theme.
+        var textStyle = new Style(typeof(TextBlock));
+        textStyle.Setters.Add(new Setter(TextBlock.ForegroundProperty, PrimaryTextBrush));
+        _root.Resources[typeof(TextBlock)] = textStyle;
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -100,6 +109,8 @@ public sealed partial class MapStatusPage : UserControl
         content.Children.Add(_enabledToggle);
         _firstScanStrategyToggle.Toggled += FirstScanStrategy_Toggled;
         content.Children.Add(_firstScanStrategyToggle);
+        _backgroundScanToggle.Toggled += BackgroundScan_Toggled;
+        content.Children.Add(_backgroundScanToggle);
         _presetSelector.SelectionChanged += PresetSelector_SelectionChanged;
         content.Children.Add(_presetSelector);
         content.Children.Add(CreateBindingRow(
@@ -109,7 +120,7 @@ public sealed partial class MapStatusPage : UserControl
             MapRuntimeBindingTarget.GameMapToggle));
         content.Children.Add(CreateBindingRow(
             "外置控件层",
-            "在游戏前台呼出独立的对局状态和玩家序号控件；再次按键关闭。",
+            "在游戏前台呼出独立的对局状态和地图变体控件；再次按键关闭。",
             _controlPanelBinding,
             MapRuntimeBindingTarget.ControlPanelToggle));
         content.Children.Add(CreateBindingRow(
@@ -117,16 +128,6 @@ public sealed partial class MapStatusPage : UserControl
             "冻结当前 dwrg.exe 地图区域，从地图库中选择地图并完成首次双门对齐。",
             _quickBinding,
             MapRuntimeBindingTarget.QuickScan));
-        content.Children.Add(CreateBindingRow(
-            "识别图层",
-            "即使没有地图结果，也可以显示或隐藏左上角状态。",
-            _overlayBinding,
-            MapRuntimeBindingTarget.OverlayToggle));
-        content.Children.Add(CreateBindingRow(
-            "手动识别",
-            "在冻结的游戏画面中依次框选大门和侧门。",
-            _manualBinding,
-            MapRuntimeBindingTarget.ManualRecognition));
         content.Children.Add(CreateBindingRow(
             "切换楼层",
             "手动切换小地图楼层；下次开图也会按该楼层对齐。仅在已识别地图后生效。",
@@ -558,7 +559,6 @@ public sealed partial class MapStatusPage : UserControl
         diagnostics.Children.Add(CreateDiagnostic("游戏权限", _permissionState));
         diagnostics.Children.Add(CreateDiagnostic("地图区域", _calibrationState));
         diagnostics.Children.Add(CreateDiagnostic("楼层显示区", _floorCalibrationState));
-        diagnostics.Children.Add(CreateDiagnostic("玩家序号资源", _playerCalibrationState));
         diagnostics.Children.Add(CreateDiagnostic("当前楼层", _floorState));
         diagnostics.Children.Add(CreateDiagnostic("地图数据", _mapReadiness));
         diagnostics.Children.Add(CreateDiagnostic("当前选择", _selectedMapState));
@@ -649,7 +649,8 @@ public sealed partial class MapStatusPage : UserControl
         {
             Text = title,
             FontSize = 13,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = PrimaryTextBrush
         });
         panel.Children.Add(value);
         return panel;
@@ -658,7 +659,7 @@ public sealed partial class MapStatusPage : UserControl
     private static TextBlock CreateMutedText() => new()
     {
         FontSize = 13,
-        Foreground = new SolidColorBrush(Color.FromArgb(255, 96, 96, 96)),
+        Foreground = SecondaryTextBrush,
         TextWrapping = TextWrapping.Wrap
     };
 
@@ -667,6 +668,7 @@ public sealed partial class MapStatusPage : UserControl
         Text = text,
         FontSize = 14,
         FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        Foreground = PrimaryTextBrush,
         Margin = new Thickness(0, 4, 0, 0)
     };
 

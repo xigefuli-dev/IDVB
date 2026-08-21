@@ -69,6 +69,191 @@ public sealed class SurveyLayerEditingTests
     }
 
     [Fact]
+    public async Task ColorTemplateUsesSemanticPaletteAndKeepsOriginalAssets()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var paths = new SurveyStoragePaths(root);
+            var repository = new SqliteSurveyProjectRepository(paths);
+            var assets = new ContentAddressedSurveyAssetStore(paths);
+            await using var coordinator = new SurveyCoordinator(
+                repository, assets, null, null, null, new SurveyRegistrationTuning(),
+                null, null, new OpenCvSurveyLayerRasterEditor(assets));
+            var matchId = Guid.NewGuid();
+            var started = (await coordinator.StartAsync(new SurveyStartRequest(
+                Guid.NewGuid(), matchId, 1, "S1", "1f", "template test",
+                new string('a', 64), "test"))).Value!;
+            var committed = (await coordinator.AddObservationAsync(CreateObservation(
+                started, CreateSolidPng(32, 32, new Scalar(10, 20, 30)), matchId, 1, 1))).Value!;
+            var sourceSha = committed.Observation.SourceAsset.Sha256;
+            var result = (await coordinator.ApplyColorTemplateAsync(
+                new SurveyLayerColorTemplateRequest(
+                    Guid.NewGuid(),
+                    committed.Snapshot.Project.ProjectId,
+                    committed.Snapshot.Project.Revision,
+                    [committed.Layer.LayerId],
+                    [new SurveyColorTemplateEntry(220, 120, 35, SurveyTemplateColorType.Fill)]))).Value!;
+
+            var layer = result.Snapshot.Layers.Single(item => item.LayerId == committed.Layer.LayerId);
+            Assert.NotNull(layer.ColorFilterAsset);
+            Assert.Equal(sourceSha, result.Snapshot.Observations
+                .Single(item => item.ObservationId == committed.Observation.ObservationId)
+                .SourceAsset.Sha256);
+            using var rendered = await ReadRenderedLayerAsync(
+                coordinator, result.Snapshot.Project.ProjectId, committed.Layer.LayerId);
+            var pixel = rendered.At<Vec4b>(16, 16);
+            Assert.Equal(new Vec4b(35, 120, 220, 255), pixel);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ColorTemplateAppliesToSelectedLayersOnceIncludingLockedLayers()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var paths = new SurveyStoragePaths(root);
+            var repository = new SqliteSurveyProjectRepository(paths);
+            var assets = new ContentAddressedSurveyAssetStore(paths);
+            await using var coordinator = new SurveyCoordinator(
+                repository, assets, null, null, null, new SurveyRegistrationTuning(),
+                null, null, new OpenCvSurveyLayerRasterEditor(assets));
+            var matchId = Guid.NewGuid();
+            var started = (await coordinator.StartAsync(new SurveyStartRequest(
+                Guid.NewGuid(), matchId, 1, "S1", "1f", "template batch test",
+                new string('a', 64), "test"))).Value!;
+            var first = (await coordinator.AddObservationAsync(CreateObservation(
+                started, CreateSolidPng(32, 32, new Scalar(10, 20, 30)), matchId, 1, 1))).Value!;
+            var second = (await coordinator.AddObservationAsync(CreateObservation(
+                first.Snapshot, CreateSolidPng(32, 32, new Scalar(40, 50, 60)), matchId, 1, 2))).Value!;
+            var locked = (await coordinator.EditLayerAsync(new SurveyLayerEditRequest(
+                Guid.NewGuid(),
+                second.Snapshot.Project.ProjectId,
+                second.Layer.LayerId,
+                second.Snapshot.Project.Revision,
+                IsLocked: true))).Value!;
+            var beforeRevision = locked.Project.Revision;
+
+            var result = (await coordinator.ApplyColorTemplateAsync(
+                new SurveyLayerColorTemplateRequest(
+                    Guid.NewGuid(),
+                    locked.Project.ProjectId,
+                    beforeRevision,
+                    [first.Layer.LayerId, second.Layer.LayerId],
+                    [new SurveyColorTemplateEntry(220, 120, 35, SurveyTemplateColorType.Fill)]))).Value!;
+
+            Assert.Equal(beforeRevision + 1, result.Snapshot.Project.Revision);
+            Assert.Equal(2, result.Items.Count);
+            Assert.All(result.Items, item => Assert.True(item.Succeeded));
+            Assert.NotNull(result.Snapshot.Layers.Single(item => item.LayerId == first.Layer.LayerId).ColorFilterAsset);
+            Assert.NotNull(result.Snapshot.Layers.Single(item => item.LayerId == second.Layer.LayerId).ColorFilterAsset);
+            Assert.True(result.Snapshot.Layers.Single(item => item.LayerId == second.Layer.LayerId).IsLocked);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompositePixelSamplerHonorsZOrderTransparencyOpacityTransformsAndVisibility()
+    {
+        var bottom = new SurveyCompositeLayerPixel(
+            1,
+            IsVisible: true,
+            IsDeleted: false,
+            Opacity: 1d,
+            SurveyLayerTransform.Identity,
+            10,
+            10,
+            new SurveyRasterPixel(220, 20, 10, 255));
+        var transparentTop = bottom with
+        {
+            ZOrder = 2,
+            Pixel = new SurveyRasterPixel(10, 220, 20, 0)
+        };
+        Assert.Equal(
+            new SurveyRasterPixel(220, 20, 10, 255),
+            SurveyCompositePixelSampler.Composite(new SurveyWorldPoint(4, 4),
+                [transparentTop, bottom]));
+
+        var halfTransparentTop = transparentTop with
+        {
+            Pixel = new SurveyRasterPixel(20, 220, 20, 255),
+            Opacity = 0.5d
+        };
+        Assert.Equal(
+            new SurveyRasterPixel(120, 120, 15, 255),
+            SurveyCompositePixelSampler.Composite(new SurveyWorldPoint(4, 4),
+                [halfTransparentTop, bottom]));
+
+        var transformed = new SurveyCompositeLayerPixel(
+            3,
+            IsVisible: true,
+            IsDeleted: false,
+            Opacity: 1d,
+            new SurveyLayerTransform(5, 5, 90, 2, 1),
+            4,
+            4,
+            new SurveyRasterPixel(30, 40, 230, 255));
+        var transformedWorldPoint = transformed.Transform.Transform(new SurveyWorldPoint(1, 2));
+        Assert.Equal(
+            new SurveyRasterPixel(30, 40, 230, 255),
+            SurveyCompositePixelSampler.Composite(transformedWorldPoint,
+                [transformed, bottom]));
+
+        var ignored = new[]
+        {
+            bottom with { ZOrder = 4, IsVisible = false, Pixel = new SurveyRasterPixel(1, 2, 3, 255) },
+            bottom with { ZOrder = 5, IsDeleted = true, Pixel = new SurveyRasterPixel(4, 5, 6, 255) },
+            bottom with { ZOrder = 6, Opacity = 0d, Pixel = new SurveyRasterPixel(7, 8, 9, 255) }
+        };
+        Assert.Equal(
+            new SurveyRasterPixel(220, 20, 10, 255),
+            SurveyCompositePixelSampler.Composite(new SurveyWorldPoint(4, 4), ignored.Append(bottom)));
+        Assert.Null(SurveyCompositePixelSampler.Composite(new SurveyWorldPoint(100, 100), [bottom]));
+    }
+
+    [Fact]
+    public async Task ColorFillCreatesColorFilterAssetAndChangesTheRenderedLayer()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var paths = new SurveyStoragePaths(root);
+            var repository = new SqliteSurveyProjectRepository(paths);
+            var assets = new ContentAddressedSurveyAssetStore(paths);
+            await using var coordinator = new SurveyCoordinator(
+                repository, assets, null, null, null, new SurveyRegistrationTuning(),
+                null, null, new OpenCvSurveyLayerRasterEditor(assets));
+            var matchId = Guid.NewGuid();
+            var started = (await coordinator.StartAsync(new SurveyStartRequest(
+                Guid.NewGuid(), matchId, 1, "S1", "1f", "fill test",
+                new string('a', 64), "test"))).Value!;
+            var committed = (await coordinator.AddObservationAsync(CreateObservation(
+                started, CreateSolidPng(32, 32, new Scalar(10, 20, 30)), matchId, 1, 1))).Value!;
+            var result = (await coordinator.ApplyColorFillAsync(new SurveyColorFillRequest(
+                Guid.NewGuid(), committed.Snapshot.Project.ProjectId, committed.Layer.LayerId,
+                committed.Snapshot.Project.Revision, 16, 16, 0, new SurveyColor(220, 120, 35)))).Value!;
+            var layer = result.Snapshot.Layers.Single(item => item.LayerId == committed.Layer.LayerId);
+            Assert.NotNull(layer.ColorFilterAsset);
+            Assert.NotEqual(committed.Layer.ColorFilterAsset?.Sha256, layer.ColorFilterAsset!.Sha256);
+            using var rendered = await ReadRenderedLayerAsync(
+                coordinator, result.Snapshot.Project.ProjectId, committed.Layer.LayerId);
+            Assert.Equal(new Vec4b(35, 120, 220, 255), rendered.At<Vec4b>(16, 16));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StaleColorNormalizationIsRejectedBeforeRasterWorkStarts()
     {
         var root = CreateTempRoot();
@@ -470,6 +655,14 @@ public sealed class SurveyLayerEditingTests
                 new InvalidOperationException("Stale work should have been rejected."));
         }
 
+        public Task<SurveyAssetReference> ApplyColorTemplateAsync(
+            Guid projectId,
+            SurveyMapLayer layer,
+            SurveyObservation observation,
+            IReadOnlyList<SurveyColorTemplateEntry> entries,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<SurveyAssetReference?> ApplyHiddenMaskAsync(
             Guid projectId,
             SurveyMapLayer layer,
@@ -477,6 +670,18 @@ public sealed class SurveyLayerEditingTests
             IReadOnlyList<SurveyWorldPoint> worldPoints,
             double size,
             SurveyBrushShape shape,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SurveyAssetReference?> ApplyColorBrushAsync(
+            Guid projectId, SurveyMapLayer layer, SurveyObservation observation,
+            IReadOnlyList<SurveyWorldPoint> worldPoints, double size, SurveyBrushShape shape,
+            SurveyColor color, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SurveyAssetReference?> ApplyColorFillAsync(
+            Guid projectId, SurveyMapLayer layer, SurveyObservation observation,
+            int pixelX, int pixelY, byte tolerance, SurveyColor color,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

@@ -2,6 +2,7 @@
 
 using IDVBuff.Core.Contracts;
 using IDVBuff.Core.Models;
+using IDVBuff.Features.Maps.AdaptiveScaleAlignment;
 using IDVBuff.Pipeline;
 using Microsoft.UI.Dispatching;
 using OpenCvSharp;
@@ -16,22 +17,48 @@ public sealed partial class SessionOrchestrator
         CancellationToken cancellationToken)
     {
         var scanWallClock = Stopwatch.StartNew();
-        _scanProgressOverlay.Report(0.06d, "正在准备扫描...");
+        var trace = ActiveOperationTrace;
+        // 后台扫描：只静默识别地图（recognizeOnly），完成后早退——
+        // 不弹候选/缩放窗口、不对齐、不提交 overlay，全部延迟到开图消费。
+        var backgroundMode = _settings!.BackgroundScanEnabled;
         // 开图动画等待（在调用线程即可，不阻塞）
-        await Task.Delay(
-            _settings!.SessionTuning.OpeningAnimationDelayMilliseconds,
-            cancellationToken);
+        var openingWait = trace?.StartTopLevel(
+            "opening_animation_wait",
+            MapOperationWaitKind.Timer);
+        try
+        {
+            _scanProgressOverlay.Report(0.06d, "正在准备扫描...");
+            await Task.Delay(
+                _settings!.SessionTuning.OpeningAnimationDelayMilliseconds,
+                cancellationToken);
+        }
+        finally
+        {
+            openingWait?.Complete();
+        }
 
         // 首次识别和重新开图对齐使用同一稳定帧约束，避免把开图动画
         // 或尚未稳定的裁剪/缩放送入侧门身份扫描。
-        var frame = await CaptureStableViewportAsync(
-            "首次扫描",
-            cancellationToken);
+        var stableViewport = trace?.StartTopLevel(
+            "stable_viewport",
+            MapOperationWaitKind.Capture);
+        CapturedGameFrame? frame;
+        try
+        {
+            frame = await CaptureStableViewportAsync(
+                "首次扫描",
+                cancellationToken);
+        }
+        finally
+        {
+            stableViewport?.Complete();
+        }
         if (frame is null)
         {
             ReportScanCaptureFailure(
                 _lastStableCaptureFailureReason ?? "地图截图失败。",
                 scanWallClock);
+            trace?.SetTerminal("failed", "stable-viewport-capture-failed");
             return;
         }
 
@@ -40,10 +67,37 @@ public sealed partial class SessionOrchestrator
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await ApplySelectedResolutionPresetAsync(frame.ClientBounds);
+            var resolutionPreset = trace?.StartTopLevel(
+                "resolution_preset",
+                MapOperationWaitKind.Io);
+            try
+            {
+                await ApplySelectedResolutionPresetAsync(frame.ClientBounds);
+            }
+            finally
+            {
+                resolutionPreset?.Complete();
+            }
             var initialState = new InitialRecognitionPipelineState();
             _scanProgressOverlay.Report(0.38d, "正在识别地图...");
-            await Task.Run(() => RunInitialRecognition(frame, initialState));
+            var recognitionDispatch = trace?.StartTopLevel(
+                "recognition_dispatch_wait",
+                MapOperationWaitKind.Queue);
+            try
+            {
+                await Task.Run(() =>
+                {
+                    recognitionDispatch?.Complete();
+                    using var recognitionWorker = MapOperationTraceAmbient.StartChild(
+                        "recognition_worker_execution",
+                        MapOperationWaitKind.Compute);
+                    RunInitialRecognition(frame, initialState, backgroundMode);
+                });
+            }
+            finally
+            {
+                recognitionDispatch?.Complete();
+            }
 
             _scanProgressOverlay.Report(0.88d, "正在确认结果...");
 
@@ -59,12 +113,24 @@ public sealed partial class SessionOrchestrator
 
             cancellationToken.ThrowIfCancellationRequested();
             if (!IsCurrentMatchOperation(operationMatch))
+            {
+                trace?.SetTerminal("superseded", "match-operation-version-changed");
                 return;
+            }
+
+            // 后台扫描：识别完成后立即早退。结果由 CompleteBackgroundScan
+            // 保存为完成状态，玩家第一次打开游戏地图时再消费（候选→缩放→对齐）。
+            if (backgroundMode)
+            {
+                CompleteBackgroundScan(initialState);
+                return;
+            }
 
             if (recognition is null
                 && pendingSideEntranceIdentity is not null)
             {
                 _pendingAlignmentIdentity = pendingSideEntranceIdentity;
+                _mapLease.Bind(_matchSession.Snapshot, pendingSideEntranceIdentity.Map.Id);
                 _pendingAlignmentSeed = pendingSideEntranceSeed;
             }
 
@@ -83,15 +149,29 @@ public sealed partial class SessionOrchestrator
                     || !_headless
                     || _activeCandidateSelector is not null))
             {
-                var candidateResolution = await ResolveCandidateSelectionAsync(
-                    frame,
-                    pendingChoices ?? [],
-                    string.IsNullOrWhiteSpace(pendingChoicesReason)
-                        ? failureReason ?? "未找到可确认的已记录地图。"
-                        : pendingChoicesReason,
-                    cancellationToken);
+                var candidateSelection = trace?.StartTopLevel(
+                    "candidate_selection_wait",
+                    !_headless || _activeCandidateSelector is not null
+                        ? MapOperationWaitKind.User
+                        : MapOperationWaitKind.Compute);
+                CandidateSelectionResolution candidateResolution;
+                try
+                {
+                    candidateResolution = await ResolveCandidateSelectionAsync(
+                        frame,
+                        pendingChoices ?? [],
+                        string.IsNullOrWhiteSpace(pendingChoicesReason)
+                            ? failureReason ?? "未找到可确认的已记录地图。"
+                            : pendingChoicesReason,
+                        cancellationToken);
+                }
+                finally
+                {
+                    candidateSelection?.Complete();
+                }
                 if (candidateResolution.StartSurvey)
                 {
+                    trace?.SetTerminal("superseded", "survey-started");
                     await ActivateSurveyFromQuickScanAsync(
                         frame,
                         operationMatch,
@@ -101,7 +181,10 @@ public sealed partial class SessionOrchestrator
                 recognition = candidateResolution.Recognition;
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!IsCurrentMatchOperation(operationMatch))
+                {
+                    trace?.SetTerminal("superseded", "match-operation-version-changed");
                     return;
+                }
             }
 
             // A side-entrance candidate is only scan evidence. Once the user
@@ -116,9 +199,20 @@ public sealed partial class SessionOrchestrator
                     .FirstOrDefault(candidate => candidate.Map.Id == recognition.Map.Id);
                 if (selectedCandidate is null)
                 {
-                    recognition = null;
-                    failureReason =
-                        "侧门候选已选择，但候选不属于本次扫描结果，未提交地图锁定。";
+                    // A catalog-tail selection intentionally has no side-door
+                    // scan seed. Keep the explicit identity and let the
+                    // selected-map manual-floor path below align it from a
+                    // neutral seed on this same frame.
+                    _logCollector.Append(
+                        MapLogCategory.Session,
+                        MapLogLevel.Info,
+                        $"已选择扫描候选外地图，改用独立对齐 · map={recognition.Map.DisplayName}",
+                        details: new()
+                        {
+                            ["mapId"] = recognition.Map.Id,
+                            ["candidateCount"] =
+                                pendingSideEntranceScan.Candidates.Count
+                        });
                 }
                 else if (!_recognition.TryCreateSideEntranceAlignmentSeed(
                              selectedCandidate,
@@ -149,30 +243,60 @@ public sealed partial class SessionOrchestrator
                         MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
                             CreateInitialAlignmentStructureTuning());
                     MapFeatureCacheKey? selectedRepairKey = null;
-                    var selectedAttempt = await Task.Run(() =>
+                    var selectedAlignment = trace?.StartTopLevel(
+                        "selected_candidate_alignment",
+                        MapOperationWaitKind.Compute,
+                        mapId: selectedCandidate.Map.Id.ToString("D"),
+                        floorKey: selectedSeed.FloorKey);
+                    MapRecognitionAttempt selectedAttempt;
+                    var selectedDispatch = MapOperationTraceAmbient.StartChild(
+                        "candidate_dispatch_wait",
+                        MapOperationWaitKind.Queue,
+                        mapId: selectedCandidate.Map.Id.ToString("D"),
+                        floorKey: selectedSeed.FloorKey,
+                        attemptIndex: 0);
+                    try
                     {
-                        MapRecognitionAttempt AlignSelectedSide() =>
-                            _recognition.AlignSideEntrance(
+                        selectedAttempt = await Task.Run(() =>
+                        {
+                            selectedDispatch.Complete();
+                            using var selectedWorker = MapOperationTraceAmbient.StartChild(
+                                "candidate_worker_execution",
+                                MapOperationWaitKind.Compute,
+                                mapId: selectedCandidate.Map.Id.ToString("D"),
+                                floorKey: selectedSeed.FloorKey,
+                                attemptIndex: 0);
+                            MapRecognitionAttempt AlignSelectedSide() =>
+                                _recognition.AlignSideEntrance(
+                                    frame,
+                                    selectedSeed.MapId,
+                                    selectedSeed,
+                                    _settings.OverlayAlignmentMode,
+                                    selectedTuning,
+                                    selectedStructureTuning,
+                                    alignmentSearchContext: selectedSearchContext);
+                            return AlignUsingScaleCache(
                                 frame,
-                                selectedSeed.MapId,
-                                selectedSeed,
-                                _settings.OverlayAlignmentMode,
+                                selectedCandidate.Map,
+                                selectedSeed.FloorKey,
                                 selectedTuning,
                                 selectedStructureTuning,
-                                alignmentSearchContext: selectedSearchContext);
-                        return AlignUsingScaleCache(
-                            frame,
-                            selectedCandidate.Map,
-                            selectedSeed.FloorKey,
-                            selectedTuning,
-                            selectedStructureTuning,
-                            selectedSeed.SideEntranceScanPriorConfidence,
-                            AlignSelectedSide,
-                            out selectedRepairKey);
-                    });
+                                selectedSeed.SideEntranceScanPriorConfidence,
+                                AlignSelectedSide,
+                                out selectedRepairKey);
+                        });
+                    }
+                    finally
+                    {
+                        selectedDispatch.Complete();
+                        selectedAlignment?.Complete();
+                    }
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!IsCurrentMatchOperation(operationMatch))
+                    {
+                        trace?.SetTerminal("superseded", "match-operation-version-changed");
                         return;
+                    }
                     if (selectedRepairKey is not null)
                         repairCacheKeys[selectedSeed.MapId] = selectedRepairKey;
                     _lastDiagnostics = selectedAttempt.Diagnostics;
@@ -191,6 +315,7 @@ public sealed partial class SessionOrchestrator
                     {
                         recognition = selectedRecognition;
                         _pendingAlignmentIdentity = selectedRecognition;
+                        _mapLease.Bind(_matchSession.Snapshot, selectedRecognition.Map.Id);
                         _pendingAlignmentSeed = selectedSeed;
                         _statusMessage =
                             $"侧门地图已确认并完成对齐：{recognition.Map.DisplayName} · "
@@ -226,6 +351,7 @@ public sealed partial class SessionOrchestrator
                                 Source = MapRecognitionSource.UserConfirmed
                             }
                         };
+                        _mapLease.Bind(_matchSession.Snapshot, selectedCandidate.Map.Id);
                         // 必须与身份成对设置，否则重试时 Pipeline.cs:119 的
                         // MapAlignmentSession.FromRecognition 会对 null 变换抛异常。
                         _pendingAlignmentSeed = selectedSeed;
@@ -244,11 +370,28 @@ public sealed partial class SessionOrchestrator
 
             if (recognition is { } identityLock)
             {
-                var manualFloorAlignment =
-                    await AlignQuickScanManualFloorAsync(
-                        frame,
-                        identityLock,
-                        cancellationToken);
+                var manualFloor = trace?.StartTopLevel(
+                    "manual_floor_alignment",
+                    MapOperationWaitKind.Compute,
+                    mapId: identityLock.Map.Id.ToString("D"),
+                    floorKey: _currentFloorKey);
+                (RuntimeMapRecognition? Recognition,
+                    string? FailureReason,
+                    MapScanDiagnostics? Diagnostics,
+                    MapFeatureCacheKey? RepairCacheKey,
+                    MapRecognitionAttempt? Attempt) manualFloorAlignment;
+                try
+                {
+                    manualFloorAlignment =
+                        await AlignQuickScanManualFloorAsync(
+                            frame,
+                            identityLock,
+                            cancellationToken);
+                }
+                finally
+                {
+                    manualFloor?.Complete();
+                }
                 recognition = manualFloorAlignment.Recognition;
                 failureReason ??= manualFloorAlignment.FailureReason;
                 _lastDiagnostics =
@@ -270,10 +413,16 @@ public sealed partial class SessionOrchestrator
 
             if (recognition is not null)
             {
+                trace?.SetContext(
+                    mapId: recognition.Map.Id.ToString("D"),
+                    floorKey: recognition.Result.Floor);
                 _scanProgressOverlay.Report(0.92d, "正在应用结果...");
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!IsCurrentMatchOperation(operationMatch))
+                {
+                    trace?.SetTerminal("superseded", "match-operation-version-changed");
                     return;
+                }
                 _hasCompletedQuickScanAlignment = true;
                 repairCacheKeys.TryGetValue(
                     recognition.Map.Id,
@@ -281,127 +430,261 @@ public sealed partial class SessionOrchestrator
                 var playerDecidedScale = false;
                 // ── 由玩家决定缩放值：确认后直接以玩家 transform 渲染 ──
                 if (_settings.RecognitionTuning.PlayerDecidesScale
-                    && recognition.Result.OverlayTransform is { } initialTransform
-                    && await MapManualTransformWindow.ShowAsync(
-                        frame,
-                        recognition,
-                        initialTransform,
-                        cancellationToken) is { } playerTransform)
+                    && recognition.Result.OverlayTransform is { } initialTransform)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (!IsCurrentMatchOperation(operationMatch))
-                        return;
-                    recognition = WithOverlayTransform(
-                        recognition,
-                        playerTransform);
-                    playerDecidedScale = true;
-                    _logCollector.Append(
-                        MapLogCategory.Session,
-                        MapLogLevel.Info,
-                        $"玩家已决定缩放值 · map={recognition.Map.Id} · "
-                        + $"floor={recognition.Result.Floor} · "
-                        + $"scale={playerTransform.ScaleX:F6} · "
-                        + $"offset=({playerTransform.OffsetX:F0},"
-                        + $"{playerTransform.OffsetY:F0})");
+                    MapOverlayTransform? playerTransform;
+                    using (trace?.StartTopLevel(
+                               "candidate_selection_wait",
+                               MapOperationWaitKind.User,
+                               mapId: recognition.Map.Id.ToString("D"),
+                               floorKey: recognition.Result.Floor)
+                        ?? MapOperationTrace.MapOperationSpanScope.Noop)
+                    {
+                        playerTransform = await MapManualTransformWindow.ShowAsync(
+                            frame,
+                            recognition,
+                            initialTransform,
+                            cancellationToken,
+                            _captureProtection);
+                    }
+                    if (playerTransform is { } chosenPlayerTransform)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!IsCurrentMatchOperation(operationMatch))
+                        {
+                            trace?.SetTerminal("superseded", "match-operation-version-changed");
+                            return;
+                        }
+                        recognition = WithOverlayTransform(
+                            recognition,
+                            chosenPlayerTransform);
+                        playerDecidedScale = true;
+                        _logCollector.Append(
+                            MapLogCategory.Session,
+                            MapLogLevel.Info,
+                            $"玩家已决定缩放值 · map={recognition.Map.Id} · "
+                            + $"floor={recognition.Result.Floor} · "
+                            + $"scale={chosenPlayerTransform.ScaleX:F6} · "
+                            + $"offset=({chosenPlayerTransform.OffsetX:F0},"
+                            + $"{chosenPlayerTransform.OffsetY:F0})");
+                    }
                 }
-                var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
-                    recognition,
-                    frame,
-                    _lastDiagnostics,
-                    playerDecidedScale ? MapFeatureCacheSource.Player : null);
+                _mapLease.Bind(_matchSession.Snapshot, recognition.Map.Id);
+                var adaptiveScale = trace?.StartTopLevel(
+                    "adaptive_scale_evaluation",
+                    MapOperationWaitKind.Compute,
+                    mapId: recognition.Map.Id.ToString("D"),
+                    floorKey: recognition.Result.Floor);
+                AdaptiveAlignmentDecision adaptiveDecision;
+                try
+                {
+                    adaptiveDecision = await EvaluateAdaptiveInitialAsync(
+                        recognition,
+                        frame,
+                        _lastDiagnostics,
+                        playerDecidedScale ? MapFeatureCacheSource.Player : null);
+                }
+                finally
+                {
+                    adaptiveScale?.Complete();
+                }
                 recognition = adaptiveDecision.RecognitionToRender;
+                // 画面就绪参考签名写入不受 AllowLegacyCacheWrite 门控：provisional
+                // 也记录，否则下次开图「仅对齐」就绪判定缺 reference 走 blue-gray
+                // 兜底分支（首帧必拒、白付抓帧周期）。
+                RememberMapViewportPresenceReference(recognition, frame);
                 if (adaptiveDecision.AllowLegacyCacheWrite)
                 {
-                    await RepairMapCacheAsync(repairCacheKey, recognition, frame);
-                    await PersistPreprocessedScaleAsync(
-                        recognition,
-                        frame,
-                        _lastDiagnostics);
-                    if (playerDecidedScale)
-                        await PersistPlayerDecidedScaleAsync(recognition, frame);
-                    RecordSuccessfulAlignment(recognition, frame);
+                    var persistence = trace?.StartTopLevel(
+                        "persistence",
+                        MapOperationWaitKind.Io,
+                        mapId: recognition.Map.Id.ToString("D"),
+                        floorKey: recognition.Result.Floor);
+                    try
+                    {
+                        await RepairMapCacheAsync(repairCacheKey, recognition, frame);
+                        await PersistPreprocessedScaleAsync(
+                            recognition,
+                            frame,
+                            _lastDiagnostics);
+                        if (playerDecidedScale)
+                            await PersistPlayerDecidedScaleAsync(recognition, frame);
+                        RecordSuccessfulAlignment(recognition, frame);
+                    }
+                    finally
+                    {
+                        persistence?.Complete();
+                    }
                 }
                 if (!IsCurrentMatchOperation(operationMatch))
-                    return;
-                _lastRecognition = recognition;
-                _pendingAlignmentIdentity = null;
-                _pendingAlignmentSeed = null;
-                // 侧门扫描时 _lastAlignmentSession 可能尚未初始化；
-                // 此时回退到 Task.Run 内部捕获的 pendingSideEntranceSeed，
-                // 以保留 SideEntranceScanPriorConfidence。
-                _lastAlignmentSession = UpdateAlignmentSession(
-                    _lastAlignmentSession ?? pendingSideEntranceSeed,
-                    recognition);
-                if (adaptiveDecision.AllowReliableSession)
                 {
-                    RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
+                    trace?.SetTerminal("superseded", "match-operation-version-changed");
+                    return;
+                }
+                var sessionCommit = trace?.StartTopLevel(
+                    "session_commit",
+                    MapOperationWaitKind.Compute,
+                    mapId: recognition.Map.Id.ToString("D"),
+                    floorKey: recognition.Result.Floor);
+                try
+                {
+                    _lastRecognition = recognition;
+                    _mapLease.Bind(_matchSession.Snapshot, recognition.Map.Id);
+                    _pendingAlignmentIdentity = null;
+                    _pendingAlignmentSeed = null;
+                    // 侧门扫描时 _lastAlignmentSession 可能尚未初始化；
+                    // 此时回退到 Task.Run 内部捕获的 pendingSideEntranceSeed，
+                    // 以保留 SideEntranceScanPriorConfidence。
+                    _lastAlignmentSession = UpdateAlignmentSession(
+                        _lastAlignmentSession ?? pendingSideEntranceSeed,
+                        recognition);
+                    if (adaptiveDecision.AllowReliableSession)
+                    {
+                        RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
+                    }
                     RememberReliableFloorAlignment(
                         operationMatch,
                         recognition,
-                        _lastAlignmentSession);
+                        _lastAlignmentSession,
+                        frame);
+                    _lastGameBounds = frame.ClientBounds;
+                    _lastGameWindowHandle = frame.WindowHandle;
                 }
-                _lastGameBounds = frame.ClientBounds;
-                _lastGameWindowHandle = frame.WindowHandle;
+                finally
+                {
+                    sessionCommit?.Complete();
+                }
 
-                _logCollector.Append(
-                    MapLogCategory.Overlay,
-                    MapLogLevel.Info,
-                    $"开始更新 Overlay · map={recognition.Map.Id} · floor={recognition.Result.Floor} · "
-                    + $"imageExists={File.Exists(recognition.FloorImagePath)} · visibleBefore={_overlay.IsVisible}",
-                    details: new()
+                var present = _overlay.DeferPresent();
+                var overlayPublish = trace?.StartTopLevel(
+                    "overlay_publish",
+                    MapOperationWaitKind.Compute,
+                    mapId: recognition.Map.Id.ToString("D"),
+                    floorKey: recognition.Result.Floor);
+                try
+                {
+                    _logCollector.Append(
+                        MapLogCategory.Overlay,
+                        MapLogLevel.Info,
+                        $"开始更新 Overlay · map={recognition.Map.Id} · floor={recognition.Result.Floor} · "
+                        + $"imageExists={File.Exists(recognition.FloorImagePath)} · visibleBefore={_overlay.IsVisible}",
+                        details: new()
+                        {
+                            ["floorImagePath"] = recognition.FloorImagePath,
+                            ["windowHandle"] = $"0x{frame.WindowHandle.ToInt64():X}",
+                            ["gameBounds"] = $"{frame.ClientBounds.X:F0},{frame.ClientBounds.Y:F0},{frame.ClientBounds.Width:F0}x{frame.ClientBounds.Height:F0}",
+                            ["hasTransform"] = recognition.Result.OverlayTransform is not null
+                        });
+                    _overlay.UpdateMap(
+                        recognition,
+                        frame.ClientBounds,
+                        frame.WindowHandle,
+                        _settings.ShowOverlayStatus);
+                    if (adaptiveDecision.AllowReliableSession)
                     {
-                        ["floorImagePath"] = recognition.FloorImagePath,
-                        ["windowHandle"] = $"0x{frame.WindowHandle.ToInt64():X}",
-                        ["gameBounds"] = $"{frame.ClientBounds.X:F0},{frame.ClientBounds.Y:F0},{frame.ClientBounds.Width:F0}x{frame.ClientBounds.Height:F0}",
-                        ["hasTransform"] = recognition.Result.OverlayTransform is not null
-                    });
-                _overlay.UpdateMap(
-                    recognition,
-                    frame.ClientBounds,
-                    frame.WindowHandle,
-                    _settings.ShowOverlayStatus);
-                if (adaptiveDecision.AllowReliableSession)
-                {
-                    ShowAdaptiveReliableStatus(
-                        recognition,
-                        adaptiveDecision,
-                        frame.ClientBounds,
-                        frame.WindowHandle);
+                        ShowAdaptiveReliableStatus(
+                            recognition,
+                            adaptiveDecision,
+                            frame.ClientBounds,
+                            frame.WindowHandle);
+                    }
+                    else
+                    {
+                        ShowAdaptiveProvisionalStatus(
+                            recognition,
+                            adaptiveDecision,
+                            frame.ClientBounds,
+                            frame.WindowHandle);
+                    }
+                    _overlay.Show();
+                    _logCollector.Append(
+                        MapLogCategory.Overlay,
+                        MapLogLevel.Info,
+                        $"Overlay 更新完成 · visible={_overlay.IsVisible} · hasMap={_overlay.HasMap}");
+                    if (adaptiveDecision.StartOrbTracking)
+                    {
+                        var orbTracking = trace?.StartChild(
+                            "orb_tracking",
+                            MapOperationWaitKind.Compute,
+                            mapId: recognition.Map.Id.ToString("D"),
+                            floorKey: recognition.Result.Floor);
+                        try
+                        {
+                            await StartOrbTrackingAsync(recognition, frame);
+                        }
+                        finally
+                        {
+                            orbTracking?.Complete();
+                        }
+                    }
+                    // 识别成功后刷新持久小地图（若启用）
+                    var miniMapPublish = trace?.StartChild(
+                        "mini_map_publish",
+                        MapOperationWaitKind.Compute,
+                        mapId: recognition.Map.Id.ToString("D"),
+                        floorKey: recognition.Result.Floor);
+                    try
+                    {
+                        RefreshMiniMapForCurrentFloor();
+                    }
+                    finally
+                    {
+                        miniMapPublish?.Complete();
+                    }
+                    _scanProgressOverlay.Report(0.98d, "正在完成...");
                 }
-                else
+                finally
                 {
-                    ShowAdaptiveProvisionalStatus(
-                        recognition,
-                        adaptiveDecision,
-                        frame.ClientBounds,
-                        frame.WindowHandle);
+                    present.Dispose();
+                    overlayPublish?.Complete();
                 }
-                _overlay.Show();
-                if (adaptiveDecision.StartOrbTracking)
-                    await StartOrbTrackingAsync(recognition, frame);
-                _logCollector.Append(
-                    MapLogCategory.Overlay,
-                    MapLogLevel.Info,
-                    $"Overlay 更新完成 · visible={_overlay.IsVisible} · hasMap={_overlay.HasMap}");
-                // 识别成功后刷新持久小地图（若启用）
-                RefreshMiniMapForCurrentFloor();
-                _scanProgressOverlay.Report(0.98d, "正在完成...");
             }
             else if (failureReason is not null)
             {
+                trace?.SetTerminal("failed", "recognition-failed");
                 _statusMessage = failureReason;
                 _logCollector.Append(
                     MapLogCategory.ScanLifecycle,
                     MapLogLevel.Warning,
                     _statusMessage);
-                ShowTransientOverlayStatus(
-                    MapOverlayStatusLevel.Failure,
-                    "Overlay 识别失败",
-                    failureReason,
-                    "请查看日志中的扫描、对齐和 Overlay 记录。",
-                    frame.ClientBounds,
-                    frame.WindowHandle);
-                RefreshMiniMapForCurrentFloor();
+                var failurePresent = _overlay.DeferPresent();
+                var failureOverlay = trace?.StartTopLevel(
+                    "overlay_publish",
+                    MapOperationWaitKind.Compute,
+                    mapId: _lastRecognition?.Map.Id.ToString("D"),
+                    floorKey: _lastRecognition?.Result.Floor);
+                try
+                {
+                    ShowTransientOverlayStatus(
+                        MapOverlayStatusLevel.Failure,
+                        "Overlay 识别失败",
+                        failureReason,
+                        "请查看日志中的扫描、对齐和 Overlay 记录。",
+                        frame.ClientBounds,
+                        frame.WindowHandle);
+                    var failureMiniMap = trace?.StartChild(
+                        "mini_map_publish",
+                        MapOperationWaitKind.Compute,
+                        mapId: _lastRecognition?.Map.Id.ToString("D"),
+                        floorKey: _lastRecognition?.Result.Floor);
+                    try
+                    {
+                        RefreshMiniMapForCurrentFloor();
+                    }
+                    finally
+                    {
+                        failureMiniMap?.Complete();
+                    }
+                }
+                finally
+                {
+                    failurePresent.Dispose();
+                    failureOverlay?.Complete();
+                }
+            }
+            else
+            {
+                trace?.SetTerminal("failed", "recognition-produced-no-result");
             }
         }
         catch (OperationCanceledException)
@@ -410,6 +693,7 @@ public sealed partial class SessionOrchestrator
         }
         catch (Exception ex)
         {
+            trace?.SetTerminal("failed", $"exception:{ex.GetType().Name}");
             _statusMessage = $"识别异常：{ex.Message}";
             _logCollector.Append(
                 MapLogCategory.ScanLifecycle,
@@ -420,17 +704,50 @@ public sealed partial class SessionOrchestrator
                     ["exceptionType"] = ex.GetType().FullName,
                     ["stackTrace"] = ex.ToString()
                 });
-            ShowTransientOverlayStatus(
-                MapOverlayStatusLevel.Failure,
-                "Overlay 识别异常",
-                _statusMessage,
-                "请查看日志中的异常堆栈。",
-                frame.ClientBounds,
-                frame.WindowHandle);
+            var exceptionPresent = _overlay.DeferPresent();
+            var exceptionOverlay = trace?.StartTopLevel(
+                "overlay_publish",
+                MapOperationWaitKind.Compute,
+                mapId: _lastRecognition?.Map.Id.ToString("D"),
+                floorKey: _lastRecognition?.Result.Floor);
+            try
+            {
+                ShowTransientOverlayStatus(
+                    MapOverlayStatusLevel.Failure,
+                    "Overlay 识别异常",
+                    _statusMessage,
+                    "请查看日志中的异常堆栈。",
+                    frame.ClientBounds,
+                    frame.WindowHandle);
+            }
+            finally
+            {
+                exceptionPresent.Dispose();
+                exceptionOverlay?.Complete();
+            }
         }
         finally
         {
-            frame.Dispose();
+            var frameDispose = ActiveOperationTrace?.StartChild(
+                "frame_dispose",
+                MapOperationWaitKind.Io,
+                mapId: frame is null ? null : _lastRecognition?.Map.Id.ToString("D"),
+                floorKey: _lastRecognition?.Result.Floor);
+            try
+            {
+                frame?.Dispose();
+            }
+            finally
+            {
+                frameDispose?.Complete();
+            }
         }
     }
 }
+/*
+ * 文件职责：SessionOrchestrator.Pipeline.Recognition。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

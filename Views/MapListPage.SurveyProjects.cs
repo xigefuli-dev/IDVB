@@ -38,7 +38,7 @@ public sealed partial class MapListPage
             body.Children.Add(new Border
             {
                 MinHeight = 92,
-                Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+                Background = FluentTheme.CardBrush(),
                 CornerRadius = new CornerRadius(10),
                 Child = new TextBlock
                 {
@@ -76,7 +76,7 @@ public sealed partial class MapListPage
         {
             Padding = new Thickness(14, 11, 12, 11),
             ColumnSpacing = 16,
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush")
+            Background = FluentTheme.CardBrush()
         };
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });

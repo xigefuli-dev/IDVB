@@ -26,7 +26,7 @@ public sealed partial class MapListPage : UserControl
         {
             Margin = new Thickness(11),
             Padding = new Thickness(11),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
             BorderThickness = new Thickness(3),
             CornerRadius = new CornerRadius(9)
@@ -142,7 +142,7 @@ public sealed partial class MapListPage : UserControl
         else if (isShift && _lastClickedMapId is { } lastId)
         {
             // Shift+Click: range select from last clicked to this item
-            var orderedIds = _loadedMaps.Select(m => m.Id).ToList();
+            var orderedIds = GetVisibleMaps().Select(m => m.Id).ToList();
             var lastIndex = orderedIds.IndexOf(lastId);
             var currentIndex = orderedIds.IndexOf(map.Id);
             if (lastIndex >= 0 && currentIndex >= 0)
@@ -169,16 +169,47 @@ public sealed partial class MapListPage : UserControl
         foreach (var (id, card) in _cardBorders)
         {
             var selected = _selectedMapIds.Contains(id);
-            card.Background = selected
-                ? FluentTheme.Brush("AccentFillColorSecondaryBrush")
-                : FluentTheme.Brush("CardBackgroundFillColorDefaultBrush");
-            card.BorderBrush = new SolidColorBrush(selected ? AccentBlue : Color.FromArgb(0, 0, 0, 0));
+            var group = _variantGroups.FirstOrDefault(candidate => candidate.MapIds.Contains(id));
+            if (selected)
+            {
+                card.Background = FluentTheme.Brush("AccentFillColorSecondaryBrush");
+                card.BorderBrush = new SolidColorBrush(AccentBlue);
+            }
+            else if (group is not null && group.PaletteSlot is >= 0 and < 12)
+            {
+                var palette = VariantPalette[group.PaletteSlot];
+                var dark = ActualTheme == ElementTheme.Dark;
+                card.Background = new SolidColorBrush(dark ? palette.DarkFill : palette.LightFill);
+                card.BorderBrush = new SolidColorBrush(dark ? palette.DarkOutline : palette.LightOutline);
+            }
+            else
+            {
+                card.Background = FluentTheme.CardBrush();
+                card.BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+            }
         }
 
         if (_editButton is not null)
             _editButton.IsEnabled = HasSelection;
         if (_deleteButton is not null)
             _deleteButton.IsEnabled = HasSelection;
+        if (_variantButton is not null)
+            _variantButton.IsEnabled = _selectedMapIds.Count >= 2;
+    }
+
+    private async Task ToggleSelectedVariantGroupAsync()
+    {
+        if (_selectedMapIds.Count < 2)
+            return;
+        try
+        {
+            await _repository.ToggleVariantGroupAsync(_selectedClass, _selectedMapIds);
+            await ShowListAsync();
+        }
+        catch (Exception exception)
+        {
+            await ShowMessageAsync("无法绑定或解绑变体", exception.Message);
+        }
     }
 
     private async Task EditMapAsync(MapRecord map)

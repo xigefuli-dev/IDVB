@@ -181,7 +181,7 @@ public sealed class SettingsPage : Page
         return new Border
         {
             Padding = new Thickness(22),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -233,7 +233,7 @@ public sealed class SettingsPage : Page
         {
             Padding = new Thickness(18),
             MinHeight = 150,
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -348,7 +348,7 @@ public sealed class SettingsPage : Page
         return new Border
         {
             Padding = new Thickness(18),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -459,7 +459,7 @@ public sealed class SettingsPage : Page
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(18, 16, 18, 16),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -471,7 +471,7 @@ public sealed class SettingsPage : Page
     }
 
     private static string GetDisplayVersion()
-        => $"{BuildVersionInfo.ProductVersion}\n构建版本：{BuildVersionInfo.BuildVersion}";
+        => $"v{BuildVersionInfo.ProductVersion}\n构建版本：{BuildVersionInfo.BuildVersion}";
 
     private async void SpecificationCard_Click(object sender, RoutedEventArgs e)
     {

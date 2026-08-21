@@ -69,6 +69,16 @@ public sealed partial class MapListPage : UserControl
                 new EditorSelection(EditorSelectionKind.Anchor, anchor.Id),
                 GetAnchorColor(anchor)));
         }
+        var concealNumber = 0;
+        foreach (var layer in profile.BackgroundLayers.Where(layer => layer.IsValid))
+        {
+            specialItems.Add(new ModernLayerItem(
+                ModernBackgroundKey(layer.Id),
+                $"遮瑕 {++concealNumber}",
+                "\uE74A",
+                new EditorSelection(EditorSelectionKind.Background, layer.Id),
+                Color.FromArgb(255, 245, 86, 44)));
+        }
         _modernLayerList.Children.Add(CreateModernLayerGroup("special", "特殊元素", specialItems));
     }
 
@@ -215,7 +225,7 @@ public sealed partial class MapListPage : UserControl
     private bool SelectionBelongsToModernGroup(EditorSelection? selection, string groupKey) => selection?.Kind switch
     {
         EditorSelectionKind.Annotation => groupKey == "graphics",
-        EditorSelectionKind.Anchor or EditorSelectionKind.Crop => groupKey == "special",
+        EditorSelectionKind.Anchor or EditorSelectionKind.Crop or EditorSelectionKind.Background => groupKey == "special",
         _ => false
     };
 
@@ -224,4 +234,5 @@ public sealed partial class MapListPage : UserControl
 
     private static string ModernAnnotationKey(Guid id) => $"annotation:{id:N}";
     private static string ModernAnchorKey(Guid id) => $"anchor:{id:N}";
+    private static string ModernBackgroundKey(Guid id) => $"background:{id:N}";
 }

@@ -87,10 +87,10 @@ public sealed class ReleaseVersioningPolicyTests
         var buildTargets = File.ReadAllText(Path.Combine(RepositoryRoot, "Directory.Build.targets"));
         var about = File.ReadAllText(Path.Combine(RepositoryRoot, "Views", "SettingsPage.cs"));
 
-        Assert.Contains("<IDVBProductVersion>1.4.3</IDVBProductVersion>", project);
-        Assert.Contains("<IDVBReleaseLine>b01.4</IDVBReleaseLine>", project);
-        Assert.Contains("b01.4", installer);
-        Assert.Contains("1.4.3.0", installer);
+        Assert.Contains("<IDVBProductVersion>1.5.0-preview</IDVBProductVersion>", project);
+        Assert.Contains("<IDVBReleaseLine>b01.5</IDVBReleaseLine>", project);
+        Assert.Contains("b01.5", installer);
+        Assert.Contains("1.5.0.0", installer);
         Assert.Contains("ConvertTo-IDVBNumericVersion", build);
         Assert.Contains("BuildVersionInfo.ProductVersion", about);
         Assert.Contains("BuildVersionInfo.BuildVersion", about);
@@ -101,6 +101,19 @@ public sealed class ReleaseVersioningPolicyTests
         Assert.Contains("'release', 'create'", build);
         Assert.DoesNotContain("Publishing to GitHub Release requires -RequireSignedRelease", build);
         Assert.DoesNotContain("--verify-tag", build);
+    }
+
+    [Fact]
+    public void PreviewProductVersionUsesNumericAssemblyVersion()
+    {
+        var modulePath = Path.Combine(RepositoryRoot, "installer", "ReleaseVersion.psm1")
+            .Replace("'", "''");
+        var output = RunPowerShell(
+            "Import-Module '" + modulePath + "' -Force -DisableNameChecking; "
+            + "$parts = ConvertFrom-IDVBProductVersion -ProductVersion '1.5.0-preview'; "
+            + "Write-Output \"$($parts.BaseVersion)|$($parts.Major).$($parts.Minor).$($parts.Patch).0|$($parts.Prerelease)\"");
+
+        Assert.Equal("1.5.0|1.5.0.0|preview", output.Trim());
     }
 
     private static string RunPowerShell(string command)

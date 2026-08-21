@@ -115,10 +115,12 @@ public sealed class MapEditorStateTests
 
         preferences.Normalize();
 
-        Assert.Equal(2, preferences.SchemaVersion);
+        Assert.Equal(3, preferences.SchemaVersion);
         Assert.Equal(new[] { "#123456" }, preferences.RecentColors);
         Assert.Equal(MapEditorTextDefaults.DefaultFontSize, preferences.TextDefaults.FontSize);
         Assert.Equal(MapEditorLineMode.Free, preferences.LineDefaults.Mode);
         Assert.False(preferences.LineDefaults.AllowDiagonalConstraint);
+        Assert.Equal(MapBackgroundLayerShape.Circle, preferences.ConcealDefaults.Shape);
+        Assert.Equal(64, preferences.ConcealDefaults.BrushSizePixels);
     }
 }

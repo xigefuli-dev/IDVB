@@ -51,6 +51,12 @@ public sealed partial class MapListPage : UserControl
                     return;
                 }
                 _modernSelection = hit;
+                if (hit.Kind == EditorSelectionKind.Background)
+                {
+                    RefreshModernLayerList();
+                    RenderModernEditor();
+                    return;
+                }
                 _modernInteraction = EditorInteractionKind.Move;
                 CaptureModernOriginalGeometry();
                 RefreshModernLayerList();
@@ -76,6 +82,21 @@ public sealed partial class MapListPage : UserControl
             e.Handled = true;
             return;
         }
+        else if (_modernToolState.ActiveTool == MapEditorTool.Conceal)
+        {
+            var normalized = ToModernNormalizedPoint(pointer.Position, false);
+            if (normalized is null)
+                return;
+            var defaults = _editorPreferenceState.ConcealDefaults;
+            _modernConcealStroke.Begin(
+                normalized,
+                defaults.Shape,
+                defaults.BrushSizePixels,
+                _modernBitmap?.PixelWidth ?? (int)Math.Max(1, _modernCanvas.Width),
+                _modernBitmap?.PixelHeight ?? (int)Math.Max(1, _modernCanvas.Height));
+            _modernInteraction = EditorInteractionKind.Create;
+            _modernConcealHoverPoint = normalized;
+        }
         else
         {
             var normalized = ToModernNormalizedPoint(pointer.Position, false);
@@ -98,10 +119,17 @@ public sealed partial class MapListPage : UserControl
 
     private void ModernCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_modernInteraction == EditorInteractionKind.None || _modernCanvas is null)
+        if (_modernCanvas is null)
             return;
         var point = e.GetCurrentPoint(_modernCanvas).Position;
         _modernPointerCurrent = point;
+        if (_modernInteraction == EditorInteractionKind.None)
+        {
+            UpdateModernConcealHover(point);
+            if (_modernToolState.ActiveTool == MapEditorTool.Conceal)
+                RenderModernEditor();
+            return;
+        }
         _modernPointerMoved |= Math.Abs(point.X - _modernPointerStart.X) > 1
             || Math.Abs(point.Y - _modernPointerStart.Y) > 1;
 
@@ -122,6 +150,15 @@ public sealed partial class MapListPage : UserControl
         var normalized = ToModernNormalizedPoint(point, true);
         if (normalized is null)
             return;
+        if (_modernToolState.ActiveTool == MapEditorTool.Conceal
+            && _modernInteraction == EditorInteractionKind.Create)
+        {
+            _modernConcealHoverPoint = normalized;
+            _modernConcealStroke.AddPoint(normalized);
+            RenderModernEditor();
+            e.Handled = true;
+            return;
+        }
         normalized = SnapModernPoint(normalized);
         if (_modernInteraction == EditorInteractionKind.Create)
         {
@@ -182,6 +219,12 @@ public sealed partial class MapListPage : UserControl
         if (_modernViewport is null || _modernCanvas is null)
             return;
         var pointer = e.GetCurrentPoint(_modernCanvas);
+        if (IsModernKeyDown(VirtualKey.Control) && _modernToolState.ActiveTool == MapEditorTool.Conceal)
+        {
+            ApplyModernConcealBrushWheel(pointer.Properties.MouseWheelDelta);
+            e.Handled = true;
+            return;
+        }
         var viewportPoint = e.GetCurrentPoint(_modernViewport).Position;
         var oldZoom = _modernViewport.ZoomFactor;
         var multiplier = pointer.Properties.MouseWheelDelta > 0 ? 1.12f : 1f / 1.12f;
@@ -219,6 +262,24 @@ public sealed partial class MapListPage : UserControl
         _modernPendingBounds = null;
         _modernPendingStart = null;
         _modernPendingEnd = null;
+
+        if (tool == MapEditorTool.Conceal)
+        {
+            var concealLayer = _modernConcealStroke.Complete();
+            if (concealLayer is null)
+            {
+                SetModernStatus("已取消当前遮瑕。", false);
+                RenderModernEditor();
+                return;
+            }
+            var concealProfile = GetActiveFloorProfile();
+            concealProfile.BackgroundLayers.Add(concealLayer);
+            _modernSelection = new EditorSelection(EditorSelectionKind.Background, concealLayer.Id);
+            RecordModernCreation("已撤销最新遮瑕层。", () =>
+                concealProfile.BackgroundLayers.RemoveAll(layer => layer.Id == concealLayer.Id));
+            CompleteModernCreation("已创建遮瑕层。", returnToSelect: false);
+            return;
+        }
 
         if (!ModernDragIsLargeEnough())
         {

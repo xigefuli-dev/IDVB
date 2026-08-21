@@ -29,6 +29,8 @@ public sealed class FloorRecognitionProfile
     public List<RecognitionAnchor> Anchors { get; set; } = [];
     public List<NormalizedRectangle> WholeImageIgnoreRegions { get; set; } = [];
     public List<MapAnnotation> Annotations { get; set; } = [];
+    /// <summary>V8: non-destructive manual background concealment strokes.</summary>
+    public List<MapBackgroundLayer> BackgroundLayers { get; set; } = [];
 
     // ── 侧门特征（由 SideEntranceFeaturePreprocessor 生成） ──────────
     /// <summary>侧门特征图文件名（相对 map 目录）。为空表示尚未预处理。</summary>
@@ -79,6 +81,7 @@ public sealed class FloorRecognitionProfile
         Anchors = Anchors.Select(anchor => anchor.Clone()).ToList(),
         WholeImageIgnoreRegions = WholeImageIgnoreRegions.Select(region => region.Clone()).ToList(),
         Annotations = Annotations.Select(a => a.Clone()).ToList(),
+        BackgroundLayers = (BackgroundLayers ?? []).Select(layer => layer.Clone()).ToList(),
         SideEntranceFeatureFileName = SideEntranceFeatureFileName,
         SideEntranceFeatureSha256 = SideEntranceFeatureSha256,
         SideEntranceFeatureSourceSha256 = SideEntranceFeatureSourceSha256,
@@ -110,7 +113,7 @@ public sealed class WholeImageRecognitionSettings
 [JsonConverter(typeof(MapRecognitionProfileJsonConverter))]
 public sealed class MapRecognitionProfile
 {
-    public int SchemaVersion { get; set; } = 6;
+    public int SchemaVersion { get; set; } = 8;
     public FloorRecognitionProfile FirstFloor { get; set; } = new() { Floor = MapFloor.First };
     public FloorRecognitionProfile SecondFloor { get; set; } = new() { Floor = MapFloor.Second };
     public WholeImageRecognitionSettings WholeImage { get; set; } = new();
@@ -126,7 +129,7 @@ public sealed class MapRecognitionProfile
 
     public void EnsureStandardAnchors()
     {
-        SchemaVersion = Math.Max(SchemaVersion, 7);
+        SchemaVersion = Math.Max(SchemaVersion, 8);
         FirstFloor ??= new FloorRecognitionProfile { Floor = MapFloor.First };
         SecondFloor ??= new FloorRecognitionProfile { Floor = MapFloor.Second };
         WholeImage ??= new WholeImageRecognitionSettings();
@@ -170,7 +173,7 @@ public sealed class MapRecognitionProfile
     /// </summary>
     public void NormalizeForFloors(IReadOnlyList<FloorDefinition> orderedFloors)
     {
-        SchemaVersion = Math.Max(SchemaVersion, 7);
+        SchemaVersion = Math.Max(SchemaVersion, 8);
         FirstFloor ??= new FloorRecognitionProfile { Floor = MapFloor.First };
         SecondFloor ??= new FloorRecognitionProfile { Floor = MapFloor.Second };
         WholeImage ??= new WholeImageRecognitionSettings();
@@ -295,6 +298,14 @@ public sealed class MapRecognitionProfile
         profile.Anchors ??= [];
         profile.WholeImageIgnoreRegions ??= [];
         profile.Annotations ??= [];
+        profile.BackgroundLayers ??= [];
+        foreach (var layer in profile.BackgroundLayers)
+            layer?.Normalize();
+        profile.BackgroundLayers = profile.BackgroundLayers
+            .Where(layer => layer is not null && layer.IsValid)
+            .GroupBy(layer => layer.Id)
+            .Select(group => group.First())
+            .ToList();
         NormalizeAnnotations(profile);
         profile.OrientationDegrees = NormalizeOrientation(profile.OrientationDegrees);
         profile.RecognitionRegion = NormalizeRecognitionRegion(profile.RecognitionRegion);
@@ -544,7 +555,7 @@ public sealed class MapRecognitionProfileJsonConverter : JsonConverter<MapRecogn
         value.EnsureStandardAnchors();
         var inner = CreateInnerOptions(options);
         writer.WriteStartObject();
-        writer.WriteNumber("SchemaVersion", Math.Max(7, value.SchemaVersion));
+        writer.WriteNumber("SchemaVersion", Math.Max(8, value.SchemaVersion));
         writer.WritePropertyName("WholeImage");
         JsonSerializer.Serialize(writer, value.WholeImage, inner);
         writer.WritePropertyName("Floors");
@@ -563,3 +574,10 @@ public sealed class MapRecognitionProfileJsonConverter : JsonConverter<MapRecogn
         return inner;
     }
 }
+/*
+ * 文件职责：MapModels.Profile。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

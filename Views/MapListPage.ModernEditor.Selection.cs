@@ -38,10 +38,29 @@ public sealed partial class MapListPage : UserControl
                 && ModernRectangleContains(ToModernSourceBounds(anchor.Bounds), point, 5))
                 return new EditorSelection(EditorSelectionKind.Anchor, anchor.Id);
         }
+        for (var index = profile.BackgroundLayers.Count - 1; index >= 0; index--)
+        {
+            var layer = profile.BackgroundLayers[index];
+            if (layer.IsValid && IsModernItemVisible("special", ModernBackgroundKey(layer.Id))
+                && layer.Points.Any(candidate => ModernBackgroundPointContains(layer, candidate, point)))
+                return new EditorSelection(EditorSelectionKind.Background, layer.Id);
+        }
         if (profile.RecognitionRegion?.IsValid is true && IsModernItemVisible("special", "crop")
             && ModernRectangleBorderContains(profile.RecognitionRegion, point, 8))
             return new EditorSelection(EditorSelectionKind.Crop);
         return null;
+    }
+
+    private bool ModernBackgroundPointContains(MapBackgroundLayer layer, NormalizedPoint center, NormalizedPoint point)
+    {
+        var width = _modernCanvas?.Width ?? 1;
+        var height = _modernCanvas?.Height ?? 1;
+        var radius = layer.BrushSizePixels / 2d + 8d / ModernZoomFactor;
+        var dx = (point.X - center.X) * width;
+        var dy = (point.Y - center.Y) * height;
+        return layer.Shape == MapBackgroundLayerShape.Square
+            ? Math.Abs(dx) <= radius && Math.Abs(dy) <= radius
+            : dx * dx + dy * dy <= radius * radius;
     }
 
     private string? HitModernSelectionHandle(Point pixelPoint)
@@ -188,6 +207,8 @@ public sealed partial class MapListPage : UserControl
 
     private void CancelModernInteraction(bool restoreGeometry)
     {
+        _modernConcealStroke.Cancel();
+        _modernConcealHoverPoint = null;
         if (restoreGeometry && _modernInteraction is EditorInteractionKind.Move or EditorInteractionKind.Resize)
         {
             if (_modernOriginalStart is not null && _modernOriginalEnd is not null)
@@ -231,6 +252,9 @@ public sealed partial class MapListPage : UserControl
             else
                 profile.Anchors.Remove(anchor);
         }
+        else if (_modernSelection.Kind == EditorSelectionKind.Background
+            && _modernSelection.Id is { } backgroundId)
+            profile.BackgroundLayers.RemoveAll(layer => layer.Id == backgroundId);
         _modernSelection = null;
         UpdateMarkerConfirmState();
         SetModernStatus("已删除选中元素。", false);

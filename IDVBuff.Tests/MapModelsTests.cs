@@ -32,7 +32,7 @@ public sealed class MapModelsTests
 
         profile.EnsureStandardAnchors();
 
-        Assert.Equal(7, profile.SchemaVersion);
+        Assert.Equal(8, profile.SchemaVersion);
         Assert.Equal(RecognitionAnchorRole.Required, profile.FirstFloor.FindAnchor("main-entrance")!.Role);
         Assert.Equal(RecognitionAnchorRole.Required, profile.FirstFloor.FindAnchor("side-entrance")!.Role);
         Assert.Equal(RecognitionAnchorRole.Optional, profile.SecondFloor.FindAnchor("second-floor-primary")!.Role);
@@ -300,7 +300,7 @@ public sealed class MapModelsTests
 
         profile.EnsureStandardAnchors();
 
-        Assert.Equal(7, profile.SchemaVersion);
+        Assert.Equal(8, profile.SchemaVersion);
         Assert.Equal("#AF52DE", third.Annotations[0].ColorHex);
         Assert.True(third.Annotations[0].IsValid);
     }

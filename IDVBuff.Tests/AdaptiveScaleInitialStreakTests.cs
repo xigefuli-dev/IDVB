@@ -22,7 +22,7 @@ public sealed class AdaptiveScaleInitialStreakTests
             for (var open = 1; open <= 5; open++)
             {
                 decision = coordinator.EvaluateInitial(
-                    Recognition(map, "1f", 1.0, 0.82),
+                    Recognition(map, "1f", 1.0),
                     frame,
                     MapFeatureCacheSource.CrossResolutionValidated,
                     Evidence(open),
@@ -74,7 +74,13 @@ public sealed class AdaptiveScaleInitialStreakTests
         var rebuilt = Vote(coordinator, frame, map, 3, 1.005);
         Assert.Equal(1, rebuilt.ConsecutiveHighQualityCount);
 
-        var reset = Vote(coordinator, frame, map, 4, 1.005, confidence: 0.819);
+        var reset = Vote(
+            coordinator,
+            frame,
+            map,
+            4,
+            1.005,
+            confidence: new AdaptiveScaleOptions().ReliableConfidence - 0.001);
         Assert.Equal(0, reset.ConsecutiveHighQualityCount);
         Assert.Equal(AdaptiveScaleReliability.Provisional, reset.Reliability);
     }
@@ -128,7 +134,7 @@ public sealed class AdaptiveScaleInitialStreakTests
         Assert.Equal(AdaptiveScaleReliability.Reliable, firstFloor!.Reliability);
         Assert.Equal(5, firstFloor.ConsecutiveHighQualityCount);
         Assert.Equal(AdaptiveScaleReliability.Provisional, secondFloor.Reliability);
-        Assert.Equal(2, secondFloor.ConsecutiveHighQualityCount);
+        Assert.Equal(3, secondFloor.ConsecutiveHighQualityCount);
     }
 
     [Theory]
@@ -179,7 +185,13 @@ public sealed class AdaptiveScaleInitialStreakTests
         var coordinator = Coordinator();
         using var frame = Frame();
         var map = Map();
-        var decision = Vote(coordinator, frame, map, 1, 1.08584, 0.72);
+        var decision = Vote(
+            coordinator,
+            frame,
+            map,
+            1,
+            1.08584,
+            new AdaptiveScaleOptions().ReliableConfidence - 0.01);
         var key = AdaptiveScaleKey.Create(map, "1f", frame.ClientBounds, frame.ViewportBounds);
 
         Assert.Equal(AdaptiveScaleReliability.Provisional, decision.Reliability);
@@ -281,6 +293,47 @@ public sealed class AdaptiveScaleInitialStreakTests
         {
             directory.Delete(recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(0.65, true)]
+    [InlineData(0.72, true)]
+    [InlineData(0.81, true)]
+    [InlineData(0.64, false)]
+    [InlineData(0.50, false)]
+    public void DefaultGateUsesTunedConfidenceFloor(
+        double confidence,
+        bool usable)
+    {
+        var coordinator = Coordinator();
+        var recognition = Recognition(Map(), "1f", 1.0, confidence);
+
+        // 当前调教后的正常门槛为 0.65；侧门种子和缓存命中不再
+        // 被过高的旧门槛假设挡住。
+        Assert.Equal(usable, coordinator.IsUsableInitialResult(
+            recognition, 0.04));
+        Assert.Equal(usable, coordinator.IsQualifiedInitialResult(
+            recognition, 0.04));
+    }
+
+    [Fact]
+    public void RelaxedGateStillRequiresValidatedStructureAndMargin()
+    {
+        var coordinator = Coordinator();
+        var map = Map();
+
+        // 结构未验证 / 跳过验证 / 复用上次变换 / 候选 margin 不足 → 均不可用
+        Assert.False(coordinator.IsUsableInitialResult(
+            Recognition(map, "1f", 1.0, 0.90), 0.04, structureValidated: false));
+        Assert.False(coordinator.IsUsableInitialResult(
+            Recognition(map, "1f", 1.0, 0.90, skipped: true), 0.04));
+        Assert.False(coordinator.IsUsableInitialResult(
+            Recognition(map, "1f", 1.0, 0.90, reused: true), 0.04));
+        Assert.False(coordinator.IsUsableInitialResult(
+            Recognition(map, "1f", 1.0, 0.90, margin: 0.02), 0.04));
+        // 完全合格 → 可用
+        Assert.True(coordinator.IsUsableInitialResult(
+            Recognition(map, "1f", 1.0, 0.90), 0.04));
     }
 
     private static AdaptiveAlignmentDecision Vote(

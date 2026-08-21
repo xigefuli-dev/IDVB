@@ -2,10 +2,10 @@ using IDVBuff.Survey.Contracts;
 using IDVBuff.Survey.Domain;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
-using Windows.Storage.Streams;
 using Windows.UI;
 using Microsoft.Windows.Storage.Pickers;
 
@@ -14,6 +14,7 @@ namespace IDVBuff.Survey.Editor.WinUI;
 public sealed partial class SurveyProjectEditor : UserControl, IDisposable
 {
     private readonly SurveyEditorSession _session;
+    private readonly ISurveyTemplateStore _templateStore;
     private readonly SurveyCanvasView _canvas = new();
     private readonly SurveyLayerPanel _layers;
     private readonly TextBlock _title = new() { FontSize = 18 };
@@ -22,11 +23,30 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
     private readonly Button _undoButton = new() { Content = "撤销" };
     private readonly Button _redoButton = new() { Content = "重做" };
     private readonly Dictionary<SurveyEditorTool, Button> _toolButtons = [];
+    private readonly List<SurveyColorTemplate> _templates = [];
+    private readonly List<SurveyColorTemplateEntry> _draftTemplateEntries = [];
     private SurveyEraseMode _eraseMode = SurveyEraseMode.Eraser;
     private SurveyBrushShape _brushShape = SurveyBrushShape.Circle;
     private double _brushSize = 64d;
+    private SurveyColor _paintColor = new(220, 60, 45);
+    private byte _fillTolerance = 24;
+    private Flyout? _paintFlyout;
     private Flyout? _eraserFlyout;
     private Flyout? _vignetteFlyout;
+    private Flyout? _templateFlyout;
+    private SurveyTemplateMode _templateMode = SurveyTemplateMode.Create;
+    private ComboBox? _templateModePicker;
+    private ComboBox? _templateColorTypePicker;
+    private ComboBox? _templatePicker;
+    private TextBox? _templateNameBox;
+    private StackPanel? _templateDraftList;
+    private Border? _templateSamplePreview;
+    private TextBlock? _templateSampleText;
+    private Button? _templateSaveButton;
+    private Button? _templateCancelEditButton;
+    private Button? _templateSamplerButton;
+    private Guid? _editingTemplateId;
+    private bool _templateSaveInProgress;
     private double _vignetteStart = 0.5d;
     private double _vignetteStrength = 0.5d;
     private NumberBox? _zoomPercent;
@@ -39,19 +59,28 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
     private int _layerToolOperationActive;
     private bool _disposed;
 
-    public SurveyProjectEditor(ISurveyCoordinator coordinator, Guid projectId)
+    public SurveyProjectEditor(
+        ISurveyCoordinator coordinator,
+        Guid projectId,
+        ISurveyTemplateStore templateStore)
     {
         _session = new SurveyEditorSession(coordinator, projectId);
+        _templateStore = templateStore;
         _layers = new SurveyLayerPanel(_session);
         Content = BuildLayout();
         _session.SnapshotChanged += Session_SnapshotChanged;
         _session.Error += Session_Error;
         _layers.SelectionChanged += Layers_SelectionChanged;
+        _layers.IsolationChanged += Layers_IsolationChanged;
         _canvas.LayerSelected += Canvas_LayerSelected;
         _canvas.LayerToolInvoked += Canvas_LayerToolInvoked;
+        _canvas.LayerPixelSampleRequested += Canvas_LayerPixelSampleRequested;
         _canvas.MaskStrokeCommitted += Canvas_MaskStrokeCommitted;
+        _canvas.ColorStrokeCommitted += Canvas_ColorStrokeCommitted;
+        _canvas.ColorFillRequested += Canvas_ColorFillRequested;
         _canvas.TransformCommitted += Canvas_TransformCommitted;
         _canvas.ZoomChanged += Canvas_ZoomChanged;
+        InitializeKeyboardNavigation();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -60,14 +89,6 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
 
     private void Session_Error(object? sender, string message) =>
         SetStatus(message, isError: true);
-
-    private void Layers_SelectionChanged(
-        object? sender,
-        SurveyLayerSelectionEventArgs args) =>
-        _canvas.SelectLayers(args.LayerIds, args.PrimaryLayerId);
-
-    private void Canvas_LayerSelected(object? sender, Guid layerId) =>
-        _layers.SelectLayer(layerId);
 
     private FrameworkElement BuildLayout()
         => BuildEditorLayout();
@@ -81,6 +102,9 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
         try
         {
             await _session.LoadAsync(_lifetimeCancellation.Token);
+            var templates = await _templateStore.LoadAsync(_lifetimeCancellation.Token);
+            _templates.Clear();
+            _templates.AddRange(templates);
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
@@ -90,9 +114,6 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
             SetStatus(exception.Message, isError: true);
         }
     }
-
-    private void OnUnloaded(object sender, RoutedEventArgs e) => Dispose();
-
     private async void Session_SnapshotChanged(object? sender, EventArgs e)
     {
         if (_disposed || _session.Snapshot is not { } snapshot)
@@ -220,6 +241,34 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
         SetLayerToolButtonsEnabled(false);
         try
         {
+        if (e.Tool == SurveyEditorTool.Template && _templateMode == SurveyTemplateMode.Apply)
+        {
+            var template = _templatePicker?.SelectedItem as SurveyColorTemplate;
+            if (template is null || template.Entries.Count == 0)
+            {
+                SetStatus("请先选择一个至少包含一种颜色的模板。", isError: true);
+                return;
+            }
+            var targetLayerIds = _layers.SelectedLayerIds.Count > 1
+                ? _layers.SelectedLayerIds.ToArray()
+                : [e.LayerId];
+            SetStatus(targetLayerIds.Length > 1
+                ? $"正在将模板“{template.Name}”套用到 {targetLayerIds.Length} 个图层…"
+                : $"正在将模板“{template.Name}”套用到图层…");
+            var applied = await _session.ApplyColorTemplateAsync(
+                targetLayerIds,
+                template.Entries,
+                _lifetimeCancellation.Token);
+            if (applied is null)
+                return;
+            var templateSucceeded = applied.Items.Count(item => item.Succeeded);
+            var templateFailed = applied.Items.Count - templateSucceeded;
+            SetStatus(templateFailed == 0
+                ? $"模板“{template.Name}”已套用到 {templateSucceeded} 个图层。"
+                : $"模板“{template.Name}”已处理 {templateSucceeded} 个图层，{templateFailed} 个未处理。",
+                isError: templateSucceeded == 0);
+            return;
+        }
         if (!_layers.SelectedLayerIds.Contains(e.LayerId))
         {
             SetStatus("请先在右侧图层面板中选择目标图层。", isError: true);
@@ -357,6 +406,51 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
             ? $"已对 {succeeded} 个图层应用晕影校正。"
             : $"已校正 {succeeded} 个图层，{failed} 个未处理。",
             isError: succeeded == 0);
+    }
+    private async void Canvas_LayerPixelSampleRequested(
+        object? sender,
+        SurveyLayerPixelSampleEventArgs e)
+    {
+        if (_disposed)
+            return;
+        if (_canvas.ActiveTool == SurveyEditorTool.Eyedropper)
+        {
+            await SamplePaintColorAsync(e);
+            return;
+        }
+        if (_templateMode != SurveyTemplateMode.Create)
+            return;
+        try
+        {
+            var sampled = await _session.SampleCompositedPixelAsync(
+                _floorKey,
+                e.WorldPoint,
+                _lifetimeCancellation.Token);
+            if (sampled is null)
+            {
+                SetStatus("无法读取当前画面像素。", isError: true);
+                return;
+            }
+
+            var type = SelectedTemplateColorType();
+            var entry = new SurveyColorTemplateEntry(sampled.R, sampled.G, sampled.B, type);
+            if (_draftTemplateEntries.Contains(entry))
+            {
+                SetStatus("该颜色和颜色类型已经记录在当前模板中。", isError: true);
+                return;
+            }
+            _draftTemplateEntries.Add(entry);
+            RefreshTemplateDraftList();
+            SetTemplateSamplePreview(sampled.R, sampled.G, sampled.B);
+            SetStatus($"已记录 {ToTemplateHex(sampled.R, sampled.G, sampled.B)} [{TemplateColorTypeName(type)}]。", false);
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"取色失败：{exception.Message}", isError: true);
+        }
     }
 
     private async void Canvas_MaskStrokeCommitted(object? sender, SurveyMaskStrokeEventArgs e)
@@ -685,11 +779,14 @@ public sealed partial class SurveyProjectEditor : UserControl, IDisposable
         _session.SnapshotChanged -= Session_SnapshotChanged;
         _session.Error -= Session_Error;
         _layers.SelectionChanged -= Layers_SelectionChanged;
+        _layers.IsolationChanged -= Layers_IsolationChanged;
         _canvas.LayerSelected -= Canvas_LayerSelected;
         _canvas.LayerToolInvoked -= Canvas_LayerToolInvoked;
+        _canvas.LayerPixelSampleRequested -= Canvas_LayerPixelSampleRequested;
         _canvas.MaskStrokeCommitted -= Canvas_MaskStrokeCommitted;
         _canvas.TransformCommitted -= Canvas_TransformCommitted;
         _canvas.ZoomChanged -= Canvas_ZoomChanged;
+        DisposeKeyboardNavigation();
         _floorPicker.SelectionChanged -= FloorPicker_SelectionChanged;
         _layers.Dispose();
         _canvas.Dispose();

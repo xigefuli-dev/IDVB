@@ -17,6 +17,7 @@ using Point = Windows.Foundation.Point;
 using Rect = Windows.Foundation.Rect;
 using XamlWindow = Microsoft.UI.Xaml.Window;
 using DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue;
+using IDVBuff.Core.Contracts;
 
 namespace IDVBuff.Features.Maps;
 
@@ -53,22 +54,27 @@ public sealed class MapManualRecognitionWindow
     private Point? _dragStart;
     private Rect? _activeSelection;
     private bool _completed;
+    private readonly ICaptureProtectionService? _captureProtection;
+    private ICaptureProtectionRegistration? _captureProtectionRegistration;
 
     private MapManualRecognitionWindow(
         CapturedGameFrame frame,
-        MapScreenRect viewportBounds)
+        MapScreenRect viewportBounds,
+        ICaptureProtectionService? captureProtection)
     {
         _frame = frame;
         _viewportBounds = viewportBounds;
+        _captureProtection = captureProtection;
     }
 
     public static async Task<ManualGateSelectionResult?> ShowAsync(
         CapturedGameFrame frame,
         MapScreenRect viewportBounds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ICaptureProtectionService? captureProtection = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var selector = new MapManualRecognitionWindow(frame, viewportBounds);
+        var selector = new MapManualRecognitionWindow(frame, viewportBounds, captureProtection);
         return await selector.ShowCoreAsync(cancellationToken);
     }
 
@@ -123,6 +129,7 @@ public sealed class MapManualRecognitionWindow
         }
         _window.AppWindow.MoveAndResize(ToRectInt32(_frame.ClientBounds));
         _window.Activate();
+        RegisterCaptureProtection();
         using var cancellationRegistration = cancellationToken.Register(
             () => CompleteOnDispatcher(dispatcher));
         try
@@ -131,6 +138,8 @@ public sealed class MapManualRecognitionWindow
         }
         finally
         {
+            _captureProtectionRegistration?.Dispose();
+            _captureProtectionRegistration = null;
             // Complete() detaches the content before closing the WinUI window.
             // If the user closed the window directly, the Closed handler also
             // clears _window so this block never touches an already-closed
@@ -138,6 +147,23 @@ public sealed class MapManualRecognitionWindow
             _window = null;
             _root.Children.Clear();
             _canvas.Children.Clear();
+        }
+    }
+
+    private void RegisterCaptureProtection()
+    {
+        if (_captureProtection is null || _window is null)
+            return;
+        try
+        {
+            _captureProtectionRegistration = _captureProtection.RegisterWindow(
+                WindowNative.GetWindowHandle(_window),
+                CaptureProtectionWindowCategory.DisplayLayer,
+                "手动识别窗口");
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ManualRecognition] 捕获保护登记失败：{exception.Message}");
         }
     }
 
@@ -388,11 +414,15 @@ public sealed class MapManualRecognitionWindow
 }
 
 /// <summary>In-game top-three chooser shown when manual geometry remains ambiguous.</summary>
-public sealed class MapManualCandidateWindow
+public sealed partial class MapManualCandidateWindow
 {
     private readonly CapturedGameFrame _frame;
     private readonly IReadOnlyList<MapRecognitionChoice> _choices;
     private readonly string _reason;
+    private readonly MapRepository _repository;
+    private readonly MapScreenRect _recognitionBounds;
+    private readonly ICaptureProtectionService? _captureProtection;
+    private ICaptureProtectionRegistration? _captureProtectionRegistration;
     private readonly TaskCompletionSource<MapCandidateDecision> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private XamlWindow? _window;
@@ -401,21 +431,36 @@ public sealed class MapManualCandidateWindow
     private MapManualCandidateWindow(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> choices,
-        string reason)
+        string reason,
+        ICaptureProtectionService? captureProtection,
+        MapRepository repository,
+        MapScreenRect recognitionBounds)
     {
         _frame = frame;
         _choices = choices;
         _reason = reason;
+        _captureProtection = captureProtection;
+        _repository = repository;
+        _recognitionBounds = recognitionBounds;
     }
 
     public static async Task<MapCandidateDecision> ShowAsync(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> choices,
         string reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ICaptureProtectionService? captureProtection,
+        MapRepository repository,
+        MapScreenRect recognitionBounds)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var chooser = new MapManualCandidateWindow(frame, choices, reason);
+        var chooser = new MapManualCandidateWindow(
+            frame,
+            choices,
+            reason,
+            captureProtection,
+            repository,
+            recognitionBounds);
         return await chooser.ShowCoreAsync(cancellationToken);
     }
 
@@ -424,10 +469,6 @@ public sealed class MapManualCandidateWindow
     {
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         var displayArea = DisplayArea.Primary;
-        var workArea = displayArea.WorkArea;
-
-        var columns = Math.Max(1, Math.Min(_choices.Count, 3));
-        var rows = Math.Max(1, (_choices.Count + columns - 1) / columns);
         var root = new Grid
         {
             Background = new SolidColorBrush(Color.FromArgb(242, 6, 10, 16)),
@@ -436,20 +477,22 @@ public sealed class MapManualCandidateWindow
             ColumnSpacing = 8,
             Padding = new Thickness(24, 18, 24, 24)
         };
-        for (var c = 0; c < 3; c++)
-            root.ColumnDefinitions.Add(new ColumnDefinition
-            {
-                Width = new GridLength(1, GridUnitType.Star)
-            });
+        root.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(38, GridUnitType.Star)
+        });
+        root.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(62, GridUnitType.Star)
+        });
         root.RowDefinitions.Add(new RowDefinition
         {
             Height = GridLength.Auto
         });
-        for (var r = 0; r < rows; r++)
-            root.RowDefinitions.Add(new RowDefinition
-            {
-                Height = new GridLength(1, GridUnitType.Star)
-            });
+        root.RowDefinitions.Add(new RowDefinition
+        {
+            Height = new GridLength(1, GridUnitType.Star)
+        });
 
         var header = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 0, 4) };
         header.Children.Add(new TextBlock
@@ -466,14 +509,42 @@ public sealed class MapManualCandidateWindow
             Foreground = new SolidColorBrush(Color.FromArgb(255, 210, 210, 210))
         });
         Grid.SetRow(header, 0);
-        Grid.SetColumnSpan(header, 3);
+        Grid.SetColumnSpan(header, 2);
         root.Children.Add(header);
+
+        var livePreview = await CreateLivePreviewPanelAsync();
+        Grid.SetRow(livePreview, 1);
+        Grid.SetColumn(livePreview, 0);
+        root.Children.Add(livePreview);
+
+        var choiceGrid = new Grid
+        {
+            RowSpacing = 12,
+            ColumnSpacing = 12,
+            Margin = new Thickness(14, 14, 4, 4)
+        };
+        choiceGrid.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
+        choiceGrid.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(1, GridUnitType.Star)
+        });
 
         for (var i = 0; i < _choices.Count; i++)
         {
             var choiceIndex = i;
             var choice = _choices[i];
-            var cell = CreateChoiceCell(choice, i);
+            var row = i / 2;
+            while (choiceGrid.RowDefinitions.Count <= row)
+            {
+                choiceGrid.RowDefinitions.Add(new RowDefinition
+                {
+                    Height = new GridLength(300)
+                });
+            }
+            var cell = await CreateChoiceCellAsync(choice, i);
             var button = new Button
             {
                 Content = cell,
@@ -481,14 +552,14 @@ public sealed class MapManualCandidateWindow
                 CornerRadius = new CornerRadius(10),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Stretch,
-                Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255))
+                Background = new SolidColorBrush(choice.IsReferenceOnly
+                    ? Color.FromArgb(24, 255, 255, 255)
+                    : Color.FromArgb(44, 255, 255, 255))
             };
             button.Click += (_, _) => Complete(MapCandidateDecision.SelectKnownMap(choiceIndex));
-            var row = i / 3 + 1;
-            var col = i % 3;
             Grid.SetRow(button, row);
-            Grid.SetColumn(button, col);
-            root.Children.Add(button);
+            Grid.SetColumn(button, i % 2);
+            choiceGrid.Children.Add(button);
         }
 
         if (_choices.Count == 0)
@@ -501,10 +572,26 @@ public sealed class MapManualCandidateWindow
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            Grid.SetRow(emptyState, 1);
-            Grid.SetColumnSpan(emptyState, 3);
-            root.Children.Add(emptyState);
+            choiceGrid.Children.Add(emptyState);
         }
+
+        var listFrame = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Margin = new Thickness(4, 10, 0, 0),
+            Child = new ScrollViewer
+            {
+                Content = choiceGrid,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            }
+        };
+        Grid.SetRow(listFrame, 1);
+        Grid.SetColumn(listFrame, 1);
+        root.Children.Add(listFrame);
 
         var surveyButton = new Button
         {
@@ -517,7 +604,7 @@ public sealed class MapManualCandidateWindow
         };
         surveyButton.Click += (_, _) => Complete(MapCandidateDecision.StartSurvey());
         Grid.SetRow(surveyButton, 0);
-        Grid.SetColumnSpan(surveyButton, 3);
+        Grid.SetColumnSpan(surveyButton, 2);
         Canvas.SetZIndex(surveyButton, 100);
         root.Children.Add(surveyButton);
 
@@ -563,6 +650,7 @@ public sealed class MapManualCandidateWindow
         }
         _window.AppWindow.MoveAndResize(displayArea.OuterBounds);
         _window.Activate();
+        RegisterCaptureProtection();
         // 消除 WinUI 默认白色底色：将窗口设为分层半透明
         var hwnd = WindowNative.GetWindowHandle(_window);
         const int GWL_EXSTYLE = -20;
@@ -579,62 +667,28 @@ public sealed class MapManualCandidateWindow
         }
         finally
         {
+            _captureProtectionRegistration?.Dispose();
+            _captureProtectionRegistration = null;
             _window = null;
             root.Children.Clear();
         }
     }
 
-    private static UIElement CreateChoiceCell(
-        MapRecognitionChoice choice,
-        int index)
+    private void RegisterCaptureProtection()
     {
-        var grid = new Grid();
-        var image = new Image
+        if (_captureProtection is null || _window is null)
+            return;
+        try
         {
-            Stretch = Stretch.Uniform,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4)
-        };
-        if (File.Exists(choice.Recognition.FloorImagePath))
-        {
-            image.Source = new BitmapImage
-            {
-                CreateOptions = BitmapCreateOptions.IgnoreImageCache,
-                UriSource = new Uri(choice.Recognition.FloorImagePath)
-            };
+            _captureProtectionRegistration = _captureProtection.RegisterWindow(
+                WindowNative.GetWindowHandle(_window),
+                CaptureProtectionWindowCategory.DisplayLayer,
+                "地图候选窗口");
         }
-        grid.Children.Add(image);
-
-        var overlay = new Border
+        catch (Exception exception)
         {
-            Background = new SolidColorBrush(Color.FromArgb(200, 8, 12, 18)),
-            CornerRadius = new CornerRadius(0, 0, 6, 6),
-            VerticalAlignment = VerticalAlignment.Bottom,
-            Padding = new Thickness(10, 5, 10, 6)
-        };
-        var details = new StackPanel { Spacing = 2 };
-        details.Children.Add(new TextBlock
-        {
-            Text = $"{index + 1}. {choice.Recognition.Map.DisplayName}",
-            FontSize = 16,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255))
-        });
-        details.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(choice.EvidenceLabel)
-                ? $"几何误差 {choice.VectorError:F3} · 置信度 {choice.RawConfidence:P0}"
-                : choice.EvidenceLabel,
-            FontSize = 13,
-            Foreground = new SolidColorBrush(choice.IsReferenceOnly
-                ? Color.FromArgb(255, 244, 190, 90)
-                : Color.FromArgb(255, 150, 225, 170))
-        });
-        overlay.Child = details;
-        grid.Children.Add(overlay);
-
-        return grid;
+            System.Diagnostics.Debug.WriteLine($"[ManualCandidate] 捕获保护登记失败：{exception.Message}");
+        }
     }
 
     private void Complete(
@@ -681,3 +735,10 @@ public sealed class MapManualCandidateWindow
     private static extern bool SetLayeredWindowAttributes(
         IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 }
+/*
+ * 文件职责：MapManualRecognitionWindow。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

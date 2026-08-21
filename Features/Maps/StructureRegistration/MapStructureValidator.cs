@@ -126,7 +126,10 @@ internal static class MapStructureValidator
         MapStructureRegistrationRequest request,
         bool usedRestrictedSearch)
     {
-        if (request.ReferenceImage.Empty()
+        // 参考图像素只在缺少 PreparedReference 时才会被用到（Registrar 会现场
+        // 预处理它）。结构缓存常驻命中的调用方不再解码 PNG，此时 ReferenceImage
+        // 为空是正常输入，不能据此判定 InvalidInput。
+        if ((request.PreparedReference is null && request.ReferenceImage.Empty())
             || request.LiveRoi.Empty()
             || !request.ViewportBounds.IsValid)
         {
@@ -215,6 +218,17 @@ internal static class MapStructureValidator
         double visibleAwareTopMargin = 0d,
         bool visibleAwareEarlyAccepted = false,
         string? visibleAwareFallbackReason = null,
+        string visibleAwareRequestedBackend = "",
+        string visibleAwareActualBackend = "",
+        string? visibleAwareUMatFallbackReason = null,
+        double visibleAwareCoarseMs = 0d,
+        double visibleAwareRefineMs = 0d,
+        double visibleAwareUploadMs = 0d,
+        double visibleAwareDownloadMs = 0d,
+        int visibleAwareCompletedScales = 0,
+        int visibleAwareBudgetSkippedScales = 0,
+        int visibleAwareCoarsePeaks = 0,
+        int visibleAwareRefinedCandidates = 0,
         bool usedFastStrategy = false,
         double fastCoarseSearchMs = 0d,
         int fastCoarseCandidateCount = 0)
@@ -273,6 +287,17 @@ internal static class MapStructureValidator
             VisibleAwareTopMargin = visibleAwareTopMargin,
             VisibleAwareEarlyAccepted = visibleAwareEarlyAccepted,
             VisibleAwareFallbackReason = visibleAwareFallbackReason,
+            VisibleAwareRequestedBackend = visibleAwareRequestedBackend,
+            VisibleAwareActualBackend = visibleAwareActualBackend,
+            VisibleAwareUMatFallbackReason = visibleAwareUMatFallbackReason,
+            VisibleAwareCoarseMilliseconds = visibleAwareCoarseMs,
+            VisibleAwareRefineMilliseconds = visibleAwareRefineMs,
+            VisibleAwareUploadMilliseconds = visibleAwareUploadMs,
+            VisibleAwareDownloadMilliseconds = visibleAwareDownloadMs,
+            VisibleAwareCompletedScaleCount = visibleAwareCompletedScales,
+            VisibleAwareBudgetSkippedScaleCount = visibleAwareBudgetSkippedScales,
+            VisibleAwareCoarsePeakCount = visibleAwareCoarsePeaks,
+            VisibleAwareRefinedCandidateCount = visibleAwareRefinedCandidates,
             UsedFastStrategy = usedFastStrategy,
             FastCoarseSearchMilliseconds = fastCoarseSearchMs,
             FastCoarseCandidateCount = fastCoarseCandidateCount
@@ -360,6 +385,24 @@ internal static class MapStructureValidator
             visibleAwareTopCost: d.Ctx.VisibleAwareBestCost,
             visibleAwareTopMargin: d.Ctx.VisibleAwareTopMargin,
             visibleAwareEarlyAccepted: d.Ctx.VisibleAwareEarlyAccepted,
-            visibleAwareFallbackReason: d.Ctx.VisibleAwareFallbackReason);
+            visibleAwareFallbackReason: d.Ctx.VisibleAwareFallbackReason,
+            visibleAwareRequestedBackend: d.Ctx.VisibleAwareSession?.RequestedBackend ?? "",
+            visibleAwareActualBackend: d.Ctx.VisibleAwareSession?.ActualBackend ?? "",
+            visibleAwareUMatFallbackReason: d.Ctx.VisibleAwareSession?.FallbackReason,
+            visibleAwareCoarseMs: d.Ctx.VisibleAwareCoarseMs,
+            visibleAwareRefineMs: d.Ctx.VisibleAwareRefineMs,
+            visibleAwareUploadMs: d.Ctx.VisibleAwareSession?.UploadMilliseconds ?? 0d,
+            visibleAwareDownloadMs: d.Ctx.VisibleAwareSession?.DownloadMilliseconds ?? 0d,
+            visibleAwareCompletedScales: d.Ctx.VisibleAwareCompletedScales,
+            visibleAwareBudgetSkippedScales: d.Ctx.VisibleAwareBudgetSkippedScales,
+            visibleAwareCoarsePeaks: d.Ctx.VisibleAwareCoarsePeaks,
+            visibleAwareRefinedCandidates: d.Ctx.VisibleAwareRefinedCandidates);
     }
 }
+/*
+ * 文件职责：MapStructureValidator。
+ * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

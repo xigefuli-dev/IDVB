@@ -43,12 +43,13 @@ internal static partial class MapCvAlignmentService
             fingerprint.Map.Id,
             fingerprint.Map.UpdatedAt,
             reference,
-            (MapFloorRules.GetFloorProfile(
+                (MapFloorRules.GetFloorProfile(
                 fingerprint.Map,
                 fingerprint.FloorKey)
                 ?? fingerprint.Map.Recognition.FirstFloor)
                 .WholeImageIgnoreRegions,
-            fingerprint.FloorKey);
+            fingerprint.FloorKey,
+            structureTuning.Generation);
 
         var effectiveDynamicIgnoreRegions = dynamicIgnoreRegions
             .Concat(MapCvRecognitionBuilders.BuildProjectedOutsideIgnoreRegions(
@@ -64,7 +65,9 @@ internal static partial class MapCvAlignmentService
             preparedLive = service.StructurePreprocessor.ProcessLiveRoi(
                 frame.Image,
                 liveIgnoreRegions,
-                effectiveDynamicIgnoreRegions);
+                effectiveDynamicIgnoreRegions,
+                generateVisibleMask: structureTuning.EnableVisibleMask,
+                generationTuning: structureTuning.Generation);
         }
         catch (Exception preprocessEx)
         {
@@ -236,6 +239,16 @@ internal static partial class MapCvAlignmentService
     {
         diagnostics.StructureCandidateCount =
             structure.Candidates.Count;
+        diagnostics.ScaleHypothesisCount = structure.ScaleHypothesisCount;
+        diagnostics.CoarseGlobalMilliseconds =
+            structure.FastCoarseSearchMilliseconds;
+        diagnostics.PyramidRefineMilliseconds = structure.RefineMilliseconds;
+        diagnostics.ExactEvaluateMilliseconds = structure.CandidateRankingMilliseconds;
+        diagnostics.UmatAttempted =
+            string.Equals(structure.VisibleAwareRequestedBackend, "UMat",
+                StringComparison.OrdinalIgnoreCase)
+            || string.Equals(structure.VisibleAwareActualBackend, "UMat",
+                StringComparison.OrdinalIgnoreCase);
         diagnostics.StructureFeatureMatchCount =
             structure.FeatureMatchCount;
         diagnostics.StructureFeatureInlierCount =
@@ -282,6 +295,17 @@ internal static partial class MapCvAlignmentService
             structure.VisibleAwareEarlyAccepted;
         diagnostics.VisibleAwareFallbackReason =
             structure.VisibleAwareFallbackReason;
+        diagnostics.VisibleAwareRequestedBackend = structure.VisibleAwareRequestedBackend;
+        diagnostics.VisibleAwareActualBackend = structure.VisibleAwareActualBackend;
+        diagnostics.VisibleAwareUMatFallbackReason = structure.VisibleAwareUMatFallbackReason;
+        diagnostics.VisibleAwareCoarseMs = structure.VisibleAwareCoarseMilliseconds;
+        diagnostics.VisibleAwareRefineMs = structure.VisibleAwareRefineMilliseconds;
+        diagnostics.VisibleAwareUploadMs = structure.VisibleAwareUploadMilliseconds;
+        diagnostics.VisibleAwareDownloadMs = structure.VisibleAwareDownloadMilliseconds;
+        diagnostics.VisibleAwareCompletedScaleCount = structure.VisibleAwareCompletedScaleCount;
+        diagnostics.VisibleAwareBudgetSkippedScaleCount = structure.VisibleAwareBudgetSkippedScaleCount;
+        diagnostics.VisibleAwareCoarsePeakCount = structure.VisibleAwareCoarsePeakCount;
+        diagnostics.VisibleAwareRefinedCandidateCount = structure.VisibleAwareRefinedCandidateCount;
         diagnostics.StructureFastStrategyUsed =
             structure.UsedFastStrategy;
         diagnostics.StructureCoarseSearchMs =
@@ -290,3 +314,10 @@ internal static partial class MapCvAlignmentService
             structure.FastCoarseCandidateCount;
     }
 }
+/*
+ * 文件职责：MapCvAlignmentService.StructureValidation。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

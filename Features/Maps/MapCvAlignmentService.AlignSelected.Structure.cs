@@ -51,7 +51,8 @@ internal static partial class MapCvAlignmentService
             fingerprint.Map.UpdatedAt,
             reference,
             primaryProfile.WholeImageIgnoreRegions,
-            fingerprint.FloorKey);
+            fingerprint.FloorKey,
+            structureTuning.Generation);
         stopwatch.Stop();
         diagnostics.CacheMilliseconds += stopwatch.Elapsed.TotalMilliseconds;
         diagnostics.ReferenceCacheMilliseconds +=
@@ -63,10 +64,12 @@ internal static partial class MapCvAlignmentService
             frame.Image,
             liveIgnoreRegions,
             dynamicIgnoreRegions,
-            out var liveStructureTiming,
-            profile: route == SelectedAlignmentRoute.SideEntrance
+                out var liveStructureTiming,
+                profile: route == SelectedAlignmentRoute.SideEntrance
                 ? MapStructurePreprocessingProfile.EdgesOnly
-                : MapStructurePreprocessingProfile.EdgesAndFeatures);
+                : MapStructurePreprocessingProfile.EdgesAndFeatures,
+            generateVisibleMask: structureTuning.EnableVisibleMask,
+            generationTuning: structureTuning.Generation);
         stopwatch.Stop();
         diagnostics.StructurePreprocessMilliseconds =
             stopwatch.Elapsed.TotalMilliseconds;
@@ -102,6 +105,8 @@ internal static partial class MapCvAlignmentService
         var isSideEntranceStructureRoute = route == SelectedAlignmentRoute.SideEntrance
             && (singleGateProposal is not null
                 || searchCtx?.UseRestrictedStructureFallback == true);
+        var isInitialSideEntranceSeed = isSideEntranceStructureRoute
+            && searchCtx?.UseInitialHighPrecisionRecovery == true;
         if (route == SelectedAlignmentRoute.SideEntrance
             && singleGateProposal is null)
         {
@@ -140,7 +145,13 @@ internal static partial class MapCvAlignmentService
                 structureSearchTuning.TopCandidateCount);
         }
 
-        var restrictStructureSearch = isSideEntranceStructureRoute || hasAnchorSeed;
+        // A locked side-feature observation already supplies a map-owned
+        // transform proposal.  Even when it is a fixed-scale validation (and
+        // therefore not the initial/recovery side route), keep the structure
+        // search inside that proposal's local basin.
+        var restrictStructureSearch = isSideEntranceStructureRoute
+            || hasAnchorSeed
+            || searchCtx?.UseLockedFixedStructureValidation == true;
         if (ApplyNoDoorBudgetBeforeLocalSearch(
                 structureSearchTuning,
                 isSideEntranceStructureRoute,
@@ -163,7 +174,10 @@ internal static partial class MapCvAlignmentService
             // 侧门初次配准的 seed 是扫描种子（不可靠），不应卡在 tracking 窄窗
             // （±0.5% scale / 48px）。非 tracking 改用 ScaleSearchRadius / 96px，
             // 给 seed 的尺度偏差更多纠正空间；非侧门路由仍保持 tracking。
-            TrackingMode = !isSideEntranceStructureRoute,
+            TrackingMode = MapAlignmentSearchPolicy
+                .UseTrackingForStructureValidation(
+                    isSideEntranceStructureRoute,
+                    searchCtx),
             ForceBestCandidate = false,
             PreparedReference = preparedReference,
             PreparedLive = preparedLive,
@@ -176,10 +190,38 @@ internal static partial class MapCvAlignmentService
             CandidateHistory = candidateHistory ?? [],
             SideEntrancePrior = 0d
         };
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            $"侧门结构验证路线 · {(isInitialSideEntranceSeed
+                ? "initial-seed"
+                : isSideEntranceStructureRoute
+                    ? "tracking-repair"
+                    : route == SelectedAlignmentRoute.SideEntrance
+                        ? searchCtx?.UseLockedFixedStructureValidation == true
+                            ? "locked-fixed"
+                            : "standard"
+                        : "standard")}",
+            details: new()
+            {
+                ["route"] = isInitialSideEntranceSeed
+                    ? "initial-seed"
+                    : isSideEntranceStructureRoute
+                        ? "tracking-repair"
+                        : route == SelectedAlignmentRoute.SideEntrance
+                            ? searchCtx?.UseLockedFixedStructureValidation == true
+                                ? "locked-fixed"
+                                : "standard"
+                            : "standard",
+                ["scaleSearchPolicy"] = structureRequest.ScaleSearchPolicy.ToString(),
+                ["trackingMode"] = structureRequest.TrackingMode,
+                ["restrictedSearch"] = structureRequest.RestrictSearchToLockedTransform
+            });
         var structure = service.StructureRegistrar.Register(structureRequest);
         if (isSideEntranceStructureRoute
             && restrictStructureSearch
-            && !structure.Accepted)
+            && !structure.Accepted
+            && IsGlobalRecoveryWorthAttempting(structure))
         {
             // A global recovery is a new identity search, so start from the
             // caller's complete tuning instead of inheriting local-search
@@ -219,6 +261,17 @@ internal static partial class MapCvAlignmentService
                 };
                 var globalRecovery = service.StructureRegistrar.Register(
                     globalRecoveryRequest);
+                MapLogCollector.Instance.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    "侧门结构验证路线 · global-recovery",
+                    details: new()
+                    {
+                        ["route"] = "global-recovery",
+                        ["scaleSearchPolicy"] = globalRecoveryRequest.ScaleSearchPolicy.ToString(),
+                        ["trackingMode"] = globalRecoveryRequest.TrackingMode,
+                        ["restrictedSearch"] = false
+                    });
                 if (globalRecovery.Accepted
                     || (!structure.Accepted
                         && (globalRecovery.Confidence > structure.Confidence
@@ -404,4 +457,21 @@ internal static partial class MapCvAlignmentService
                 structure.Accepted ? string.Empty : structure.FailureReason,
         };
     }
+
+    // 全局恢复是 unrestricted 全尺度第二轮（实测慢尾 ~270ms），只有局部搜索已
+    // 给出一定结构证据时才有恢复价值：置信度低于 GlobalRecoveryMinimumLocalConfidence
+    // 的帧（chamferQuality≈0 的"最佳候选绝对贴合度不足"）全局第二轮几乎注定
+    // 同样白付，短路跳过，避免把失败路径跑成最慢路径。
+    private static bool IsGlobalRecoveryWorthAttempting(
+        MapStructureRegistrationResult structure) =>
+        double.IsFinite(structure.Confidence)
+        && structure.Confidence
+            >= MapOpenAlignmentRouteRules.GlobalRecoveryMinimumLocalConfidence;
 }
+/*
+ * 文件职责：MapCvAlignmentService.AlignSelected.Structure。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

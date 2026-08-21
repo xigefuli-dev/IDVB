@@ -1,4 +1,5 @@
 using IDVBuff.Features.Maps;
+using System.Diagnostics;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,11 +17,21 @@ public sealed class HomePage : Page
     private readonly TextBlock _mapCountValue = CreateMetricValue();
     private readonly TextBlock _successRateValue = CreateMetricValue();
     private readonly TextBlock _successRateDetail = CreateMetricDetail();
+    private readonly Button _launchGameButton;
+    private readonly SymbolIcon _launchGameIcon;
+    private readonly TextBlock _launchGameLabel;
+    private readonly DispatcherTimer _gameStatusTimer;
 
     public HomePage()
     {
+        _launchGameIcon = new SymbolIcon(Symbol.Play) { Margin = new Thickness(0, 0, 10, 0) };
+        _launchGameLabel = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold };
+        _launchGameButton = CreateLaunchGameButton();
+        _gameStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _gameStatusTimer.Tick += (_, _) => UpdateGameStatus();
         Content = CreateContent();
         Loaded += HomePage_Loaded;
+        Unloaded += (_, _) => _gameStatusTimer.Stop();
     }
 
     private FrameworkElement CreateContent()
@@ -52,6 +63,8 @@ public sealed class HomePage : Page
                 }
             }
         });
+
+        root.Children.Add(_launchGameButton);
 
         var cards = new StackPanel
         {
@@ -89,6 +102,59 @@ public sealed class HomePage : Page
         root.Children.Add(section);
         return root;
     }
+
+    private Button CreateLaunchGameButton()
+    {
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { _launchGameIcon, _launchGameLabel }
+        };
+        var button = new Button
+        {
+            Width = 300,
+            Height = 58,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Content = content,
+            Background = FluentTheme.Brush("AccentFillColorDefaultBrush"),
+            Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush"),
+            CornerRadius = new CornerRadius(8),
+            Shadow = new ThemeShadow()
+        };
+        button.Click += LaunchGameButton_Click;
+        return button;
+    }
+
+    private void LaunchGameButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsGameRunning())
+            return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("fevergames://mygame/?gameId=73") { UseShellExecute = true });
+            UpdateGameStatus();
+        }
+        catch
+        {
+            // The shell owns the custom protocol. Keep the button usable if it is not registered.
+        }
+    }
+
+    private void UpdateGameStatus()
+    {
+        var running = IsGameRunning();
+        _launchGameLabel.Text = running ? "···游戏中" : "启动游戏";
+        _launchGameIcon.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        _launchGameButton.Background = FluentTheme.Brush(running
+            ? "ControlFillColorDisabledBrush"
+            : "AccentFillColorDefaultBrush");
+        _launchGameButton.Opacity = running ? 0.72 : 1;
+    }
+
+    private static bool IsGameRunning() => Process.GetProcessesByName("dwrg").Length > 0;
 
     private static Border CreateMetricCard(
         string title,
@@ -146,7 +212,7 @@ public sealed class HomePage : Page
             Width = 320,
             MinHeight = 150,
             Padding = new Thickness(20),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -156,6 +222,8 @@ public sealed class HomePage : Page
 
     private async void HomePage_Loaded(object sender, RoutedEventArgs e)
     {
+        UpdateGameStatus();
+        _gameStatusTimer.Start();
         _mapCountValue.Text = "…";
         _successRateValue.Text = "…";
         _successRateDetail.Text = string.Empty;

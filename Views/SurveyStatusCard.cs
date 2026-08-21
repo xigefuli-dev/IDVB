@@ -57,7 +57,7 @@ internal sealed class SurveyStatusCard : UserControl
             CornerRadius = new CornerRadius(10),
             BorderThickness = new Thickness(1),
             BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(),
             Child = content
         };
         Update(SurveyStatusSnapshot.Inactive);

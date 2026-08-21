@@ -242,6 +242,55 @@ public sealed partial class MapStructureRegistrarTests
     }
 
     [Fact]
+    public void ReciprocalScale_VisibleAware_EdgeCandidatesDoNotThrowRoiException()
+    {
+        // 回归：互逆缩放（baselineScale < 1.0）下 referenceDistance 是降采样
+        // 图，而 IoU 响应图基于原始 reference.StructureMask 计算，边缘峰值
+        // 位置会超出 referenceDistance 边界。此前在 Evaluate() 中裁剪
+        // distance patch 时抛 OpenCVException，被侧门扫描吞掉后导致快捷
+        // 扫描完成标志未设置（无法锁定缩放）。修复：越界候选直接跳过。
+        using var reference = BuildLargeReference(); // 640×480
+        var crop = new Rect(200, 150, 100, 80);
+        using var source = new Mat(reference, crop);
+        const double targetScale = 0.7;
+        using var live = new Mat();
+        Cv2.Resize(
+            source,
+            live,
+            new Size(
+                (int)Math.Round(source.Width * targetScale),
+                (int)Math.Round(source.Height * targetScale)),
+            0d, 0d, InterpolationFlags.Area);
+
+        var viewport = new MapScreenRect(100d, 80d, live.Width, live.Height);
+        var tuning = ReciprocalTuning();
+        tuning.EnableVisibleMask = true;
+        tuning.EnableVisibleAwareInjection = true;
+        tuning.EnableVisibleAwareEarlyExit = false;
+        tuning.VisibleAwareMinimumVisibleFraction = 0.01d;
+        tuning.VisibleAwareMinimumVisibleStructurePixels = 10;
+
+        var registrar = new MapStructureRegistrar(
+            new MapStructurePreprocessor());
+
+        // 核心：不得抛 OpenCVException
+        var result = registrar.Register(
+            new MapStructureRegistrationRequest
+            {
+                ReferenceImage = reference,
+                LiveRoi = live,
+                ViewportBounds = viewport,
+                LockedTransform = LockedAtScale(reference, targetScale),
+                Tuning = tuning,
+                AllowScaleSearch = false
+            });
+
+        Assert.NotNull(result);
+        // 不要求接受；只要求越界候选被安全跳过
+        Assert.False(result.VisibleAwareEarlyAccepted);
+    }
+
+    [Fact]
     public void ReciprocalScale_AboveOne_NotActivated_NormalPathWorks()
     {
         // baselineScale > 1.0 时互逆缩放不应激活，走正常路径。

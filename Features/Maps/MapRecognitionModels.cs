@@ -19,6 +19,7 @@ public sealed class CapturedGameFrame : IDisposable
     private MapStructureFeatures? _defaultLiveStructureFeatures;
     private PreprocessTiming? _defaultLiveStructureTiming;
     private MapStructurePreprocessingProfile _defaultLiveStructureProfile;
+    private string _defaultLiveStructureGenerationFingerprint = string.Empty;
     private double _defaultLiveStructureExtractionMilliseconds;
     private bool _disposed;
 
@@ -50,29 +51,45 @@ public sealed class CapturedGameFrame : IDisposable
         MapStructurePreprocessor preprocessor,
         out bool cacheHit,
         out double extractionMilliseconds,
-        out PreprocessTiming timing) =>
+        out PreprocessTiming timing,
+        MapStructureGenerationTuning? generationTuning = null) =>
         GetOrCreateDefaultLiveStructureFeatures(
             preprocessor,
             MapStructurePreprocessingProfile.EdgesAndFeatures,
             out cacheHit,
             out extractionMilliseconds,
-            out timing);
+            out timing,
+            generationTuning: generationTuning);
 
     internal MapStructureFeatures GetOrCreateDefaultLiveStructureFeatures(
         MapStructurePreprocessor preprocessor,
         MapStructurePreprocessingProfile requestedProfile,
         out bool cacheHit,
         out double extractionMilliseconds,
-        out PreprocessTiming timing)
+        out PreprocessTiming timing,
+        bool generateVisibleMask = false,
+        MapStructureGenerationTuning? generationTuning = null)
     {
         ArgumentNullException.ThrowIfNull(preprocessor);
+        generationTuning = generationTuning?.Clone() ?? new();
+        generationTuning.Normalize();
+        var generationFingerprint = generationTuning.CacheFingerprint;
         lock (_derivedFeaturesGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_defaultLiveStructureFeatures is { } existing
-                && _defaultLiveStructureTiming is { } existingTiming)
+                && _defaultLiveStructureTiming is { } existingTiming
+                && string.Equals(
+                    _defaultLiveStructureGenerationFingerprint,
+                    generationFingerprint,
+                    StringComparison.Ordinal))
             {
-                if (_defaultLiveStructureProfile.Satisfies(requestedProfile))
+                // 可见掩码是可选派生物：若当前请求需要掩码而缓存没有
+                // （旧路径生成），必须重新提取，否则 Visible-aware 会静默失效。
+                // 轮廓升级路径只补描述符，不补掩码，因此需要掩码时也走重建。
+                if ((!generateVisibleMask
+                        || existing.RawVisibleMask is not null)
+                    && _defaultLiveStructureProfile.Satisfies(requestedProfile))
                 {
                     cacheHit = true;
                     extractionMilliseconds =
@@ -92,6 +109,8 @@ public sealed class CapturedGameFrame : IDisposable
                 _defaultLiveStructureTiming = upgradedTiming;
                 _defaultLiveStructureProfile =
                     MapStructurePreprocessingProfile.EdgesAndFeatures;
+                _defaultLiveStructureGenerationFingerprint =
+                    generationFingerprint;
                 _defaultLiveStructureExtractionMilliseconds =
                     upgradeStopwatch.Elapsed.TotalMilliseconds;
                 existing.Dispose();
@@ -102,15 +121,28 @@ public sealed class CapturedGameFrame : IDisposable
                 return upgraded;
             }
 
+            if (_defaultLiveStructureFeatures is not null)
+            {
+                _defaultLiveStructureFeatures.Dispose();
+                _defaultLiveStructureFeatures = null;
+                _defaultLiveStructureTiming = null;
+                _defaultLiveStructureGenerationFingerprint = string.Empty;
+            }
+
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var created = preprocessor.ProcessLiveRoiDiagnostic(
                 Image,
+                null,
+                null,
                 out var createdTiming,
-                requestedProfile);
+                generateVisibleMask: generateVisibleMask,
+                profile: requestedProfile,
+                generationTuning: generationTuning);
             stopwatch.Stop();
             _defaultLiveStructureFeatures = created;
             _defaultLiveStructureTiming = createdTiming;
             _defaultLiveStructureProfile = requestedProfile;
+            _defaultLiveStructureGenerationFingerprint = generationFingerprint;
             _defaultLiveStructureExtractionMilliseconds =
                 stopwatch.Elapsed.TotalMilliseconds;
             cacheHit = false;
@@ -131,6 +163,7 @@ public sealed class CapturedGameFrame : IDisposable
             _defaultLiveStructureFeatures?.Dispose();
             _defaultLiveStructureFeatures = null;
             _defaultLiveStructureTiming = null;
+            _defaultLiveStructureGenerationFingerprint = string.Empty;
             Image.Dispose();
         }
     }
@@ -388,6 +421,27 @@ public sealed class MapScanDiagnostics
     public double OverlayMilliseconds { get; set; }
     public double TotalMilliseconds { get; set; }
 
+    // ── Initial/Steady alignment acceptance diagnostics ──
+    public string AlignmentClass { get; set; } = string.Empty;
+    public string AlignmentContextKey { get; set; } = string.Empty;
+    public bool WarmStateHit { get; set; }
+    public string WarmStateMissReason { get; set; } = string.Empty;
+    public double InputToFirstCaptureMilliseconds { get; set; }
+    public double GameReadyDelayMilliseconds { get; set; }
+    public double CoarseGlobalMilliseconds { get; set; }
+    public double PyramidRefineMilliseconds { get; set; }
+    public double ExactEvaluateMilliseconds { get; set; }
+    public double FinalPresentMilliseconds { get; set; }
+    public double InputToPresentMilliseconds { get; set; }
+    public int PresentCount { get; set; }
+    public int ReferenceDiskReadCount { get; set; }
+    public int FullResolutionTemplateMatchCount { get; set; }
+    public int StructurePreprocessCount { get; set; }
+    public bool VpsgAttempted { get; set; }
+    public bool GateDetectionAttempted { get; set; }
+    public bool UmatAttempted { get; set; }
+    public int ScaleHypothesisCount { get; set; }
+
     // ── Phase 0: mutually-exclusive wall-clock timing ──
 
     /// <summary>Input → alignment start (animation wait + stability detection).</summary>
@@ -465,6 +519,17 @@ public sealed class MapScanDiagnostics
     public double VisibleAwareTopMargin { get; set; }
     public bool VisibleAwareEarlyAccepted { get; set; }
     public string? VisibleAwareFallbackReason { get; set; }
+    public string VisibleAwareRequestedBackend { get; set; } = string.Empty;
+    public string VisibleAwareActualBackend { get; set; } = string.Empty;
+    public string? VisibleAwareUMatFallbackReason { get; set; }
+    public double VisibleAwareCoarseMs { get; set; }
+    public double VisibleAwareRefineMs { get; set; }
+    public double VisibleAwareUploadMs { get; set; }
+    public double VisibleAwareDownloadMs { get; set; }
+    public int VisibleAwareCompletedScaleCount { get; set; }
+    public int VisibleAwareBudgetSkippedScaleCount { get; set; }
+    public int VisibleAwareCoarsePeakCount { get; set; }
+    public int VisibleAwareRefinedCandidateCount { get; set; }
 
     // Fast alignment diagnostics
     public bool StructureFastStrategyUsed { get; set; }
@@ -590,3 +655,10 @@ internal static class MapFloorScaleSeedRules
         };
     }
 }
+/*
+ * 文件职责：MapRecognitionModels。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

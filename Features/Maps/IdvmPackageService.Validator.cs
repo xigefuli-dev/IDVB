@@ -25,13 +25,30 @@ public sealed partial class IdvmPackageService
         }
 
         var manifest = Deserialize<ManifestDto>(manifestBytes, "manifest.json");
-        if (manifest.Classes is null || manifest.Maps is null || manifest.Files is null)
-            throw new InvalidDataException("manifest 的 classes、maps 和 files 必须是数组。");
-        if (manifest.Format != "idvm" || manifest.FormatVersion != "1.0"
-            || manifest.MinimumReader != "1.0" || manifest.PackageType != "class-set")
+        if (manifest.Classes is null || manifest.Maps is null
+            || manifest.VariantGroups is null || manifest.Files is null
+            || manifest.Capabilities is null)
+        {
+            throw new InvalidDataException(
+                "manifest 的 classes、maps、variantGroups、files 和 capabilities 必须有效。");
+        }
+        var isVersion10 = parsedHeader.MajorVersion == 1
+            && parsedHeader.MinorVersion == 0
+            && manifest.FormatVersion == "1.0"
+            && manifest.MinimumReader == "1.0";
+        var isVersion11 = parsedHeader.MajorVersion == 1
+            && parsedHeader.MinorVersion == 1
+            && manifest.FormatVersion == "1.1"
+            && manifest.MinimumReader == "1.1";
+        if (manifest.Format != "idvm" || (!isVersion10 && !isVersion11)
+            || manifest.PackageType != "class-set")
         {
             throw new InvalidDataException("不支持的 IDVM 格式或读取器版本。");
         }
+        if (isVersion10 && manifest.VariantGroups.Count != 0)
+            throw new InvalidDataException("IDVM 1.0 包不能声明变体组合。");
+        if (isVersion11 && !manifest.Capabilities.VariantGroups)
+            throw new InvalidDataException("IDVM 1.1 包必须声明 variantGroups 能力。");
         if (manifest.PackageId == Guid.Empty || manifest.PackageId != parsedHeader.PackageId)
             throw new InvalidDataException("header 与 manifest 的 packageId 不一致。");
         if (manifest.CreatedAt.ToUnixTimeMilliseconds() != parsedHeader.CreatedAtUnixMilliseconds)
@@ -100,6 +117,48 @@ public sealed partial class IdvmPackageService
         }
         if (manifest.Classes.SelectMany(item => item.MapIds).Count() != manifest.Maps.Count)
             throw new InvalidDataException("地图必须且只能属于一个 Class。");
+
+        var mapClassById = manifest.Maps.ToDictionary(map => map.MapId, map => map.ClassId);
+        var groupIds = new HashSet<Guid>();
+        var groupedMapIds = new HashSet<Guid>();
+        var paletteSlotsByClass = new Dictionary<Guid, HashSet<int>>();
+        var groupCountsByClass = new Dictionary<Guid, int>();
+        foreach (var group in manifest.VariantGroups)
+        {
+            if (group is null || group.MapIds is null
+                || group.GroupId == Guid.Empty || !groupIds.Add(group.GroupId)
+                || !classIds.Contains(group.ClassId)
+                || group.PaletteSlot is < 0 or >= MapVariantGroup.PaletteSize
+                || group.MapIds.Count < 2
+                || group.MapIds.Count != group.MapIds.Distinct().Count())
+            {
+                throw new InvalidDataException("manifest 包含无效或重复的变体组合。");
+            }
+
+            if (!paletteSlotsByClass.TryGetValue(group.ClassId, out var paletteSlots))
+            {
+                paletteSlots = [];
+                paletteSlotsByClass.Add(group.ClassId, paletteSlots);
+            }
+            if (!paletteSlots.Add(group.PaletteSlot))
+                throw new InvalidDataException("同一 Class 的变体组合颜色槽不能重复。");
+
+            groupCountsByClass.TryGetValue(group.ClassId, out var groupCount);
+            if (groupCount >= MapVariantGroup.PaletteSize)
+                throw new InvalidDataException("同一 Class 的变体组合不能超过 12 组。");
+            groupCountsByClass[group.ClassId] = groupCount + 1;
+
+            foreach (var mapId in group.MapIds)
+            {
+                if (!mapClassById.TryGetValue(mapId, out var mapClassId)
+                    || mapClassId != group.ClassId)
+                {
+                    throw new InvalidDataException("变体组合包含缺失地图或跨 Class 成员。");
+                }
+                if (!groupedMapIds.Add(mapId))
+                    throw new InvalidDataException("同一地图不能属于多个变体组合。");
+            }
+        }
     }
 
     private static void ValidateFloors(IReadOnlyList<ManifestFloorDto> floors, string root)
@@ -130,7 +189,7 @@ public sealed partial class IdvmPackageService
             || gates.Gates is null || anchors.Floors is null)
             throw new InvalidDataException("地图数据文件缺少必需对象或数组。");
         if (metadata.SchemaVersion != 1 || gates.SchemaVersion != 1
-            || anchors.SchemaVersion is not (1 or 2 or 3))
+            || anchors.SchemaVersion is not (1 or 2 or 3 or 4))
             throw new InvalidDataException("不支持的数据 schemaVersion。");
         if (metadata.Map.Id != map.MapId || metadata.Map.ClassId != map.ClassId
             || metadata.Map.CoordinateSystem != "normalized-top-left-y-down"
@@ -138,6 +197,7 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException($"地图 {map.MapId} 的 metadata 标识不一致。");
         if (metadata.Floors.Count != map.Floors.Count)
             throw new InvalidDataException($"地图 {map.MapId} 的楼层清单不一致。");
+        var backgroundLayerIds = new HashSet<Guid>();
         for (var index = 0; index < map.Floors.Count; index++)
         {
             var declared = map.Floors[index];
@@ -188,6 +248,25 @@ public sealed partial class IdvmPackageService
                 if (!IsValidAnnotation(annotation, anchors.SchemaVersion))
                     throw new InvalidDataException($"楼层 {floor.Key} 包含无效标注。");
                 ValidateAnnotationGeometry(annotation);
+            }
+            if (anchors.SchemaVersion >= 4 && anchorFloor.BackgroundLayers is null)
+                throw new InvalidDataException("schema 4 的 anchors.json 必须包含 backgroundLayers 数组。");
+            foreach (var layer in anchorFloor.BackgroundLayers ?? [])
+            {
+                if (anchors.SchemaVersion < 4)
+                    throw new InvalidDataException("旧版 anchors.json 不允许包含 backgroundLayers。");
+                if (layer is null
+                    || layer.Id == Guid.Empty
+                    || !backgroundLayerIds.Add(layer.Id)
+                    || layer.Semantic != "background"
+                    || layer.Shape is not ("circle" or "square")
+                    || layer.BrushSizePixels is < 1 or > 1024
+                    || layer.Points is not { Count: > 0 })
+                {
+                    throw new InvalidDataException($"楼层 {floor.Key} 包含无效遮瑕层。");
+                }
+                foreach (var point in layer.Points)
+                    ValidatePoint(point, "backgroundLayer.point");
             }
         }
         if (anchors.Floors.Count != metadata.Floors.Count)
@@ -393,3 +472,10 @@ public sealed partial class IdvmPackageService
         }
     }
 }
+/*
+ * 文件职责：IdvmPackageService.Validator。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

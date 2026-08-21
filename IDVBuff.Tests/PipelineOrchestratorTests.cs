@@ -78,6 +78,39 @@ public sealed class PipelineOrchestratorTests
 
         Assert.False(result.IsFailed); // fallback succeeded
         Assert.Contains("fallback", executed);
+        Assert.True(result.GetPhaseMs("fail") >= 0);
+        Assert.True(result.GetPhaseMs("fail:fallback") >= 0);
+    }
+
+    [Fact]
+    public async Task RunAsync_FallbackTrace_PreservesOriginalAndDegradedAttempts()
+    {
+        var trace = new MapOperationTrace(MapOperationTypes.QuickScan);
+        MapOperationTraceAmbient.SetCurrent(trace);
+        try
+        {
+            var fallback = new PipelineFallbackChain()
+                .WithFallback("fail", new TestStage("fallback", new List<string>()));
+            var result = await new PipelineOrchestrator(
+                    [new FailingStage("fail")],
+                    fallback)
+                .RunAsync(new PipelineContext());
+
+            Assert.False(result.IsFailed);
+        }
+        finally
+        {
+            MapOperationTraceAmbient.SetCurrent(null);
+        }
+
+        var summary = trace.Complete("success", "completed");
+        var original = Assert.Single(summary.Spans, span => span.Name == "fail");
+        var degraded = Assert.Single(
+            summary.Spans,
+            span => span.Name == "fail:fallback");
+        Assert.Equal(MapOperationSpanStatus.Failed, original.Status);
+        Assert.Equal(MapOperationSpanStatus.Completed, degraded.Status);
+        Assert.Contains("failure", original.TerminalReason ?? string.Empty);
     }
 
     [Fact]

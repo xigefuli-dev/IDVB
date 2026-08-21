@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
+using IDVBuff.Core.Contracts;
 
 namespace IDVBuff.Features.Maps;
 
@@ -21,6 +22,7 @@ internal sealed class GameOverlayProgressBar : IDisposable
     private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoActivate = 0x0010, SwpShowWindow = 0x0040;
     private static readonly IntPtr HwndTopMost = new(-1);
     private readonly object _gate = new();
+    private readonly ICaptureProtectionService? _captureProtection;
     private static readonly object WindowClassGate = new();
     private static readonly WindowProcedure WindowProcedureDelegate = WindowProcedureCore;
     private static bool _windowClassRegistered;
@@ -30,6 +32,12 @@ internal sealed class GameOverlayProgressBar : IDisposable
     private MapScreenRect _bounds;
     private string _text = "正在扫描...";
     private double _progress;
+    private ICaptureProtectionRegistration? _captureProtectionRegistration;
+
+    public GameOverlayProgressBar(ICaptureProtectionService? captureProtection = null)
+    {
+        _captureProtection = captureProtection;
+    }
 
     /// <summary>显示进度条并从游戏画面下方平滑进入至 -70% 位置。</summary>
     public void Show(MapScreenRect bounds, IntPtr gameWindowHandle, string text)
@@ -150,6 +158,20 @@ internal sealed class GameOverlayProgressBar : IDisposable
         }
         _window = CreateWindowEx(WsExLayered | WsExTransparent | WsExNoActivate, "IDVBuff.GameOverlayProgressBar", "", WsPopup, 0, 0, 1, 1, IntPtr.Zero, IntPtr.Zero, GetModuleHandle(null), IntPtr.Zero);
         if (_window == IntPtr.Zero) throw new InvalidOperationException("无法创建扫描进度窗口。");
+        if (_captureProtection is not null)
+        {
+            try
+            {
+                _captureProtectionRegistration = _captureProtection.RegisterWindow(
+                    _window,
+                    CaptureProtectionWindowCategory.DisplayLayer,
+                    "扫描进度条");
+            }
+            catch (Exception exception)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ProgressOverlay] 捕获保护登记失败：{exception.Message}");
+            }
+        }
     }
 
     private void Present(Bitmap bitmap, int x, int y)
@@ -166,7 +188,14 @@ internal sealed class GameOverlayProgressBar : IDisposable
     private static GraphicsPath Round(RectangleF r, float radius) { var p = new GraphicsPath(); var d = Math.Min(radius * 2, Math.Min(r.Width, r.Height)); p.AddArc(r.Left, r.Top, d, d, 180, 90); p.AddArc(r.Right - d, r.Top, d, d, 270, 90); p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.Left, r.Bottom - d, d, d, 90, 90); p.CloseFigure(); return p; }
     /// <summary>命中测试始终透传给游戏，避免进度条抢占鼠标输入。</summary>
     private static IntPtr WindowProcedureCore(IntPtr window, uint message, IntPtr wParam, IntPtr lParam) => message == WmNcHitTest ? new IntPtr(HtTransparent) : DefWindowProc(window, message, wParam, lParam);
-    public void Dispose() { if (_disposed) return; _disposed = true; if (_window != IntPtr.Zero) { DestroyWindow(_window); _window = IntPtr.Zero; } }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _captureProtectionRegistration?.Dispose();
+        _captureProtectionRegistration = null;
+        if (_window != IntPtr.Zero) { DestroyWindow(_window); _window = IntPtr.Zero; }
+    }
     [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr WindowProcedure(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WindowClassEx { public uint Size, Style; public IntPtr Procedure; public int ClassExtra, WindowExtra; public IntPtr Instance, Icon, Cursor, Background; [MarshalAs(UnmanagedType.LPWStr)] public string? Menu; [MarshalAs(UnmanagedType.LPWStr)] public string ClassName; public IntPtr SmallIcon; }
     [StructLayout(LayoutKind.Sequential)] private struct PointNative(int x, int y) { public int X = x, Y = y; }
@@ -187,3 +216,10 @@ internal sealed class GameOverlayProgressBar : IDisposable
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr obj);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
 }
+/*
+ * 文件职责：GameOverlayProgressBar。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

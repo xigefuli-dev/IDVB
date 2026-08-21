@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -157,8 +158,17 @@ internal static class MapStructureScaleSearch
     // 缩放搜索上下文：在 RegisterLegacy 迭代中携带跨假设的状态
     // ═══════════════════════════════════════════════════════════════
 
-    internal sealed class ScaleSearchContext
+    internal sealed class ScaleSearchContext : IDisposable
     {
+        public VisibleAwareCorrelationSession? VisibleAwareSession;
+        public Mat? VisibleAwareReciprocalReference;
+        public int VisibleAwareReciprocalFactor;
+        public int VisibleAwareCompletedScales;
+        public int VisibleAwareBudgetSkippedScales;
+        public int VisibleAwareCoarsePeaks;
+        public int VisibleAwareRefinedCandidates;
+        public double VisibleAwareCoarseMs;
+        public double VisibleAwareRefineMs;
         public readonly List<MapStructureCandidate> Candidates = new();
         public int SufficientlyStructuredHypotheses;
         public int OversizedHypotheses;
@@ -171,6 +181,8 @@ internal static class MapStructureScaleSearch
         public double LocalTemplateSearchMs;
         public double GlobalTemplateSearchMs;
         public bool TimeBudgetExceeded;
+        public bool WorkPreflightRejected;
+        public int EstimatedRestrictedTemplateMilliseconds;
 
         // Visible-aware 诊断累加器
         public double VisibleAwareTotalMs;
@@ -184,6 +196,11 @@ internal static class MapStructureScaleSearch
         public bool VisibleAwareEarlyAccepted;
         public string? VisibleAwareFallbackReason;
         public bool SkipLegacyCandidates;
+        public void Dispose()
+        {
+            VisibleAwareSession?.Dispose();
+            VisibleAwareReciprocalReference?.Dispose();
+        }
 
         public double VisibleAwareTopMargin => double.IsPositiveInfinity(VisibleAwareSecondCost)
             ? 0d
@@ -207,10 +224,14 @@ internal static class MapStructureScaleSearch
         Point expected,
         MapStructureRegistrationTuning tuning,
         MapStructureRegistrar.ReciprocalScaleContext reciprocalScale,
-        ScaleSearchContext ctx)
+        ScaleSearchContext ctx,
+        int remainingBudgetMilliseconds)
     {
         if (tuning.EnableFeatureVoting)
         {
+            using var featureVoting = MapOperationTraceAmbient.StartChild(
+                "feature_voting",
+                MapOperationWaitKind.Compute);
             var featureTimer = Stopwatch.StartNew();
             MapStructureFeatureVoting.CollectFeatureCandidates(
                 live, reference, query, request, scale, tuning,
@@ -233,10 +254,47 @@ internal static class MapStructureScaleSearch
             (int)Math.Ceiling(searchRadiusPixels / scale));
         var restrictedDomain = CenteredSearchRect(
             scoreDomain, expected.X, expected.Y, radiusInReferencePixels);
-        MapStructureCandidateCollector.SearchRestrictedCandidates(
-            query, reference, referenceDistance, request, scale,
-            expected, restrictedDomain, tuning,
-            reciprocalScale, ctx.Candidates);
+        var estimatedTemplateMilliseconds = EstimateRestrictedTemplateMilliseconds(
+            query,
+            restrictedDomain);
+        ctx.EstimatedRestrictedTemplateMilliseconds = Math.Max(
+            ctx.EstimatedRestrictedTemplateMilliseconds,
+            estimatedTemplateMilliseconds);
+        var allowTemplateSearch = remainingBudgetMilliseconds
+            >= estimatedTemplateMilliseconds;
+        if (!allowTemplateSearch)
+        {
+            ctx.TimeBudgetExceeded = true;
+            ctx.WorkPreflightRejected = true;
+        }
+        using (var restrictedTemplate = MapOperationTraceAmbient.StartChild(
+                   "restricted_template_search",
+                   MapOperationWaitKind.Compute))
+        {
+            MapStructureCandidateCollector.SearchRestrictedCandidates(
+                query, reference, referenceDistance, request, scale,
+                expected, restrictedDomain, tuning,
+                reciprocalScale, ctx.Candidates, allowTemplateSearch);
+        }
+    }
+
+    internal static int EstimateRestrictedTemplateMilliseconds(
+        QueryGeometry query,
+        Rect searchDomain)
+    {
+        const double baselineQueryPixels = 500_000d;
+        const double baselineSearchPixels = 193d * 193d;
+        const double baselineMilliseconds = 75d;
+        var queryPixels = Math.Max(
+            1d,
+            query.Bounds.Width * (double)query.Bounds.Height);
+        var searchPixels = Math.Max(
+            1d,
+            searchDomain.Width * (double)searchDomain.Height);
+        var estimate = baselineMilliseconds
+            * Math.Max(0.25d, queryPixels / baselineQueryPixels)
+            * Math.Max(0.25d, searchPixels / baselineSearchPixels);
+        return Math.Clamp((int)Math.Ceiling(estimate), 20, 400);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -258,13 +316,24 @@ internal static class MapStructureScaleSearch
     {
         // Step 1: Visible-aware 快速候选
         var visibleAwareSw = Stopwatch.StartNew();
-        var vaDiag = MapStructureVisibleAwareSearch.CollectVisibleAwareCandidates(
-            query, reference, referenceDistance,
-            request, scale, tuning,
-            reciprocalScale, ctx.Candidates);
+        VisibleAwareSearchDiagnostics vaDiag;
+        using (var visibleAware = MapOperationTraceAmbient.StartChild(
+                   "visible_aware_search",
+                   MapOperationWaitKind.Compute))
+        {
+            vaDiag = MapStructureVisibleAwareSearch.CollectVisibleAwareCandidates(
+                query, reference, referenceDistance,
+                request, scale, tuning,
+                reciprocalScale, ctx, ctx.Candidates);
+        }
         visibleAwareSw.Stop();
         if (vaDiag.Ran)
         {
+            ctx.VisibleAwareCompletedScales++;
+            ctx.VisibleAwareCoarsePeaks += vaDiag.CoarsePeakCount;
+            ctx.VisibleAwareRefinedCandidates += vaDiag.RefinedCandidateCount;
+            ctx.VisibleAwareCoarseMs += vaDiag.CoarseMilliseconds;
+            ctx.VisibleAwareRefineMs += vaDiag.RefineMilliseconds;
             ctx.VisibleAwareTotalMs += visibleAwareSw.Elapsed.TotalMilliseconds;
             ctx.VisibleAwareCandidateCount += vaDiag.CandidateCount;
             ctx.VisibleAwareVisibleFraction ??= vaDiag.VisibleFraction;
@@ -277,6 +346,7 @@ internal static class MapStructureScaleSearch
                 ctx.VisibleAwareSecondCost = vaDiag.SecondCost;
             }
         }
+        if (vaDiag.BudgetSkipped) ctx.VisibleAwareBudgetSkippedScales++;
 
         // Step 2: 判断是否提前终止
         if (tuning.EnableVisibleAwareEarlyExit
@@ -333,6 +403,9 @@ internal static class MapStructureScaleSearch
                     || bestFastCost > tuning.EarlyTerminationScoreThreshold);
             if (shouldRunFeatureVoting)
             {
+                using var featureVoting = MapOperationTraceAmbient.StartChild(
+                    "feature_voting",
+                    MapOperationWaitKind.Compute);
                 var featureTimer = Stopwatch.StartNew();
                 MapStructureFeatureVoting.CollectFeatureCandidates(
                     live, reference, query, request, scale, tuning,
@@ -345,6 +418,9 @@ internal static class MapStructureScaleSearch
             }
             if (!isReciprocalScale)
             {
+                using var pyramidSearch = MapOperationTraceAmbient.StartChild(
+                    "pyramid_search",
+                    MapOperationWaitKind.Compute);
                 var pyramidTimer = Stopwatch.StartNew();
                 MapStructurePyramidSearch.CollectPyramidCandidates(
                     query, reference, referenceDistance, request, scale, tuning,
@@ -367,6 +443,9 @@ internal static class MapStructureScaleSearch
                     * tuning.LocalSearchRadiusRatio));
 
             // 局部搜索
+            var localTemplate = MapOperationTraceAmbient.StartChild(
+                "local_template_search",
+                MapOperationWaitKind.Compute);
             var localTimer = Stopwatch.StartNew();
             var localRefX = Math.Max(0, expected.X - localRadius);
             var localRefY = Math.Max(0, expected.Y - localRadius);
@@ -401,8 +480,12 @@ internal static class MapStructureScaleSearch
             }
             localTimer.Stop();
             ctx.LocalTemplateSearchMs += localTimer.Elapsed.TotalMilliseconds;
+            localTemplate.Complete();
 
             // 2x 降采样全局搜索
+            using var globalTemplate = MapOperationTraceAmbient.StartChild(
+                "global_template_search",
+                MapOperationWaitKind.Compute);
             var globalDsTimer = Stopwatch.StartNew();
             var dsFactor = StructureRegistrationRules.CoarseDownsampleFactor;
             var dsRefW = Math.Max(1, referenceDistance.Width / dsFactor);
@@ -605,7 +688,9 @@ internal static class MapStructureScaleSearch
             output.Add(MapStructureEvaluator.Evaluate(
                 query, reference, referenceDistance,
                 request, scale, referenceX, referenceY,
-                usedGlobalSearch: true, tuning, reciprocalScale));
+                usedGlobalSearch: !request.RestrictSearchToLockedTransform,
+                tuning,
+                reciprocalScale));
 
             var left = Math.Max(0, location.X - suppression);
             var top = Math.Max(0, location.Y - suppression);
@@ -617,3 +702,10 @@ internal static class MapStructureScaleSearch
         }
     }
 }
+/*
+ * 文件职责：MapStructureScaleSearch。
+ * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

@@ -182,6 +182,12 @@ internal sealed partial class SurveyCanvasView
 
     private void TransformHandle_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (_temporaryNavigationActive
+            && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            BeginPan(e, temporary: true);
+            return;
+        }
         if (sender is not Border { Tag: TransformHandle handle } visual
             || _primaryLayerId is not { } layerId
             || !_visuals.TryGetValue(layerId, out var wrapper)

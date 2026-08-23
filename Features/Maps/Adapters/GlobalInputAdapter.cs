@@ -20,6 +20,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
         _input.SaveMapCacheInvoked += (_, args) => SaveMapCacheInvoked?.Invoke(this, args);
         _input.AltInvoked += (_, args) => AltInvoked?.Invoke(this, args);
         _input.MouseWheelScrolled += (_, args) => MouseWheelScrolled?.Invoke(this, args);
+        _input.PluginInputInvoked += (_, args) => PluginInputInvoked?.Invoke(this, args);
     }
 
     public event EventHandler<object>? QuickScanInvoked;
@@ -31,6 +32,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
     public event EventHandler<object>? SaveMapCacheInvoked;
     public event EventHandler<object>? AltInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
+    public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
 
     public void ApplyBindings(object quickScan, object overlayToggle,
         object manualRecognition, object gameMapToggle,
@@ -45,8 +47,50 @@ public sealed class GlobalInputAdapter : IGlobalInput
             (MapInputBinding)saveMapCache);
 
     public void ClearBindings() => _input.ClearBindings();
+
+    public void ApplyPluginBinding(string pluginId, string bindingKey, object binding) =>
+        _input.ApplyPluginBinding(
+            pluginId,
+            bindingKey,
+            ToMapBinding(binding));
+
+    public void ClearPluginBindings(string pluginId) =>
+        _input.ClearPluginBindings(pluginId);
+
+    public bool IsPluginBindingPressed(string pluginId, string bindingKey) =>
+        _input.IsPluginBindingPressed(pluginId, bindingKey);
+
     public void ReleaseAllPressedInputs() => _input.ReleaseAllPressedInputs();
     public void Dispose() => _input.Dispose();
+
+    private static MapInputBinding ToMapBinding(object binding)
+    {
+        if (binding is MapInputBinding mapBinding)
+            return mapBinding;
+
+        // PluginContracts is intentionally not referenced by the shared RealCLI
+        // source graph. Convert the SDK's stable, primitive-shaped binding at
+        // this boundary instead of leaking the GUI/plugin assembly into Core.
+        var type = binding.GetType();
+        return new MapInputBinding
+        {
+            Kind = (MapInputBindingKind)ReadInt(type, binding, "Kind"),
+            VirtualKey = (uint)ReadInt(type, binding, "VirtualKey"),
+            Modifiers = (MapInputModifiers)ReadInt(type, binding, "Modifiers"),
+            MouseButton = (MapMouseButton)ReadInt(type, binding, "MouseButton")
+        };
+    }
+
+    private static int ReadInt(Type type, object instance, string propertyName)
+    {
+        var property = type.GetProperty(propertyName)
+            ?? throw new ArgumentException(
+                $"Plugin input binding is missing '{propertyName}'.", nameof(instance));
+        var value = property.GetValue(instance)
+            ?? throw new ArgumentException(
+                $"Plugin input binding property '{propertyName}' is null.", nameof(instance));
+        return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
+    }
 }
 /*
  * 文件职责：GlobalInputAdapter。

@@ -32,6 +32,16 @@ internal sealed record BackgroundScanOutcome(
 
 internal static class BackgroundScanRules
 {
+    // 候选预览已在后台准备完成，开图热键到达后窗口可以立即 Activate。
+    // 给游戏一个很短的输入交接期，确保同一次键盘/鼠标消息先完成投递，
+    // 避免候选窗口抢到前台后游戏没有真正打开大地图。
+    internal const int CandidatePresentationInputHandoffMilliseconds = 80;
+
+    internal static bool ShouldWaitForCandidateInputHandoff(
+        bool isHeadless,
+        bool hasCandidateSelector) =>
+        !isHeadless && !hasCandidateSelector;
+
     /// <summary>
     /// 根据后台识别状态判定完成类型。纯函数，供单测驱动。
     /// </summary>
@@ -161,6 +171,49 @@ internal static class BackgroundScanRules
         if (seed.SideEntranceScanPriorConfidence <= 0d)
             return null;
         return seed;
+    }
+
+    /// <summary>
+    /// Promotes a structure-verified background result to an exact-floor
+    /// fixed-scale seed. The old frame translation is deliberately retained
+    /// only as diagnostic/session context: callers must re-register the
+    /// current frame with unrestricted translation before publishing it.
+    /// </summary>
+    public static MapAlignmentSession? BuildValidatedStructureScaleSeed(
+        RuntimeMapRecognition recognition,
+        MapAlignmentSession? sideEntranceSeed,
+        string floorKey)
+    {
+        ArgumentNullException.ThrowIfNull(recognition);
+        var result = recognition.Result;
+        var transform = result.OverlayTransform;
+        if (recognition.Map.Id == Guid.Empty
+            || result.MapId != recognition.Map.Id
+            || !string.Equals(result.Floor, floorKey, StringComparison.Ordinal)
+            || result.EvidenceKind != MapAlignmentEvidenceKind.Structure
+            || result.StructureDisposition !=
+                MapStructureEvidenceDisposition.Supportive
+            || !double.IsFinite(result.LocalizationConfidence)
+            || result.LocalizationConfidence <= 0d
+            || transform is null
+            || !double.IsFinite(transform.ScaleX)
+            || !double.IsFinite(transform.ScaleY)
+            || transform.ScaleX <= 0.05d
+            || transform.ScaleY <= 0.05d
+            || Math.Abs(transform.ScaleX - transform.ScaleY)
+                > Math.Max(1e-6d, transform.ScaleX * 1e-4d))
+        {
+            return null;
+        }
+
+        var compatibleSideSeed = PickSideEntranceSeed(
+            sideEntranceSeed,
+            recognition,
+            floorKey);
+        return MapAlignmentSession.RebuildPreservingFirstScanIdentity(
+            compatibleSideSeed,
+            recognition.Map,
+            result);
     }
 }
 /*

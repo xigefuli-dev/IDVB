@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using IDVBuff.Core.Contracts;
 using IDVBuff.PluginHostMessages;
-
 namespace IDVBuff.Features.Maps;
 
 public sealed class MapInputInvokedEventArgs(long timestamp) : EventArgs
@@ -22,9 +21,13 @@ public sealed partial class MapGlobalInputService : IDisposable
     private const uint WmSysKeyDown = 0x0104;
     private const uint WmSysKeyUp = 0x0105;
     private const uint WmLButtonDown = 0x0201;
+    private const uint WmLButtonUp = 0x0202;
     private const uint WmRButtonDown = 0x0204;
+    private const uint WmRButtonUp = 0x0205;
     private const uint WmMButtonDown = 0x0207;
+    private const uint WmMButtonUp = 0x0208;
     private const uint WmXButtonDown = 0x020B;
+    private const uint WmXButtonUp = 0x020C;
     private const uint WmMouseWheel = 0x020A;
     private const uint WmQuit = 0x0012;
     private const uint PmNoRemove = 0x0000;
@@ -63,6 +66,8 @@ public sealed partial class MapGlobalInputService : IDisposable
     private MapInputBinding _controlPanelToggle = new();
     private MapInputBinding _switchFloor = new();
     private MapInputBinding _saveMapCache = new();
+    private readonly Dictionary<string, Dictionary<string, MapInputBinding>> _pluginBindings =
+        new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     public MapGlobalInputService(DispatcherQueue dispatcher)
@@ -80,6 +85,7 @@ public sealed partial class MapGlobalInputService : IDisposable
     public event EventHandler<MapInputInvokedEventArgs>? SwitchFloorInvoked;
     public event EventHandler<MapInputInvokedEventArgs>? SaveMapCacheInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
+    public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
 
     public void ApplyBindings(
         MapInputBinding quickScan,
@@ -134,6 +140,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         _controlPanelToggle = new MapInputBinding();
         _switchFloor = new MapInputBinding();
         _saveMapCache = new MapInputBinding();
+        RestartMonitoringIfNeeded();
     }
 
     private IntPtr KeyboardHookCallback(int code, IntPtr wParam, IntPtr lParam)
@@ -219,6 +226,8 @@ public sealed partial class MapGlobalInputService : IDisposable
             InitializePressedKey(_controlPanelToggle);
             InitializePressedKey(_switchFloor);
             InitializePressedKey(_saveMapCache);
+            foreach (var binding in _pluginBindings.Values.SelectMany(bindings => bindings.Values))
+                InitializePressedKey(binding);
             var generation = ++_keyboardPollGeneration;
             _keyboardPoller = new Timer(
                 PollKeyboardBindings,
@@ -242,13 +251,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         if (state is not int generation)
             return;
 
-        uint quickKey;
-        uint overlayKey;
-        uint manualKey;
-        uint gameMapKey;
-        uint controlPanelKey;
-        uint switchFloorKey;
-        uint saveMapCacheKey;
+        uint[] keys;
         lock (_keyboardStateLock)
         {
             if (!_keyboardBindingsActive
@@ -257,77 +260,26 @@ public sealed partial class MapGlobalInputService : IDisposable
             {
                 return;
             }
-            quickKey = _quickScan.Kind == MapInputBindingKind.Keyboard ? _quickScan.VirtualKey : 0;
-            overlayKey = _overlayToggle.Kind == MapInputBindingKind.Keyboard ? _overlayToggle.VirtualKey : 0;
-            manualKey = _manualRecognition.Kind == MapInputBindingKind.Keyboard
-                ? _manualRecognition.VirtualKey
-                : 0;
-            gameMapKey = _gameMapToggle.Kind == MapInputBindingKind.Keyboard
-                ? _gameMapToggle.VirtualKey
-                : 0;
-            controlPanelKey =
-                _controlPanelToggle.Kind == MapInputBindingKind.Keyboard
-                    ? _controlPanelToggle.VirtualKey
-                    : 0;
-            switchFloorKey =
-                _switchFloor.Kind == MapInputBindingKind.Keyboard
-                    ? _switchFloor.VirtualKey
-                    : 0;
-            saveMapCacheKey =
-                _saveMapCache.Kind == MapInputBindingKind.Keyboard
-                    ? _saveMapCache.VirtualKey
-                    : 0;
+            keys = new[]
+            {
+                _quickScan,
+                _overlayToggle,
+                _manualRecognition,
+                _gameMapToggle,
+                _controlPanelToggle,
+                _switchFloor,
+                _saveMapCache
+            }
+            .Concat(_pluginBindings.Values.SelectMany(bindings => bindings.Values))
+            .Where(binding => binding.Kind == MapInputBindingKind.Keyboard)
+            .Select(binding => binding.VirtualKey)
+            .Where(key => key != 0)
+            .Distinct()
+            .ToArray();
         }
 
-        if (quickKey != 0)
-            HandleKeyboardState(quickKey, IsKeyDown(quickKey), generation);
-        if (overlayKey != 0 && overlayKey != quickKey)
-            HandleKeyboardState(overlayKey, IsKeyDown(overlayKey), generation);
-        if (manualKey != 0 && manualKey != quickKey && manualKey != overlayKey)
-            HandleKeyboardState(manualKey, IsKeyDown(manualKey), generation);
-        if (gameMapKey != 0
-            && gameMapKey != quickKey
-            && gameMapKey != overlayKey
-            && gameMapKey != manualKey)
-        {
-            HandleKeyboardState(gameMapKey, IsKeyDown(gameMapKey), generation);
-        }
-        if (controlPanelKey != 0
-            && controlPanelKey != quickKey
-            && controlPanelKey != overlayKey
-            && controlPanelKey != manualKey
-            && controlPanelKey != gameMapKey)
-        {
-            HandleKeyboardState(
-                controlPanelKey,
-                IsKeyDown(controlPanelKey),
-                generation);
-        }
-        if (switchFloorKey != 0
-            && switchFloorKey != quickKey
-            && switchFloorKey != overlayKey
-            && switchFloorKey != manualKey
-            && switchFloorKey != gameMapKey
-            && switchFloorKey != controlPanelKey)
-        {
-            HandleKeyboardState(
-                switchFloorKey,
-                IsKeyDown(switchFloorKey),
-                generation);
-        }
-        if (saveMapCacheKey != 0
-            && saveMapCacheKey != quickKey
-            && saveMapCacheKey != overlayKey
-            && saveMapCacheKey != manualKey
-            && saveMapCacheKey != gameMapKey
-            && saveMapCacheKey != controlPanelKey
-            && saveMapCacheKey != switchFloorKey)
-        {
-            HandleKeyboardState(
-                saveMapCacheKey,
-                IsKeyDown(saveMapCacheKey),
-                generation);
-        }
+        foreach (var key in keys)
+            HandleKeyboardState(key, IsKeyDown(key), generation);
     }
 
     private void HandleKeyboardState(uint key, bool isDown, int? expectedGeneration = null)
@@ -340,6 +292,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         var invokeSwitchFloor = false;
         var invokeSaveMapCache = false;
         var invokeAlt = false;
+        List<(string PluginId, string BindingKey, MapInputBinding Binding)>? pluginMatches = null;
         lock (_keyboardStateLock)
         {
             if (!_keyboardBindingsActive
@@ -350,7 +303,18 @@ public sealed partial class MapGlobalInputService : IDisposable
             if (!isDown)
             {
                 _pressedKeys.Remove(key);
-                return;
+                foreach (var (pluginId, bindings) in _pluginBindings)
+                {
+                    foreach (var (bindingKey, binding) in bindings)
+                    {
+                        if (binding.Kind == MapInputBindingKind.Keyboard
+                            && binding.VirtualKey == key)
+                        {
+                            (pluginMatches ??= []).Add((pluginId, bindingKey, binding));
+                        }
+                    }
+                }
+                goto Dispatch;
             }
             if (!_pressedKeys.Add(key))
                 return;
@@ -385,8 +349,22 @@ public sealed partial class MapGlobalInputService : IDisposable
                 && _saveMapCache.VirtualKey == key
                 && AreRequiredModifiersDown(_saveMapCache.Modifiers);
             invokeAlt = key is 0x12 or 0xA4 or 0xA5;
+
+            foreach (var (pluginId, bindings) in _pluginBindings)
+            {
+                foreach (var (bindingKey, binding) in bindings)
+                {
+                    if (binding.Kind == MapInputBindingKind.Keyboard
+                        && binding.VirtualKey == key
+                        && AreRequiredModifiersDown(binding.Modifiers))
+                    {
+                        (pluginMatches ??= []).Add((pluginId, bindingKey, binding));
+                    }
+                }
+            }
         }
 
+    Dispatch:
         var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
         if (invokeQuickScan)
             DispatchInput(invoked, "keyboard", _quickScan.DisplayName,
@@ -415,6 +393,18 @@ public sealed partial class MapGlobalInputService : IDisposable
         if (invokeAlt)
             DispatchInput(invoked, "keyboard", "Alt", "alt",
                 () => AltInvoked?.Invoke(this, invoked));
+        if (pluginMatches is not null)
+        {
+            foreach (var match in pluginMatches)
+            {
+                var pluginEvent = new PluginInputInvokedEventArgs(
+                    match.PluginId,
+                    match.BindingKey,
+                    invoked.Timestamp,
+                    isDown);
+                DispatchPluginInput(pluginEvent);
+            }
+        }
     }
 
     private static bool IsKeyDown(uint key) =>
@@ -540,70 +530,69 @@ public sealed partial class MapGlobalInputService : IDisposable
         if (code >= 0 && !IsMarkedInjectedMouse(lParam))
         {
             var message = (uint)wParam.ToInt64();
-            if (message == WmMouseWheel && IsKeyDown(CapsLockVirtualKey))
+            if (message == WmMouseWheel)
             {
                 var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
                 var delta = (short)((mouse.MouseData >> 16) & 0xFFFF);
                 if (delta != 0)
                     DispatchMouseWheel(new MouseWheelInputEventArgs(
-                        Stopwatch.GetTimestamp(), delta, capsHeld: true));
+                        Stopwatch.GetTimestamp(),
+                        delta,
+                        capsHeld: IsKeyDown(CapsLockVirtualKey)));
             }
 
-            if (TryGetMouseButton(message, lParam, out var button))
+            if (TryGetMouseButton(message, lParam, out var button, out var isDown))
             {
-                var invoked = new MapInputInvokedEventArgs(Stopwatch.GetTimestamp());
-                if (_quickScan.Kind == MapInputBindingKind.Mouse && _quickScan.MouseButton == button)
+                var timestamp = Stopwatch.GetTimestamp();
+                var invoked = new MapInputInvokedEventArgs(timestamp);
+                if (isDown
+                    && _quickScan.Kind == MapInputBindingKind.Mouse
+                    && _quickScan.MouseButton == button)
                     DispatchInput(invoked, "mouse", _quickScan.DisplayName,
                         "quick-scan", () => QuickScanInvoked?.Invoke(this, invoked));
-                if (_overlayToggle.Kind == MapInputBindingKind.Mouse && _overlayToggle.MouseButton == button)
+                if (isDown
+                    && _overlayToggle.Kind == MapInputBindingKind.Mouse
+                    && _overlayToggle.MouseButton == button)
                     DispatchInput(invoked, "mouse", _overlayToggle.DisplayName,
                         "overlay-toggle", () => OverlayToggleInvoked?.Invoke(this, invoked));
-                if (_manualRecognition.Kind == MapInputBindingKind.Mouse && _manualRecognition.MouseButton == button)
+                if (isDown
+                    && _manualRecognition.Kind == MapInputBindingKind.Mouse
+                    && _manualRecognition.MouseButton == button)
                     DispatchInput(invoked, "mouse", _manualRecognition.DisplayName,
                         "manual-recognition", () => ManualRecognitionInvoked?.Invoke(this, invoked));
-                if (_gameMapToggle.Kind == MapInputBindingKind.Mouse && _gameMapToggle.MouseButton == button)
+                if (isDown
+                    && _gameMapToggle.Kind == MapInputBindingKind.Mouse
+                    && _gameMapToggle.MouseButton == button)
                     DispatchInput(invoked, "mouse", _gameMapToggle.DisplayName,
                         "game-map-toggle", () => GameMapToggleInvoked?.Invoke(this, invoked));
-                if (_controlPanelToggle.Kind == MapInputBindingKind.Mouse
+                if (isDown
+                    && _controlPanelToggle.Kind == MapInputBindingKind.Mouse
                     && _controlPanelToggle.MouseButton == button)
                 {
                     DispatchInput(invoked, "mouse", _controlPanelToggle.DisplayName,
                         "control-panel-toggle",
                         () => ControlPanelToggleInvoked?.Invoke(this, invoked));
                 }
-                if (_switchFloor.Kind == MapInputBindingKind.Mouse
+                if (isDown
+                    && _switchFloor.Kind == MapInputBindingKind.Mouse
                     && _switchFloor.MouseButton == button)
                 {
                     DispatchInput(invoked, "mouse", _switchFloor.DisplayName,
                         "switch-floor", () => SwitchFloorInvoked?.Invoke(this, invoked));
                 }
-                if (_saveMapCache.Kind == MapInputBindingKind.Mouse
+                if (isDown
+                    && _saveMapCache.Kind == MapInputBindingKind.Mouse
                     && _saveMapCache.MouseButton == button)
                 {
                     DispatchInput(invoked, "mouse", _saveMapCache.DisplayName,
                         "save-map-cache",
                         () => SaveMapCacheInvoked?.Invoke(this, invoked));
                 }
+
+                DispatchPluginMouseInput(button, timestamp, isDown);
             }
         }
         return CallNextHookEx(_mouseHook, code, wParam, lParam);
-    }
-
-    private static bool TryGetMouseButton(uint message, IntPtr lParam, out MapMouseButton button)
-    {
-        button = MapMouseButton.Left;
-        switch (message)
-        {
-            case WmLButtonDown: button = MapMouseButton.Left; return true;
-            case WmRButtonDown: button = MapMouseButton.Right; return true;
-            case WmMButtonDown: button = MapMouseButton.Middle; return true;
-            case WmXButtonDown:
-                var data = Marshal.PtrToStructure<MsLlHookStruct>(lParam).MouseData;
-                button = ((data >> 16) & 0xFFFF) == 2 ? MapMouseButton.XButton2 : MapMouseButton.XButton1;
-                return true;
-            default:
-                return false;
-        }
     }
 
     private void UnregisterBindings()
@@ -641,6 +630,8 @@ public sealed partial class MapGlobalInputService : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        lock (_keyboardStateLock)
+            _pluginBindings.Clear();
         UnregisterBindings();
     }
 

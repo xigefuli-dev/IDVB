@@ -43,6 +43,34 @@ public sealed class AdaptiveScaleRegressionTests
     }
 
     [Fact]
+    public void SideEntranceIdentityCannotLeakAcrossFloorsDuringSessionRebuild()
+    {
+        var map = Map();
+        var primary = new MapAlignmentSession
+        {
+            MapId = map.Id,
+            MapUpdatedAt = map.UpdatedAt,
+            FloorKey = "1f",
+            LockedTransform = Transform(0.736d),
+            BaselineGateScale = 0.736d,
+            LastConfidence = 0.92d,
+            SideEntranceScanPriorConfidence = 0.93d,
+            HasGatePairLock = false
+        };
+
+        var basement = MapAlignmentSession
+            .RebuildPreservingFirstScanIdentity(
+                primary,
+                map,
+                Recognition(map, 0.4671d, 0.58d, "b1f").Result);
+
+        Assert.Equal("b1f", basement.FloorKey);
+        Assert.Equal(0.4671d, basement.LockedTransform.ScaleX, 8);
+        Assert.Equal(0d, basement.SideEntranceScanPriorConfidence);
+        Assert.Empty(basement.LockedGateEvidence);
+    }
+
+    [Fact]
     public void DoubleGateStrategyRemainsOnDefaultRoute()
     {
         Assert.Equal(

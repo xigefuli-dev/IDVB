@@ -127,6 +127,50 @@ public sealed class MapAlignmentResearchCollector : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Stops the writer and removes all collected research samples, including
+    /// session manifests, JSONL records, images, and temporary files.
+    /// </summary>
+    public async Task ClearDataAsync()
+    {
+        await SetEnabledAsync(false);
+
+        lock (_gate)
+        {
+            _sessionDirectory = null;
+            _caseCounts.Clear();
+            _referenceSaved.Clear();
+            _successSampleCounts.Clear();
+            _totalCaseCount = 0;
+            Interlocked.Exchange(ref _recordCount, 0);
+        }
+
+        try
+        {
+            if (!Directory.Exists(RootDirectory))
+                return;
+
+            foreach (var path in Directory.EnumerateFileSystemEntries(RootDirectory))
+            {
+                try
+                {
+                    if (Directory.Exists(path))
+                        Directory.Delete(path, recursive: true);
+                    else if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch (Exception exception)
+                {
+                    Warn(exception);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Warn(exception);
+        }
+    }
+
     // ═════════════════════════════════════════════════════════════
     // 采集入口
     // ═════════════════════════════════════════════════════════════

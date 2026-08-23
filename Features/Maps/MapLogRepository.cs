@@ -36,20 +36,22 @@ public sealed class MapLogRepository
     }
 
     /// <summary>
-    /// Merges a new batch into the session file and replaces it atomically.
-    /// Keeping the on-disk format as a JSON array makes the files easy to inspect.
+    /// Appends a new batch to the session JSON array. The collector supplies
+    /// monotonically increasing, de-duplicated sequences, so persistence does
+    /// not need to deserialize and rewrite the entire growing session once per
+    /// second.
     /// </summary>
     public Task FlushAsync(
         string sessionPath,
         IReadOnlyList<MapLogEntry> entries,
         CancellationToken cancellationToken = default) =>
-        MergeAndWriteAsync(sessionPath, entries, ".tmp", cancellationToken);
+        AppendBatchAsync(sessionPath, entries, cancellationToken);
 
     public Task FinalizeAsync(
         string sessionPath,
         IReadOnlyList<MapLogEntry> entries,
         CancellationToken cancellationToken = default) =>
-        MergeAndWriteAsync(sessionPath, entries, ".final.tmp", cancellationToken);
+        AppendBatchAsync(sessionPath, entries, cancellationToken);
 
     public async Task<IReadOnlyList<MapLogEntry>> ReadSessionAsync(
         string sessionPath,
@@ -84,6 +86,38 @@ public sealed class MapLogRepository
         catch
         {
             // Best effort cleanup.
+        }
+    }
+
+    /// <summary>
+    /// Removes all persisted map-log files and temporary files from the log
+    /// directory. The directory itself is retained for the next session.
+    /// </summary>
+    public void ClearData()
+    {
+        try
+        {
+            if (!Directory.Exists(_logDirectory))
+                return;
+
+            var paths = Directory.EnumerateFiles(_logDirectory, "scan-log-*.json*")
+                .Concat(Directory.EnumerateFiles(_logDirectory, "flush-errors.log"));
+            foreach (var path in paths)
+            {
+                try
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch
+                {
+                    // A log may still be open. Continue clearing the rest.
+                }
+            }
+        }
+        catch
+        {
+            // Cleanup is best effort and must not stop the runtime.
         }
     }
 
@@ -129,62 +163,83 @@ public sealed class MapLogRepository
         }
     }
 
-    private async Task MergeAndWriteAsync(
+    private async Task AppendBatchAsync(
         string sessionPath,
         IReadOnlyList<MapLogEntry> entries,
-        string temporarySuffix,
         CancellationToken cancellationToken)
     {
         if (entries.Count == 0)
             return;
 
         Directory.CreateDirectory(_logDirectory);
-        var merged = new List<MapLogEntry>();
-        if (File.Exists(sessionPath))
+        var encoded = JsonSerializer.SerializeToUtf8Bytes(entries, JsonOptions);
+        if (!File.Exists(sessionPath))
         {
-            await using var existingStream = File.OpenRead(sessionPath);
-            var existing = await JsonSerializer.DeserializeAsync<List<MapLogEntry>>(
-                existingStream,
-                JsonOptions,
-                cancellationToken);
-            if (existing is not null)
-                merged.AddRange(existing);
+            await File.WriteAllBytesAsync(
+                sessionPath,
+                encoded,
+                cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        var knownSequences = merged.Select(entry => entry.Sequence).ToHashSet();
-        foreach (var entry in entries)
-        {
-            if (knownSequences.Add(entry.Sequence))
-                merged.Add(entry);
-        }
-        merged.Sort((left, right) => left.Sequence.CompareTo(right.Sequence));
+        await using var stream = new FileStream(
+            sessionPath,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Read,
+            bufferSize: 16 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var closingBracket = FindClosingArrayBracket(stream);
+        var previousToken = FindPreviousNonWhitespace(stream, closingBracket - 1);
+        if (previousToken < 0)
+            throw new InvalidDataException("Map log session is not a JSON array.");
 
-        var tempPath = sessionPath + temporarySuffix;
-        try
+        var hasExistingEntries = ReadByteAt(stream, previousToken) != (byte)'[';
+        stream.SetLength(previousToken + 1);
+        stream.Position = previousToken + 1;
+        if (hasExistingEntries)
+            await stream.WriteAsync(new byte[] { (byte)',' }, cancellationToken)
+                .ConfigureAwait(false);
+
+        // Strip the batch's outer '[' and ']'. Its leading/trailing whitespace
+        // is retained so the final session remains readable indented JSON.
+        await stream.WriteAsync(
+            encoded.AsMemory(1, encoded.Length - 2),
+            cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(new byte[] { (byte)']' }, cancellationToken)
+            .ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static long FindClosingArrayBracket(FileStream stream)
+    {
+        var position = FindPreviousNonWhitespace(stream, stream.Length - 1);
+        if (position < 0 || ReadByteAt(stream, position) != (byte)']')
+            throw new InvalidDataException("Map log session has no closing JSON array bracket.");
+        return position;
+    }
+
+    private static long FindPreviousNonWhitespace(FileStream stream, long position)
+    {
+        for (; position >= 0; position--)
         {
-            await using (var stream = File.Create(tempPath))
-            {
-                await JsonSerializer.SerializeAsync(
-                    stream,
-                    merged,
-                    JsonOptions,
-                    cancellationToken);
-            }
-            File.Move(tempPath, sessionPath, overwrite: true);
+            var value = ReadByteAt(stream, position);
+            if (value != (byte)' '
+                && value != (byte)'\t'
+                && value != (byte)'\r'
+                && value != (byte)'\n')
+                return position;
         }
-        catch
-        {
-            try
-            {
-                if (File.Exists(tempPath))
-                    File.Delete(tempPath);
-            }
-            catch
-            {
-                // Best effort cleanup.
-            }
-            throw;
-        }
+        return -1;
+    }
+
+    private static byte ReadByteAt(FileStream stream, long position)
+    {
+        stream.Position = position;
+        var value = stream.ReadByte();
+        if (value < 0)
+            throw new EndOfStreamException();
+        return (byte)value;
     }
 }
 /*

@@ -334,8 +334,6 @@ public sealed partial class MapStatusPage : UserControl
         var advancedPanel = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Left };
         advancedPanel.Children.Add(CreateCategoryHeader("常用识别"));
         advancedPanel.Children.Add(_highConfidenceThreshold);
-        _sideEntranceFeatureRadius.ValueChanged += SideEntranceFeatureRadius_Changed;
-        advancedPanel.Children.Add(_sideEntranceFeatureRadius);
         _skipFloorRecognitionToggle.Toggled += SkipFloorRecognition_Toggled;
         advancedPanel.Children.Add(CreateCategoryHeader("稳定性与时序"));
         advancedPanel.Children.Add(_skipFloorRecognitionToggle);

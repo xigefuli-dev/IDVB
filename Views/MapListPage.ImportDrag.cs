@@ -279,6 +279,7 @@ public sealed partial class MapListPage : UserControl
         var oldKey = entry.FloorKey;
         entry.FloorKey = identity.FloorKey;
         entry.DisplayName = identity.DisplayName;
+        entry.MarkerKeys = identity.MarkerKeys.ToList();
         if (string.Equals(_selectedImportFloorKey, oldKey, StringComparison.OrdinalIgnoreCase))
             _selectedImportFloorKey = entry.FloorKey;
         onChanged();

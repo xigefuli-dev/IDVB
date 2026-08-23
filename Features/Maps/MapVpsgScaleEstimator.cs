@@ -16,8 +16,8 @@ public sealed record MapVpsgScaleEstimate(
 /// </summary>
 public sealed class MapVpsgScaleEstimator
 {
-    public const double MinimumScale = 0.25d;
-    public const double MaximumScale = 2.20d;
+    public const double MinimumScale = MapFloorScaleSearchPolicy.UncalibratedMinimumScale;
+    public const double MaximumScale = MapFloorScaleSearchPolicy.UncalibratedMaximumScale;
     // 真实画面 AKAZE 匹配点常偏少（12~20 个），配位边产出率约 1.5~2 votes/点，
     // 旧门槛 24 votes / 12 matches 把大量可用的 scale 证据拒掉（实测 VPSG 失败
     // 原因全是 only N pair votes / unstable cluster），随后退到昂贵的全局尺度
@@ -26,6 +26,10 @@ public sealed class MapVpsgScaleEstimator
     // 进入候选的"证据量"，不放松"证据质量"。
     public const int MinimumUniqueMatches = 10;
     public const int MinimumPairVotes = 14;
+    public const double HighConfidenceThreshold = 0.85d;
+    // A high-confidence fit may bypass the normal vote target, but it still
+    // needs enough independent pairs to cover the minimum unique matches.
+    private const int MinimumFitPairVotes = MinimumUniqueMatches / 2;
     public const double MaximumResidualPixels = 3d;
     public const double MaximumRotationDegrees = 2d;
     public const double MaximumRelativeMad = 0.015d;
@@ -84,7 +88,7 @@ public sealed class MapVpsgScaleEstimator
             matchByReference,
             reference.KeyPoints,
             live.KeyPoints);
-        if (votes.Count < MinimumPairVotes)
+        if (votes.Count < MinimumFitPairVotes)
         {
             rejectionReason = $"only {votes.Count} VPSG pair votes";
             return false;
@@ -95,7 +99,7 @@ public sealed class MapVpsgScaleEstimator
             .SelectMany(vote => new[] { vote.First, vote.Second })
             .DistinctBy(match => (match.QueryIdx, match.TrainIdx))
             .ToArray();
-        if (cluster.Count < MinimumPairVotes
+        if (cluster.Count < MinimumFitPairVotes
             || uniqueClusterMatches.Length < MinimumUniqueMatches)
         {
             rejectionReason =
@@ -148,6 +152,12 @@ public sealed class MapVpsgScaleEstimator
             + (priorAgreement * 0.02d),
             0d,
             0.98d);
+        if (!HasSufficientPairEvidence(cluster.Count, confidence))
+        {
+            rejectionReason =
+                $"insufficient VPSG evidence: pairs={cluster.Count}, confidence={confidence:P1}";
+            return false;
+        }
         var evidence = new MapScaleEstimationEvidence
         {
             UniqueMatches = fit.Inliers.Length,
@@ -166,6 +176,12 @@ public sealed class MapVpsgScaleEstimator
             evidence);
         return true;
     }
+
+    internal static bool HasSufficientPairEvidence(
+        int pairVotes,
+        double confidence) =>
+        pairVotes >= MinimumPairVotes
+        || confidence >= HighConfidenceThreshold;
 
     private static DMatch[] MatchReciprocal(Mat reference, Mat live)
     {

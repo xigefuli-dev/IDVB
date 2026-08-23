@@ -106,6 +106,11 @@ public sealed partial class SessionOrchestrator
             // pre-scan toggle state.
             scanSucceeded = true;
 
+            // Background scanning remains recognition-only with respect to
+            // session/overlay publication, but map identity still requires the
+            // same strict per-candidate structure validation as foreground
+            // scanning. Raw side-template similarity is only a retrieval clue
+            // and must never decide the chooser order by itself.
             var sideAlignmentTuning = CreateInitialAlignmentRecognitionTuning();
             if (sideAlignmentTuning.GateTemplateThreshold
                 > GateTemplateRules.FallbackPairThreshold)
@@ -113,9 +118,6 @@ public sealed partial class SessionOrchestrator
                 sideAlignmentTuning.GateTemplateThreshold =
                     GateTemplateRules.FallbackPairThreshold;
             }
-            var sideStructureTuning =
-                MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
-                    CreateInitialAlignmentStructureTuning());
             var reliable = new List<(SideEntranceScanCandidate Candidate,
                 MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>();
             var verificationCandidates = SideEntranceCandidateEvidence
@@ -146,6 +148,12 @@ public sealed partial class SessionOrchestrator
                         continue;
                     }
 
+                    var sideStructureTuning =
+                        MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
+                            CreateStructureTuningForFloor(
+                                candidate.Map,
+                                candidate.FloorKey,
+                                CreateInitialAlignmentStructureTuning()));
                     var attempt = AlignSideEntranceWithScaleFallback(
                         frame,
                         candidate,
@@ -367,52 +375,6 @@ public sealed partial class SessionOrchestrator
             alignmentSearchContext: searchContext);
     }
 
-    private void StageCrossResolutionValidatedScale(
-        CapturedGameFrame frame,
-        SideEntranceScanCandidate candidate,
-        MapCacheResolutionSignature targetResolution,
-        MapRecognitionAttempt attempt)
-    {
-        var recognition = attempt.Recognition;
-        var transform = recognition?.Result.OverlayTransform;
-        if (recognition is null
-            || transform is null
-            || !TryGetUniformScale(transform, out var finalScale))
-        {
-            return;
-        }
-
-        var key = MapFeatureCacheRules.CreateKey(
-            candidate.Map,
-            candidate.FloorKey,
-            targetResolution);
-        StageAutomaticMapCacheEntry(CreateCacheEntry(
-            key,
-            finalScale,
-            MapFeatureCacheSource.CrossResolutionValidated,
-            sampleCount: 1,
-            confidence: recognition.Result.LocalizationConfidence,
-            relativeMad: 0d,
-            observedDpi: DwrGameWindowCaptureService.GetWindowDpi(
-                frame.WindowHandle),
-            candidateMargin: MapFeatureCacheRules.GetCandidateMargin(
-                recognition.Result)));
-        _logCollector.Append(
-            MapLogCategory.StructureRegistration,
-            MapLogLevel.Info,
-            "跨分辨率尺度已通过目标分辨率严格验证并暂存",
-            details: new()
-            {
-                ["outcome"] = "cross-resolution-validated-staged",
-                ["mapId"] = candidate.Map.Id,
-                ["floor"] = candidate.FloorKey,
-                ["targetViewport"] =
-                    $"{targetResolution.ViewportWidth}x{targetResolution.ViewportHeight}",
-                ["finalScale"] = finalScale,
-                ["maximumChamferPixels"] = 3.0d
-            });
-    }
-
     private static void SetScaleSeedDiagnostics(
         MapRecognitionAttempt attempt,
         ResolvedMapScaleSeed seed,
@@ -426,8 +388,8 @@ public sealed partial class SessionOrchestrator
             seed.TargetResolution,
             rejectionReason,
             seed.CacheSource.ToString(),
-            seed.IsProjected,
-            seed.IsProjected ? seed.Scale : 0d);
+            projected: false,
+            projectedScale: 0d);
     }
 
     private static void SetScaleSeedDiagnostics(
@@ -505,7 +467,6 @@ public sealed partial class SessionOrchestrator
         source switch
         {
             MapScaleSeedSource.ExactCache => "exact-cache",
-            MapScaleSeedSource.CrossResolution => "cross-resolution",
             MapScaleSeedSource.Vpsg => "vpsg",
             _ => "side-template"
         };

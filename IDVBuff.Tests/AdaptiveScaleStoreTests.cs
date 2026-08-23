@@ -54,6 +54,33 @@ public sealed class AdaptiveScaleStoreTests
     }
 
     [Fact]
+    public async Task ScaleRecoveryResetRemovesOnlyTheExactFloorContext()
+    {
+        var directory = Directory.CreateTempSubdirectory("idvb-adaptive-scale-");
+        try
+        {
+            var store = Store(directory);
+            var first = Key("1f");
+            var second = first with { FloorKey = "2f" };
+            await store.RecordInitialStreakAsync(Streak(first, 5, 1.141078));
+            await store.RecordInitialStreakAsync(Streak(second, 5, 0.82));
+
+            await store.ResetAsync(first);
+
+            Assert.Null(store.TryGet(first));
+            Assert.True(AdaptiveScaleStore.IsTrusted(store.TryGet(second)));
+            var reloaded = Store(directory);
+            await reloaded.InitializeAsync();
+            Assert.Null(reloaded.TryGet(first));
+            Assert.NotNull(reloaded.TryGet(second));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task TrustedCalibrationSeedRequiresExactFullKey()
     {
         var directory = Directory.CreateTempSubdirectory("idvb-adaptive-scale-");

@@ -7,14 +7,16 @@ public sealed partial class SessionOrchestrator
     private async Task RunMapOpenAlignmentAsync(
         MapGameToggleTransition toggle)
     {
+        var mapOpenCancellation = BeginMapOpenCancellationScope();
+        var cancellationToken = mapOpenCancellation.Token;
         CancelOrbTracking("absolute alignment started");
         await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;
-        var cancellationToken = CurrentMatchCancellationToken;
         if (!await _scanGate.WaitAsync(0))
         {
             _statusMessage = "已有识别正在进行，请稍候。";
             StateChanged?.Invoke(this, EventArgs.Empty);
+            CompleteMapOpenCancellationScope(mapOpenCancellation);
             return;
         }
 
@@ -75,6 +77,7 @@ public sealed partial class SessionOrchestrator
             }
             finally
             {
+                CompleteMapOpenCancellationScope(mapOpenCancellation);
                 if (!traceFinished)
                 {
                     FinishMapOperationTrace(

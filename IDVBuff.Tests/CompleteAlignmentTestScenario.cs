@@ -196,8 +196,7 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
                         [UpperFloor] = sideFeaturePath
                     },
                     Recognition = recognition
-                },
-                sideEntranceFeatureRadius: 48);
+                });
 
             service = new MapCvRecognitionService(repository);
             await service.RefreshCacheAsync();

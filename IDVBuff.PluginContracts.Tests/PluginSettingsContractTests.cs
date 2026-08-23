@@ -85,6 +85,36 @@ public class PluginSettingsContractTests
     }
 
     [Fact]
+    public void PluginInputBinding_RoundTripsKeyboardCombination()
+    {
+        var original = PluginInputBinding.Keyboard(
+            0x41,
+            PluginInputModifiers.Control | PluginInputModifiers.Shift);
+
+        Assert.True(PluginInputBinding.TryParse(
+            original.StorageValue,
+            out var parsed));
+        Assert.Equal(original, parsed);
+        Assert.Equal("Ctrl + Shift + A", parsed.DisplayName);
+    }
+
+    [Fact]
+    public void PluginInputBinding_ParsesMouseAndNone()
+    {
+        Assert.True(PluginInputBinding.TryParse(
+            "mouse:1",
+            PluginInputBindingKinds.Mouse,
+            out var mouse));
+        Assert.Equal(PluginMouseButton.Right, mouse.MouseButton);
+
+        Assert.True(PluginInputBinding.TryParse(
+            "none",
+            PluginInputBindingKinds.Keyboard,
+            out var none));
+        Assert.False(none.IsConfigured);
+    }
+
+    [Fact]
     public void Provider_GetSettingValue_ReturnsValuesPerContract()
     {
         var provider = new SettingsPlugin();
@@ -117,6 +147,47 @@ public class PluginSettingsContractTests
         Assert.Equal(3, provider.Settings.Count);
         Assert.Equal(["toggle", "slider", "choice"],
             provider.Settings.Select(setting => setting.Key).ToArray());
+    }
+
+    [Fact]
+    public void InventoryScale_StoresSeparate16By9And16By10CoordinateLists()
+    {
+        Assert.Equal(10, PluginInventoryScale.AspectRatio16By9.Count);
+        Assert.Equal(10, PluginInventoryScale.AspectRatio16By10.Count);
+
+        Assert.Equal(
+            [
+                new PluginInventoryCoordinate(1, 0.22, 0.59),
+                new PluginInventoryCoordinate(1, 0.30, 0.59),
+                new PluginInventoryCoordinate(1, 0.37, 0.59),
+                new PluginInventoryCoordinate(2, 0.22, 0.72),
+                new PluginInventoryCoordinate(2, 0.29, 0.72),
+                new PluginInventoryCoordinate(2, 0.36, 0.72),
+                new PluginInventoryCoordinate(3, 0.39, 0.92),
+                new PluginInventoryCoordinate(3, 0.47, 0.92),
+                new PluginInventoryCoordinate(3, 0.56, 0.92),
+                new PluginInventoryCoordinate(3, 0.64, 0.92)
+            ],
+            PluginInventoryScale.AspectRatio16By9);
+
+        Assert.Equal(
+            [
+                new PluginInventoryCoordinate(1, 0.22, 0.64),
+                new PluginInventoryCoordinate(1, 0.29, 0.64),
+                new PluginInventoryCoordinate(1, 0.37, 0.64),
+                new PluginInventoryCoordinate(2, 0.22, 0.74),
+                new PluginInventoryCoordinate(2, 0.30, 0.74),
+                new PluginInventoryCoordinate(2, 0.37, 0.74),
+                new PluginInventoryCoordinate(3, 0.39, 0.93),
+                new PluginInventoryCoordinate(3, 0.47, 0.93),
+                new PluginInventoryCoordinate(3, 0.55, 0.93),
+                new PluginInventoryCoordinate(3, 0.64, 0.93)
+            ],
+            PluginInventoryScale.AspectRatio16By10);
+
+        Assert.NotSame(
+            PluginInventoryScale.AspectRatio16By9,
+            PluginInventoryScale.AspectRatio16By10);
     }
 
     /// <summary>实现 IPluginSettingsProvider 契约的假插件，验证宿主依赖的类型约定。</summary>

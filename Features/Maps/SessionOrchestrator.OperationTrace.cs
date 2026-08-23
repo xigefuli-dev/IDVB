@@ -262,6 +262,10 @@ public sealed partial class SessionOrchestrator
         {
             traceDetails["alignmentClass"] = alignmentDiagnostics.AlignmentClass;
             traceDetails["alignmentContextKey"] = alignmentDiagnostics.AlignmentContextKey;
+            traceDetails["alignmentChannel"] = alignmentDiagnostics.AlignmentChannel;
+            traceDetails["floorMarkerKeys"] = alignmentDiagnostics.FloorMarkerKeys;
+            traceDetails["alignmentConfigFingerprint"] =
+                alignmentDiagnostics.AlignmentConfigFingerprint;
             traceDetails["warmStateHit"] = alignmentDiagnostics.WarmStateHit;
             traceDetails["warmStateMissReason"] = alignmentDiagnostics.WarmStateMissReason;
             traceDetails["inputToFirstCaptureMs"] =

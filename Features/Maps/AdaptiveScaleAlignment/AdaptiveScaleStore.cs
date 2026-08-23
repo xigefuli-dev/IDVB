@@ -122,6 +122,37 @@ internal sealed class AdaptiveScaleStore
         }
     }
 
+    public async Task ResetAsync(
+        AdaptiveScaleKey key,
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_writesDisabledForUnsupportedSchema)
+            {
+                throw new InvalidOperationException(
+                    "Adaptive scale cache uses a newer unsupported schema.");
+            }
+            Dictionary<AdaptiveScaleKey, AdaptiveScaleStoreEntry> snapshot;
+            lock (_stateGate)
+            {
+                snapshot = new(_entries);
+                snapshot.Remove(key);
+                // Runtime correctness must not depend on a successful disk
+                // write.  If persistence fails, this process still must not
+                // snap the recovered floor back to its stale calibration.
+                _entries = snapshot;
+            }
+            await SaveSnapshotAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public static bool IsTrusted(AdaptiveScaleStoreEntry? entry)
     {
         if (entry is null

@@ -139,15 +139,24 @@ internal static class MapStructureRefiner
         var secondScore = ranked.Count > 1
             ? ranked[1].CompositeCost
             : double.PositiveInfinity;
+        var isLowStructure = tuning.Channel == MapAlignmentChannel.LowStructure;
         var margin = double.IsPositiveInfinity(secondScore)
             ? 1d
             : Math.Clamp(
                 (secondScore - best.CompositeCost)
-                / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, secondScore),
+                / Math.Max(
+                    isLowStructure
+                        ? tuning.MarginNormalizationFloor
+                        : StructureRegistrationRules.MarginNormalizationFloor,
+                    secondScore),
                 0d,
                 1d);
         var requiredMargin = tuning.MinimumCandidateMargin
-            * (best.UsedGlobalSearch ? StructureRegistrationRules.GlobalSearchMarginMultiplier : 1d);
+            * (best.UsedGlobalSearch
+                ? isLowStructure
+                    ? tuning.GlobalSearchMarginMultiplier
+                    : StructureRegistrationRules.GlobalSearchMarginMultiplier
+                : 1d);
         var chamferLimit = restrictedSearch
             ? Math.Min(
                 tuning.MaximumChamferPixels,

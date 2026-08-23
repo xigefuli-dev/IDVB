@@ -54,9 +54,12 @@ public sealed partial class MapRepository
         }
     }
 
-    public async Task<MapDraft?> CreateDraftAsync(Guid id)
+    public Task<MapDraft?> CreateDraftAsync(Guid id) => CreateDraftCoreAsync(id);
+
+    private async Task<MapDraft?> CreateDraftCoreAsync(Guid id, bool gateAlreadyHeld = false)
     {
-        await Gate.WaitAsync();
+        if (!gateAlreadyHeld)
+            await Gate.WaitAsync();
         try
         {
             var catalog = await ReadCatalogAsync();
@@ -98,7 +101,8 @@ public sealed partial class MapRepository
                 {
                     Key = f.Key,
                     DisplayName = f.DisplayName,
-                    SortOrder = f.SortOrder
+                    SortOrder = f.SortOrder,
+                    MarkerKeys = MapFloorMarkerRules.Normalize(f.MarkerKeys).ToList()
                 }).ToList(),
                 Class = record.Class,
                 ClassProperties = GetClassProperties(catalog, record.Class),
@@ -115,20 +119,22 @@ public sealed partial class MapRepository
         }
         finally
         {
-            Gate.Release();
+            if (!gateAlreadyHeld)
+                Gate.Release();
         }
     }
 
-    public Task<MapRecord> SaveAsync(MapDraft draft,
-        int sideEntranceFeatureRadius = MapRecognitionTuning.DefaultSideEntranceFeatureRadius) =>
-        Task.Run(() => SaveCoreAsync(draft, sideEntranceFeatureRadius));
+    public Task<MapRecord> SaveAsync(MapDraft draft) =>
+        Task.Run(() => SaveCoreAsync(draft));
 
-    private async Task<MapRecord> SaveCoreAsync(MapDraft draft,
-        int sideEntranceFeatureRadius = MapRecognitionTuning.DefaultSideEntranceFeatureRadius)
+    private async Task<MapRecord> SaveCoreAsync(
+        MapDraft draft,
+        bool gateAlreadyHeld = false)
     {
         ValidateDraft(draft);
 
-        await Gate.WaitAsync();
+        if (!gateAlreadyHeld)
+            await Gate.WaitAsync();
         string? stagingDirectory = null;
         string? backupDirectory = null;
         string? targetDirectory = null;
@@ -183,7 +189,8 @@ public sealed partial class MapRepository
                     {
                         Key = floor.Key,
                         DisplayName = floor.DisplayName,
-                        SortOrder = index + 1
+                        SortOrder = index + 1,
+                        MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList()
                     })
                     .ToList();
             record.Recognition = draft.Recognition.Clone();
@@ -314,7 +321,7 @@ public sealed partial class MapRepository
                 else
                 {
                     await TryGenerateSideEntranceFeatureAsync(
-                        stagingDirectory, profile, sideEntranceFeatureRadius);
+                        stagingDirectory, profile);
                 }
 
                 var recognitionSourcePath = needsIndependentRecognition || !UsesWholeSourceImage(profile)
@@ -414,7 +421,8 @@ public sealed partial class MapRepository
         {
             if (stagingDirectory is not null && Directory.Exists(stagingDirectory))
                 Directory.Delete(stagingDirectory, recursive: true);
-            Gate.Release();
+            if (!gateAlreadyHeld)
+                Gate.Release();
         }
     }
 

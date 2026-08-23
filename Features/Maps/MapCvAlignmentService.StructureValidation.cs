@@ -99,6 +99,7 @@ internal static partial class MapCvAlignmentService
                 new MapStructureRegistrationRequest
                 {
                     ReferenceImage = reference,
+                    Channel = validationTuning.Channel,
                     LiveRoi = frame.Image,
                     ViewportBounds = frame.ViewportBounds,
                     LockedTransform = anchorTransform,

@@ -46,7 +46,9 @@
     <Compile Include="..\ServiceCollectionExtensions.cs" Link="Production\ServiceCollectionExtensions.cs" />
     <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\Cli\RealCliCandidateSelector.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\Features\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\Maps\**\*.cs" Link="Production\Features\Maps\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\Features\Windows\WindowCaptureProtectionService.cs" Link="Production\Features\Windows\WindowCaptureProtectionService.cs" />
   </ItemGroup>
 
   <ItemGroup>

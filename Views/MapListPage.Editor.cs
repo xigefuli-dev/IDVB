@@ -155,11 +155,15 @@ public sealed partial class MapListPage : UserControl
         public string OriginalFloorKey { get; set; } = string.Empty;
         public string FloorKey { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
+        public List<string> MarkerKeys { get; set; } = [];
         public string ImagePath { get; set; } = string.Empty;
         public string PreviewImagePath { get; set; } = string.Empty;
     }
 
-    private sealed record FloorIdentity(string FloorKey, string DisplayName);
+    private sealed record FloorIdentity(
+        string FloorKey,
+        string DisplayName,
+        IReadOnlyList<string> MarkerKeys);
 
     private sealed class NaturalFileNameComparer : IComparer<string>
     {

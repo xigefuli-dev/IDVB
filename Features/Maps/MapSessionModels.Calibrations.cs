@@ -212,11 +212,14 @@ public sealed class MapFloorScaleCalibration
 
 public static class MapFloorScaleSearchPolicy
 {
+    public const double UncalibratedMinimumScale = 0.30d;
+    public const double UncalibratedMaximumScale = 1.70d;
+
     public static (double InitialRadius, double ExpandedRadius) GetRadii(
         bool hasFloorCalibration) =>
         hasFloorCalibration
             ? (0.04d, 0.15d)
-            : (0.15d, 0.30d);
+            : (0.15d, 0.70d);
 }
 /*
  * 文件职责：MapSessionModels.Calibrations。

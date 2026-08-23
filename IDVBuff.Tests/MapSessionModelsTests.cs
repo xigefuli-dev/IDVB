@@ -553,6 +553,52 @@ public sealed partial class MapSessionModelsTests
     }
 
     [Fact]
+    public void UserSelectionLocksIdentityBeforeAlignmentTransformExists()
+    {
+        var mapId = Guid.NewGuid();
+        var session = new MapOpenSession();
+
+        var identityLocked = session.LockMapIdentity(
+            mapId,
+            "1f",
+            confidence: 1d);
+
+        Assert.True(identityLocked.IsIdentityLocked);
+        Assert.False(identityLocked.IsLocked);
+        Assert.Equal(MapSessionState.Confirming, identityLocked.State);
+        Assert.Equal(mapId, identityLocked.MapId);
+        Assert.Equal("1f", identityLocked.Floor);
+        Assert.Null(identityLocked.LockedTransform);
+    }
+
+    [Fact]
+    public void AcceptedAlignmentPromotesUserIdentityLockToTransformLock()
+    {
+        var mapId = Guid.NewGuid();
+        var session = new MapOpenSession();
+        session.LockMapIdentity(mapId, "1f", confidence: 1d);
+        var transform = new MapSimilarityTransform
+        {
+            Scale = 1d,
+            RotationDegrees = 0d,
+            TranslationX = 12d,
+            TranslationY = 34d
+        };
+
+        var aligned = session.LockAlignedMap(
+            mapId,
+            "1f",
+            transform,
+            MapLocationMethod.StructureTranslation,
+            confidence: 0.9d);
+
+        Assert.True(aligned.IsIdentityLocked);
+        Assert.True(aligned.IsLocked);
+        Assert.Equal(MapSessionState.Locked, aligned.State);
+        Assert.Equal(transform, aligned.LockedTransform);
+    }
+
+    [Fact]
     public void ConfidenceOmitsUnavailableEvidenceFromDenominator()
     {
         var confidence = new MapRegistrationConfidenceEvidence

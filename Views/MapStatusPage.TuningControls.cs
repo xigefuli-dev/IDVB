@@ -27,100 +27,6 @@ public sealed partial class MapStatusPage : UserControl
         Refresh();
     }
 
-    private async void SideEntranceFeatureRadius_Changed(
-        NumberBox sender,
-        NumberBoxValueChangedEventArgs args)
-    {
-        if (_refreshing || double.IsNaN(args.NewValue))
-            return;
-        var newRadius = (int)Math.Round(args.NewValue);
-        if (newRadius == _runtime.Settings.RecognitionTuning.SideEntranceFeatureRadius)
-            return;
-        try
-        {
-            // 先保存新半径
-            var tuning = _runtime.Settings.RecognitionTuning.Clone();
-            tuning.SideEntranceFeatureRadius = newRadius;
-            await _runtime.SetRecognitionTuningAsync(tuning);
-        }
-        catch (Exception exception)
-        {
-            _status.Text = exception.Message;
-            return;
-        }
-
-        // 弹出进度对话框，批量重建特征图
-        await ShowSideEntranceFeatureRebuildDialogAsync();
-    }
-
-    private async Task ShowSideEntranceFeatureRebuildDialogAsync()
-    {
-        var progressBar = new ProgressBar
-        {
-            IsIndeterminate = false,
-            Minimum = 0,
-            Maximum = 1,
-            Value = 0,
-            MinWidth = 320
-        };
-        var progressText = new TextBlock
-        {
-            Text = "准备中……",
-            Margin = new Thickness(0, 6, 0, 0)
-        };
-        var content = new StackPanel
-        {
-            Spacing = 0,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = "即将对所有地图重新生成侧门特征素材，处理时间取决于地图数量。",
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 0, 0, 12)
-                },
-                progressBar,
-                progressText
-            }
-        };
-        var dialog = new ContentDialog
-        {
-            Title = "重新预处理侧门特征",
-            Content = content,
-            XamlRoot = XamlRoot
-        };
-
-        var cts = new CancellationTokenSource();
-        var progress = new Progress<(int done, int total)>(report =>
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                var (done, total) = report;
-                if (total > 0)
-                {
-                    progressBar.Maximum = total;
-                    progressBar.Value   = done;
-                    progressText.Text   = $"已处理 {done} / {total} 张";
-                }
-            });
-        });
-
-        // 异步启动重建，完成后关闭对话框
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _runtime.RebuildSideEntranceFeaturesAsync(progress, cts.Token);
-            }
-            finally
-            {
-                DispatcherQueue.TryEnqueue(() => dialog.Hide());
-            }
-        });
-
-        await dialog.ShowAsync();
-    }
-
     private async void SkipFloorRecognition_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing)
@@ -394,7 +300,6 @@ public sealed partial class MapStatusPage : UserControl
             }
             tuning.EnableEccRefinement = _structureEccToggle.IsOn;
             tuning.EnableDebugOutput = _structureDebugToggle.IsOn;
-            tuning.MaximumChamferPixels = _structureChamfer.Value;
             tuning.MinimumEdgeCoverage = _structureCoverage.Value / 100d;
             tuning.MinimumCandidateMargin = _structureMargin.Value / 100d;
             if (double.IsFinite(_auxiliaryMaxTemplates.Value))

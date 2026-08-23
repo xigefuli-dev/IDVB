@@ -19,6 +19,7 @@ public sealed class MapCandidatePresentationRulesTests
         var result = MapCandidatePresentationRules.AppendCatalogMaps(
             candidates,
             new[] { map2, map3, map1 },
+            "S1",
             (map, floor) => $"{map.SequenceNumber}-{floor}.png");
 
         Assert.Equal(new[] { map3.Id, map1.Id, map2.Id },
@@ -30,18 +31,19 @@ public sealed class MapCandidatePresentationRulesTests
     }
 
     [Fact]
-    public void CatalogAppendIncludesMapsOutsideTheCandidateMapClass()
+    public void CatalogAppendExcludesMapsOutsideTheCandidateMapClass()
     {
         var candidate = CreateMap(4, "Ranked");
         var sameClass = CreateMap(5, "Ranked");
         var otherClass = CreateMap(6, "Quick");
 
         var result = MapCandidatePresentationRules.AppendCatalogMaps(
-            new[] { CreateChoice(candidate) },
+            new[] { CreateChoice(otherClass), CreateChoice(candidate) },
             new[] { otherClass, sameClass, candidate },
+            "Ranked",
             (_, _) => "preview.png");
 
-        Assert.Equal(new[] { candidate.Id, sameClass.Id, otherClass.Id },
+        Assert.Equal(new[] { candidate.Id, sameClass.Id },
             result.Select(item => item.Recognition.Map.Id));
     }
 

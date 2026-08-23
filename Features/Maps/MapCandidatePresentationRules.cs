@@ -14,21 +14,35 @@ internal static class MapCandidatePresentationRules
     internal static IReadOnlyList<MapRecognitionChoice> AppendCatalogMaps(
         IReadOnlyList<MapRecognitionChoice> orderedCandidates,
         IEnumerable<MapRecord> maps,
+        string mapClass,
         Func<MapRecord, string, string> overlayPathResolver)
     {
         ArgumentNullException.ThrowIfNull(orderedCandidates);
         ArgumentNullException.ThrowIfNull(maps);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapClass);
         ArgumentNullException.ThrowIfNull(overlayPathResolver);
 
         var result = new List<MapRecognitionChoice>(orderedCandidates.Count);
         var includedMapIds = new HashSet<Guid>();
         foreach (var candidate in orderedCandidates)
         {
+            if (!string.Equals(
+                    candidate.Recognition.Map.Class,
+                    mapClass,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             if (includedMapIds.Add(candidate.Recognition.Map.Id))
                 result.Add(candidate);
         }
 
         var catalogMaps = maps
+            .Where(map => string.Equals(
+                map.Class,
+                mapClass,
+                StringComparison.OrdinalIgnoreCase))
             .OrderBy(map => map.SequenceNumber)
             .ThenBy(map => map.Id);
         foreach (var map in catalogMaps)

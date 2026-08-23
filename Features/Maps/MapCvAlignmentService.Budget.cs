@@ -8,6 +8,8 @@ internal static partial class MapCvAlignmentService
         MapScanDiagnostics diagnostics,
         GateDetectionResult? gateResult)
     {
+        if (tuning.Channel == MapAlignmentChannel.LowStructure)
+            return null;
         if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
                 is not { } remaining)
         {
@@ -41,6 +43,8 @@ internal static partial class MapCvAlignmentService
         MapStructureRegistrationTuning tuning,
         MapStructureRegistrationResult localResult)
     {
+        if (tuning.Channel == MapAlignmentChannel.LowStructure)
+            return true;
         if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
                 is not { } remaining)
         {

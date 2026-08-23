@@ -5,6 +5,7 @@ using Microsoft.UI.Composition.SystemBackdrops;
 using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
 using IDVBuff.Features.Plugins;
+using IDVBuff.Features.QuickStart;
 using IDVBuff.PluginContracts;
 using Microsoft.UI.Dispatching;
 using IDVBuff.Diagnostics;
@@ -37,6 +38,9 @@ namespace IDVBuff
         private bool shutdownInProgress;
         private bool shutdownComplete;
         private bool applicationExitRequested;
+        private bool explicitExitRequested;
+        private bool mainWindowHasBeenShown;
+        private bool mainWindowIsCloaked;
         private ServiceProvider? _serviceProvider;
         private IdvbControlServer? _idvbControlServer;
         private UpdateShutdownServer? _updateShutdownServer;
@@ -44,6 +48,7 @@ namespace IDVBuff
         private TeachingTipManager? _teachingTipManager;
         private HostEventBridge? _hostEventBridge;
         private ICaptureProtectionRegistration? _mainWindowCaptureProtection;
+        private TrayIconController? _trayIcon;
 
         /// <summary>全局 DI 容器（供 Views 等非 DI 感知组件使用）。</summary>
         public static ServiceProvider Services =>
@@ -101,6 +106,7 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Creating the main window.");
+                var startMinimized = MainProgramPreferences.Load().StartMinimized;
                 var isIsolatedDevelopmentInstance = Environment.GetCommandLineArgs().Any(argument =>
                     string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
                 window = new Window
@@ -109,11 +115,17 @@ namespace IDVBuff
                         ? $"{AppDataPaths.DisplayName} [DEV {BuildVersionInfo.BuildVersion}]"
                         : AppDataPaths.DisplayName,
                     ExtendsContentIntoTitleBar = false,
-                    SystemBackdrop = new GaussianBlurBackdrop()
+                    SystemBackdrop = FluentTheme.CreateWindowBackdrop(MainProgramPreferences.Load().UseLegacyTheme)
                 };
                 TrySetWindowIcon(window);
                 window.AppWindow.Closing += AppWindow_Closing;
+                window.AppWindow.Changed += AppWindow_Changed;
                 window.Closed += Window_Closed;
+
+                if (startMinimized)
+                {
+                    SetMainWindowCloaked(true);
+                }
 
                 if (window.AppWindow.Presenter is OverlappedPresenter presenter)
                     presenter.Maximize();
@@ -123,19 +135,32 @@ namespace IDVBuff
                 window.Content = rootFrame;
                 _ = rootFrame.Navigate(typeof(MainPage), e.Arguments);
                 window.Activate();
-                WriteStartupTrace("Main window activated.");
+                if (!startMinimized)
+                {
+                    mainWindowHasBeenShown = true;
+                    WriteStartupTrace("Main window activated.");
+                }
+                else
+                {
+                    WriteStartupTrace("Main window starts hidden in the notification area.");
+                }
                 WriteStartupTrace(
                     $"SystemBackdrop support — Acrylic: {DesktopAcrylicController.IsSupported()}, Mica: {MicaController.IsSupported()}");
 
                 var dispatcher = DispatcherQueue.GetForCurrentThread();
+                _trayIcon = new TrayIconController(
+                    dispatcher,
+                    ShowMainWindow,
+                    RequestApplicationExit);
                 GuiInstanceCoordinator.ActivationRequested += GuiInstance_ActivationRequested;
                 _updateShutdownServer = new UpdateShutdownServer(() =>
-                    dispatcher.TryEnqueue(() => window?.Close()));
+                    dispatcher.TryEnqueue(RequestApplicationExit));
                 _updateShutdownServer.Start();
 
                 // ═══ 构建 DI 容器 ═══
                 var services = new ServiceCollection();
                 services.AddIdvbServices(dispatcher);
+                services.AddSingleton<IPluginInputService, PluginInputService>();
                 _serviceProvider = services.BuildServiceProvider();
                 WriteStartupTrace("DI container built.");
 
@@ -193,9 +218,16 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Map runtime initialized.");
-                if (UpdateLifecycleState.WasRestartedAfterUpdate)
+                if (!startMinimized && UpdateLifecycleState.WasRestartedAfterUpdate)
                     await ShowUpdatedSuccessfullyAsync();
+                if (!startMinimized)
+                    await ShowQuickStartAsync(session);
                 AutomaticUpdateLauncher.TryLaunch();
+                if (startMinimized)
+                {
+                    HideMainWindow();
+                    SetMainWindowCloaked(false);
+                }
             }
             catch (Exception exception)
             {
@@ -455,6 +487,11 @@ namespace IDVBuff
                 return;
 
             args.Cancel = true;
+            if (!explicitExitRequested && MainProgramPreferences.Load().MinimizeToTray)
+            {
+                HideMainWindow();
+                return;
+            }
             if (shutdownInProgress)
                 return;
 
@@ -545,6 +582,7 @@ namespace IDVBuff
             if (sender is Window closedWindow)
             {
                 closedWindow.AppWindow.Closing -= AppWindow_Closing;
+                closedWindow.AppWindow.Changed -= AppWindow_Changed;
                 closedWindow.Closed -= Window_Closed;
                 closedWindow.Content = null;
             }
@@ -558,6 +596,8 @@ namespace IDVBuff
                 return;
 
             applicationExitRequested = true;
+            _trayIcon?.Dispose();
+            _trayIcon = null;
             GuiInstanceCoordinator.ActivationRequested -= GuiInstance_ActivationRequested;
             OutputLog.Shutdown();
             if (ReferenceEquals(_currentApp, this))
@@ -574,11 +614,72 @@ namespace IDVBuff
 
         private void GuiInstance_ActivationRequested(object? sender, EventArgs e)
         {
+            window?.DispatcherQueue.TryEnqueue(ShowMainWindow);
+        }
+
+        private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
+        {
+            if (args.DidPresenterChange
+                && sender.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }
+                && MainProgramPreferences.Load().MinimizeToTray)
+                HideMainWindow();
+        }
+
+        private void ShowMainWindow()
+        {
             var currentWindow = window;
             if (currentWindow is null)
                 return;
-            _ = currentWindow.DispatcherQueue.TryEnqueue(currentWindow.Activate);
+            if (!mainWindowHasBeenShown)
+            {
+                SetMainWindowCloaked(false);
+                ShowWindow(WindowNative.GetWindowHandle(currentWindow), 5);
+                currentWindow.Activate();
+                mainWindowHasBeenShown = true;
+                if (currentWindow.AppWindow.Presenter is OverlappedPresenter initialPresenter)
+                    initialPresenter.Maximize();
+                return;
+            }
+            ShowWindow(WindowNative.GetWindowHandle(currentWindow), 5);
+            if (currentWindow.AppWindow.Presenter is OverlappedPresenter presenter)
+                presenter.Restore();
+            currentWindow.Activate();
         }
+
+        private void HideMainWindow()
+        {
+            if (window is { } currentWindow)
+                ShowWindow(WindowNative.GetWindowHandle(currentWindow), 0);
+        }
+
+        private void SetMainWindowCloaked(bool cloaked)
+        {
+            if (window is null || mainWindowIsCloaked == cloaked)
+                return;
+            var value = cloaked ? 1 : 0;
+            if (DwmSetWindowAttribute(
+                    WindowNative.GetWindowHandle(window),
+                    13,
+                    ref value,
+                    sizeof(int)) == 0)
+                mainWindowIsCloaked = cloaked;
+        }
+
+        private void RequestApplicationExit()
+        {
+            explicitExitRequested = true;
+            window?.Close();
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr windowHandle, int command);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(
+            IntPtr windowHandle,
+            int attribute,
+            ref int attributeValue,
+            int attributeSize);
 
         private async Task ShowUpdatedSuccessfullyAsync()
         {
@@ -592,6 +693,49 @@ namespace IDVBuff
                 Content = $"Identity Vision Bridge 已更新到 {BuildVersionInfo.BuildVersion}。",
                 CloseButtonText = "知道了"
             }.ShowAsync();
+        }
+
+        private async Task ShowQuickStartAsync(Features.Maps.SessionOrchestrator session)
+        {
+            var stateStore = new QuickStartStateStore();
+            if (!stateStore.ShouldShow)
+                return;
+
+            FrameworkElement? root = null;
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                root = window?.Content as FrameworkElement;
+                if (root?.XamlRoot is not null)
+                    break;
+                await Task.Delay(100);
+            }
+
+            var choice = await QuickStartDialog.ShowAsync(root?.XamlRoot);
+            if (choice is null)
+                return;
+
+            if (choice == QuickStartChoice.UseRecommendedSettings)
+            {
+                try
+                {
+                    await session.ApplyQuickStartRecommendedSettingsAsync();
+                }
+                catch (Exception exception)
+                {
+                    WriteStartupTrace("Unable to apply quick-start recommended settings.", exception);
+                    return;
+                }
+            }
+
+            try
+            {
+                stateStore.MarkCompleted();
+            }
+            catch (Exception exception)
+            {
+                // A marker failure must not prevent the application from starting.
+                WriteStartupTrace("Unable to persist quick-start completion.", exception);
+            }
         }
 
         private async void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)
@@ -633,7 +777,7 @@ namespace IDVBuff
                 if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is { } s
                     && s.TryRestartElevated(out failureReason))
                 {
-                    currentWindow.Close();
+                    RequestApplicationExit();
                     return;
                 }
 

@@ -22,6 +22,19 @@ public sealed partial class SessionOrchestrator
         tuning.EdgeDistanceTolerancePixels = structure.EdgeDistanceTolerancePixels;
         tuning.DistanceClipPixels = structure.DistanceClipPixels;
 
+        var composite = _config.Get<CompositeCostConfig>("composite_cost");
+        tuning.ChamferWeight = composite.ChamferWeight;
+        tuning.EdgeCoverageWeight = composite.EdgeCoverageWeight;
+        tuning.OccupancyCoverageWeight = composite.OccupancyWeight;
+        tuning.ReferenceCoverageWeight = composite.EdgeCoverageWeight;
+        tuning.PartitionPenaltyWeight = composite.PartitionWeight;
+        tuning.PriorDisagreementWeight = composite.PriorDisagreementWeight;
+        tuning.BoundsPenalty = composite.BoundsPenalty;
+
+        var partitions = _config.Get<PartitionsConfig>("partitions");
+        tuning.MinimumEdgesPerPartition = partitions.MinEdgesPerPartition;
+        tuning.MinimumPartitionCoverage = partitions.MinCoverage;
+
         var scale = _config.Get<IDVBuff.Core.Models.ScaleConfig>("scale");
         tuning.ScaleSearchRadius = scale.SearchRadius;
         tuning.ScaleSearchStep = scale.SearchStep;
@@ -67,6 +80,19 @@ public sealed partial class SessionOrchestrator
 
         tuning.Normalize();
         return tuning;
+    }
+
+    private MapStructureRegistrationTuning CreateStructureTuningForFloor(
+        MapRecord map,
+        string floorKey,
+        MapStructureRegistrationTuning tuning)
+    {
+        var channel = MapAlignmentChannelRegistry.Resolve(map, floorKey);
+        if (channel.Channel != MapAlignmentChannel.LowStructure)
+            return tuning;
+
+        return MapAlignmentChannelRegistry.CreateLowStructure(
+            _config.Get<LowStructureConfig>("low_structure"));
     }
 
     private MapStructureRegistrationTuning CreateInitialAlignmentStructureTuning()

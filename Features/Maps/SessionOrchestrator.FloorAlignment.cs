@@ -38,6 +38,122 @@ public sealed partial class SessionOrchestrator
         out MapFeatureCacheKey? repairCacheKey)
     {
         repairCacheKey = null;
+        structureTuning = CreateStructureTuningForFloor(
+            locked.Map,
+            floorKey,
+            structureTuning);
+        var alignmentChannel = MapAlignmentChannelRegistry.Resolve(
+            locked.Map,
+            floorKey);
+        if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure)
+        {
+            var match = _matchSession.Snapshot;
+            if (TryGetManualFloorScaleLock(
+                    match,
+                    frame,
+                    locked.Map,
+                    floorKey,
+                    out var manuallyLockedScale))
+            {
+                var manuallyLockedSeed = MapFeatureCacheRules.CreateScaleSeed(
+                    locked.Map,
+                    floorKey,
+                    manuallyLockedScale);
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    $"低结构玩家锁定尺度仅执行全局平移对齐 · floor={floorKey}",
+                    details: new()
+                    {
+                        ["floor"] = floorKey,
+                        ["channel"] = alignmentChannel.DiagnosticLabel,
+                        ["scale"] = manuallyLockedScale,
+                        ["scaleSearchPolicy"] = nameof(MapScaleSearchPolicy.Fixed),
+                        ["translationSearch"] = "unrestricted",
+                        ["scaleSource"] = "manual-match-lock"
+                    });
+                return _recognition.AlignWithCachedScale(
+                    frame,
+                    locked.Map.Id,
+                    floorKey,
+                    manuallyLockedSeed,
+                    alignmentMode,
+                    tuning,
+                    structureTuning,
+                    identityPriorConfidence,
+                    restrictTranslationToSeed: false);
+            }
+
+            // Low-structure floors do not borrow VPSG, another floor's
+            // transform, or standard-channel mutable state. A trusted
+            // same-floor cache contributes one scale hypothesis to the single
+            // unbiased search; it never starts a separate registration pass.
+            var lowSeed = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                locked.Map,
+                floorKey);
+            var lowResolution = GetResolution(frame);
+            var lowCacheKey = lowResolution.IsSupported
+                ? CreateAlignmentCacheKey(
+                    locked.Map,
+                    floorKey,
+                    lowResolution,
+                    structureTuning)
+                : null;
+            var usedTrustedLowScale = false;
+            if (lowCacheKey is not null
+                && _mapFeatureCacheRepository.TryGet(
+                    lowCacheKey,
+                    out var lowCacheEntry)
+                && lowCacheEntry is not null)
+            {
+                if (MapFeatureCacheRules.IsCacheEntryTrusted(lowCacheEntry))
+                {
+                    lowSeed = MapFeatureCacheRules.CreateScaleSeed(
+                        locked.Map,
+                        floorKey,
+                        lowCacheEntry.Scale.UniformScale);
+                    usedTrustedLowScale = true;
+                    _logCollector.Append(
+                        MapLogCategory.StructureRegistration,
+                        MapLogLevel.Info,
+                        $"低结构同楼层缓存尺度并入单次搜索 · floor={floorKey}",
+                        details: new()
+                        {
+                            ["floor"] = floorKey,
+                            ["channel"] = MapAlignmentChannelRegistry
+                                .LowStructure.DiagnosticLabel,
+                            ["configFingerprint"] =
+                                structureTuning.CacheFingerprint,
+                            ["scale"] = lowCacheEntry.Scale.UniformScale,
+                            ["cacheDecision"] = "trusted-seed-merged"
+                        });
+                }
+                else
+                {
+                    repairCacheKey = lowCacheKey;
+                    MarkMapCacheForRepair(lowCacheKey);
+                }
+            }
+            var lowAttempt = _recognition.AlignFloorWithoutGates(
+                frame,
+                locked.Map.Id,
+                floorKey,
+                lowSeed,
+                alignmentMode,
+                tuning,
+                structureTuning,
+                identityPriorConfidence: identityPriorConfidence,
+                scaleSearchPolicy: MapScaleSearchPolicy.Search,
+                allowPrimaryFloor: true);
+            if (usedTrustedLowScale
+                && !IsAdaptiveInitialScaleUsable(lowAttempt, structureTuning)
+                && lowCacheKey is not null)
+            {
+                repairCacheKey = lowCacheKey;
+                MarkMapCacheForRepair(lowCacheKey);
+            }
+            return lowAttempt;
+        }
         // 缓存信任门控：fixed/兜底连续失败达阈值后，本轮已无可用缓存证据，
         // 跳过 VPSG 把预算直接给宽半径全局恢复。
         var skipVpsgForDistrustedCache = false;
@@ -252,7 +368,7 @@ public sealed partial class SessionOrchestrator
                 return vpsgAttempt;
             // VPSG 估计出本楼层 scale 但固定 scale 结构验证失败：保留估计值，
             // 让全局恢复以它（而非中性 KEEP-1.0 种子）为搜索锚点，避免正确
-            // scale 落在 [0.70,1.30] 搜索范围之外（根因③）。
+            // scale 落在 [0.40,1.60] 搜索范围之外。
             if (double.IsFinite(vpsgAttempt.Diagnostics.ScaleBootstrapScale)
                 && vpsgAttempt.Diagnostics.ScaleBootstrapScale > 0d)
             {
@@ -417,7 +533,10 @@ public sealed partial class SessionOrchestrator
             identityLock.Map,
             manualFloorKey);
         var recognitionTuning = CreateInitialAlignmentRecognitionTuning();
-        var structureTuning = CreateInitialAlignmentStructureTuning();
+        var structureTuning = CreateStructureTuningForFloor(
+            identityLock.Map,
+            manualFloorKey,
+            CreateInitialAlignmentStructureTuning());
         MapFeatureCacheKey? repairCacheKey = null;
         var floorDispatch = MapOperationTraceAmbient.StartChild(
             "floor_dispatch_wait",

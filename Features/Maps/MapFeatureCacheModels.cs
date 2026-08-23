@@ -54,7 +54,9 @@ public sealed record MapFeatureCacheKey(
     Guid MapId,
     string MapContentFingerprint,
     string FloorKey,
-    MapCacheResolutionSignature Resolution)
+    MapCacheResolutionSignature Resolution,
+    string Channel = "standard",
+    string ConfigFingerprint = "legacy")
 {
     [JsonIgnore]
     public bool IsValid =>
@@ -67,7 +69,6 @@ public sealed record MapFeatureCacheKey(
 internal enum MapScaleSeedSource
 {
     ExactCache,
-    CrossResolution,
     Vpsg,
     SideTemplate
 }
@@ -78,17 +79,15 @@ internal sealed record ResolvedMapScaleSeed(
     MapFeatureCacheSource CacheSource,
     MapCacheResolutionSignature SourceResolution,
     MapCacheResolutionSignature TargetResolution,
-    bool IsProjected,
     MapFeatureCacheEntry CacheEntry);
 
 /// <summary>
-/// Pure cache-selection and cross-resolution projection logic. A resolved
-/// value is only a search seed; callers must still run structure validation.
+/// Pure exact-resolution cache selection. Resolution is part of cache
+/// identity only; it must never be used to derive a scale. When an exact
+/// entry is unavailable, callers must estimate scale from image content.
 /// </summary>
 internal static class MapScaleSeedResolver
 {
-    public const double MaximumAxisScaleDisagreement = 0.03d;
-
     public static bool TryResolve(
         IEnumerable<MapFeatureCacheEntry> entries,
         Guid mapId,
@@ -124,96 +123,16 @@ internal static class MapScaleSeedResolver
                 exact.Scale.Source,
                 exact.Key.Resolution,
                 targetResolution,
-                IsProjected: false,
                 exact);
             rejectionReason = string.Empty;
             return true;
         }
 
-        var projectable = OrderByTrust(trusted
-                .Where(entry => entry.Key.Resolution != targetResolution))
-            .Select(entry => new
-            {
-                Entry = entry,
-                Projection = TryProjectScale(
-                    entry.Scale.UniformScale,
-                    entry.Key.Resolution,
-                    targetResolution,
-                    out var scale,
-                    out var reason)
-                    ? (Scale: scale, Reason: string.Empty)
-                    : (Scale: double.NaN, Reason: reason)
-            })
-            .ToArray();
-        var projected = projectable.FirstOrDefault(candidate =>
-            double.IsFinite(candidate.Projection.Scale));
-        if (projected is null)
-        {
-            rejectionReason = projectable.Length == 0
-                ? "no-trusted-cache"
-                : string.Join(",", projectable
-                    .Select(candidate => candidate.Projection.Reason)
-                    .Where(reason => !string.IsNullOrWhiteSpace(reason))
-                    .Distinct(StringComparer.Ordinal));
-            return false;
-        }
-
-        resolved = new ResolvedMapScaleSeed(
-            projected.Projection.Scale,
-            MapScaleSeedSource.CrossResolution,
-            projected.Entry.Scale.Source,
-            projected.Entry.Key.Resolution,
-            targetResolution,
-            IsProjected: true,
-            projected.Entry);
-        rejectionReason = string.Empty;
-        return true;
-    }
-
-    public static bool TryProjectScale(
-        double sourceScale,
-        MapCacheResolutionSignature sourceResolution,
-        MapCacheResolutionSignature targetResolution,
-        out double projectedScale,
-        out string rejectionReason)
-    {
-        projectedScale = double.NaN;
-        rejectionReason = string.Empty;
-        if (!double.IsFinite(sourceScale)
-            || sourceScale <= 0.05d
-            || sourceResolution.ViewportWidth <= 0
-            || sourceResolution.ViewportHeight <= 0
-            || targetResolution.ViewportWidth <= 0
-            || targetResolution.ViewportHeight <= 0)
-        {
-            rejectionReason = "invalid-scale-or-viewport";
-            return false;
-        }
-
-        var widthRatio = (double)targetResolution.ViewportWidth
-            / sourceResolution.ViewportWidth;
-        var heightRatio = (double)targetResolution.ViewportHeight
-            / sourceResolution.ViewportHeight;
-        var axisDisagreement = Math.Abs(widthRatio - heightRatio)
-            / Math.Max(widthRatio, heightRatio);
-        if (axisDisagreement > MaximumAxisScaleDisagreement + 1e-12d)
-        {
-            rejectionReason = "viewport-axis-scale-disagreement";
-            return false;
-        }
-
-        projectedScale = sourceScale * Math.Sqrt(
-            ((double)targetResolution.ViewportWidth
-                * targetResolution.ViewportHeight)
-            / ((double)sourceResolution.ViewportWidth
-                * sourceResolution.ViewportHeight));
-        if (!double.IsFinite(projectedScale) || projectedScale <= 0.05d)
-        {
-            projectedScale = double.NaN;
-            rejectionReason = "invalid-projected-scale";
-            return false;
-        }
-        return true;
+        rejectionReason = trusted.Any(entry =>
+                entry.Key.Resolution != targetResolution)
+            ? "cross-resolution-cache-requires-content-scale"
+            : "no-trusted-cache";
+        return false;
     }
 
     public static MapStructureRegistrationTuning CreateStrictInitialIdentityValidationTuning(
@@ -702,13 +621,23 @@ public static class MapFeatureCacheRules
     public static MapFeatureCacheKey CreateKey(
         MapRecord map,
         string floorKey,
-        MapCacheResolutionSignature resolution) =>
-        new(map.Id, ComputeContentFingerprint(map), floorKey, resolution);
+        MapCacheResolutionSignature resolution,
+        MapAlignmentChannel channel = MapAlignmentChannel.Standard,
+        string configFingerprint = "legacy") =>
+        new(
+            map.Id,
+            ComputeContentFingerprint(map),
+            floorKey,
+            resolution,
+            channel == MapAlignmentChannel.LowStructure ? "low_structure" : "standard",
+            configFingerprint);
 
     public static MapOverlayTransform CreateScaleSeed(
         MapRecord map,
         string floorKey,
-        double uniformScale)
+        double uniformScale,
+        double offsetX = 0d,
+        double offsetY = 0d)
     {
         var profile = MapFloorRules.GetFloorProfile(map, floorKey)
             ?? throw new InvalidOperationException($"地图不包含楼层 '{floorKey}'。");
@@ -718,12 +647,12 @@ public static class MapFeatureCacheRules
         {
             ScaleX = uniformScale,
             ScaleY = uniformScale,
-            OffsetX = 0d,
-            OffsetY = 0d,
+            OffsetX = offsetX,
+            OffsetY = offsetY,
             ReferenceCenterX = width / 2d,
             ReferenceCenterY = height / 2d,
-            ScreenCenterX = width * uniformScale / 2d,
-            ScreenCenterY = height * uniformScale / 2d,
+            ScreenCenterX = (width * uniformScale / 2d) + offsetX,
+            ScreenCenterY = (height * uniformScale / 2d) + offsetY,
             ReferenceWidth = width,
             ReferenceHeight = height,
             OrientationDegrees = profile.OrientationDegrees,

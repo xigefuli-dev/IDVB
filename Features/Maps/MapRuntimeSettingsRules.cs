@@ -8,7 +8,6 @@ public sealed class MapRecognitionTuning
     public const double DefaultVectorErrorTolerance = 0.15d;
     public const double DefaultAmbiguityMargin = 0.015d;
     public const double DefaultConfirmationAdvantage = 0.08d;
-    public const int DefaultSideEntranceFeatureRadius = 80;
 
     public double GateTemplateThreshold { get; set; } = DefaultGateTemplateThreshold;
     public double MinimumConfidence { get; set; } = DefaultMinimumConfidence;
@@ -32,8 +31,6 @@ public sealed class MapRecognitionTuning
     public double ConfirmationMaximumMapDragPixelsPerSecond { get; set; } = 600d;
     /// <summary>Scheduling slack for confirmation ROI (frame interval + capture delay).</summary>
     public int ConfirmationSchedulingSlackMilliseconds { get; set; } = 100;
-    /// <summary>侧门特征图半径（识别图像素）。修改后需重新预处理所有地图的侧门特征。</summary>
-    public int SideEntranceFeatureRadius { get; set; } = DefaultSideEntranceFeatureRadius;
 
     [System.Text.Json.Serialization.JsonIgnore]
     public int ConfirmationMaximumMotionPixels =>
@@ -60,7 +57,6 @@ public sealed class MapRecognitionTuning
             ConfirmationMaximumMapDragPixelsPerSecond,
         ConfirmationSchedulingSlackMilliseconds =
             ConfirmationSchedulingSlackMilliseconds,
-        SideEntranceFeatureRadius = SideEntranceFeatureRadius
     };
 
     public void Normalize()
@@ -112,10 +108,6 @@ public sealed class MapRecognitionTuning
         ConfirmationSchedulingSlackMilliseconds = Math.Clamp(
             ConfirmationSchedulingSlackMilliseconds,
             30,
-            500);
-        SideEntranceFeatureRadius = Math.Clamp(
-            SideEntranceFeatureRadius,
-            20,
             500);
     }
 

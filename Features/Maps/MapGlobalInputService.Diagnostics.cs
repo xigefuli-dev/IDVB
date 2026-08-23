@@ -16,6 +16,18 @@ public sealed partial class MapGlobalInputService
         }
     }
 
+    private void DispatchPluginInput(PluginInputInvokedEventArgs input)
+    {
+        try
+        {
+            _ = _dispatcher.TryEnqueue(() => PluginInputInvoked?.Invoke(this, input));
+        }
+        catch
+        {
+            // 输入钩子不能因 UI 线程关闭或队列拒绝而抛出到 Win32 回调。
+        }
+    }
+
     private void DispatchInput(
         MapInputInvokedEventArgs invoked,
         string device,

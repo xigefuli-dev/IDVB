@@ -22,7 +22,8 @@ internal static partial class MapCvAlignmentService
         bool useProjectedBoundaryMask,
         bool allowPrimaryFloor,
         MapScaleSearchPolicy scaleSearchPolicy,
-        double identityPriorConfidence)
+        double identityPriorConfidence,
+        bool restrictTranslationToSeed)
     {
         ObjectDisposedException.ThrowIf(service.IsDisposed, service);
 
@@ -58,13 +59,10 @@ internal static partial class MapCvAlignmentService
                 "当前选择的地图不存在或未加载。");
         }
 
-        if (!allowPrimaryFloor
-            && MapFloorRules.UsesDoubleGateAlignment(map, floorKey))
-        {
-            return MapCvRecognitionDiagnostics.Failure(
-                diagnostics,
-                "The primary floor must use double-gate alignment.");
-        }
+        // Compatibility placeholder. Routing policy decides whether this
+        // structure-only API is appropriate; the registrar itself must not
+        // turn a real structure rejection into a double-gate requirement.
+        _ = allowPrimaryFloor;
 
         var profile = MapFloorRules.GetFloorProfile(map, floorKey);
         if (profile is null)
@@ -73,6 +71,34 @@ internal static partial class MapCvAlignmentService
                 diagnostics,
                 $"The selected map does not contain floor '{floorKey}'.");
         }
+
+        var resolvedChannel = MapAlignmentChannelRegistry.Resolve(map, floorKey);
+        if (structureTuning.Channel != resolvedChannel.Channel)
+        {
+            diagnostics.AlignmentChannel = structureTuning.Channel ==
+                MapAlignmentChannel.LowStructure
+                    ? MapAlignmentChannelRegistry.LowStructure.DiagnosticLabel
+                    : MapAlignmentChannelRegistry.Standard.DiagnosticLabel;
+            return MapCvRecognitionDiagnostics.Failure(
+                diagnostics,
+                $"Floor '{floorKey}' requires alignment channel "
+                + $"'{resolvedChannel.DiagnosticLabel}', but received "
+                + $"'{diagnostics.AlignmentChannel}'.");
+        }
+        diagnostics.AlignmentChannel = resolvedChannel.DiagnosticLabel;
+        diagnostics.FloorMarkerKeys = string.Join(
+            ",",
+            MapFloorMarkerRules.Normalize(
+                MapFloorRules.GetOrderedFloors(map)
+                    .First(floor => string.Equals(
+                        floor.Key,
+                        floorKey,
+                        StringComparison.Ordinal))
+                    .MarkerKeys));
+        diagnostics.AlignmentConfigFingerprint =
+            resolvedChannel.Channel == MapAlignmentChannel.LowStructure
+                ? structureTuning.CacheFingerprint
+                : "legacy";
 
         if (!double.IsFinite(scaleSeed.ScaleX)
             || scaleSeed.ScaleX <= 0.05d)
@@ -241,7 +267,8 @@ internal static partial class MapCvAlignmentService
                 dynamicIgnoreRegions.Count,
                 requestedProfile: livePreprocessingProfile));
 
-        if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
+        if (structureTuning.Channel != MapAlignmentChannel.LowStructure
+            && MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
                 is { } remainingMilliseconds)
         {
             if (remainingMilliseconds
@@ -278,19 +305,35 @@ internal static partial class MapCvAlignmentService
                 remainingMilliseconds);
         }
 
-        var structure = service.StructureRegistrar.Register(
-            new MapStructureRegistrationRequest
+        var lowStructureScaleEstimate = TryEstimateLowStructureContentScale(
+            service,
+            map,
+            floorKey,
+            preparedReference,
+            preparedLive,
+            structureTuning,
+            scaleSearchPolicy,
+            isTracking,
+            diagnostics,
+            ref scaleSeed);
+
+        MapStructureRegistrationRequest CreateRequest(
+            MapScaleSearchPolicy policy,
+            bool restrictTranslation) =>
+            new()
             {
                 // 缓存常驻命中时没有解码过的参考图；PreparedReference 已经是
                 // Registrar 需要的全部输入，ReferenceImage 保持默认空 Mat。
                 ReferenceImage = decodedReference ?? new Mat(),
+                Channel = structureTuning.Channel,
                 LiveRoi = frame.Image,
                 ViewportBounds = frame.ViewportBounds,
                 LockedTransform = scaleSeed,
                 Tuning = structureTuning,
-                ScaleSearchPolicy = scaleSearchPolicy,
+                ScaleSearchPolicy = policy,
                 RestrictSearchToLockedTransform =
-                    scaleSearchPolicy == MapScaleSearchPolicy.Fixed,
+                    policy == MapScaleSearchPolicy.Fixed
+                    && restrictTranslation,
                 TrackingMode = isTracking,
                 ForceBestCandidate = false,
                 PreparedReference = preparedReference,
@@ -303,7 +346,26 @@ internal static partial class MapCvAlignmentService
                 DynamicIgnoreRegions = dynamicIgnoreRegions,
                 CandidateHistory = candidateHistory ?? [],
                 SideEntrancePrior = 0d
-            });
+            };
+
+        // A content-derived VPSG scale receives one strict fixed-scale
+        // validation. If it fails, retain it only as the first exact global
+        // hypothesis; it is neither cached nor treated as locked evidence.
+        var structure = lowStructureScaleEstimate is not null
+            ? service.StructureRegistrar.Register(
+                CreateRequest(MapScaleSearchPolicy.Fixed, false))
+            : service.StructureRegistrar.Register(
+                CreateRequest(scaleSearchPolicy, restrictTranslationToSeed));
+        if (lowStructureScaleEstimate is not null && !structure.Accepted)
+        {
+            diagnostics.ScaleBootstrapValidated = false;
+            structure = service.StructureRegistrar.Register(
+                CreateRequest(MapScaleSearchPolicy.Search, false));
+        }
+        else if (lowStructureScaleEstimate is not null)
+        {
+            diagnostics.ScaleBootstrapValidated = true;
+        }
 
         MapCvRecognitionDiagnostics.WriteStructureDebugResult(
             map, structure, null);
@@ -331,6 +393,10 @@ internal static partial class MapCvAlignmentService
             {
                 ["mapId"] = map.Id,
                 ["floor"] = floorKey,
+                ["channel"] = diagnostics.AlignmentChannel,
+                ["floorMarkerKeys"] = diagnostics.FloorMarkerKeys,
+                ["configFingerprint"] =
+                    diagnostics.AlignmentConfigFingerprint,
                 ["scaleSearchPolicy"] = scaleSearchPolicy.ToString(),
                 ["scaleSeed"] = scaleSeed.ScaleX,
                 ["referenceImageLoadMs"] =
@@ -360,9 +426,12 @@ internal static partial class MapCvAlignmentService
                 ["failureReason"] = structure.FailureReason
             });
 
-        if (!structure.Accepted
-            || structure.Transform is null
-            || structure.Confidence < tuning.MinimumConfidence)
+        if (!MapOpenAlignmentRouteRules.IsAcceptedStructureAlignment(
+                structureTuning.Channel,
+                structure.Accepted,
+                structure.Transform is not null,
+                structure.Confidence,
+                tuning.MinimumConfidence))
         {
             diagnostics.TrackingMode =
                 MapAlignmentTrackingMode.HoldingLastTransform;
@@ -394,7 +463,7 @@ internal static partial class MapCvAlignmentService
                 map,
                 floorKey,
                 service.Repository.GetFloorOverlayPath(map, floorKey),
-                structure.Transform,
+                structure.Transform!,
                 structure,
                 identityPriorConfidence),
             SearchStage = AlignmentSearchStage.StructureFallback,

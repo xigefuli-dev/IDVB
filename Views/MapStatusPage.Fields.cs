@@ -230,11 +230,6 @@ public sealed partial class MapStatusPage : UserControl
         "门模板最低分",
         50,
         95);
-    private readonly NumberBox _sideEntranceFeatureRadius = CreateDecimalBox(
-        "侧门特征半径（px）",
-        20,
-        500,
-        10);
     private readonly NumberBox _minimumConfidence = CreatePercentageBox(
         "最终识别最低置信度",
         20,
@@ -424,7 +419,7 @@ public sealed partial class MapStatusPage : UserControl
             1000,
             8);
     private readonly NumberBox _structureChamfer = CreateDecimalBox(
-        "结构最大平均距离（参考像素）",
+        "结构最大平均距离（锁定 3.0 屏幕像素）",
         0.5,
         20,
         0.1);

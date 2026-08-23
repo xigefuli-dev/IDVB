@@ -11,6 +11,7 @@
     <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
     <ProjectReference Include="..\Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
+    <ProjectReference Include="..\Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
   </ItemGroup>
 
   <ItemGroup>

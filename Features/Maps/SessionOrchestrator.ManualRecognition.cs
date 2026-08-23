@@ -202,7 +202,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     .ThenByDescending(candidate => candidate.RawConfidence)
                     .ToArray();
                 var displayChoices = await BuildNativeCandidateChoicesAsync(
-                    orderedChoices);
+                    orderedChoices,
+                    operationMatch.MapClass!);
                 MapCandidateDecision decision;
                 using (MapOperationTraceAmbient.StartTopLevel(
                            "candidate_selection_wait",
@@ -367,7 +368,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 operationMatch,
                 recognition,
                 _lastAlignmentSession,
-                frame);
+                frame,
+                adaptiveDecision.AllowReliableSession);
             _lastGameBounds = frame.ClientBounds;
             _lastGameWindowHandle = frame.WindowHandle;
             _statusMessage =

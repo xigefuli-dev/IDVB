@@ -90,6 +90,68 @@ internal sealed partial class AdaptiveScaleCoordinator
             });
     }
 
+    public async Task ResetForScaleRecoveryAsync(AdaptiveScaleKey key)
+    {
+        // Clear runtime arbitration first.  Even if persistence fails, the
+        // recovered result in this process must restart from Provisional.
+        lock (_stateGate)
+        {
+            _initialStreaks.Remove(key);
+            _controllers.Remove(key);
+            if (_activeKey == key)
+            {
+                _activeKey = null;
+                _activeOpenId = 0;
+            }
+        }
+
+        Task resetTask;
+        lock (_pendingWrites)
+        {
+            resetTask = ResetForScaleRecoveryAfterAsync(
+                _streakWriteTail,
+                key);
+            _streakWriteTail = resetTask;
+            _pendingWrites.Add(resetTask);
+        }
+        try
+        {
+            await resetTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_pendingWrites)
+                _pendingWrites.Remove(resetTask);
+        }
+
+        _log?.Invoke(
+            "adaptive scale baseline reset after steady recovery",
+            new Dictionary<string, object?>
+            {
+                ["mapId"] = key.MapId,
+                ["floor"] = key.FloorKey,
+                ["clientWidth"] = key.ClientWidth,
+                ["clientHeight"] = key.ClientHeight,
+                ["viewportWidth"] = key.ViewportWidth,
+                ["viewportHeight"] = key.ViewportHeight
+            });
+    }
+
+    private async Task ResetForScaleRecoveryAfterAsync(
+        Task predecessor,
+        AdaptiveScaleKey key)
+    {
+        try
+        {
+            await predecessor.ConfigureAwait(false);
+        }
+        catch
+        {
+            // A previous persistence failure must not preserve a stale scale.
+        }
+        await _store.ResetAsync(key).ConfigureAwait(false);
+    }
+
     private AdaptiveScaleController GetController(AdaptiveScaleKey key)
     {
         if (_controllers.TryGetValue(key, out var existing))
@@ -175,8 +237,7 @@ internal sealed partial class AdaptiveScaleCoordinator
         evidence is
         {
             Validated: true,
-            UniqueMatches: >= MapVpsgScaleEstimator.MinimumUniqueMatches,
-            PairVotes: >= MapVpsgScaleEstimator.MinimumPairVotes
+            UniqueMatches: >= MapVpsgScaleEstimator.MinimumUniqueMatches
         }
         && evidence.Confidence >= _options.VpsgConfidence
         && evidence.ResidualPixels <= MapVpsgScaleEstimator.MaximumResidualPixels

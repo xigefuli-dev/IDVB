@@ -14,6 +14,7 @@ public static class PluginRegistration
 
         // 内置/导入插件在此登记。
         host.Register(new IDVBuff.Plugins.AutoClicker.AutoClickerPlugin());
+        host.Register(new IDVBuff.Plugins.AutoGatling.AutoGatlingPlugin());
         host.Register(new IDVBuff.Plugins.NightVision.NightVisionPlugin());
         host.Register(new IDVBuff.Plugins.DynamicMiniMapZoom.DynamicMiniMapZoomPlugin());
         host.Register(new IDVBuff.Plugins.LiveMode.LiveModePlugin());

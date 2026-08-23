@@ -8,6 +8,59 @@ namespace IDVBuff.Tests;
 public sealed class AdaptiveScaleCoordinatorTests
 {
     [Fact]
+    public async Task SteadyRecoveryResetRestartsReliabilityFromProvisional()
+    {
+        var directory = Directory.CreateTempSubdirectory("idvb-adaptive-scale-");
+        try
+        {
+            var store = new AdaptiveScaleStore(
+                Path.Combine(directory.FullName, "adaptive-scale-cache.json"));
+            var coordinator = new AdaptiveScaleCoordinator(
+                new AdaptiveScaleOptions(),
+                store);
+            using var frame = Frame();
+            var recognition = Recognition(1.141078);
+            var key = AdaptiveScaleKey.Create(
+                recognition.Map,
+                recognition.Result.Floor,
+                frame.ClientBounds,
+                frame.ViewportBounds);
+            AdaptiveAlignmentDecision? decision = null;
+            for (var openId = 1; openId <= 5; openId++)
+            {
+                decision = coordinator.EvaluateInitial(
+                    recognition,
+                    frame,
+                    null,
+                    Evidence(),
+                    openId);
+            }
+            Assert.True(decision!.AllowReliableSession);
+
+            await coordinator.ResetForScaleRecoveryAsync(key);
+            var recovered = coordinator.EvaluateInitial(
+                Recognition(1.18),
+                frame,
+                null,
+                Evidence(),
+                openId: 6);
+
+            Assert.Equal(
+                AdaptiveScaleReliability.Provisional,
+                recovered.Reliability);
+            Assert.False(recovered.AllowReliableSession);
+            Assert.Equal(1, recovered.ConsecutiveHighQualityCount);
+            // Serialize behind the provisional observation's queued write so
+            // the temporary store has no open file when the fixture is removed.
+            await coordinator.ResetForScaleRecoveryAsync(key);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void CrossResolutionSeedRemainsProvisionalAfterOneStrongFrame()
     {
         var coordinator = new AdaptiveScaleCoordinator(new AdaptiveScaleOptions());
@@ -93,7 +146,7 @@ public sealed class AdaptiveScaleCoordinatorTests
     }
 
     [Fact]
-    public async Task ProductionVpsgEvidenceCanFastConfirmWithTwoStructureFrames()
+    public void ProductionVpsgEvidenceDirectlyConfirmsInitialScale()
     {
         var coordinator = new AdaptiveScaleCoordinator(new AdaptiveScaleOptions
         {
@@ -109,29 +162,51 @@ public sealed class AdaptiveScaleCoordinatorTests
             MapVpsgScaleEstimator.MinimumPairVotes,
             1.0,
             0.001);
-        coordinator.EvaluateInitial(
+        var initial = coordinator.EvaluateInitial(
             recognition,
             frame,
             null,
             new AdaptiveScaleInitialEvidence(1, 0.04, true, vpsg),
             openId: 1);
 
-        await Task.Delay(60);
-        var key = AdaptiveScaleKey.Create(
-            recognition.Map,
-            recognition.Result.Floor,
-            frame.ClientBounds,
-            frame.ViewportBounds);
-        var decision = EvaluateAndCommit(
-            coordinator,
-            key,
-            1,
-            recognition,
-            2,
-            0.04);
+        Assert.Equal(AdaptiveScaleReliability.Reliable, initial.Reliability);
+        Assert.Equal(
+            AdaptiveScaleReliabilityReason.VpsgDirectLock,
+            initial.ReliabilityReason);
+        Assert.Equal(
+            vpsg.Scale,
+            initial.RecognitionToRender.Result.OverlayTransform!.ScaleX,
+            8);
+    }
 
-        Assert.True(decision.BecameReliable);
-        Assert.Equal(AdaptiveScaleState.Stable, decision.State);
+    [Fact]
+    public void HighConfidenceValidatedVpsgLocksScaleWithoutConsensusVotes()
+    {
+        var coordinator = new AdaptiveScaleCoordinator(new AdaptiveScaleOptions());
+        using var frame = Frame();
+        var recognition = Recognition(1.01);
+        var vpsg = new AdaptiveVpsgEvidence(
+            true,
+            1.0105,
+            MapVpsgScaleEstimator.HighConfidenceThreshold,
+            MapVpsgScaleEstimator.MinimumUniqueMatches,
+            MapVpsgScaleEstimator.MinimumPairVotes - 1,
+            1.0,
+            0.001);
+
+        var decision = coordinator.EvaluateInitial(
+            recognition,
+            frame,
+            null,
+            new AdaptiveScaleInitialEvidence(1, 0.04, true, vpsg),
+            openId: 1);
+
+        Assert.Equal(AdaptiveScaleReliability.Reliable, decision.Reliability);
+        Assert.Equal(
+            AdaptiveScaleReliabilityReason.VpsgDirectLock,
+            decision.ReliabilityReason);
+        Assert.True(decision.AllowReliableSession);
+        Assert.Equal(1, decision.ConsecutiveHighQualityCount);
     }
 
     [Theory]

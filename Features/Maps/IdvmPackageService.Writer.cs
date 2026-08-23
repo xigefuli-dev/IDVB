@@ -37,7 +37,7 @@ public sealed partial class IdvmPackageService
         var bytes = new byte[HeaderSize];
         Encoding.ASCII.GetBytes("IDVM").CopyTo(bytes, 0);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4, 2), 1);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 2);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(8, 2), HeaderSize);
         WriteRfc4122Guid(packageId, bytes.AsSpan(12, 16));
         BinaryPrimitives.WriteInt64LittleEndian(
@@ -92,6 +92,7 @@ public sealed partial class IdvmPackageService
         };
         var metadata = new MetadataDto
         {
+            SchemaVersion = 2,
             Map = new MetadataMapDto
             {
                 Id = map.Id,
@@ -153,7 +154,8 @@ public sealed partial class IdvmPackageService
                 Key = floor.Key,
                 DisplayName = floor.DisplayName,
                 SortOrder = index + 1,
-                Image = imageLogicalPath
+                Image = imageLogicalPath,
+                MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList()
             };
             manifestMap.Floors.Add(manifestFloor);
             metadata.Floors.Add(new MetadataFloorDto
@@ -162,6 +164,7 @@ public sealed partial class IdvmPackageService
                 DisplayName = floor.DisplayName,
                 SortOrder = index + 1,
                 Image = imageLogicalPath,
+                MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList(),
                 RecognitionImage = recognitionLogicalPath,
                 ImageWidth = image.Width,
                 ImageHeight = image.Height,

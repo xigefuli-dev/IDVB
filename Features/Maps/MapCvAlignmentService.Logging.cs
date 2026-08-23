@@ -61,13 +61,17 @@ internal static partial class MapCvAlignmentService
             ["dynamicIgnoreRegionCount"] = dynamicIgnoreRegionCount
         };
 
-    private static MapStructurePreprocessingProfile
+    internal static MapStructurePreprocessingProfile
         ResolveLiveStructurePreprocessingProfile(
             MapScaleSearchPolicy scaleSearchPolicy,
             bool isTracking,
             MapStructureRegistrationTuning tuning)
     {
-        if (!tuning.EnableFeatureVoting
+        var requiresContentScaleBootstrap =
+            tuning.Channel == MapAlignmentChannel.LowStructure
+            && scaleSearchPolicy == MapScaleSearchPolicy.Search
+            && !isTracking;
+        if ((!tuning.EnableFeatureVoting && !requiresContentScaleBootstrap)
             || scaleSearchPolicy == MapScaleSearchPolicy.Fixed
             || isTracking)
         {
@@ -75,6 +79,67 @@ internal static partial class MapCvAlignmentService
         }
 
         return MapStructurePreprocessingProfile.EdgesAndFeatures;
+    }
+
+    private static MapVpsgScaleEstimate? TryEstimateLowStructureContentScale(
+        MapCvRecognitionService service,
+        MapRecord map,
+        string floorKey,
+        MapStructureFeatures preparedReference,
+        MapStructureFeatures preparedLive,
+        MapStructureRegistrationTuning structureTuning,
+        MapScaleSearchPolicy scaleSearchPolicy,
+        bool isTracking,
+        MapScanDiagnostics diagnostics,
+        ref MapOverlayTransform scaleSeed)
+    {
+        if (structureTuning.Channel != MapAlignmentChannel.LowStructure
+            || scaleSearchPolicy != MapScaleSearchPolicy.Search
+            || isTracking)
+        {
+            return null;
+        }
+
+        diagnostics.ScaleBootstrapAttempted = true;
+        var scaleGraph = service.VpsgScaleGraphCache.GetOrCreate(
+            map,
+            floorKey,
+            preparedReference.Edges.Size(),
+            preparedReference.KeyPoints);
+        var scaleEstimated = service.VpsgScaleEstimator.TryEstimate(
+            preparedReference,
+            preparedLive,
+            scaleGraph,
+            scaleSeed.ScaleX,
+            out var estimate,
+            out var rejectionReason);
+        diagnostics.ScaleBootstrapSucceeded = scaleEstimated;
+        if (estimate is null)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                $"低结构内容尺度估计未形成可靠答案 · floor={floorKey}",
+                details: new()
+                {
+                    ["mapId"] = map.Id,
+                    ["floor"] = floorKey,
+                    ["rejection"] = rejectionReason,
+                    ["liveKeyPoints"] = preparedLive.KeyPoints.Length,
+                    ["referenceKeyPoints"] = preparedReference.KeyPoints.Length
+                });
+            return null;
+        }
+
+        scaleSeed = MapFeatureCacheRules.CreateScaleSeed(
+            map,
+            floorKey,
+            estimate.Scale);
+        diagnostics.ScaleBootstrapScale = estimate.Scale;
+        diagnostics.ScaleBootstrapConfidence = estimate.Confidence;
+        diagnostics.ScaleBootstrapUniqueMatches = estimate.Evidence.UniqueMatches;
+        diagnostics.ScaleBootstrapPairVotes = estimate.Evidence.PairVotes;
+        return estimate;
     }
 }
 /*

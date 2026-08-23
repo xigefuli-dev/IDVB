@@ -181,7 +181,9 @@ public sealed partial class MapCvRecognitionService
         var validationSeed = MapFeatureCacheRules.CreateScaleSeed(
             map,
             floorKey,
-            fit.Scale);
+            fit.Scale,
+            frame.ViewportBounds.X + fit.OffsetX,
+            frame.ViewportBounds.Y + fit.OffsetY);
         var validation = AlignWithCachedScale(
             frame,
             selectedMapId,

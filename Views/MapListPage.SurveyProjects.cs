@@ -22,16 +22,38 @@ public sealed partial class MapListPage
             Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         });
-        var hint = new TextBlock
+        var collapseButton = new Button
         {
-            Text = "在地图候选窗口选择“没有我想要的地图”即可开始",
-            FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Content = new FontIcon { Glyph = _surveyProjectsCollapsed ? "\uE70D" : "\uE70E" },
+            MinWidth = 36,
+            MinHeight = 34,
+            Padding = new Thickness(8),
             VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(hint, 1);
-        header.Children.Add(hint);
+        ToolTipService.SetToolTip(collapseButton, _surveyProjectsCollapsed ? "展开测绘项目" : "折叠测绘项目");
+        collapseButton.Click += (_, _) =>
+        {
+            _surveyProjectsCollapsed = !_surveyProjectsCollapsed;
+            var memory = ShellLayoutMemory.Load();
+            memory.SurveyProjectsCollapsed = _surveyProjectsCollapsed;
+            memory.Save();
+            ShowListFromLoadedSnapshot();
+        };
+        Grid.SetColumn(collapseButton, 1);
+        header.Children.Add(collapseButton);
         body.Children.Add(header);
+
+        if (_surveyProjectsCollapsed)
+        {
+            return new Border
+            {
+                Margin = new Thickness(0, 0, 0, 18),
+                Padding = new Thickness(18, 12, 18, 12),
+                Background = FluentTheme.Brush("LayerFillColorDefaultBrush"),
+                CornerRadius = new CornerRadius(14),
+                Child = body
+            };
+        }
 
         if (_surveyProjects.Count == 0)
         {

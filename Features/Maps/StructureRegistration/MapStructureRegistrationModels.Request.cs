@@ -13,6 +13,7 @@ public sealed class MapStructureRegistrationRequest
     private MapScaleSearchPolicy _scaleSearchPolicy;
 
     public Mat ReferenceImage { get; init; } = new();
+    public MapAlignmentChannel Channel { get; init; } = MapAlignmentChannel.Standard;
     public Mat LiveRoi { get; init; } = new();
     public MapScreenRect ViewportBounds { get; init; }
     public MapOverlayTransform LockedTransform { get; init; } = new();

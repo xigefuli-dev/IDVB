@@ -29,7 +29,7 @@
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
         <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
-        <IDVBProductVersion>1.5.0-preview</IDVBProductVersion>
+        <IDVBProductVersion>1.5.0-preview.2</IDVBProductVersion>
         <IDVBReleaseLine>b01.5</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
         <AssemblyVersion>1.5.0.0</AssemblyVersion>
@@ -58,6 +58,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
         <ProjectReference Include="Core\IDVBuff.Core.csproj" />
         <ProjectReference Include="Infrastructure\IDVBuff.Infrastructure.csproj" />
         <ProjectReference Include="Services\IDVBuff.Services.csproj" />
@@ -81,6 +82,7 @@
         <ProjectReference Include="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
         <ProjectReference Include="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
         <ProjectReference Include="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
+        <ProjectReference Include="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
         <ProjectReference Include="Plugins\NightVision\IDVBuff.NightVision.csproj" />
         <ProjectReference Include="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
         <ProjectReference Include="Plugins\LiveMode\IDVBuff.LiveMode.csproj" />

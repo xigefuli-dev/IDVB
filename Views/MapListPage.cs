@@ -91,7 +91,8 @@ public sealed partial class MapListPage : UserControl
     private IReadOnlyDictionary<string, MapClassProperties> _classProperties =
         new Dictionary<string, MapClassProperties>(StringComparer.OrdinalIgnoreCase);
     private string _selectedClass = "S1";
-    private bool _isClassDeleteMode;
+    private bool _hasInitializedClassSelection;
+    private bool _surveyProjectsCollapsed = ShellLayoutMemory.Load().SurveyProjectsCollapsed;
     private bool _isPackageOperation;
     private ComboBox? _classComboBox;
     private List<MapRecord>? _batchQueue;
@@ -313,8 +314,24 @@ public sealed partial class MapListPage : UserControl
         _variantGroups = snapshot.VariantGroups;
         _surveyProjects = await App.Session.GetSurveyProjectsAsync();
         _previewImages.Clear();
-        if (!_classes.Any(name => string.Equals(name, _selectedClass, StringComparison.OrdinalIgnoreCase)))
+        if (!_hasInitializedClassSelection)
+        {
+            // The match control panel and this page intentionally share the
+            // same persisted preference. This page only reads it: changing
+            // the local filter below must never update settings.json.
+            _selectedClass = MapRuntimeSettingsRules.ResolveMapClass(
+                _classes,
+                App.Session.LastSelectedMapClass)
+                ?? _selectedClass;
+            _hasInitializedClassSelection = true;
+        }
+        else if (!_classes.Any(name => string.Equals(
+            name,
+            _selectedClass,
+            StringComparison.OrdinalIgnoreCase)))
+        {
             _selectedClass = _classes[0];
+        }
         ShowListFromLoadedSnapshot();
     }
 
@@ -334,14 +351,6 @@ public sealed partial class MapListPage : UserControl
         var actionRow = new Grid
         {
             Margin = new Thickness(0, 8, 0, 15)
-        };
-        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var actions = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 24
         };
         var importButton = CreateActionButton("导入", AccentBlue);
         _importButton = importButton;
@@ -372,9 +381,6 @@ public sealed partial class MapListPage : UserControl
                     await DeleteSelectedMapAsync(_loadedMaps.First(map => map.Id == _selectedMapIds.First()));
             }
         };
-        actions.Children.Add(importButton);
-        actions.Children.Add(_editButton);
-        actions.Children.Add(_deleteButton);
         _variantButton = CreateActionButton("🔗", AccentBlue);
         // This action is icon-only; do not let the text-button defaults make
         // it consume the same width as the labelled actions beside it.
@@ -387,17 +393,47 @@ public sealed partial class MapListPage : UserControl
             _variantButton,
             "绑定或解绑地图变体");
         _variantButton.Click += async (_, _) => await ToggleSelectedVariantGroupAsync();
-        actions.Children.Add(_variantButton);
-        actions.Children.Add(CreateClassPicker());
-        actionRow.Children.Add(actions);
+        var classPicker = CreateClassPicker();
 
         var exportButton = CreateActionButton("导出", AccentBlue);
         _exportButton = exportButton;
-        exportButton.HorizontalAlignment = HorizontalAlignment.Right;
         exportButton.IsEnabled = !_isPackageOperation && _loadedMaps.Count > 0;
         exportButton.Click += async (_, _) => await ShowExportDialogAsync(importButton, exportButton);
-        Grid.SetColumn(exportButton, 2);
-        actionRow.Children.Add(exportButton);
+
+        // The four map operations form one compact semantic group. Only the
+        // boundaries around the class controls share the remaining width, so
+        // opening the navigation pane contracts those larger group gaps first.
+        var mapActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12
+        };
+        mapActions.Children.Add(importButton);
+        mapActions.Children.Add(_editButton);
+        mapActions.Children.Add(_deleteButton);
+        mapActions.Children.Add(_variantButton);
+
+        FrameworkElement[] actionElements =
+        [
+            mapActions,
+            classPicker,
+            exportButton
+        ];
+        for (var index = 0; index < actionElements.Length; index++)
+        {
+            actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(actionElements[index], index * 2);
+            actionRow.Children.Add(actionElements[index]);
+
+            if (index < actionElements.Length - 1)
+            {
+                actionRow.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(1, GridUnitType.Star),
+                    MinWidth = 8
+                });
+            }
+        }
 
         var teachingTip = CreateImportTeachingTip(importButton, exportButton);
         importButton.Click += (_, _) =>
@@ -459,7 +495,8 @@ public sealed partial class MapListPage : UserControl
         scrollContent.Children.Add(mapSurface);
 
         // ── Root: overlay layout (Grid children stack in z-order) ──
-        var root = new Grid { Margin = new Thickness(36, 24, 36, 38) };
+        scrollContent.Margin = new Thickness(0, 0, 36, 0);
+        var root = new Grid { Margin = new Thickness(36, 24, 0, 38) };
         ApplyViewportConstraint(root);
 
         // Bottom layer: full-height scroll area (cards only) — now safe from frozen bar
@@ -471,33 +508,21 @@ public sealed partial class MapListPage : UserControl
         };
         root.Children.Add(pageScroller);
 
-        // Top layer: transparent frozen controls, inset 5% from both sides.
+        // Top layer: use the available width while retaining a small safe inset.
         var buttonBar = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
             VerticalAlignment = VerticalAlignment.Top,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(0, 8, 0, 12),
+            Padding = new Thickness(12, 8, 12, 12),
             Child = actionRow
         };
         var buttonBarLayout = new Grid
         {
             VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 0, 36, 0),
             Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0))
         };
-        buttonBarLayout.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = new GridLength(5, GridUnitType.Star)
-        });
-        buttonBarLayout.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = new GridLength(90, GridUnitType.Star)
-        });
-        buttonBarLayout.ColumnDefinitions.Add(new ColumnDefinition
-        {
-            Width = new GridLength(5, GridUnitType.Star)
-        });
-        Grid.SetColumn(buttonBar, 1);
         buttonBarLayout.Children.Add(buttonBar);
         root.Children.Add(buttonBarLayout);
 
@@ -517,7 +542,7 @@ public sealed partial class MapListPage : UserControl
     {
         var picker = new ComboBox
         {
-            Width = 205,
+            Width = 280,
             MinHeight = 45,
             Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Left
@@ -536,7 +561,6 @@ public sealed partial class MapListPage : UserControl
                 _selectedClass = className;
                 _selectedMapIds.Clear();
                 _lastClickedMapId = null;
-                _isClassDeleteMode = false;
                 ShowListFromLoadedSnapshot();
             }
         };
@@ -548,11 +572,8 @@ public sealed partial class MapListPage : UserControl
         var remove = CreateClassUtilityButton(Symbol.Delete, DeleteRed);
         remove.Width = 48;
         remove.Height = 45;
-        remove.Click += (_, _) =>
-        {
-            _isClassDeleteMode = !_isClassDeleteMode;
-            ShowListFromLoadedSnapshot();
-        };
+        remove.IsEnabled = _classes.Count > 1;
+        remove.Click += async (_, _) => await ConfirmDeleteClassAsync(_selectedClass);
 
         var rename = CreateRenameClassButton();
         rename.Width = 48;
@@ -608,9 +629,7 @@ public sealed partial class MapListPage : UserControl
 
     private ComboBoxItem CreateClassItem(string className)
     {
-        var row = new Grid { Width = 238 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var row = new Grid { MinWidth = 248 };
         row.Children.Add(new TextBlock
         {
             Text = className,
@@ -618,26 +637,6 @@ public sealed partial class MapListPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
-        if (_isClassDeleteMode)
-        {
-            var remove = new Button
-            {
-                Content = new SymbolIcon(Symbol.Delete),
-                Background = new SolidColorBrush(DeleteRed),
-                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-                MinWidth = 42,
-                MinHeight = 28,
-                Padding = new Thickness(4),
-                IsEnabled = _classes.Count > 1,
-                HorizontalAlignment = HorizontalAlignment.Right
-            };
-            remove.Click += async (_, _) =>
-            {
-                await ConfirmDeleteClassAsync(className);
-            };
-            Grid.SetColumn(remove, 1);
-            row.Children.Add(remove);
-        }
         return new ComboBoxItem
         {
             Content = row,
@@ -681,7 +680,6 @@ public sealed partial class MapListPage : UserControl
             var created = await _repository.CreateClassAsync(nameBox.Text);
             _selectedClass = created;
             _selectedMapIds.Clear();
-            _isClassDeleteMode = false;
             await ShowListAsync();
         }
         catch (Exception exception)
@@ -692,29 +690,22 @@ public sealed partial class MapListPage : UserControl
 
     private async Task ConfirmDeleteClassAsync(string className)
     {
-        var confirmation = new TextBox { PlaceholderText = "输入“确认删除”" };
         var count = _loadedMaps.Count(map => string.Equals(map.Class, className, StringComparison.OrdinalIgnoreCase));
-        var content = new StackPanel { Spacing = 10 };
-        content.Children.Add(new TextBlock { Text = $"将永久删除 Class “{className}”及其 {count} 张地图。" });
-        content.Children.Add(confirmation);
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "删除 Class",
-            Content = content,
+            Title = $"删除 Class “{className}”？",
+            Content = $"将永久删除当前展示的 Class 及其 {count} 张地图，此操作无法撤销。",
             PrimaryButtonText = "删除",
             CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close,
-            IsPrimaryButtonEnabled = false
+            DefaultButton = ContentDialogButton.Close
         };
-        confirmation.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = confirmation.Text == "确认删除";
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
         try
         {
             await _repository.DeleteClassAsync(className);
             await App.Session.RefreshMapCacheAsync();
-            _isClassDeleteMode = false;
             if (string.Equals(_selectedClass, className, StringComparison.OrdinalIgnoreCase))
                 _selectedClass = _classes.First(name => !string.Equals(name, className, StringComparison.OrdinalIgnoreCase));
             _selectedMapIds.Clear();

@@ -23,25 +23,33 @@ internal static class MapStructureEvaluator
         int referenceY,
         bool usedGlobalSearch,
         MapStructureRegistrationTuning tuning,
-        MapStructureRegistrar.ReciprocalScaleContext reciprocalScale)
+        MapStructureRegistrar.ReciprocalScaleContext reciprocalScale,
+        Mat? matchingDistance = null,
+        Mat? matchingStructure = null,
+        int matchingOriginX = 0,
+        int matchingOriginY = 0)
     {
         // 当参考图被降采样以匹配低分辨率截帧时，将匹配坐标
         // 映射回原始参考图坐标，保证输出 transform 正确。
         var referenceScale = reciprocalScale.ReferenceScale;
         var actualScale = scale * referenceScale;
-        var originalRefX = referenceX / referenceScale;
-        var originalRefY = referenceY / referenceScale;
+        var logicalReferenceX = referenceX - matchingOriginX;
+        var logicalReferenceY = referenceY - matchingOriginY;
+        var originalRefX = logicalReferenceX / referenceScale;
+        var originalRefY = logicalReferenceY / referenceScale;
 
         using var queryEdges = new Mat(query.Edges, query.Bounds);
         using var queryStructure = new Mat(query.Structure, query.Bounds);
         using var distancePatch = new Mat(
-            referenceDistance,
+            matchingDistance ?? referenceDistance,
             new Rect(
                 referenceX,
                 referenceY,
                 query.Bounds.Width,
                 query.Bounds.Height));
-        var structureForPatch = reciprocalScale.StructureMask ?? reference.StructureMask;
+        var structureForPatch = matchingStructure
+            ?? reciprocalScale.StructureMask
+            ?? reference.StructureMask;
         using var referenceStructurePatch = new Mat(
             structureForPatch,
             new Rect(
@@ -49,12 +57,21 @@ internal static class MapStructureEvaluator
                 referenceY,
                 query.Bounds.Width,
                 query.Bounds.Height));
-        var chamfer = Cv2.Mean(distancePatch, queryEdges).Val0;
+        // Low-structure hypotheses span a much wider scale range, so their
+        // reference-coordinate Chamfer values must be compared in screen
+        // pixels. Keep the standard channel's established calibration intact.
+        var chamfer = ResolveChamferPixels(
+            Cv2.Mean(distancePatch, queryEdges).Val0,
+            scale,
+            request.Channel);
         using var withinTolerance = new Mat();
         using var coveredEdges = new Mat();
         Cv2.Compare(
             distancePatch,
-            tuning.EdgeDistanceTolerancePixels,
+            ResolveEdgeTolerancePixels(
+                tuning.EdgeDistanceTolerancePixels,
+                scale,
+                request.Channel),
             withinTolerance,
             CmpTypes.LE);
         Cv2.BitwiseAnd(withinTolerance, queryEdges, coveredEdges);
@@ -75,9 +92,13 @@ internal static class MapStructureEvaluator
         // （更小 query）；本项以「整个参考图结构」为分母，惩罚「参考图大量
         // 墙体未被这个偏小的 query 解释」，使正确 scale 不再被错误 scale
         // 超越（根因②）。
-        var referenceFullStructureCount = Cv2.CountNonZero(structureForPatch);
-        var referenceCoverage = referenceFullStructureCount > 0
-            ? overlapCount / (double)referenceFullStructureCount
+        // Only reference structure visible in the projected viewport belongs
+        // in the denominator. Whole-canvas coverage couples the score to file
+        // dimensions and systematically favors undersized queries.
+        var visibleReferenceStructureCount = Cv2.CountNonZero(
+            referenceStructurePatch);
+        var referenceCoverage = visibleReferenceStructureCount > 0
+            ? overlapCount / (double)visibleReferenceStructureCount
             : 0d;
 
         var partitionCounts = new int[4];
@@ -112,24 +133,51 @@ internal static class MapStructureEvaluator
             partitionCounts[index] = Cv2.CountNonZero(partitionEdges);
             partitionCovered[index] = Cv2.CountNonZero(partitionOverlap);
         }
+        var isLowStructure = request.Channel == MapAlignmentChannel.LowStructure;
+        var minimumEdgesPerPartition = isLowStructure
+            ? tuning.MinimumEdgesPerPartition
+            : StructureRegistrationRules.MinEdgesPerPartition;
+        var minimumPartitionCoverage = isLowStructure
+            ? tuning.MinimumPartitionCoverage
+            : StructureRegistrationRules.MinPartitionCoverage;
+        var edgeCoverageWeight = isLowStructure
+            ? tuning.EdgeCoverageWeight
+            : StructureRegistrationRules.EdgeCoverageWeight;
+        var occupancyCoverageWeight = isLowStructure
+            ? tuning.OccupancyCoverageWeight
+            : StructureRegistrationRules.OccupancyCoverageWeight;
+        var referenceCoverageWeight = isLowStructure
+            ? tuning.ReferenceCoverageWeight
+            : StructureRegistrationRules.EdgeCoverageWeight;
+        var partitionPenaltyWeight = isLowStructure
+            ? tuning.PartitionPenaltyWeight
+            : StructureRegistrationRules.PartitionPenaltyWeight;
+        var priorDisagreementWeight = isLowStructure
+            ? tuning.PriorDisagreementWeight
+            : StructureRegistrationRules.PriorDisagreementPenaltyWeight;
+        var boundsPenalty = isLowStructure
+            ? tuning.BoundsPenalty
+            : StructureRegistrationRules.BoundsPenalty;
+        var chamferWeight = isLowStructure ? tuning.ChamferWeight : 1d;
         var consistentPartitions = Enumerable.Range(0, 4)
-            .Count(index => partitionCounts[index] >= StructureRegistrationRules.MinEdgesPerPartition
-                && partitionCovered[index] / (double)partitionCounts[index] >= StructureRegistrationRules.MinPartitionCoverage);
-        var composite = chamfer
-            + ((1d - edgeCoverage) * StructureRegistrationRules.EdgeCoverageWeight)
-            + ((1d - occupancyCoverage) * StructureRegistrationRules.OccupancyCoverageWeight)
-            + ((1d - referenceCoverage) * StructureRegistrationRules.EdgeCoverageWeight)
+            .Count(index => partitionCounts[index] >= minimumEdgesPerPartition
+                && partitionCovered[index] / (double)partitionCounts[index]
+                    >= minimumPartitionCoverage);
+        var composite = (chamfer * chamferWeight)
+            + ((1d - edgeCoverage) * edgeCoverageWeight)
+            + ((1d - occupancyCoverage) * occupancyCoverageWeight)
+            + ((1d - referenceCoverage) * referenceCoverageWeight)
             + (Math.Max(
                 0,
                 tuning.MinimumConsistentPartitions - consistentPartitions)
-                * StructureRegistrationRules.PartitionPenaltyWeight);
+                * partitionPenaltyWeight);
         // offset 在匹配空间中计算：匹配空间里 query 和降采样参考图都是 1:1 对屏幕像素
         var offsetX = request.ViewportBounds.X
             + (query.Bounds.X * scale)
-            - (referenceX * scale);
+            - (logicalReferenceX * scale);
         var offsetY = request.ViewportBounds.Y
             + (query.Bounds.Y * scale)
-            - (referenceY * scale);
+            - (logicalReferenceY * scale);
         // 原始参考图尺寸（降采样前）
         var originalRefWidth = (int)Math.Round(reference.Edges.Width / referenceScale);
         var originalRefHeight = (int)Math.Round(reference.Edges.Height / referenceScale);
@@ -143,8 +191,14 @@ internal static class MapStructureEvaluator
             (request.ViewportBounds.Y - offsetY) / actualScale);
         var boundsTolerance = 2d / actualScale;
         // 用原始参考图坐标做边界检查
-        var isWithinBounds =
-            originalRefX >= bounds.X - boundsTolerance
+        var isWithinBounds = isLowStructure
+            ? originalRefX < bounds.Right + boundsTolerance
+                && originalRefY < bounds.Bottom + boundsTolerance
+                && originalRefX + (query.Bounds.Width / referenceScale)
+                    > bounds.X - boundsTolerance
+                && originalRefY + (query.Bounds.Height / referenceScale)
+                    > bounds.Y - boundsTolerance
+            : originalRefX >= bounds.X - boundsTolerance
             && originalRefY >= bounds.Y - boundsTolerance
             && originalRefX + (query.Bounds.Width / referenceScale)
                 <= bounds.Right + boundsTolerance
@@ -180,9 +234,9 @@ internal static class MapStructureEvaluator
                 1d);
         }
         if (!isWithinBounds)
-            composite += StructureRegistrationRules.BoundsPenalty;
+            composite += boundsPenalty;
         composite += (1d - priorAgreement)
-            * StructureRegistrationRules.PriorDisagreementPenaltyWeight;
+            * priorDisagreementWeight;
         return new MapStructureCandidate
         {
             Scale = actualScale,
@@ -200,6 +254,34 @@ internal static class MapStructureEvaluator
             IsWithinValidBounds = isWithinBounds
         };
     }
+
+    internal static double NormalizeChamferToScreenPixels(
+        double referencePixels,
+        double hypothesisScale) =>
+        referencePixels * hypothesisScale;
+
+    internal static double ConvertScreenToleranceToReferencePixels(
+        double screenPixels,
+        double hypothesisScale) =>
+        screenPixels / hypothesisScale;
+
+    internal static double ResolveChamferPixels(
+        double referencePixels,
+        double hypothesisScale,
+        MapAlignmentChannel channel) =>
+        channel == MapAlignmentChannel.LowStructure
+            ? NormalizeChamferToScreenPixels(referencePixels, hypothesisScale)
+            : referencePixels;
+
+    internal static double ResolveEdgeTolerancePixels(
+        double configuredPixels,
+        double hypothesisScale,
+        MapAlignmentChannel channel) =>
+        channel == MapAlignmentChannel.LowStructure
+            ? ConvertScreenToleranceToReferencePixels(
+                configuredPixels,
+                hypothesisScale)
+            : configuredPixels;
 }
 /*
  * 文件职责：MapStructureEvaluator。

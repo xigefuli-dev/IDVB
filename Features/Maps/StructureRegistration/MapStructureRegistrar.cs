@@ -1,82 +1,32 @@
 using OpenCvSharp;
 using System.Diagnostics;
 using IDVBuff.Pipeline;
-
 namespace IDVBuff.Features.Maps;
-
-/// <summary>
-/// Registers positive live map structure against one already-selected full
-/// reference map. The only permitted transform is uniform scale + translation.
-/// </summary>
 public sealed partial class MapStructureRegistrar
 {
-    private readonly MapStructurePreprocessor _preprocessor;
-
-    // RegisterLegacy/TryFastCoarseAlign use _currentReciprocalScale to carry a
-    // temporary Mat through the nested scoring helpers.  The registrar is a
-    // shared service, so concurrent map-open alignments could overwrite that
-    // context while another call was still using it.  The overwritten context
-    // then pointed at a Mat already disposed by the other call.  Registration
-    // is CPU/OpenCV work and is synchronous; serialize only this critical
-    // section so the temporary context cannot cross request boundaries.
-    private readonly object _registrationGate = new();
-
-    /// <summary>互逆参考图缩放上下文：当 baselineScale &lt; 1.0 时，
-    /// 降采样参考图而非升采样 query，保持边缘锐利。
-    /// 由 RegisterLegacy / TryFastCoarseAlign 设置，Evaluate 读取。</summary>
-    private ReciprocalScaleContext _currentReciprocalScale = ReciprocalScaleContext.None;
-
-    internal sealed class ReciprocalScaleContext
-    {
-        public double ReferenceScale { get; init; } = 1.0;
-        public Mat? StructureMask { get; init; }
-        public static readonly ReciprocalScaleContext None = new();
-    }
-
-    public MapStructureRegistrar(MapStructurePreprocessor preprocessor)
-    {
-        _preprocessor = preprocessor;
-    }
-
-    public MapStructureRegistrationResult Register(
-        MapStructureRegistrationRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        using var registration = MapOperationTraceAmbient.StartChild(
-            "structure_registration",
-            MapOperationWaitKind.Compute);
-        lock (_registrationGate)
-        {
-            var tuning = request.Tuning.Clone();
-            tuning.Normalize();
-
-            var savedReciprocalScale = _currentReciprocalScale;
-            _currentReciprocalScale = ReciprocalScaleContext.None;
-            try { return RegisterInternal(request, tuning); }
-            finally { _currentReciprocalScale = savedReciprocalScale; }
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // Legacy 全搜索路径
-    // ═══════════════════════════════════════════════════════════════
-
     private MapStructureRegistrationResult RegisterLegacy(
         MapStructureRegistrationRequest request)
     {
         var tuning = request.Tuning.Clone();
+        tuning.Channel = request.Channel;
         tuning.Normalize();
-
         var vr = MapStructureValidator.ValidateRequest(request,
             usedRestrictedSearch: request.RestrictSearchToLockedTransform);
         if (vr is not null) return vr;
-
         var baselineScale = request.LockedTransform.ScaleX;
+        var isLowStructureChannel =
+            request.Channel == MapAlignmentChannel.LowStructure;
         MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
             "开始结构配准",
-            details: new() { ["scaleSearchPolicy"] = request.ScaleSearchPolicy, ["trackingMode"] = request.TrackingMode });
-
-        // ── 预处理 ──
+            details: new()
+            {
+                ["scaleSearchPolicy"] = request.ScaleSearchPolicy,
+                ["trackingMode"] = request.TrackingMode,
+                ["channel"] = request.Channel.ToString(),
+                ["configFingerprint"] = isLowStructureChannel
+                    ? tuning.CacheFingerprint
+                    : "legacy"
+            });
         var preprocessTimer = Stopwatch.StartNew();
         var preprocessSpan = MapOperationTraceAmbient.StartChild(
             "structure_preprocess",
@@ -113,15 +63,14 @@ public sealed partial class MapStructureRegistrar
         var debugDirectory = tuning.EnableDebugOutput
             ? MapStructureDebugOutput.ResolveDebugDirectory(request.DebugOutputDirectory) : null;
         MapStructureDebugOutput.WritePreprocessDebug(debugDirectory, request.LiveRoi, live, reference);
-
-        // ── 互逆参考图缩放 ──
         var effectiveBaseline = baselineScale;
         Mat? dsEdges = null, dsStructure = null;
-        // 仅互逆缩放分支需要现算距离图（它的输入是降采样边缘图）；非互逆分支
-        // 直接复用参考特征上已缓存的裁剪距离图，故这里可能保持为 null。
         Mat? ownedReferenceDistance = null;
         var isReciprocalScale = false;
-        if (baselineScale < 1.0 && !request.RestrictSearchToLockedTransform)
+        if (ShouldUseReciprocalScale(
+                request.Channel,
+                baselineScale,
+                request.RestrictSearchToLockedTransform))
         {
             effectiveBaseline = 1.0; isReciprocalScale = true;
             var dsSize = new Size(
@@ -129,22 +78,15 @@ public sealed partial class MapStructureRegistrar
                 Math.Max(1, (int)Math.Round(reference.Edges.Height * baselineScale)));
             dsEdges = new Mat();
             Cv2.Resize(reference.Edges, dsEdges, dsSize, 0d, 0d, InterpolationFlags.Area);
-            // Area 平均会把 1px Canny 二值边降采样成灰值，随后 DistanceTransform
-            // 把灰边当非前景、从参考距离图抹掉墙段（根因④）。重阈值化保持二值。
             Cv2.Threshold(dsEdges, dsEdges, 127d, 255d, ThresholdTypes.Binary);
             dsStructure = new Mat();
             Cv2.Resize(reference.StructureMask, dsStructure, dsSize, 0d, 0d, InterpolationFlags.Nearest);
             _currentReciprocalScale = new ReciprocalScaleContext
             { ReferenceScale = baselineScale, StructureMask = dsStructure };
         }
-
         try
         {
             var searchTimer = Stopwatch.StartNew();
-            // 结构参考缓存在 Remember() 里已按同一 clip 预算过裁剪距离图，并随
-            // PreparedReference 一起交到这里。此前每次配准都用 edges 重跑一次
-            // 全图 DistanceTransform(Precise)（1190×1012 实测约 20~40ms，且
-            // Fast/Legacy 两轮各跑一次），产出与缓存那份逐像素相同。
             var distanceSpan = MapOperationTraceAmbient.StartChild(
                 "distance_map",
                 MapOperationWaitKind.Compute);
@@ -155,19 +97,16 @@ public sealed partial class MapStructureRegistrar
                     MapStructureScaleSearch.CreateDistanceMapFromEdges(
                         dsEdges, tuning.DistanceClipPixels);
             distanceSpan.Complete();
-            var scaleSearchRadius = request.TrackingMode
-                ? Math.Max(
-                    tuning.TrackingScaleSearchRadius,
-                    StructureRegistrationRules.TrackingScaleSearchRadius)
-                : Math.Max(
-                    tuning.ScaleSearchRadius,
-                    StructureRegistrationRules.ScaleSearchRadius);
-            var hypotheses = MapStructureScaleSearch.BuildScaleHypotheses(
-                effectiveBaseline,
-                request.ScaleSearchPolicy == MapScaleSearchPolicy.Search,
-                scaleSearchRadius,
-                tuning.ScaleSearchStep);
-            using var ctx = new MapStructureScaleSearch.ScaleSearchContext();
+            var scaleSearchRadius = ResolveScaleSearchRadius(request, tuning);
+            var hypotheses = BuildRegistrationScaleHypotheses(
+                request, tuning, effectiveBaseline, baselineScale,
+                scaleSearchRadius);
+            using var ctx = new MapStructureScaleSearch.ScaleSearchContext
+            {
+                MarginNormalizationFloor = isLowStructureChannel
+                    ? tuning.MarginNormalizationFloor
+                    : StructureRegistrationRules.MarginNormalizationFloor
+            };
             Mat? bestHeatmap = null;
             QueryGeometry? bestQuery = null;
             QueryGeometry? diagnosticQuery = null;
@@ -180,7 +119,8 @@ public sealed partial class MapStructureRegistrar
                 if (tuning.EnforceTimeBudget
                     && searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
                 { ctx.TimeBudgetExceeded = true; break; }
-                if (!tuning.DisableScaleEarlyTermination
+                if (!isLowStructureChannel
+                    && !tuning.DisableScaleEarlyTermination
                     && ctx.Candidates.Count > 0
                     && ctx.Candidates[0].CompositeCost
                         <= tuning.EarlyTerminationScoreThreshold)
@@ -199,8 +139,9 @@ public sealed partial class MapStructureRegistrar
                     continue;
                 ctx.SufficientlyStructuredHypotheses++;
                 var refEdgesForCheck = dsEdges ?? reference.Edges;
-                if (query.Bounds.Width >= refEdgesForCheck.Width
-                    || query.Bounds.Height >= refEdgesForCheck.Height)
+                if (!isLowStructureChannel
+                    && (query.Bounds.Width >= refEdgesForCheck.Width
+                        || query.Bounds.Height >= refEdgesForCheck.Height))
                 { ctx.OversizedHypotheses++; continue; }
                 var expected = MapStructureScaleSearch.ExpectedReferenceLocation(
                     request, scale, query.Bounds);
@@ -224,6 +165,16 @@ public sealed partial class MapStructureRegistrar
                                 - (int)searchTimer.ElapsedMilliseconds)
                             : int.MaxValue);
                 }
+                else if (isLowStructureChannel)
+                    MapStructureScaleSearch.CollectFastCoarseCandidates(
+                        query,
+                        reference,
+                        referenceDistance,
+                        request,
+                        scale,
+                        tuning,
+                        _currentReciprocalScale,
+                        ctx.Candidates);
                 else
                 {
                     using var globalSearch = MapOperationTraceAmbient.StartChild(
@@ -239,12 +190,18 @@ public sealed partial class MapStructureRegistrar
                     && searchTimer.ElapsedMilliseconds >= tuning.StructureFallbackBudgetMilliseconds)
                 { ctx.TimeBudgetExceeded = true; break; }
                 var scaleBest = ctx.Candidates
-                    .Where(c => Math.Abs(c.Scale - scale) < StructureRegistrationRules.ScaleDuplicateTolerance)
+                    .Where(c => Math.Abs(c.Scale - scale) <
+                        (isLowStructureChannel
+                            ? tuning.ScaleDuplicateTolerance
+                            : StructureRegistrationRules.ScaleDuplicateTolerance))
                     .OrderBy(c => c.CompositeCost).FirstOrDefault();
                 if (scaleBest is not null
                     && (bestQuery is null
                         || scaleBest.CompositeCost < ctx.Candidates
-                            .Where(c => Math.Abs(c.Scale - bestQuery.Scale) < StructureRegistrationRules.ScaleDuplicateTolerance)
+                            .Where(c => Math.Abs(c.Scale - bestQuery.Scale)
+                                < (isLowStructureChannel
+                                    ? tuning.ScaleDuplicateTolerance
+                                    : StructureRegistrationRules.ScaleDuplicateTolerance))
                             .Min(c => c.CompositeCost)))
                 {
                     bestHeatmap?.Dispose(); bestHeatmap = null;
@@ -267,6 +224,8 @@ public sealed partial class MapStructureRegistrar
                     ["oversizedHypotheses"] = ctx.OversizedHypotheses,
                     ["bestScore"] = ctx.Candidates.Count > 0
                         ? ctx.Candidates.Min(c => c.CompositeCost) : -1d,
+                    ["bestScale"] = ctx.Candidates.Count > 0
+                        ? ctx.Candidates.MinBy(c => c.CompositeCost)?.Scale : null,
                     ["usedFastStrategy"] = false,
                     ["usedRestrictedSearch"] = request.RestrictSearchToLockedTransform,
                     ["timeBudgetExceeded"] = ctx.TimeBudgetExceeded,
@@ -293,6 +252,7 @@ public sealed partial class MapStructureRegistrar
                     ["referenceWidth"] = reference.Edges.Width,
                     ["referenceHeight"] = reference.Edges.Height,
                     ["queryEdgePixels"] = diagnosticQuery?.EdgeCount ?? 0,
+                    ["queryDiagnosticScale"] = diagnosticQuery?.Scale,
                     ["queryBoundsX"] = diagnosticQuery?.Bounds.X ?? 0,
                     ["queryBoundsY"] = diagnosticQuery?.Bounds.Y ?? 0,
                     ["queryBoundsWidth"] =
@@ -304,23 +264,35 @@ public sealed partial class MapStructureRegistrar
                 });
             try
             {
-                // ── 排名 + 去重 ──
                 var rankingSpan = MapOperationTraceAmbient.StartChild(
                     "candidate_ranking",
                     MapOperationWaitKind.Compute);
                 var rankingTimer = Stopwatch.StartNew();
-                var ranked = MapStructureCandidateCollector.DistinctCandidates(
-                        ctx.Candidates, tuning, request.LockedTransform)
-                    .OrderBy(c => c.CompositeCost)
-                    .ThenBy(c => MapStructureEvaluator.Distance(
-                        c.OffsetX, c.OffsetY,
-                        request.LockedTransform.OffsetX, request.LockedTransform.OffsetY))
-                    .Take(tuning.TopCandidateCount).ToArray();
+                var ranking =
+                    MapStructureCandidateCollector.RankCandidatesByValidity(
+                        ctx.Candidates,
+                        tuning,
+                        request.LockedTransform,
+                        request.RestrictSearchToLockedTransform);
+                var allRanked = ranking.Ordered;
+                var diagnosticRanked = ranking.Diagnostic;
+                var rawBest = allRanked.FirstOrDefault();
+                var rawBestRejection = rawBest is null
+                    ? MapStructureRejectionReason.NoCandidate
+                    : MapStructureValidator.ValidateAbsolute(
+                        rawBest, tuning, request.RestrictSearchToLockedTransform);
+                var ranked = ranking.Valid;
+                using var rankedQuery = ranked.Length > 0
+                    ? MapStructureScaleSearch.CreateQuery(
+                        live,
+                        request.LiveRoi.Size(),
+                        ranked[0].Scale
+                            / _currentReciprocalScale.ReferenceScale)
+                    : null;
                 MapStructureDebugOutput.WriteSearchDebug(
                     debugDirectory, reference, bestHeatmap, bestQuery, ranked);
                 rankingTimer.Stop();
                 rankingSpan.Complete();
-                // ── 诊断数据包（供后续所有 BuildLegacyResult 调用复用）──
                 var d = new MapStructureValidator.LegacyDiagnostics(
                     ctx,
                     PreprocessMs: preprocessTimer.Elapsed.TotalMilliseconds,
@@ -330,16 +302,19 @@ public sealed partial class MapStructureRegistrar
                     LockedScale: baselineScale,
                     ReferenceWidth: reference.Edges.Width,
                     ReferenceHeight: reference.Edges.Height,
-                    QueryEdgePixels: diagnosticQuery?.EdgeCount ?? 0,
-                    QueryBounds: diagnosticQuery?.Bounds,
+                    QueryEdgePixels: rankedQuery?.EdgeCount
+                        ?? diagnosticQuery?.EdgeCount
+                        ?? 0,
+                    QueryBounds: rankedQuery?.Bounds ?? diagnosticQuery?.Bounds,
                     ScaleHypothesisCount: hypotheses.Count,
                     OversizedHypothesisCount: ctx.OversizedHypotheses,
                     UsedRestrictedSearch: request.RestrictSearchToLockedTransform,
                     VisibleMaskMs: live.DiagnosticTiming?.VisibleMaskMs ?? 0d);
-
                 if (ranked.Length == 0)
                 {
-                    var reason = ctx.TimeBudgetExceeded
+                    var reason = allRanked.Length > 0
+                        ? rawBestRejection
+                        : ctx.TimeBudgetExceeded
                         ? MapStructureRejectionReason.TimeBudgetExceeded
                         : ctx.SufficientlyStructuredHypotheses == 0
                             ? MapStructureRejectionReason.InsufficientStructure
@@ -348,10 +323,22 @@ public sealed partial class MapStructureRegistrar
                                 : MapStructureRejectionReason.NoCandidate;
                     MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Warning,
                         $"结构配准未通过：{reason.ToDisplayText()}");
-                    return MapStructureValidator.BuildLegacyResult(reason, d, candidates: ranked);
+                    return MapStructureValidator.BuildLegacyResult(
+                        reason, d, candidates: diagnosticRanked);
                 }
-
-                // ── 精修 ──
+                if (rawBest is not null && !ReferenceEquals(rawBest, ranked[0]))
+                {
+                    MapLogCollector.Instance.Append(
+                        MapLogCategory.StructureRegistration,
+                        MapLogLevel.Info,
+                        "原始最低成本候选未通过绝对质量门，继续采用后续有效候选",
+                        details: new()
+                        {
+                            ["rawBestScore"] = rawBest.CompositeCost,
+                            ["rawBestRejection"] = rawBestRejection.ToString(),
+                            ["selectedScore"] = ranked[0].CompositeCost
+                        });
+                }
                 var refineTimer = Stopwatch.StartNew();
                 var forcedRefinementFallback = false;
                 MapStructureRefiner.EccRefinementDiagnostics? eccDiagnostics = null;
@@ -376,8 +363,11 @@ public sealed partial class MapStructureRegistrar
                 refineTimer.Stop();
                 LogEccRefinement(refined, eccDiagnostics,
                     refineTimer.Elapsed.TotalMilliseconds);
-
-                if (refined.CompositeCost > ranked[0].CompositeCost + StructureRegistrationRules.RefinementWorsenTolerance)
+                var refinementWorsenTolerance = isLowStructureChannel
+                    ? tuning.RefinementWorsenTolerance
+                    : StructureRegistrationRules.RefinementWorsenTolerance;
+                if (refined.CompositeCost > ranked[0].CompositeCost
+                    + refinementWorsenTolerance)
                 {
                     if (!request.ForceBestCandidate)
                     {
@@ -389,35 +379,40 @@ public sealed partial class MapStructureRegistrar
                     refined = ranked[0];
                     forcedRefinementFallback = true;
                 }
-
-                // ── 最终排名 + 验证 ──
-                var finalRanked = new[] { refined }.Concat(ranked.Skip(1))
+                var validFinalRanked = new[] { refined }.Concat(ranked.Skip(1))
                     .OrderBy(c => c.CompositeCost).ToArray();
+                var finalRanked = validFinalRanked.Concat(
+                        allRanked.Where(candidate => !ranked.Contains(candidate)))
+                    .Take(tuning.TopCandidateCount)
+                    .ToArray();
                 var best = finalRanked[0];
-                var secondScore = finalRanked.Length > 1
-                    ? finalRanked[1].CompositeCost : double.PositiveInfinity;
+                var secondScore = validFinalRanked.Length > 1
+                    ? validFinalRanked[1].CompositeCost : double.PositiveInfinity;
                 var margin = double.IsPositiveInfinity(secondScore) ? 1d
                     : Math.Clamp((secondScore - best.CompositeCost)
-                        / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, secondScore), 0d, 1d);
+                        / Math.Max(
+                            isLowStructureChannel
+                                ? tuning.MarginNormalizationFloor
+                                : StructureRegistrationRules.MarginNormalizationFloor,
+                            secondScore), 0d, 1d);
                 var requiredMargin = tuning.MinimumCandidateMargin
-                    * (best.UsedGlobalSearch ? StructureRegistrationRules.GlobalSearchMarginMultiplier : 1d);
+                    * (best.UsedGlobalSearch
+                        ? isLowStructureChannel
+                            ? tuning.GlobalSearchMarginMultiplier
+                            : StructureRegistrationRules.GlobalSearchMarginMultiplier
+                        : 1d);
                 var rejection = MapStructureValidator.Validate(
                     best, margin, requiredMargin, tuning,
                     restrictedSearch: request.RestrictSearchToLockedTransform);
-                // scale 一致性门：拒绝与锁定/先验 scale 差异过大的候选（根因②'）。
-                // 结构配准的 chamfer/edgeCoverage 均单向按 query 归一化，错误的
-                // 更大 scale（更小 query）可能在这些指标上反而更漂亮而通过验收；
-                // 以锁定 scale 为锚，偏离超过 MaximumScaleChangeRatio 即拒。
-                // 门限必须不小于本次搜索实际覆盖的 scale 范围：无门楼层的全局恢复
-                // 在 seed 不可靠（中性 1.0 种子或未通过验证的 VPSG 估计）时按
-                // ±0.30 搜索（MapFloorScaleSearchPolicy），若门限固定 15% 会把
-                // 搜索找到的正确 scale 误判为"超过安全范围的地图缩放"，一楼双门
-                // 路径则用与搜索半径等宽的独立检查（AlignSelected.Structure）。
                 var allowedScaleChange = Math.Max(
-                    StructureRegistrationRules.MaximumScaleChangeRatio,
+                    isLowStructureChannel
+                        ? tuning.MaximumScaleChangeRatio
+                        : StructureRegistrationRules.MaximumScaleChangeRatio,
                     scaleSearchRadius);
                 if (rejection == MapStructureRejectionReason.None
                     && !request.ForceBestCandidate
+                    && !(isLowStructureChannel
+                        && request.ScaleSearchPolicy == MapScaleSearchPolicy.Search)
                     && double.IsFinite(request.LockedTransform.ScaleX)
                     && request.LockedTransform.ScaleX > 0d
                     && Math.Abs((best.Scale / request.LockedTransform.ScaleX) - 1d)
@@ -432,9 +427,7 @@ public sealed partial class MapStructureRegistrar
                     isTrackingMode: request.TrackingMode,
                     sideEntrancePrior: request.SideEntrancePrior);
                 var confidence = confidenceBreakdown.FinalScore;
-
                 var dd = d with { RefineMs = refineTimer.Elapsed.TotalMilliseconds };
-
                 if (rejection != MapStructureRejectionReason.None && !request.ForceBestCandidate)
                 {
                     var rd = CreateConfidenceLogDetails(confidenceBreakdown);
@@ -449,8 +442,6 @@ public sealed partial class MapStructureRegistrar
                         featureConsensus: best.FeatureConsensus,
                         eccConverged: best.EccConverged, eccCorrelation: best.EccCorrelation);
                 }
-
-                // ── 构建接受结果 ──
                 var transform = MapStructureValidator.BuildTransform(best, request, reference);
                 MapStructureDebugOutput.WriteFinalDebug(debugDirectory, request, reference, live, transform);
                 var ad = CreateConfidenceLogDetails(confidenceBreakdown);
@@ -484,30 +475,20 @@ public sealed partial class MapStructureRegistrar
             ownedReferenceDistance?.Dispose();
             dsEdges?.Dispose();
             dsStructure?.Dispose();
-            // The reciprocal context owns dsStructure only for this
-            // RegisterLegacy invocation.  Do not leave a disposed Mat in the
-            // shared context for a subsequent fast/legacy pass.
             _currentReciprocalScale = ReciprocalScaleContext.None;
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 快速粗搜索实验路径
-    // ═══════════════════════════════════════════════════════════════
-
     private MapStructureRegistrationResult TryFastCoarseAlign(
         MapStructureRegistrationRequest request)
     {
         var tuning = request.Tuning.Clone();
+        tuning.Channel = request.Channel;
         tuning.Normalize();
-
         var vr = MapStructureValidator.ValidateRequest(
             request,
             usedRestrictedSearch: request.RestrictSearchToLockedTransform);
         if (vr is not null) return vr;
-
         var baselineScale = request.LockedTransform.ScaleX;
-
         var preprocessTimerFast = Stopwatch.StartNew();
         using var ownedReferenceFast = request.PreparedReference is null
             ? _preprocessor.Process(
@@ -522,12 +503,13 @@ public sealed partial class MapStructureRegistrar
             : null;
         var liveFast = request.PreparedLive ?? ownedLiveFast!;
         preprocessTimerFast.Stop();
-
-        // ── 互逆参考图缩放 ──
         var effectiveBaseline = baselineScale;
         Mat? dsEdgesFast = null, dsStructureFast = null;
         Mat? ownedReferenceDistanceFast = null;
-        if (baselineScale < 1.0)
+        if (ShouldUseReciprocalScale(
+                request.Channel,
+                baselineScale,
+                request.RestrictSearchToLockedTransform))
         {
             effectiveBaseline = 1.0;
             var dsSize = new Size(
@@ -541,11 +523,8 @@ public sealed partial class MapStructureRegistrar
             _currentReciprocalScale = new ReciprocalScaleContext
             { ReferenceScale = baselineScale, StructureMask = dsStructureFast };
         }
-
         try
         {
-            // 与 RegisterLegacy 同理：非互逆缩放时复用参考特征上已缓存的裁剪
-            // 距离图，避免 Fast 与 Legacy 两轮各跑一次全图 DistanceTransform。
             var referenceDistance = dsEdgesFast is null
                 ? referenceFast.GetOrCreateClippedReferenceDistanceMap(
                     tuning.DistanceClipPixels)
@@ -555,7 +534,6 @@ public sealed partial class MapStructureRegistrar
             var preprocessMs = preprocessTimerFast.Elapsed.TotalMilliseconds;
             var coarseTimer = Stopwatch.StartNew();
             var candidates = new List<MapStructureCandidate>();
-
             using var query = MapStructureScaleSearch.CreateQuery(
                 liveFast, request.LiveRoi.Size(), effectiveBaseline,
                 includeVisibleMask: tuning.EnableVisibleAwareShadow
@@ -588,9 +566,14 @@ public sealed partial class MapStructureRegistrar
                     queryEdgePixels: query.EdgeCount,
                     queryBounds: query.Bounds);
             }
-
             using var visibleContext =
-                new MapStructureScaleSearch.ScaleSearchContext();
+                new MapStructureScaleSearch.ScaleSearchContext
+                {
+                    MarginNormalizationFloor = request.Channel ==
+                        MapAlignmentChannel.LowStructure
+                            ? tuning.MarginNormalizationFloor
+                            : StructureRegistrationRules.MarginNormalizationFloor
+                };
             var visibleAware =
                 MapStructureVisibleAwareSearch.CollectVisibleAwareCandidates(
                     query,
@@ -614,19 +597,26 @@ public sealed partial class MapStructureRegistrar
                 request, effectiveBaseline, tuning, _currentReciprocalScale, candidates);
             coarseTimer.Stop();
             var coarseMs = coarseTimer.Elapsed.TotalMilliseconds;
-
-            var ranked = MapStructureCandidateCollector.DistinctCandidates(
-                    candidates, tuning, request.LockedTransform)
-                .OrderBy(c => c.CompositeCost)
-                .ThenBy(c => MapStructureEvaluator.Distance(
-                    c.OffsetX, c.OffsetY,
-                    request.LockedTransform.OffsetX, request.LockedTransform.OffsetY))
-                .Take(tuning.TopCandidateCount).ToArray();
-
+            var ranking = MapStructureCandidateCollector.RankCandidatesByValidity(
+                candidates,
+                tuning,
+                request.LockedTransform,
+                request.RestrictSearchToLockedTransform);
+            var allRanked = ranking.Ordered;
+            var diagnosticRanked = ranking.Diagnostic;
+            var rawBest = allRanked.FirstOrDefault();
+            var rawBestRejection = rawBest is null
+                ? MapStructureRejectionReason.NoCandidate
+                : MapStructureValidator.ValidateAbsolute(
+                    rawBest, tuning, request.RestrictSearchToLockedTransform);
+            var ranked = ranking.Valid;
             if (ranked.Length == 0)
             {
                 return MapStructureValidator.BuildResult(
-                    MapStructureRejectionReason.NoCandidate, candidates: ranked,
+                    allRanked.Length > 0
+                        ? rawBestRejection
+                        : MapStructureRejectionReason.NoCandidate,
+                    candidates: diagnosticRanked,
                     preprocessMs: preprocessMs,
                     searchMs: coarseMs,
                     usedFastStrategy: true,
@@ -639,7 +629,6 @@ public sealed partial class MapStructureRegistrar
                     queryEdgePixels: query.EdgeCount,
                     queryBounds: query.Bounds);
             }
-
             var refineTimer = Stopwatch.StartNew();
             var refined = MapStructureRefiner.RefineCandidate(ranked[0],
                 liveFast, referenceFast, referenceDistance, request, tuning,
@@ -651,8 +640,12 @@ public sealed partial class MapStructureRegistrar
             refineTimer.Stop();
             LogEccRefinement(refined, eccDiagnostics,
                 refineTimer.Elapsed.TotalMilliseconds);
-
-            if (refined.CompositeCost > ranked[0].CompositeCost + StructureRegistrationRules.RefinementWorsenTolerance
+            var fastRefinementWorsenTolerance = request.Channel ==
+                MapAlignmentChannel.LowStructure
+                    ? tuning.RefinementWorsenTolerance
+                    : StructureRegistrationRules.RefinementWorsenTolerance;
+            if (refined.CompositeCost > ranked[0].CompositeCost
+                    + fastRefinementWorsenTolerance
                 && !request.ForceBestCandidate)
             {
                 return MapStructureValidator.BuildResult(
@@ -669,17 +662,28 @@ public sealed partial class MapStructureRegistrar
                     queryEdgePixels: query.EdgeCount,
                     queryBounds: query.Bounds);
             }
-
-            var finalRanked = new[] { refined }.Concat(ranked.Skip(1))
+            var validFinalRanked = new[] { refined }.Concat(ranked.Skip(1))
                 .OrderBy(c => c.CompositeCost).ToArray();
+            var finalRanked = validFinalRanked.Concat(
+                    allRanked.Where(candidate => !ranked.Contains(candidate)))
+                .Take(tuning.TopCandidateCount)
+                .ToArray();
             var best = finalRanked[0];
-            var secondScore = finalRanked.Length > 1
-                ? finalRanked[1].CompositeCost : double.PositiveInfinity;
+            var secondScore = validFinalRanked.Length > 1
+                ? validFinalRanked[1].CompositeCost : double.PositiveInfinity;
             var margin = double.IsPositiveInfinity(secondScore) ? 1d
                 : Math.Clamp((secondScore - best.CompositeCost)
-                    / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, secondScore), 0d, 1d);
+                    / Math.Max(
+                        request.Channel == MapAlignmentChannel.LowStructure
+                            ? tuning.MarginNormalizationFloor
+                            : StructureRegistrationRules.MarginNormalizationFloor,
+                        secondScore), 0d, 1d);
             var requiredMargin = tuning.MinimumCandidateMargin
-                * (best.UsedGlobalSearch ? StructureRegistrationRules.GlobalSearchMarginMultiplier : 1d);
+                * (best.UsedGlobalSearch
+                    ? request.Channel == MapAlignmentChannel.LowStructure
+                        ? tuning.GlobalSearchMarginMultiplier
+                        : StructureRegistrationRules.GlobalSearchMarginMultiplier
+                    : 1d);
             var rejection = MapStructureValidator.Validate(
                 best, margin, requiredMargin, tuning,
                 restrictedSearch: request.RestrictSearchToLockedTransform);
@@ -694,9 +698,6 @@ public sealed partial class MapStructureRegistrar
                     StructureRegistrationRules.FastMinimumGeometricLockConfidence);
                 if (rejection != MapStructureRejectionReason.None)
                 {
-                    // Fast coarse search is an early-accept path.  A candidate
-                    // can pass broad gates and still be the wrong corridor when
-                    // its geometry is weak. Defer it to the full legacy search.
                     confidenceBreakdown = MapStructureConfidenceCalculator.Calculate(
                         best, margin, tuning, rejection,
                         isTrackingMode: request.TrackingMode,
@@ -704,7 +705,6 @@ public sealed partial class MapStructureRegistrar
                 }
             }
             var confidence = confidenceBreakdown.FinalScore;
-
             if (rejection != MapStructureRejectionReason.None && !request.ForceBestCandidate)
             {
                 var rd = CreateConfidenceLogDetails(confidenceBreakdown);
@@ -738,7 +738,6 @@ public sealed partial class MapStructureRegistrar
                     candidateMargin: margin,
                     eccConverged: best.EccConverged, eccCorrelation: best.EccCorrelation);
             }
-
             var transform = MapStructureValidator.BuildTransform(best, request, referenceFast);
             var ad = CreateConfidenceLogDetails(confidenceBreakdown);
             ad["bestScore"] = best.CompositeCost; ad["margin"] = margin;
@@ -776,18 +775,7 @@ public sealed partial class MapStructureRegistrar
             ownedReferenceDistanceFast?.Dispose();
             dsEdgesFast?.Dispose();
             dsStructureFast?.Dispose();
-            // TryFastCoarseAlign may fall back to Legacy in the same
-            // Register call.  Clear the context after disposing its Mat so
-            // Legacy cannot reuse the disposed downsampled mask.
             _currentReciprocalScale = ReciprocalScaleContext.None;
         }
     }
-
 }
-/*
- * 文件职责：MapStructureRegistrar。
- * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
- * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
- * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
- * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
- */

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>IDVBuff.Plugins.AutoGatling</RootNamespace>
+    <AssemblyName>IDVB.AutoGatling</AssemblyName>
+    <PackageId>IdentityVisionBridge.AutoGatling</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+  </ItemGroup>
+</Project>

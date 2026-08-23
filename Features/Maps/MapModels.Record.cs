@@ -97,6 +97,8 @@ public sealed class FloorDefinition
     public string Key { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public int SortOrder { get; set; }
+    /// <summary>Extensible per-floor algorithm markers, stored canonically.</summary>
+    public List<string> MarkerKeys { get; set; } = [];
     /// <summary>Explicit image file binding inside the map's local data directory.</summary>
     public string ImageFileName { get; set; } = string.Empty;
     /// <summary>SHA-256 of the local source image, stored as lowercase hexadecimal.</summary>
@@ -130,6 +132,9 @@ public sealed class FloorDefinition
     public int ThumbnailHeight { get; set; }
     public long ThumbnailFileLength { get; set; }
     public long ThumbnailLastWriteUtcTicks { get; set; }
+
+    public void NormalizeMarkerKeys() =>
+        MarkerKeys = MapFloorMarkerRules.Normalize(MarkerKeys).ToList();
 }
 
 /// <summary>
@@ -344,6 +349,9 @@ public sealed class MapRecord
             Floors.Add(new FloorDefinition { Key = "2f", DisplayName = "2F", SortOrder = 2 });
         }
 
+        foreach (var floor in Floors)
+            floor.NormalizeMarkerKeys();
+
         Recognition.NormalizeForFloors(MapFloorRules.GetOrderedFloors(this));
         var main = Recognition.FirstFloor.FindAnchor("main-entrance")!;
         var side = Recognition.FirstFloor.FindAnchor("side-entrance")!;
@@ -388,6 +396,7 @@ public sealed class MapRecord
                 Key = f.Key,
                 DisplayName = f.DisplayName,
                 SortOrder = f.SortOrder,
+                MarkerKeys = MapFloorMarkerRules.Normalize(f.MarkerKeys).ToList(),
                 ImageFileName = f.ImageFileName,
                 ImageSha256 = f.ImageSha256,
                 ImageWidth = f.ImageWidth,

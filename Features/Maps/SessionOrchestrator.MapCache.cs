@@ -23,6 +23,35 @@ public sealed partial class SessionOrchestrator
             frame.ViewportBounds,
             DwrGameWindowCaptureService.GetWindowDpi(frame.WindowHandle));
 
+    private MapFeatureCacheKey CreateAlignmentCacheKey(
+        MapRecord map,
+        string floorKey,
+        MapCacheResolutionSignature resolution,
+        MapStructureRegistrationTuning? tuning = null)
+    {
+        var channel = MapAlignmentChannelRegistry.Resolve(map, floorKey).Channel;
+        if (channel == MapAlignmentChannel.Standard)
+        {
+            // Preserve the pre-channel standard cache identity exactly. Low-
+            // structure markers and tuning fingerprints must not invalidate
+            // or slow down ordinary-floor cache lookups.
+            return MapFeatureCacheRules.CreateKey(
+                map,
+                floorKey,
+                resolution);
+        }
+        var effectiveTuning = tuning ?? CreateStructureTuningForFloor(
+            map,
+            floorKey,
+            CreateEffectiveStructureTuning());
+        return MapFeatureCacheRules.CreateKey(
+            map,
+            floorKey,
+            resolution,
+            channel,
+            effectiveTuning.CacheFingerprint);
+    }
+
     private bool TryGetNoDoorScaleCache(
         CapturedGameFrame frame,
         MapRecord map,
@@ -36,7 +65,7 @@ public sealed partial class SessionOrchestrator
         if (!resolution.IsSupported)
             return false;
 
-        key = MapFeatureCacheRules.CreateKey(map, floorKey, resolution);
+        key = CreateAlignmentCacheKey(map, floorKey, resolution);
         if (!_mapFeatureCacheRepository.TryGet(key, out entry)
             || entry is null)
         {
@@ -80,7 +109,7 @@ public sealed partial class SessionOrchestrator
         var resolution = GetResolution(frame);
         if (!resolution.IsSupported)
             return false;
-        var key = MapFeatureCacheRules.CreateKey(map, floorKey, resolution);
+        var key = CreateAlignmentCacheKey(map, floorKey, resolution);
         return _mapFeatureCacheRepository.TryGet(key, out var entry)
             && entry is not null
             && MapFeatureCacheRules.IsCacheEntryTrusted(entry);
@@ -107,10 +136,7 @@ public sealed partial class SessionOrchestrator
         var resolution = GetResolution(frame);
         if (!resolution.IsSupported)
             return false;
-        var candidate = MapFeatureCacheRules.CreateKey(
-            map,
-            floorKey,
-            resolution);
+        var candidate = CreateAlignmentCacheKey(map, floorKey, resolution);
         lock (_automaticMapCacheGate)
         {
             if (!_mapCacheRepairPendingKeys.Contains(candidate))
@@ -182,7 +208,11 @@ public sealed partial class SessionOrchestrator
             return RunScaleFallback("unsupported-resolution");
         }
 
-        var key = MapFeatureCacheRules.CreateKey(map, floorKey, resolution);
+        var key = CreateAlignmentCacheKey(
+            map,
+            floorKey,
+            resolution,
+            structureTuning);
         bool adaptiveSeedAttempted;
         MapRecognitionAttempt? adaptiveAttempt;
         using (var bootstrapSpan = MapOperationTraceAmbient.StartChild(
@@ -373,10 +403,8 @@ public sealed partial class SessionOrchestrator
         if (IsMatchEnding || !_matchSession.Snapshot.IsStarted)
             return;
         var transform = recognition.Result.OverlayTransform;
-        var resolution = GetResolution(frame);
-        _lastAlignmentResolution = resolution.IsSupported ? resolution : null;
-        _lastAlignmentObservedDpi =
-            DwrGameWindowCaptureService.GetWindowDpi(frame.WindowHandle);
+        RememberAlignmentCaptureContext(frame);
+        var resolution = _lastAlignmentResolution!;
         if (_settings?.AllowAutomaticMapCache is not true
             || !_hasCompletedQuickScanAlignment
             || !resolution.IsSupported
@@ -392,7 +420,7 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        var key = MapFeatureCacheRules.CreateKey(
+        var key = CreateAlignmentCacheKey(
             recognition.Map,
             recognition.Result.Floor,
             resolution);
@@ -412,6 +440,13 @@ public sealed partial class SessionOrchestrator
                 recognition.Result.LocalizationConfidence,
                 MapFeatureCacheRules.GetCandidateMargin(recognition.Result)));
         }
+    }
+
+    private void RememberAlignmentCaptureContext(CapturedGameFrame frame)
+    {
+        _lastAlignmentResolution = GetResolution(frame);
+        _lastAlignmentObservedDpi =
+            DwrGameWindowCaptureService.GetWindowDpi(frame.WindowHandle);
     }
 
 }

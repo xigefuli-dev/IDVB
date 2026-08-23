@@ -421,6 +421,8 @@ public sealed partial class MapManualCandidateWindow
     private readonly string _reason;
     private readonly MapRepository _repository;
     private readonly MapScreenRect _recognitionBounds;
+    private readonly IReadOnlyList<ImageSource?>? _preloadedChoicePreviews;
+    private readonly CandidateLivePreviewAssets? _preloadedLivePreview;
     private readonly ICaptureProtectionService? _captureProtection;
     private ICaptureProtectionRegistration? _captureProtectionRegistration;
     private readonly TaskCompletionSource<MapCandidateDecision> _completion =
@@ -434,7 +436,9 @@ public sealed partial class MapManualCandidateWindow
         string reason,
         ICaptureProtectionService? captureProtection,
         MapRepository repository,
-        MapScreenRect recognitionBounds)
+        MapScreenRect recognitionBounds,
+        IReadOnlyList<ImageSource?>? preloadedChoicePreviews,
+        CandidateLivePreviewAssets? preloadedLivePreview)
     {
         _frame = frame;
         _choices = choices;
@@ -442,6 +446,8 @@ public sealed partial class MapManualCandidateWindow
         _captureProtection = captureProtection;
         _repository = repository;
         _recognitionBounds = recognitionBounds;
+        _preloadedChoicePreviews = preloadedChoicePreviews;
+        _preloadedLivePreview = preloadedLivePreview;
     }
 
     public static async Task<MapCandidateDecision> ShowAsync(
@@ -451,7 +457,9 @@ public sealed partial class MapManualCandidateWindow
         CancellationToken cancellationToken,
         ICaptureProtectionService? captureProtection,
         MapRepository repository,
-        MapScreenRect recognitionBounds)
+        MapScreenRect recognitionBounds,
+        IReadOnlyList<ImageSource?>? preloadedChoicePreviews = null,
+        CandidateLivePreviewAssets? preloadedLivePreview = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var chooser = new MapManualCandidateWindow(
@@ -460,7 +468,9 @@ public sealed partial class MapManualCandidateWindow
             reason,
             captureProtection,
             repository,
-            recognitionBounds);
+            recognitionBounds,
+            preloadedChoicePreviews,
+            preloadedLivePreview);
         return await chooser.ShowCoreAsync(cancellationToken);
     }
 

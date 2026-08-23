@@ -23,7 +23,7 @@ namespace IDVBuff.Features.Plugins;
 ///   内存态，再按描述符渲染控件，全部「先取值后订阅事件」。
 /// - 关闭后通过 <c>Closed</c> 事件摘除实例，宿主面板绝不累积旧实例。
 /// </summary>
-public sealed class TeachingTipManager
+public sealed partial class TeachingTipManager
 {
     private const double TipMinWidth = 300;
     private const double TipMinHeight = 260;
@@ -333,6 +333,13 @@ public sealed class TeachingTipManager
         // 与 BuildSettingRow 的空 Options 跳过渲染保持一致，避免 RestorePersistedValues
         // 在此处抛 InvalidOperationException 冒泡到未处理的 XAML 事件。
         PluginChoiceSetting choice => choice.Options.Length > 0 ? choice.DefaultValue : null,
+        PluginKeyBindingSetting binding =>
+            PluginInputBinding.TryParse(
+                binding.DefaultValue,
+                binding.AllowedKinds,
+                out _)
+                ? binding.DefaultValue
+                : null,
         _ => null
     };
 
@@ -362,6 +369,18 @@ public sealed class TeachingTipManager
                     && choice.Options.Contains(text, StringComparer.Ordinal))
                 {
                     value = text;
+                    return true;
+                }
+                break;
+            case PluginKeyBindingSetting binding:
+                if (stored.ValueKind == JsonValueKind.String
+                    && stored.GetString() is { } bindingText
+                    && PluginInputBinding.TryParse(
+                        bindingText,
+                        binding.AllowedKinds,
+                        out _))
+                {
+                    value = bindingText;
                     return true;
                 }
                 break;
@@ -408,7 +427,7 @@ public sealed class TeachingTipManager
         {
             Content = rows,
             MaxHeight = ContentMaxHeight,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             IsTabStop = false
         };
@@ -531,6 +550,12 @@ public sealed class TeachingTipManager
                     row.Children.Add(control);
                     break;
                 }
+            case PluginKeyBindingSetting binding:
+                row.Children.Add(BuildKeyBindingControl(
+                    provider,
+                    pluginId,
+                    binding));
+                break;
             default:
                 row.Children.Add(new TextBlock
                 {
@@ -552,6 +577,174 @@ public sealed class TeachingTipManager
             });
         }
         return row;
+    }
+
+    private FrameworkElement BuildKeyBindingControl(
+        IPluginSettingsProvider provider,
+        string pluginId,
+        PluginKeyBindingSetting setting)
+    {
+        var current = ReadProviderValue(provider, setting) as string;
+        if (!PluginInputBinding.TryParse(
+                current,
+                setting.AllowedKinds,
+                out var binding))
+        {
+            PluginInputBinding.TryParse(
+                setting.DefaultValue,
+                setting.AllowedKinds,
+                out binding);
+        }
+
+        var recording = false;
+        var modifiers = PluginInputModifiers.None;
+        var hovered = false;
+        var host = new Grid
+        {
+            IsTabStop = true,
+            Background = new SolidColorBrush(
+                Windows.UI.Color.FromArgb(1, 0, 0, 0))
+        };
+        var button = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinWidth = 200
+        };
+        var bindingDescription = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            TextWrapping = TextWrapping.Wrap
+        };
+        host.Children.Add(button);
+        var control = new StackPanel { Spacing = 6 };
+        control.Children.Add(bindingDescription);
+        control.Children.Add(host);
+
+        void RefreshButton()
+        {
+            bindingDescription.Text = binding.IsConfigured
+                ? $"当前绑定：{binding.DisplayName}"
+                : "当前未绑定";
+            RefreshPluginBindingButtonAppearance(button, binding, recording, hovered);
+        }
+
+        button.PointerEntered += (_, _) =>
+        {
+            hovered = true;
+            RefreshButton();
+        };
+        button.PointerExited += (_, _) =>
+        {
+            hovered = false;
+            RefreshButton();
+        };
+
+        async Task SaveBinding(PluginInputBinding next)
+        {
+            recording = false;
+            modifiers = PluginInputModifiers.None;
+            binding = next;
+            PersistSetting(
+                provider,
+                pluginId,
+                setting.Key,
+                JsonSerializer.SerializeToElement(binding.StorageValue));
+            RefreshButton();
+            await Task.CompletedTask;
+        }
+
+        button.Click += (_, _) =>
+        {
+            if (recording)
+                return;
+            if (binding.IsConfigured)
+            {
+                _ = SaveBinding(new PluginInputBinding());
+                return;
+            }
+
+            recording = true;
+            modifiers = PluginInputModifiers.None;
+            RefreshButton();
+            host.Focus(FocusState.Programmatic);
+        };
+
+        host.KeyDown += async (_, args) =>
+        {
+            if (!recording)
+                return;
+            args.Handled = true;
+            if (TryGetPluginModifier(args.Key, out var modifier))
+            {
+                modifiers |= modifier;
+                return;
+            }
+
+            var next = PluginInputBinding.Keyboard(
+                (uint)args.Key,
+                modifiers);
+            if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
+                await SaveBinding(next);
+        };
+
+        host.KeyUp += async (_, args) =>
+        {
+            if (!recording
+                || !TryGetPluginModifier(args.Key, out var modifier))
+            {
+                return;
+            }
+            args.Handled = true;
+            if ((modifiers & modifier) == 0)
+                return;
+            modifiers = PluginInputModifiers.None;
+            if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
+            {
+                await SaveBinding(PluginInputBinding.Keyboard(
+                    (uint)args.Key));
+            }
+        };
+
+        host.PointerPressed += async (_, args) =>
+        {
+            if (!recording
+                || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
+            {
+                return;
+            }
+
+            var properties = args.GetCurrentPoint(host).Properties;
+            var mouseButton = properties.IsLeftButtonPressed
+                ? PluginMouseButton.Left
+                : properties.IsRightButtonPressed
+                    ? PluginMouseButton.Right
+                    : properties.IsMiddleButtonPressed
+                        ? PluginMouseButton.Middle
+                        : properties.IsXButton1Pressed
+                            ? PluginMouseButton.XButton1
+                            : PluginMouseButton.XButton2;
+            args.Handled = true;
+            await SaveBinding(PluginInputBinding.Mouse(mouseButton));
+        };
+
+        RefreshButton();
+        return control;
+    }
+
+    private static bool TryGetPluginModifier(
+        Windows.System.VirtualKey key,
+        out PluginInputModifiers modifier)
+    {
+        modifier = (uint)key switch
+        {
+            0x10 or 0xA0 or 0xA1 => PluginInputModifiers.Shift,
+            0x11 or 0xA2 or 0xA3 => PluginInputModifiers.Control,
+            0x12 or 0xA4 or 0xA5 => PluginInputModifiers.Alt,
+            0x5B or 0x5C => PluginInputModifiers.Windows,
+            _ => PluginInputModifiers.None
+        };
+        return modifier != PluginInputModifiers.None;
     }
 
     private static object? ReadProviderValue(

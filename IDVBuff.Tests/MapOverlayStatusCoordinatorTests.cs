@@ -32,6 +32,29 @@ public sealed class MapOverlayStatusCoordinatorTests
     }
 
     [Fact]
+    public async Task ClearCancelsPendingTransientExpiration()
+    {
+        var overlay = new RecordingOverlay();
+        using var coordinator = new MapOverlayStatusCoordinator(
+            overlay,
+            action => action(),
+            transientLifetime: TimeSpan.FromMilliseconds(30));
+        var bounds = new MapScreenRect(0, 0, 1920, 1080);
+
+        coordinator.Show(
+            new MapOverlayStatus(MapOverlayStatusLevel.Success, "done", "", ""),
+            bounds,
+            new IntPtr(1),
+            true,
+            transient: true);
+        coordinator.Clear();
+        await Task.Delay(70);
+
+        Assert.Null(overlay.Status);
+        Assert.Equal(1, overlay.ClearStatusCount);
+    }
+
+    [Fact]
     public void OverlayFailuresAreFailOpen()
     {
         var overlay = new RecordingOverlay

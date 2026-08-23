@@ -3,10 +3,11 @@ using System.Runtime.InteropServices;
 namespace IDVBuff.Plugins.NightVision;
 
 /// <summary>
-/// Applies the night-vision color transform through the full-screen
-/// Magnification API. This deliberately does not create a topmost overlay
-/// window: the desktop compositor applies the effect directly, so the active
-/// application continues to receive mouse and keyboard input normally.
+/// Applies a full-screen linear RGB gain through the Magnification API. The
+/// API only accepts a 5x5 color matrix, so this filter cannot selectively
+/// enhance low-luminance pixels. This deliberately does not create a topmost
+/// overlay window: the desktop compositor applies the effect directly, so the
+/// active application continues to receive mouse and keyboard input normally.
 /// </summary>
 internal sealed class NightVisionFilter : IDisposable
 {
@@ -93,8 +94,9 @@ internal sealed class NightVisionFilter : IDisposable
 
     private static MAGCOLOREFFECT CreateNightVisionEffect(double brightnessPercent)
     {
-        // A linear low-light lift: dark pixels gain the largest visible lift;
-        // the matrix clamps highlights, avoiding an opaque white wash at low settings.
+        // Magnification's fullscreen effect is limited to an affine color
+        // matrix. This is therefore a global linear gain: it affects every
+        // RGB channel equally and can clip highlights at higher values.
         var lift = (float)(brightnessPercent / 100d);
         var gain = 1f + Math.Min(lift, 20f);
         return new MAGCOLOREFFECT

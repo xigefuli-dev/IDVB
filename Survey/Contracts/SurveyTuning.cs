@@ -74,8 +74,8 @@ public sealed class SurveyRegistrationTuning
     public int MinimumInliers { get; set; } = 12;
     public double MinimumInlierRatio { get; set; } = 0.45d;
     public double MaximumResidualPixels { get; set; } = 4.5d;
-    public double MinimumScale { get; set; } = 0.75d;
-    public double MaximumScale { get; set; } = 1.35d;
+    public double MinimumScale { get; set; } = 0.40d;
+    public double MaximumScale { get; set; } = 1.60d;
 
     public void Validate()
     {

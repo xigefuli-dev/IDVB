@@ -131,8 +131,6 @@ public sealed partial class SessionOrchestrator
                 }
             || diagnostics.ScaleBootstrapUniqueMatches
                 < MapVpsgScaleEstimator.MinimumUniqueMatches
-            || diagnostics.ScaleBootstrapPairVotes
-                < MapVpsgScaleEstimator.MinimumPairVotes
             || diagnostics.ScaleBootstrapConfidence
                 < _settings.SessionTuning.HighConfidence
             || recognition.Result.OverlayTransform is not { } transform
@@ -153,7 +151,7 @@ public sealed partial class SessionOrchestrator
         var resolution = GetResolution(frame);
         if (!resolution.IsSupported)
             return;
-        var key = MapFeatureCacheRules.CreateKey(
+        var key = CreateAlignmentCacheKey(
             recognition.Map,
             recognition.Result.Floor,
             resolution);
@@ -254,7 +252,7 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        var key = MapFeatureCacheRules.CreateKey(
+        var key = CreateAlignmentCacheKey(
             recognition.Map,
             recognition.Result.Floor,
             resolution);
@@ -306,6 +304,8 @@ public sealed partial class SessionOrchestrator
 
     private async Task SaveCurrentMapCacheAsync()
     {
+        if (!CanSaveCurrentMapCache())
+            return;
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
         {
             await CaptureSurveyFrameOnDemandAsync();
@@ -314,6 +314,8 @@ public sealed partial class SessionOrchestrator
         await _matchLifecycleGate.WaitAsync();
         try
         {
+            if (!CanSaveCurrentMapCache())
+                return;
             await SaveCurrentMapCacheCoreAsync();
         }
         finally
@@ -324,23 +326,30 @@ public sealed partial class SessionOrchestrator
 
     private async Task SaveCurrentMapCacheCoreAsync()
     {
-        if (IsMatchEnding || !_matchSession.Snapshot.IsStarted)
+        if (IsMatchEnding
+            || !_matchSession.Snapshot.IsStarted
+            || !CanSaveCurrentMapCache())
         {
             // The binding is global, but a cache save is match-scoped. Ignore
-            // late game/UI key events after exit instead of repeatedly
-            // recreating an error status overlay over a finished match.
+            // late game/UI key events after exit or while the large map is not
+            // open or no map identity is locked.
             return;
         }
 
         var operationMatch = _matchSession.Snapshot;
+        var openSession = _mapOpenSession.Snapshot;
         string? failure = null;
         if (_settings is null)
             failure = "地图运行时尚未初始化。";
-        else if (!_hasCompletedQuickScanAlignment)
-            failure = "请先完成一次快捷扫描并锁定地图。";
         else if (_lastRecognition is not { } recognition
             || recognition.Result.OverlayTransform is not { } transform)
-            failure = "请先扫描锁定地图并完成一次对齐。";
+            failure = "已锁定地图尚无可用的临时缩放，请先完成一次对齐。";
+        else if (openSession.MapId != recognition.Map.Id
+            || !string.Equals(
+                openSession.Floor,
+                recognition.Result.Floor,
+                StringComparison.Ordinal))
+            failure = "当前临时缩放不属于已锁定的地图楼层，请先完成本楼层对齐。";
         else if (!string.Equals(
             _currentFloorKey ?? recognition.Result.Floor,
             recognition.Result.Floor,
@@ -348,11 +357,19 @@ public sealed partial class SessionOrchestrator
             failure = "当前楼层尚未完成对齐。";
         else if (!TryGetUniformScale(transform, out var scale))
             failure = "本次对齐没有可保存的统一缩放值。";
-        else if (!TryLockCurrentAdaptiveScale(recognition, scale))
-            failure = "当前临时对齐已失效，请重新打开地图并完成对齐。";
+        else if (!RememberManualFloorScaleLock(recognition, scale))
+            failure = "当前对齐缺少捕获几何，请重新打开地图并完成对齐。";
         else
         {
+            // Adaptive state mirrors the player lock when available, but it is
+            // not an authorization or persistence prerequisite. The
+            // authoritative match-scoped lock above remains usable when
+            // adaptive scale is disabled or its open controller was just
+            // reconstructed.
+            var adaptiveLockUpdated =
+                TryLockCurrentAdaptiveScale(recognition, scale);
             RememberPrimaryFloorSession(recognition, _lastAlignmentSession);
+            MarkReliableFloorScale(recognition, scale);
             if (!IsCurrentMatchOperation(operationMatch))
                 return;
             _statusMessage = "当前楼层缩放已在本局锁定。";
@@ -360,7 +377,12 @@ public sealed partial class SessionOrchestrator
                 MapLogCategory.Session,
                 MapLogLevel.Info,
                 $"玩家已锁定本局缩放 · map={recognition.Map.Id} · "
-                + $"floor={recognition.Result.Floor} · scale={scale:F6}");
+                + $"floor={recognition.Result.Floor} · scale={scale:F6}",
+                details: new()
+                {
+                    ["adaptiveLockUpdated"] = adaptiveLockUpdated,
+                    ["lockScope"] = "match-map-floor-capture-geometry"
+                });
             ShowCacheBindingStatus(
                 MapOverlayStatusLevel.Success,
                 "本局缩放已锁定",
@@ -378,6 +400,12 @@ public sealed partial class SessionOrchestrator
             failure!);
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    private bool CanSaveCurrentMapCache() =>
+        MapOpenAlignmentRouteRules.CanSaveMapCache(
+            _gameMapToggleState.IsOpen,
+            _mapOpenSession.Snapshot.IsIdentityLocked,
+            _matchSession.Snapshot.Mode == MapRunMode.Survey);
 
     private void ShowCacheBindingStatus(
         MapOverlayStatusLevel level,

@@ -50,9 +50,9 @@
                         Click="Navigation_ParentClick"
                         Loaded="NavigationRow_Loaded"
                         Unloaded="NavigationRow_Unloaded">
-                    <Grid Height="40" Margin="12,0,0,0">
+                    <Grid Height="40">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="26" />
+                            <ColumnDefinition Width="60" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="34" />
                         </Grid.ColumnDefinitions>
@@ -60,14 +60,14 @@
                                     Symbol="{Binding Icon}"
                                     Visibility="{Binding SymbolIconVisibility}"
                                     Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                    HorizontalAlignment="Left"
+                                    HorizontalAlignment="Center"
                                     VerticalAlignment="Center" />
                         <FontIcon Grid.Column="0"
                                   Glyph="{Binding IconGlyph}"
                                   Visibility="{Binding FontIconVisibility}"
                                   FontFamily="{StaticResource SymbolThemeFontFamily}"
                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                  HorizontalAlignment="Left"
+                                  HorizontalAlignment="Center"
                                   VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1"
                                    Text="{Binding DisplayName}"
@@ -135,13 +135,20 @@
                 <ColumnDefinition Width="170" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="12,0">
-                <Button ToolTipService.ToolTip="Back" Style="{StaticResource SubtleButtonStyle}" Click="Back_Click"><SymbolIcon Symbol="Back" /></Button>
+                <Button x:Name="NavigationCompactButton"
+                        ToolTipService.ToolTip="收起导航栏"
+                        AutomationProperties.Name="收起导航栏"
+                        Style="{StaticResource SubtleButtonStyle}"
+                        Click="NavigationCompact_Click">
+                    <FontIcon Glyph="&#xE90C;"
+                              FontFamily="{StaticResource SymbolThemeFontFamily}" />
+                </Button>
                 <Image Width="24" Height="24" Stretch="Uniform" Source="ms-appx:///Assets/Square44x44Logo.targetsize-24_altform-unplated.png" Margin="9,0,4,0" />
                 <TextBlock Text="Identity Vision Bridge" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center" />
             </StackPanel>
             <AutoSuggestBox Grid.Column="1" PlaceholderText="Search modules..." Width="480" HorizontalAlignment="Center" VerticalAlignment="Center" QueryIcon="Find" />
             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4" Margin="0,0,12,0">
-                <Button Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="Settings" Click="Settings_Click"><SymbolIcon Symbol="Setting" /></Button>
+                <Button Style="{StaticResource SubtleButtonStyle}" ToolTipService.ToolTip="关于" Click="Settings_Click"><FontIcon Glyph="&#xF427;" FontFamily="{StaticResource SymbolThemeFontFamily}" /></Button>
             </StackPanel>
         </Grid>
 
@@ -167,21 +174,39 @@
                         CornerRadius="4"
                         Opacity="0"
                         IsHitTestVisible="False" />
-                <ScrollViewer VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl x:Name="PrimaryNavigation"
-                                  Margin="0,14,0,18"
-                                  ItemsSource="{x:Bind NavigationItems}"
-                                  ItemTemplate="{StaticResource ModuleNavTemplate}"
-                                  ItemContainerStyle="{StaticResource NavigationItemContainerStyle}"
-                                  PointerMoved="Navigation_PointerMoved"
-                                  PointerExited="Navigation_PointerExited" />
-                </ScrollViewer>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="PrimaryNavigation"
+                                      Margin="0,14,0,8"
+                                      ItemsSource="{x:Bind NavigationItems}"
+                                      ItemTemplate="{StaticResource ModuleNavTemplate}"
+                                      ItemContainerStyle="{StaticResource NavigationItemContainerStyle}"
+                                      PointerMoved="Navigation_PointerMoved"
+                                      PointerExited="Navigation_PointerExited" />
+                    </ScrollViewer>
+                    <StackPanel Grid.Row="1"
+                                Margin="0,0,0,14"
+                                PointerMoved="Navigation_PointerMoved"
+                                PointerExited="Navigation_PointerExited">
+                        <Button Tag="{x:Bind HelpNavigationItem}" ToolTipService.ToolTip="帮助" Style="{StaticResource NavigationButtonStyle}" Click="Navigation_ParentClick" Loaded="NavigationRow_Loaded" Unloaded="NavigationRow_Unloaded">
+                            <Grid Height="40"><Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/><ColumnDefinition Width="34"/></Grid.ColumnDefinitions><SymbolIcon Grid.Column="0" Symbol="Help" HorizontalAlignment="Center"/><TextBlock Grid.Column="1" Text="帮助" VerticalAlignment="Center"/></Grid>
+                        </Button>
+                        <Button Tag="{x:Bind MainSettingsNavigationItem}" ToolTipService.ToolTip="主设置" Style="{StaticResource NavigationButtonStyle}" Click="Navigation_ParentClick" Loaded="NavigationRow_Loaded" Unloaded="NavigationRow_Unloaded">
+                            <Grid Height="40"><Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/><ColumnDefinition Width="34"/></Grid.ColumnDefinitions><SymbolIcon Grid.Column="0" Symbol="Setting" HorizontalAlignment="Center"/><TextBlock Grid.Column="1" Text="主设置" VerticalAlignment="Center"/></Grid>
+                        </Button>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <Border Grid.Column="1" Background="Transparent">
                 <ScrollViewer x:Name="MainContentHost" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <ContentPresenter x:Name="ModuleContentHost" />
+                    <ContentPresenter x:Name="ModuleContentHost"
+                                      HorizontalContentAlignment="Stretch"
+                                      VerticalContentAlignment="Stretch" />
                 </ScrollViewer>
             </Border>
         </Grid>

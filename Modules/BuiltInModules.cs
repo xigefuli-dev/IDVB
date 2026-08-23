@@ -32,6 +32,25 @@ internal sealed class SettingsModule : IAppModule
     public object CreateView() => new IDVBuff.Views.SettingsPage();
 }
 
+internal sealed class MainSettingsModule : IAppModule
+{
+    public string Id => "main-settings";
+    public string DisplayName => "主设置";
+    public string IconKey => nameof(Symbol.Setting);
+    public object CreateView() => new IDVBuff.Views.MainSettingsPage();
+}
+
+internal sealed class HelpModule : IAppModule
+{
+    public string Id => "help";
+    public string DisplayName => "帮助";
+    public string IconKey => nameof(Symbol.Help);
+    public object CreateView() => ModuleViewFactory.Create(
+        "帮助",
+        "Identity Vision Bridge 帮助与使用说明将在这里提供。",
+        "即将推出");
+}
+
 internal sealed class StatusModule : IAppModule
 {
     public string Id => "map-status";

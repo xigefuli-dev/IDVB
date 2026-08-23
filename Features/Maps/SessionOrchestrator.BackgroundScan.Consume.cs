@@ -24,14 +24,16 @@ public sealed partial class SessionOrchestrator
 
     private async Task ConsumeBackgroundScanAsync(MapGameToggleTransition toggle)
     {
+        var mapOpenCancellation = BeginMapOpenCancellationScope();
+        var cancellationToken = mapOpenCancellation.Token;
         CancelOrbTracking("background scan consume started");
         await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;
-        var cancellationToken = CurrentMatchCancellationToken;
         if (!await _scanGate.WaitAsync(0))
         {
             _statusMessage = "已有识别正在进行，请稍候。";
             StateChanged?.Invoke(this, EventArgs.Empty);
+            CompleteMapOpenCancellationScope(mapOpenCancellation);
             return;
         }
 
@@ -78,6 +80,7 @@ public sealed partial class SessionOrchestrator
                 {
                     if (restoreOverlay
                         && IsCurrentMatchOperation(operationMatch)
+                        && _gameMapToggleState.IsCurrent(toggle)
                         && !_overlay.IsVisible)
                     {
                         _overlay.Show();
@@ -87,6 +90,7 @@ public sealed partial class SessionOrchestrator
             }
             finally
             {
+                CompleteMapOpenCancellationScope(mapOpenCancellation);
                 if (!traceFinished)
                 {
                     FinishMapOperationTrace(
@@ -107,30 +111,37 @@ public sealed partial class SessionOrchestrator
     {
         // ── 候选确认：仅歧义 / 强制候选场景需要玩家从候选列表选择 ──
         RuntimeMapRecognition? locked = null;
-        CapturedGameFrame? frame = null;
+        CapturedGameFrame? candidateFrame = null;
         if (_pendingBackgroundChoices is { Count: > 0 })
         {
-            var stableViewport = ActiveOperationTrace?.StartTopLevel(
-                "stable_viewport",
-                MapOperationWaitKind.Capture);
-            try
-            {
-                frame = await CaptureStableViewportAsync(
-                    "后台扫描候选确认",
-                    cancellationToken);
-            }
-            finally
-            {
-                stableViewport?.Complete();
-            }
-            if (frame is null)
+            // 候选卡片和识别区预览均在后台扫描阶段已就绪；禁止在开图事件
+            // 上等待稳定帧，否则首个开图无法直接显示候选界面。
+            candidateFrame = _pendingBackgroundCandidateFrame;
+            if (candidateFrame is null)
             {
                 ActiveOperationTrace?.SetTerminal(
                     "failed",
-                    "stable-viewport-capture-failed");
+                    "background-candidate-preview-not-ready");
                 _statusMessage =
-                    "后台扫描候选待确认，但未能稳定截图；请保持地图打开后重试。";
+                    "后台扫描候选预览尚未就绪，请重新按快捷扫描键。";
                 return;
+            }
+
+            // 此路径的预览已由后台扫描预热，若立刻 Activate 候选窗口，窗口
+            // 可能赶在游戏处理开图热键前抢走焦点。仅 GUI 候选窗等待一次很短
+            // 的输入交接；headless 与显式候选选择器不创建窗口，无需等待。
+            if (BackgroundScanRules.ShouldWaitForCandidateInputHandoff(
+                    _headless,
+                    _activeCandidateSelector is not null))
+            {
+                await Task.Delay(
+                    BackgroundScanRules.CandidatePresentationInputHandoffMilliseconds,
+                    cancellationToken);
+                if (!IsCurrentMatchOperation(operationMatch)
+                    || !_gameMapToggleState.IsCurrent(toggle))
+                {
+                    return;
+                }
             }
 
             var candidateSelection = ActiveOperationTrace?.StartTopLevel(
@@ -142,10 +153,14 @@ public sealed partial class SessionOrchestrator
             try
             {
                 resolution = await ResolveCandidateSelectionAsync(
-                    frame,
+                    candidateFrame,
                     _pendingBackgroundChoices,
                     _pendingBackgroundChoicesReason,
-                    cancellationToken);
+                    operationMatch.MapClass!,
+                    cancellationToken,
+                    _pendingBackgroundChoicesAreDisplayReady,
+                    _pendingBackgroundChoicePreviews,
+                    _pendingBackgroundLivePreview);
             }
             finally
             {
@@ -154,12 +169,10 @@ public sealed partial class SessionOrchestrator
             if (resolution.StartSurvey)
             {
                 // 用户转入测绘：后台结果已被取代，作废待消费状态。
-                ClearPendingBackgroundScan();
                 await ActivateSurveyFromQuickScanAsync(
-                    frame,
+                    candidateFrame,
                     operationMatch,
                     cancellationToken);
-                DisposeBackgroundFrame(frame);
                 return;
             }
             locked = resolution.Recognition;
@@ -168,7 +181,6 @@ public sealed partial class SessionOrchestrator
                 ActiveOperationTrace?.SetTerminal("failed", "candidate-not-confirmed");
                 _statusMessage = "后台扫描候选未确认，已放弃本次消费。";
                 ClearPendingBackgroundScan();
-                DisposeBackgroundFrame(frame);
                 return;
             }
         }
@@ -196,14 +208,14 @@ public sealed partial class SessionOrchestrator
         // 确定性单候选路径 seed 已由扫描产出，无需重建。
         if (_pendingBackgroundSeed is null
             && _pendingBackgroundScan is { } pendingScan
-            && frame is not null)
+            && candidateFrame is not null)
         {
             var selectedCandidate = pendingScan.Candidates
                 .FirstOrDefault(candidate => candidate.Map.Id == locked.Map.Id);
             if (selectedCandidate is not null
                 && _recognition.TryCreateSideEntranceAlignmentSeed(
                     selectedCandidate,
-                    frame.ViewportBounds,
+                    candidateFrame.ViewportBounds,
                     out var rebuiltSeed,
                     out _))
             {
@@ -224,34 +236,55 @@ public sealed partial class SessionOrchestrator
         // 对齐锁建立后立即清空后台字段并置 Idle：后台结果已移交对齐链路，
         // 失败的后续重试走 _pendingAlignmentIdentity / _pendingAlignmentSeed。
         var targetFloorKey = ResolveBackgroundConsumeFloorKey(locked);
+        var sideEntranceSeed = BackgroundScanRules.PickSideEntranceSeed(
+            _pendingBackgroundSeed,
+            locked,
+            targetFloorKey);
+        // Reliable chooser entries passed strict structure validation during
+        // background recognition. Preserve their content-derived scale across
+        // candidate confirmation, but never publish the old preview-frame
+        // translation; the current map frame receives one unrestricted-
+        // translation registration below.
+        var validatedStructureScaleSeed =
+            BackgroundScanRules.BuildValidatedStructureScaleSeed(
+                locked,
+                sideEntranceSeed,
+                targetFloorKey);
         _pendingAlignmentIdentity = locked;
         _mapLease.Bind(_matchSession.Snapshot, locked.Map.Id);
-        _pendingAlignmentSeed = BackgroundScanRules.PickSideEntranceSeed(
-                _pendingBackgroundSeed,
-                locked,
-                targetFloorKey)
+        _pendingAlignmentSeed = validatedStructureScaleSeed
+            ?? sideEntranceSeed
             ?? CreateIndependentFloorSeedSession(
                 locked,
                 targetFloorKey);
+        if (validatedStructureScaleSeed is not null)
+        {
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                "后台候选严格验证尺度已保留；当前帧仅重算平移",
+                details: new()
+                {
+                    ["mapId"] = locked.Map.Id,
+                    ["floor"] = targetFloorKey,
+                    ["scale"] = validatedStructureScaleSeed.LockedTransform.ScaleX,
+                    ["oldOffsetX"] =
+                        validatedStructureScaleSeed.LockedTransform.OffsetX,
+                    ["oldOffsetY"] =
+                        validatedStructureScaleSeed.LockedTransform.OffsetY,
+                    ["translationPolicy"] = "unrestricted-current-frame"
+                });
+        }
         ClearPendingBackgroundScan();
 
-        try
-        {
-            await RunBackgroundConsumeAlignmentAsync(
-                toggle,
-                operationMatch,
-                frame,
-                locked,
-                targetFloorKey,
-                cancellationToken);
-        }
-        finally
-        {
-            DisposeBackgroundFrame(
-                frame,
-                locked.Map.Id.ToString("D"),
-                targetFloorKey);
-        }
+        await RunBackgroundConsumeAlignmentAsync(
+            toggle,
+            operationMatch,
+            frame: null,
+            locked,
+            targetFloorKey,
+            validatedStructureScaleSeed,
+            cancellationToken);
     }
 
     private async Task RunBackgroundConsumeAlignmentAsync(
@@ -260,10 +293,11 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame? frame,
         RuntimeMapRecognition locked,
         string targetFloorKey,
+        MapAlignmentSession? validatedStructureScaleSeed,
         CancellationToken cancellationToken)
     {
-        // 帧所有权：候选路径已在 core 的 finally 中释放；仅当本方法自行
-        // 捕获时才负责释放，避免重复释放或泄漏。
+        // 候选预览帧只用于立即展示候选窗口；真实对齐必须在用户选中后
+        // 重新捕获当前完整地图帧。
         var ownsFrame = frame is null;
         if (frame is null)
         {
@@ -300,9 +334,9 @@ public sealed partial class SessionOrchestrator
 
         try
         {
-            // 与正常扫描一致的初始对齐入口：识别服务的 AlignSelectedCore
-            //（双门 / 单门 / 结构全路线 + 缩放缓存），而非手动楼层的
-            // no-door 原语——后者在首次对齐场景缺少门配对证据而容易失败。
+            // 与正常扫描一致的初始对齐入口：真实侧门种子走带完整恢复上下文
+            // 的侧门路线，其余主层才走通用 selected-map 路线；非主层保持
+            // no-door 精确楼层路线。
             var alignmentTuning = CreateInitialAlignmentRecognitionTuning();
             if (alignmentTuning.GateTemplateThreshold
                 > GateTemplateRules.FallbackPairThreshold)
@@ -310,25 +344,65 @@ public sealed partial class SessionOrchestrator
                 alignmentTuning.GateTemplateThreshold =
                     GateTemplateRules.FallbackPairThreshold;
             }
-            var structureTuning = CreateInitialAlignmentStructureTuning();
-
             MapRecognitionAttempt AlignFor(
                 RuntimeMapRecognition identity,
                 out MapFeatureCacheKey? repair)
             {
                 repair = null;
                 var mapId = identity.Map.Id;
-                // 侧门种子命中时 AlignSelectedCore 内部把 Default 路由升级为
-                // SideEntrance（AlignSelected.cs:70-78）；未命中（含 KEEP-1.0
-                // 兜底种子 prior<=0）返回 null，保持既有 session:null 行为。
+                var structureTuning = CreateStructureTuningForFloor(
+                    identity.Map,
+                    targetFloorKey,
+                    CreateInitialAlignmentStructureTuning());
+                // A genuine side-entrance seed must enter the same initial
+                // side-route recovery used by foreground candidate confirmation.
+                // Passing it through generic AlignSelectedCore without a search
+                // context detects gate glyphs but cannot run the unrestricted
+                // side recovery, so alignment only starts working after a map
+                // variant switch reconstructs that context.
                 var sideEntranceSeed = BackgroundScanRules.PickSideEntranceSeed(
                     _pendingAlignmentSeed,
                     identity,
                     targetFloorKey);
-                MapRecognitionAttempt Align() =>
-                    MapCvAlignmentService.AlignSelectedCore(
+                MapRecognitionAttempt Align()
+                {
+                    if (!string.Equals(
+                            targetFloorKey,
+                            MapFloorRules.GetPrimaryFloorKey(identity.Map),
+                            StringComparison.Ordinal))
+                    {
+                        return _recognition.AlignFloorWithoutGates(
+                            frame,
+                            mapId,
+                            targetFloorKey,
+                            MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                                identity.Map,
+                                targetFloorKey),
+                            _settings!.OverlayAlignmentMode,
+                            alignmentTuning,
+                            structureTuning,
+                            allowPrimaryFloor: false);
+                    }
+
+                    if (sideEntranceSeed is not null)
+                    {
+                        return _recognition.AlignSideEntrance(
+                            frame,
+                            mapId,
+                            sideEntranceSeed,
+                            _settings!.OverlayAlignmentMode,
+                            alignmentTuning,
+                            structureTuning,
+                            alignmentSearchContext:
+                                CreateSideEntranceSearchContext(
+                                    sideEntranceSeed,
+                                    alignmentTuning,
+                                    useInitialHighPrecisionRecovery: true));
+                    }
+
+                    return MapCvAlignmentService.AlignSelectedCore(
                         _recognition, frame, mapId,
-                        session: sideEntranceSeed,
+                        session: null,
                         alignmentMode: _settings!.OverlayAlignmentMode,
                         tuning: alignmentTuning,
                         structureTuning: structureTuning,
@@ -338,17 +412,57 @@ public sealed partial class SessionOrchestrator
                         nativeScaleChangeRatio: 1.0,
                         mapClass: null,
                         route: SelectedAlignmentRoute.Default);
-                return _recognition.TryGetMap(mapId) is { } selectedMap
-                    ? AlignUsingScaleCache(
+                }
+                if (_recognition.TryGetMap(mapId) is not { } selectedMap)
+                    return Align();
+
+                if (MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
+                        validatedStructureScaleSeed,
+                        selectedMap.Id,
+                        selectedMap.UpdatedAt,
+                        targetFloorKey,
+                        minimumConfidence: 0d))
+                {
+                    var fixedScaleAttempt = _recognition.AlignWithCachedScale(
                         frame,
-                        selectedMap,
-                        MapFloorRules.GetPrimaryFloorKey(selectedMap),
+                        mapId,
+                        targetFloorKey,
+                        validatedStructureScaleSeed!.LockedTransform,
+                        _settings!.OverlayAlignmentMode,
                         alignmentTuning,
                         structureTuning,
-                        0d,
-                        Align,
-                        out repair)
-                    : Align();
+                        identityPriorConfidence:
+                            identity.Result.IdentityConfidence,
+                        restrictTranslationToSeed: false);
+                    if (fixedScaleAttempt.Recognition is not null)
+                        return fixedScaleAttempt;
+
+                    _logCollector.Append(
+                        MapLogCategory.StructureRegistration,
+                        MapLogLevel.Warning,
+                        "后台候选验证尺度在当前帧未通过，进入内容尺度恢复",
+                        details: new()
+                        {
+                            ["mapId"] = mapId,
+                            ["floor"] = targetFloorKey,
+                            ["scale"] = validatedStructureScaleSeed
+                                .LockedTransform.ScaleX,
+                            ["failureReason"] =
+                                fixedScaleAttempt.FailureReason,
+                            ["rejectionReason"] = fixedScaleAttempt
+                                .StructureResult?.RejectionReason.ToString()
+                        });
+                }
+
+                return AlignUsingScaleCache(
+                    frame,
+                    selectedMap,
+                    targetFloorKey,
+                    alignmentTuning,
+                    structureTuning,
+                    0d,
+                    Align,
+                    out repair);
             }
 
             MapFeatureCacheKey? repairCacheKey = null;
@@ -370,6 +484,12 @@ public sealed partial class SessionOrchestrator
                 attempt = await Task.Run(
                     () =>
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        using var alignmentDeadline = new NoDoorAlignmentDeadline(
+                            cancellationToken,
+                            MapOpenAlignmentRouteRules.MaximumNoDoorAlignmentBudgetMilliseconds,
+                            enforceTimeBudget: false);
+                        using var alignmentBudget = alignmentDeadline.EnterAmbient();
                         selectedDispatch.Complete();
                         using var selectedWorker = MapOperationTraceAmbient.StartChild(
                             "candidate_worker_execution",
@@ -415,6 +535,7 @@ public sealed partial class SessionOrchestrator
                         frame,
                         attempt.Choices,
                         failureReason ?? string.Empty,
+                        operationMatch.MapClass!,
                         cancellationToken);
                 }
                 finally
@@ -553,7 +674,8 @@ public sealed partial class SessionOrchestrator
                 recoveringSelectedIdentity: true,
                 aligned,
                 failureReason,
-                repairCacheKey);
+                repairCacheKey,
+                resetRecoveredScaleState: false);
             if (publishOutcome == MapOpenAlignmentPublishOutcome.Superseded)
             {
                 ActiveOperationTrace?.SetTerminal(

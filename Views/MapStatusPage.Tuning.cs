@@ -153,7 +153,6 @@ public sealed partial class MapStatusPage : UserControl
             .OfType<PresetSelectionItem>()
             .FirstOrDefault(item => item.ProfileName == selectedPreset)
             ?? PresetSelectionItem.Auto;
-        _sideEntranceFeatureRadius.Value = tuning.SideEntranceFeatureRadius;
         var controlsEnabled = !_runtime.IsScanning;
         _allowAutomaticMapCacheToggle.IsEnabled = controlsEnabled;
         _gateThreshold.IsEnabled = controlsEnabled;
@@ -206,7 +205,7 @@ public sealed partial class MapStatusPage : UserControl
             controlsEnabled && _reusePreviousAlignmentToggle.IsOn;
         _structureEccToggle.IsEnabled = controlsEnabled;
         _structureDebugToggle.IsEnabled = controlsEnabled;
-        _structureChamfer.IsEnabled = controlsEnabled;
+        _structureChamfer.IsEnabled = false;
         _structureCoverage.IsEnabled = controlsEnabled;
         _structureMargin.IsEnabled = controlsEnabled;
         _auxiliaryMaxTemplates.IsEnabled =
@@ -232,7 +231,6 @@ public sealed partial class MapStatusPage : UserControl
         _alignmentMode.IsEnabled = controlsEnabled;
         _firstScanStrategyToggle.IsEnabled = controlsEnabled;
         _backgroundScanToggle.IsEnabled = controlsEnabled;
-        _sideEntranceFeatureRadius.IsEnabled = controlsEnabled;
         _scanButton.IsEnabled =
             controlsEnabled && _runtime.MatchSnapshot.IsStarted;
         _manualButton.IsEnabled =

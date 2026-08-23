@@ -7,16 +7,19 @@ namespace IDVBuff.Plugins.DynamicMiniMapZoom;
 [Plugin(
     "dynamic-minimap-zoom",
     DisplayName = "动态小地图缩放",
-    Description = "进入对局后按住 Caps 键滚动鼠标滚轮，临时调整小地图大小；结束对局后自动恢复。",
+    Description = "进入对局后按住自定义辅助键滚动鼠标滚轮，临时调整小地图大小；结束对局后自动恢复。",
     Version = "1.0.0")]
-public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateChangedMessage>
+public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateChangedMessage>, IPluginSettingsProvider
 {
+    private const string BindingKey = "wheel-modifier-binding";
     private IGlobalInput? _input;
+    private IPluginInputService? _pluginInput;
     private IOverlayWindow? _overlay;
     private ISessionOrchestrator? _session;
     private bool _enabled;
     private bool _matchStarted;
     private string? _matchId;
+    private PluginInputBinding _binding = PluginInputBinding.Keyboard(0x14);
 
     public override string Id => "dynamic-minimap-zoom";
     public override string DisplayName => "动态小地图缩放";
@@ -25,6 +28,7 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
     {
         base.OnLoad(context);
         _input = context.GetService<IGlobalInput>();
+        _pluginInput = context.GetService<IPluginInputService>();
         _overlay = context.GetService<IOverlayWindow>();
         _session = context.GetService<ISessionOrchestrator>();
 
@@ -32,7 +36,20 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
             context.Logger.Error("无法取得全局输入服务，动态小地图缩放不可用。");
         if (_overlay is null)
             context.Logger.Error("无法取得叠加窗口服务，动态小地图缩放不可用。");
+        if (_pluginInput is null)
+            context.Logger.Error("无法取得插件输入服务，动态小地图缩放不可用。");
     }
+
+    public IReadOnlyList<IPluginSetting> Settings { get; } =
+    [
+        new PluginKeyBindingSetting
+        {
+            Key = BindingKey,
+            DisplayName = "小地图缩放辅助键",
+            Description = "按住此键并滚动鼠标滚轮调整小地图大小；支持键盘键或鼠标键。",
+            DefaultValue = "keyboard:14:0"
+        }
+    ];
 
     public override void OnEnable()
     {
@@ -40,6 +57,7 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
         _matchStarted = _session?.IsMatchStarted == true;
         _matchId = _session?.CurrentMatchId;
         _input?.MouseWheelScrolled += OnMouseWheelScrolled;
+        ApplyBinding();
     }
 
     public override void OnDisable()
@@ -47,6 +65,7 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
         _enabled = false;
         if (_input is not null)
             _input.MouseWheelScrolled -= OnMouseWheelScrolled;
+        _pluginInput?.ClearBindings(Context.PluginId);
         EndTemporaryMatch();
     }
 
@@ -55,10 +74,28 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
         _enabled = false;
         if (_input is not null)
             _input.MouseWheelScrolled -= OnMouseWheelScrolled;
+        _pluginInput?.ClearBindings(Context.PluginId);
         EndTemporaryMatch();
         _input = null;
         _overlay = null;
         _session = null;
+    }
+
+    public object? GetSettingValue(string key) =>
+        key == BindingKey ? _binding.StorageValue : null;
+
+    public void SetSettingValue(string key, object? value)
+    {
+        if (key != BindingKey
+            || value is not string text
+            || !PluginInputBinding.TryParse(text, out var binding))
+        {
+            return;
+        }
+
+        _binding = binding;
+        if (_enabled)
+            ApplyBinding();
     }
 
     public void Handle(MatchStateChangedMessage message)
@@ -82,7 +119,10 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
 
     private void OnMouseWheelScrolled(object? sender, MouseWheelInputEventArgs args)
     {
-        if (!_enabled || !_matchStarted || !args.CapsHeld || args.Delta == 0)
+        if (!_enabled
+            || !_matchStarted
+            || _pluginInput?.IsBindingPressed(Context.PluginId, BindingKey) != true
+            || args.Delta == 0)
             return;
 
         if (_overlay?.CurrentMiniMapScale is not double currentScale)
@@ -96,6 +136,9 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
 
         _overlay.SetMiniMapScale(nextScale);
     }
+
+    private void ApplyBinding() =>
+        _pluginInput?.SetBinding(Context.PluginId, BindingKey, _binding);
 
     private void EndTemporaryMatch()
     {

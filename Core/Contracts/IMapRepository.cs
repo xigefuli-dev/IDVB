@@ -23,9 +23,7 @@ public interface IMapRepository
     /// <summary>
     /// 保存地图草稿（新建或更新）。
     /// </summary>
-    Task</* MapRecord */ object> SaveAsync(
-        object /* MapDraft */ draft,
-        int sideEntranceFeatureRadius = 0);
+    Task</* MapRecord */ object> SaveAsync(object /* MapDraft */ draft);
 
     /// <summary>
     /// 删除指定地图及其所有资产。
@@ -102,11 +100,8 @@ public interface IMapRepository
     /// </summary>
     Task EnsureDerivedAssetsAsync(IReadOnlyList</* MapRecord */ object> maps);
 
-    /// <summary>
-    /// 批量为所有地图重新生成侧门特征图（半径参数改变时调用）。
-    /// </summary>
+    /// <summary>批量按当前侧门 TOML 配置重新生成侧门特征图。</summary>
     Task RebuildAllSideEntranceFeaturesAsync(
-        int featureRadius,
         IProgress<(int done, int total)>? progress = null,
         CancellationToken cancellationToken = default);
 

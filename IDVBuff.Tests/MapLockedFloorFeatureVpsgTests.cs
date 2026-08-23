@@ -12,8 +12,8 @@ public sealed class MapLockedFloorFeatureVpsgTests
         await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
         const double expectedScale = 1.3375d;
         var viewport = new MapScreenRect(
-            100d,
-            80d,
+            420d,
+            260d,
             720d * expectedScale,
             540d * expectedScale);
         using var frame = scenario.FloorFrameScaled(
@@ -47,6 +47,8 @@ public sealed class MapLockedFloorFeatureVpsgTests
             transform.ScaleX,
             expectedScale - 0.02d,
             expectedScale + 0.02d);
+        Assert.InRange(Math.Abs(transform.OffsetX - viewport.X), 0d, 2d);
+        Assert.InRange(Math.Abs(transform.OffsetY - viewport.Y), 0d, 2d);
         Assert.True(
             attempt.Diagnostics.ScaleBootstrapUniqueMatches
                 >= MapVpsgScaleEstimator.MinimumUniqueMatches);

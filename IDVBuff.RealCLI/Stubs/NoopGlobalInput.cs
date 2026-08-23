@@ -19,6 +19,9 @@ public sealed class NoopGlobalInput : IGlobalInput
     public event EventHandler<object>? ControlPanelToggleInvoked;
     public event EventHandler<object>? SwitchFloorInvoked;
     public event EventHandler<object>? SaveMapCacheInvoked;
+    public event EventHandler<object>? AltInvoked;
+    public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
+    public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
 #pragma warning restore CS0067
 
     public void ApplyBindings(
@@ -34,6 +37,9 @@ public sealed class NoopGlobalInput : IGlobalInput
     }
 
     public void ClearBindings() { }
+    public void ApplyPluginBinding(string pluginId, string bindingKey, object binding) { }
+    public void ClearPluginBindings(string pluginId) { }
+    public bool IsPluginBindingPressed(string pluginId, string bindingKey) => false;
     public void ReleaseAllPressedInputs() { }
     public void Dispose() { }
 }

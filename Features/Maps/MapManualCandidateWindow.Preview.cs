@@ -9,8 +9,55 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapManualCandidateWindow
 {
+    public sealed record CandidateLivePreviewAssets(
+        ImageSource Original,
+        ImageSource Detail);
+
+    /// <summary>
+    /// 为候选窗中不依赖实时截图的地图卡片预先解码预览图。后台扫描完成前
+    /// 调用它，避免玩家开图后才逐张读取文件、裁剪并 PNG 编码。
+    /// </summary>
+    public static async Task<IReadOnlyList<ImageSource?>> PrepareChoicePreviewsAsync(
+        IReadOnlyList<MapRecognitionChoice> choices,
+        MapRepository repository)
+    {
+        var previews = new ImageSource?[choices.Count];
+        for (var index = 0; index < choices.Count; index++)
+            previews[index] = await CreateChoicePreviewAsync(choices[index], repository);
+        return previews;
+    }
+
+    public static async Task<CandidateLivePreviewAssets> PrepareLivePreviewAsync(
+        CapturedGameFrame frame,
+        IReadOnlyList<MapRecognitionChoice> choices,
+        MapScreenRect recognitionBounds)
+    {
+        using var recognitionImage = CreateRecognitionRegionImage(
+            frame,
+            recognitionBounds);
+        var sideBounds = MapCandidatePresentationRules
+            .ResolveLiveSideEntranceBounds(choices);
+        var sideCenter = sideBounds is { } bounds
+            ? new MapNormalizedPoint(
+                Math.Clamp((bounds.CenterX - recognitionBounds.X) / recognitionBounds.Width, 0d, 1d),
+                Math.Clamp((bounds.CenterY - recognitionBounds.Y) / recognitionBounds.Height, 0d, 1d))
+            : new MapNormalizedPoint(0.5d, 0.5d);
+        using var zoomed = CreatePositionedPreview(
+            recognitionImage,
+            sideCenter,
+            MapCandidatePresentationRules.LivePreviewZoom,
+            targetX: 0.5d,
+            targetY: 0.5d);
+        return new CandidateLivePreviewAssets(
+            await MapManualRecognitionWindow.CreateBitmapAsync(recognitionImage),
+            await MapManualRecognitionWindow.CreateBitmapAsync(zoomed));
+    }
+
     private async Task<FrameworkElement> CreateLivePreviewPanelAsync()
     {
+        if (_preloadedLivePreview is { } cached)
+            return CreateLivePreviewPanel(cached.Original, cached.Detail);
+
         using var recognitionImage = CreateRecognitionRegionImage();
         var sideBounds = MapCandidatePresentationRules
             .ResolveLiveSideEntranceBounds(_choices);
@@ -34,6 +81,15 @@ public sealed partial class MapManualCandidateWindow
             targetX: 0.5d,
             targetY: 0.5d);
 
+        return CreateLivePreviewPanel(
+            await MapManualRecognitionWindow.CreateBitmapAsync(recognitionImage),
+            await MapManualRecognitionWindow.CreateBitmapAsync(zoomed));
+    }
+
+    private static FrameworkElement CreateLivePreviewPanel(
+        ImageSource originalSource,
+        ImageSource detailSource)
+    {
         var panel = new Grid
         {
             RowSpacing = 12,
@@ -47,12 +103,8 @@ public sealed partial class MapManualCandidateWindow
         {
             Height = new GridLength(1, GridUnitType.Star)
         });
-        var original = CreatePreviewFrame(
-            await MapManualRecognitionWindow.CreateBitmapAsync(recognitionImage),
-            "识别区域");
-        var detail = CreatePreviewFrame(
-            await MapManualRecognitionWindow.CreateBitmapAsync(zoomed),
-            "侧门实时放大 · 120%");
+        var original = CreatePreviewFrame(originalSource, "识别区域");
+        var detail = CreatePreviewFrame(detailSource, "侧门实时放大 · 120%");
         Grid.SetRow(original, 0);
         Grid.SetRow(detail, 1);
         panel.Children.Add(original);
@@ -119,34 +171,10 @@ public sealed partial class MapManualCandidateWindow
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(4)
         };
-        var map = choice.Recognition.Map;
-        var primaryFloorKey = MapFloorRules.GetPrimaryFloorKey(map);
-        var previewPath = _repository.GetFloorOverlayPath(map, primaryFloorKey);
-        if (File.Exists(previewPath))
-        {
-            var sideCenter = MapCandidatePresentationRules
-                .ResolveMapSideEntranceCenter(map);
-            if (sideCenter is { } center)
-            {
-                using var source = Cv2.ImRead(previewPath, ImreadModes.Unchanged);
-                if (!source.Empty())
-                {
-                    using var positioned = CreatePositionedPreview(
-                        source,
-                        center,
-                        MapCandidatePresentationRules.MapPreviewZoom,
-                        targetX: 0.5d,
-                        targetY: MapCandidatePresentationRules.MapSideEntranceTargetY);
-                    image.Source = await MapManualRecognitionWindow
-                        .CreateBitmapAsync(positioned);
-                }
-            }
-            image.Source ??= new BitmapImage
-            {
-                CreateOptions = BitmapCreateOptions.IgnoreImageCache,
-                UriSource = new Uri(previewPath)
-            };
-        }
+        image.Source = index < _preloadedChoicePreviews?.Count
+            ? _preloadedChoicePreviews[index]
+            : null;
+        image.Source ??= await CreateChoicePreviewAsync(choice, _repository);
         Grid.SetRow(image, 0);
         grid.Children.Add(image);
 
@@ -181,13 +209,54 @@ public sealed partial class MapManualCandidateWindow
         return grid;
     }
 
-    private Mat CreateRecognitionRegionImage()
+    private static async Task<ImageSource?> CreateChoicePreviewAsync(
+        MapRecognitionChoice choice,
+        MapRepository repository)
     {
-        var sourceBounds = _frame.ViewportBounds.IsValid
-            ? _frame.ViewportBounds
-            : _frame.ClientBounds;
-        var requested = _recognitionBounds.IsValid
-            ? _recognitionBounds
+        var map = choice.Recognition.Map;
+        var previewPath = repository.GetFloorOverlayPath(
+            map,
+            MapFloorRules.GetPrimaryFloorKey(map));
+        if (!File.Exists(previewPath))
+            return null;
+
+        var sideCenter = MapCandidatePresentationRules
+            .ResolveMapSideEntranceCenter(map);
+        if (sideCenter is { } center)
+        {
+            using var source = Cv2.ImRead(previewPath, ImreadModes.Unchanged);
+            if (!source.Empty())
+            {
+                using var positioned = CreatePositionedPreview(
+                    source,
+                    center,
+                    MapCandidatePresentationRules.MapPreviewZoom,
+                    targetX: 0.5d,
+                    targetY: MapCandidatePresentationRules.MapSideEntranceTargetY);
+                return await MapManualRecognitionWindow.CreateBitmapAsync(positioned);
+            }
+        }
+
+        return new BitmapImage
+        {
+            CreateOptions = BitmapCreateOptions.IgnoreImageCache,
+            UriSource = new Uri(previewPath)
+        };
+    }
+
+    private Mat CreateRecognitionRegionImage() => CreateRecognitionRegionImage(
+        _frame,
+        _recognitionBounds);
+
+    private static Mat CreateRecognitionRegionImage(
+        CapturedGameFrame frame,
+        MapScreenRect recognitionBounds)
+    {
+        var sourceBounds = frame.ViewportBounds.IsValid
+            ? frame.ViewportBounds
+            : frame.ClientBounds;
+        var requested = recognitionBounds.IsValid
+            ? recognitionBounds
             : sourceBounds;
         if (!sourceBounds.IsValid
             || requested.X <= sourceBounds.X
@@ -195,27 +264,27 @@ public sealed partial class MapManualCandidateWindow
                 && requested.X + requested.Width >= sourceBounds.X + sourceBounds.Width
                 && requested.Y + requested.Height >= sourceBounds.Y + sourceBounds.Height)
         {
-            return _frame.Image.Clone();
+            return frame.Image.Clone();
         }
 
         var left = (int)Math.Floor(
             (requested.X - sourceBounds.X) / sourceBounds.Width
-            * _frame.Image.Width);
+            * frame.Image.Width);
         var top = (int)Math.Floor(
             (requested.Y - sourceBounds.Y) / sourceBounds.Height
-            * _frame.Image.Height);
+            * frame.Image.Height);
         var right = (int)Math.Ceiling(
             (requested.X + requested.Width - sourceBounds.X)
-            / sourceBounds.Width * _frame.Image.Width);
+            / sourceBounds.Width * frame.Image.Width);
         var bottom = (int)Math.Ceiling(
             (requested.Y + requested.Height - sourceBounds.Y)
-            / sourceBounds.Height * _frame.Image.Height);
-        left = Math.Clamp(left, 0, Math.Max(0, _frame.Image.Width - 1));
-        top = Math.Clamp(top, 0, Math.Max(0, _frame.Image.Height - 1));
-        right = Math.Clamp(right, left + 1, _frame.Image.Width);
-        bottom = Math.Clamp(bottom, top + 1, _frame.Image.Height);
+            / sourceBounds.Height * frame.Image.Height);
+        left = Math.Clamp(left, 0, Math.Max(0, frame.Image.Width - 1));
+        top = Math.Clamp(top, 0, Math.Max(0, frame.Image.Height - 1));
+        right = Math.Clamp(right, left + 1, frame.Image.Width);
+        bottom = Math.Clamp(bottom, top + 1, frame.Image.Height);
         using var region = new Mat(
-            _frame.Image,
+            frame.Image,
             new OpenCvSharp.Rect(left, top, right - left, bottom - top));
         return region.Clone();
     }

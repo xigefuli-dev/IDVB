@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace IDVBuff.Features.Maps;
 
@@ -143,10 +144,30 @@ public sealed class MapStructureGenerationTuning
 public sealed class MapStructureRegistrationTuning
 {
     public const int CurrentSchemaVersion = 8;
+    public const double LockedMaximumChamferPixels = 3.0d;
 
     public int SchemaVersion { get; set; }
+    [JsonIgnore]
+    public MapAlignmentChannel Channel { get; set; } = MapAlignmentChannel.Standard;
     public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
         MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
+
+    [JsonIgnore]
+    public string CacheFingerprint
+    {
+        get
+        {
+            var normalized = Clone();
+            normalized.Normalize();
+            var canonical = string.Concat(
+                normalized.Channel,
+                "|",
+                JsonSerializer.Serialize(normalized));
+            return Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+                .ToLowerInvariant()[..16];
+        }
+    }
 
     /// <summary>
     /// Source-compatible view of the former Boolean setting. New persisted
@@ -176,13 +197,25 @@ public sealed class MapStructureRegistrationTuning
     public int MinimumSpanPixels { get; set; } = 28;
     public int MinimumConsistentPartitions { get; set; } = 2;
     public int TopCandidateCount { get; set; } = 6;
-    public double MaximumChamferPixels { get; set; } = 3.2d;
+    /// <summary>
+    /// Global Chamfer hard limit. The setter remains for persisted-settings
+    /// compatibility, but every attempted override is deliberately ignored.
+    /// </summary>
+    public double MaximumChamferPixels
+    {
+        get => LockedMaximumChamferPixels;
+        set { }
+    }
     /// <summary>
     /// 受限搜索(RestrictSearchToLockedTransform=true)专用的独立 chamfer 上限。
     /// 不受分辨率档 TOML 的 MaximumChamferPixels 放宽影响——受限窗口很小,
     /// 真位置在窗口内时 chamfer 必然低,假候选(部分重叠)chamfer 显著偏高。
     /// </summary>
-    public double RestrictedSearchMaximumChamferPixels { get; set; } = 3.0d;
+    public double RestrictedSearchMaximumChamferPixels
+    {
+        get => LockedMaximumChamferPixels;
+        set { }
+    }
     public double MinimumEdgeCoverage { get; set; } = 0.40d;
     public double MinimumOccupancyCoverage { get; set; } = 0.42d;
     public double MinimumCandidateMargin { get; set; } = 0.04d;
@@ -259,12 +292,34 @@ public sealed class MapStructureRegistrationTuning
 
     /// <summary>粗搜索目标最大边长像素。默认 120。</summary>
     public int FastCoarseMaxDimension { get; set; } = 200;
+    public int FastCoarseMinimumTemplateDimension { get; set; } = 12;
+    public double MinimumUsableScale { get; set; } = 0.05d;
 
     /// <summary>
     /// 禁用单假设 scale 早停：即使首个 scale 假设产生足够好的候选，
     /// 也继续搜索全部 scale 假设。供 seed scale 可能错误的恢复路径使用。
     /// </summary>
     public bool DisableScaleEarlyTermination { get; set; }
+    public double LowStructureMinimumScale { get; set; } = 0.40d;
+    public double LowStructureMaximumScale { get; set; } = 1.60d;
+    public int LowStructureScaleHypothesisCount { get; set; } = 13;
+    public double EdgeCoverageWeight { get; set; } = 4d;
+    public double ChamferWeight { get; set; } = 1d;
+    public double OccupancyCoverageWeight { get; set; } = 2d;
+    public double ReferenceCoverageWeight { get; set; } = 4d;
+    public double PartitionPenaltyWeight { get; set; } = 0.75d;
+    public double PriorDisagreementWeight { get; set; } = 0.75d;
+    public int MinimumEdgesPerPartition { get; set; } = 12;
+    public double MinimumPartitionCoverage { get; set; } = 0.45d;
+    public double BoundsPenalty { get; set; } = 100d;
+    public double MaximumScaleChangeRatio { get; set; } = 0.15d;
+    public double MinimumPriorAgreement { get; set; } = 0.05d;
+    public double GlobalSearchMarginMultiplier { get; set; } = 1.25d;
+    public double MarginNormalizationFloor { get; set; } = 0.01d;
+    public double ScaleDuplicateTolerance { get; set; } = 0.000001d;
+    public double SpatialDuplicateTolerance { get; set; } = 2d;
+    public double CandidateDuplicateRadius { get; set; } = 1d;
+    public double RefinementWorsenTolerance { get; set; } = 0.001d;
 
     public MapStructureRegistrationTuning Clone() => new()
     {
@@ -330,7 +385,31 @@ public sealed class MapStructureRegistrationTuning
         FastCoarseTopK = FastCoarseTopK,
         FastCoarseNmsRadius = FastCoarseNmsRadius,
         FastCoarseMaxDimension = FastCoarseMaxDimension,
-        DisableScaleEarlyTermination = DisableScaleEarlyTermination
+        FastCoarseMinimumTemplateDimension =
+            FastCoarseMinimumTemplateDimension,
+        MinimumUsableScale = MinimumUsableScale,
+        DisableScaleEarlyTermination = DisableScaleEarlyTermination,
+        LowStructureMinimumScale = LowStructureMinimumScale,
+        LowStructureMaximumScale = LowStructureMaximumScale,
+        LowStructureScaleHypothesisCount = LowStructureScaleHypothesisCount,
+        EdgeCoverageWeight = EdgeCoverageWeight,
+        ChamferWeight = ChamferWeight,
+        OccupancyCoverageWeight = OccupancyCoverageWeight,
+        ReferenceCoverageWeight = ReferenceCoverageWeight,
+        PartitionPenaltyWeight = PartitionPenaltyWeight,
+        PriorDisagreementWeight = PriorDisagreementWeight,
+        MinimumEdgesPerPartition = MinimumEdgesPerPartition,
+        MinimumPartitionCoverage = MinimumPartitionCoverage,
+        BoundsPenalty = BoundsPenalty,
+        MaximumScaleChangeRatio = MaximumScaleChangeRatio,
+        MinimumPriorAgreement = MinimumPriorAgreement,
+        GlobalSearchMarginMultiplier = GlobalSearchMarginMultiplier,
+        MarginNormalizationFloor = MarginNormalizationFloor,
+        ScaleDuplicateTolerance = ScaleDuplicateTolerance,
+        SpatialDuplicateTolerance = SpatialDuplicateTolerance,
+        CandidateDuplicateRadius = CandidateDuplicateRadius,
+        RefinementWorsenTolerance = RefinementWorsenTolerance,
+        Channel = Channel
     };
 
     public void Normalize()
@@ -411,9 +490,6 @@ public sealed class MapStructureRegistrationTuning
             0.82d,
             0.65d,
             0.95d);
-        MaximumChamferPixels = Finite(MaximumChamferPixels, 3.2d, 0.5d, 20d);
-        RestrictedSearchMaximumChamferPixels = Finite(
-            RestrictedSearchMaximumChamferPixels, 3.0d, 0.5d, 20d);
         MinimumEdgeCoverage = Finite(MinimumEdgeCoverage, 0.40d, 0.1d, 0.98d);
         MinimumOccupancyCoverage = Finite(MinimumOccupancyCoverage, 0.42d, 0.1d, 0.98d);
         MinimumCandidateMargin = Finite(MinimumCandidateMargin, 0.04d, 0.01d, 0.8d);
@@ -421,7 +497,7 @@ public sealed class MapStructureRegistrationTuning
         // Recovery policy deliberately uses 0.15 initially and 0.30 as the
         // final uncalibrated fallback.  Clamping here to 0.05 silently made
         // both runtime stages execute the same narrow search.
-        ScaleSearchRadius = Finite(ScaleSearchRadius, 0.02d, 0d, 0.30d);
+        ScaleSearchRadius = Finite(ScaleSearchRadius, 0.02d, 0d, 0.70d);
         ScaleSearchStep = Finite(ScaleSearchStep, 0.01d, 0.0025d, 0.025d);
         EdgeDistanceTolerancePixels = Finite(
             EdgeDistanceTolerancePixels,
@@ -475,9 +551,52 @@ public sealed class MapStructureRegistrationTuning
         // Fast alignment
         FastCoarseDownsampleFactor = Math.Clamp(
             FastCoarseDownsampleFactor, 2, 8);
-        FastCoarseTopK = Math.Clamp(FastCoarseTopK, 3, 20);
+        FastCoarseTopK = Math.Clamp(
+            FastCoarseTopK,
+            Channel == MapAlignmentChannel.LowStructure ? 5 : 3,
+            20);
         FastCoarseNmsRadius = Math.Clamp(FastCoarseNmsRadius, 4, 40);
         FastCoarseMaxDimension = Math.Clamp(FastCoarseMaxDimension, 40, 400);
+        FastCoarseMinimumTemplateDimension = Math.Clamp(
+            FastCoarseMinimumTemplateDimension, 4, 200);
+        MinimumUsableScale = Finite(
+            MinimumUsableScale, 0.05d, 0.001d, 8d);
+        LowStructureMinimumScale = Finite(
+            LowStructureMinimumScale, 0.40d, 0.05d, 8d);
+        LowStructureMaximumScale = Finite(
+            LowStructureMaximumScale, 1.60d, 0.05d, 8d);
+        if (LowStructureMaximumScale < LowStructureMinimumScale)
+            (LowStructureMinimumScale, LowStructureMaximumScale) =
+                (LowStructureMaximumScale, LowStructureMinimumScale);
+        LowStructureScaleHypothesisCount = Math.Clamp(
+            LowStructureScaleHypothesisCount, 3, 31);
+        EdgeCoverageWeight = Finite(EdgeCoverageWeight, 4d, 0d, 20d);
+        ChamferWeight = Finite(ChamferWeight, 1d, 0d, 20d);
+        OccupancyCoverageWeight = Finite(OccupancyCoverageWeight, 2d, 0d, 20d);
+        ReferenceCoverageWeight = Finite(ReferenceCoverageWeight, 4d, 0d, 20d);
+        PartitionPenaltyWeight = Finite(PartitionPenaltyWeight, 0.75d, 0d, 20d);
+        PriorDisagreementWeight = Finite(PriorDisagreementWeight, 0.75d, 0d, 20d);
+        MinimumEdgesPerPartition = Math.Clamp(
+            MinimumEdgesPerPartition, 1, 10000);
+        MinimumPartitionCoverage = Finite(
+            MinimumPartitionCoverage, 0.45d, 0.01d, 1d);
+        BoundsPenalty = Finite(BoundsPenalty, 100d, 0d, 10000d);
+        MaximumScaleChangeRatio = Finite(
+            MaximumScaleChangeRatio, 0.15d, 0d, 8d);
+        MinimumPriorAgreement = Finite(
+            MinimumPriorAgreement, 0.05d, 0d, 1d);
+        GlobalSearchMarginMultiplier = Finite(
+            GlobalSearchMarginMultiplier, 1.25d, 1d, 10d);
+        MarginNormalizationFloor = Finite(
+            MarginNormalizationFloor, 0.01d, 0.000001d, 1d);
+        ScaleDuplicateTolerance = Finite(
+            ScaleDuplicateTolerance, 0.000001d, 0.000000001d, 1d);
+        SpatialDuplicateTolerance = Finite(
+            SpatialDuplicateTolerance, 2d, 0d, 1000d);
+        CandidateDuplicateRadius = Finite(
+            CandidateDuplicateRadius, 1d, 0d, 1000d);
+        RefinementWorsenTolerance = Finite(
+            RefinementWorsenTolerance, 0.001d, 0d, 100d);
     }
 
     private static double Finite(

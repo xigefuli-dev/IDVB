@@ -211,6 +211,128 @@ public sealed partial class MapStructureRegistrarTests
     }
 
     [Fact]
+    public void ColdLowStructureSearchAcceptsScaleFarFromNeutralSeed()
+    {
+        using var reference = BuildReference();
+        var crop = new Rect(82, 58, 300, 236);
+        using var source = new Mat(reference, crop);
+        const double plantedScale = 0.448984819d;
+        using var live = new Mat();
+        Cv2.Resize(
+            source,
+            live,
+            new Size(
+                (int)Math.Round(source.Width * plantedScale),
+                (int)Math.Round(source.Height * plantedScale)),
+            0d,
+            0d,
+            InterpolationFlags.Nearest);
+        var viewport = new MapScreenRect(600d, 300d, live.Width, live.Height);
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new IDVBuff.Core.Models.LowStructureConfig
+            {
+                MaximumChamferPixels = 4.0d,
+                MinimumEdgeCoverage = 0.45d,
+                MinimumOccupancyCoverage = 0.20d,
+                MinimumCandidateMargin = 0.02d,
+                MinimumConsistentPartitions = 2,
+                MinimumEdgePixels = 40,
+                MinimumSpanPixels = 16
+            });
+        var registrar = new MapStructureRegistrar(new MapStructurePreprocessor());
+
+        var result = registrar.Register(new MapStructureRegistrationRequest
+        {
+            ReferenceImage = reference,
+            LiveRoi = live,
+            ViewportBounds = viewport,
+            LockedTransform = Locked(
+                reference,
+                offsetX: viewport.X - crop.X,
+                offsetY: viewport.Y - crop.Y),
+            Tuning = tuning,
+            Channel = MapAlignmentChannel.LowStructure,
+            ScaleSearchPolicy = MapScaleSearchPolicy.Search,
+            ForceBestCandidate = false
+        });
+
+        Assert.True(
+            result.Accepted,
+            $"{result.FailureReason}; rejection={result.RejectionReason}; "
+            + $"candidates={result.Candidates.Count}; edges={result.QueryEdgePixels}; "
+            + $"bounds={result.QueryBoundsWidth}x{result.QueryBoundsHeight}; "
+            + $"oversized={result.OversizedHypothesisCount}; "
+            + $"searchMs={result.SearchMilliseconds:F1}");
+        Assert.NotNull(result.Transform);
+        Assert.NotEqual(
+            MapStructureRejectionReason.ScaleChangeTooLarge,
+            result.RejectionReason);
+        Assert.InRange(result.Transform.ScaleX, 0.42d, 0.48d);
+        Assert.InRange(result.SearchMilliseconds, 0d, 500d);
+    }
+
+    [Fact]
+    public void FixedLowStructureScaleUsesTheSameContentDomainAsSearch()
+    {
+        using var reference = BuildReference();
+        var crop = new Rect(82, 58, 300, 236);
+        using var source = new Mat(reference, crop);
+        const double plantedScale = 0.448984819d;
+        using var live = new Mat();
+        Cv2.Resize(
+            source,
+            live,
+            new Size(
+                (int)Math.Round(source.Width * plantedScale),
+                (int)Math.Round(source.Height * plantedScale)),
+            0d,
+            0d,
+            InterpolationFlags.Nearest);
+        var viewport = new MapScreenRect(600d, 300d, live.Width, live.Height);
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new IDVBuff.Core.Models.LowStructureConfig
+            {
+                MaximumChamferPixels = 3.0d,
+                MinimumEdgeCoverage = 0.45d,
+                MinimumOccupancyCoverage = 0.20d,
+                MinimumCandidateMargin = 0.02d,
+                MinimumConsistentPartitions = 2,
+                MinimumEdgePixels = 40,
+                MinimumSpanPixels = 16
+            });
+        var registrar = new MapStructureRegistrar(new MapStructurePreprocessor());
+
+        var result = registrar.Register(new MapStructureRegistrationRequest
+        {
+            ReferenceImage = reference,
+            LiveRoi = live,
+            ViewportBounds = viewport,
+            LockedTransform = new MapOverlayTransform
+            {
+                ScaleX = plantedScale,
+                ScaleY = plantedScale,
+                OffsetX = viewport.X - (crop.X * plantedScale),
+                OffsetY = viewport.Y - (crop.Y * plantedScale),
+                ReferenceWidth = reference.Width,
+                ReferenceHeight = reference.Height,
+                AlignmentMode = MapOverlayAlignmentMode.Uniform
+            },
+            Tuning = tuning,
+            Channel = MapAlignmentChannel.LowStructure,
+            ScaleSearchPolicy = MapScaleSearchPolicy.Fixed,
+            RestrictSearchToLockedTransform = false
+        });
+
+        Assert.True(
+            result.Accepted,
+            $"{result.FailureReason}; rejection={result.RejectionReason}; "
+            + $"best={result.BestScore:F3}; candidates={result.Candidates.Count}");
+        Assert.Equal(1, result.ScaleHypothesisCount);
+        Assert.NotNull(result.Transform);
+        Assert.Equal(plantedScale, result.Transform!.ScaleX, 8);
+    }
+
+    [Fact]
     public void ForcedBestCandidateAcceptsAmbiguousRepeatedRooms()
     {
         using var reference = new Mat(

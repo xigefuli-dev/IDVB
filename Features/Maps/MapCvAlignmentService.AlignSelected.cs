@@ -61,6 +61,36 @@ internal static partial class MapCvAlignmentService
                 "当前选择的地图不存在或尚未完成主层区域与双门标记；地图序号没有被删除。");
         }
 
+        var resolvedChannel = MapAlignmentChannelRegistry.Resolve(
+            fingerprint.Map,
+            fingerprint.FloorKey);
+        if (structureTuning.Channel != resolvedChannel.Channel)
+        {
+            diagnostics.AlignmentChannel = structureTuning.Channel ==
+                MapAlignmentChannel.LowStructure
+                    ? MapAlignmentChannelRegistry.LowStructure.DiagnosticLabel
+                    : MapAlignmentChannelRegistry.Standard.DiagnosticLabel;
+            return MapCvRecognitionDiagnostics.Failure(
+                diagnostics,
+                $"Floor '{fingerprint.FloorKey}' requires alignment channel "
+                + $"'{resolvedChannel.DiagnosticLabel}', but received "
+                + $"'{diagnostics.AlignmentChannel}'.");
+        }
+        diagnostics.AlignmentChannel = resolvedChannel.DiagnosticLabel;
+        diagnostics.FloorMarkerKeys = string.Join(
+            ",",
+            MapFloorMarkerRules.Normalize(
+                MapFloorRules.GetOrderedFloors(fingerprint.Map)
+                    .First(floor => string.Equals(
+                        floor.Key,
+                        fingerprint.FloorKey,
+                        StringComparison.Ordinal))
+                    .MarkerKeys));
+        diagnostics.AlignmentConfigFingerprint =
+            resolvedChannel.Channel == MapAlignmentChannel.LowStructure
+                ? structureTuning.CacheFingerprint
+                : "legacy";
+
         var compatibleSession = session is not null
             && session.MapId == selectedMapId
             && session.MapUpdatedAt == fingerprint.Map.UpdatedAt

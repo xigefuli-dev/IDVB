@@ -7,15 +7,23 @@ public sealed class SideEntranceFeatureResult : IDisposable
 {
     private bool _disposed;
 
-    internal SideEntranceFeatureResult(Mat feature, double centerX, double centerY, int radius)
+    internal SideEntranceFeatureResult(
+        Mat feature,
+        double centerX,
+        double centerY,
+        int radius,
+        int width,
+        int height)
     {
         Feature = feature;
         CenterX = centerX;
         CenterY = centerY;
         Radius = radius;
+        Width = width;
+        Height = height;
     }
 
-    /// <summary>预处理后的特征图（灰度，2r×2r 像素）。</summary>
+    /// <summary>预处理后的特征图（灰度）。</summary>
     public Mat Feature { get; }
     /// <summary>实际中心点 X（识别图像素坐标，边界挤压后）。</summary>
     public double CenterX { get; }
@@ -23,6 +31,10 @@ public sealed class SideEntranceFeatureResult : IDisposable
     public double CenterY { get; }
     /// <summary>实际裁剪半径（像素）。</summary>
     public int Radius { get; }
+    /// <summary>特征图宽度（像素）。</summary>
+    public int Width { get; }
+    /// <summary>特征图高度（像素）。</summary>
+    public int Height { get; }
 
     public void Dispose()
     {
@@ -42,7 +54,7 @@ public sealed class SideEntranceFeaturePreprocessor
     /// Increment when generated feature pixels or their matching semantics change.
     /// Persisted features from another version must be rebuilt before scanning.
     /// </summary>
-    public const string AlgorithmVersion = "2-gate-masked";
+    public const string AlgorithmVersion = "3-ratio-gate-masked";
 
     /// <summary>
     /// 处理侧门特征。
@@ -57,9 +69,65 @@ public sealed class SideEntranceFeaturePreprocessor
         int featureRadius)
     {
         ArgumentNullException.ThrowIfNull(recognitionImage);
-        ArgumentNullException.ThrowIfNull(anchorBounds);
         if (featureRadius < 1)
             throw new ArgumentOutOfRangeException(nameof(featureRadius));
+
+        return ProcessCore(
+            recognitionImage,
+            anchorBounds,
+            featureWidth: checked(featureRadius * 2),
+            featureHeight: checked(featureRadius * 2),
+            clampToBounds: true,
+            legacyRadius: featureRadius);
+    }
+
+    /// <summary>
+    /// 按识别图宽高比例生成侧门特征。宽度和高度分别按比例计算，
+    /// 因此不会把不同宽高比的识别图强行换算成固定像素或固定正方形。
+    /// </summary>
+    /// <param name="featureRegionRatio">相对识别图宽高的比例，例如 0.12。</param>
+    /// <param name="clampToBounds">是否将中心向内挤压以保持裁剪框位于图像内。</param>
+    public SideEntranceFeatureResult Process(
+        Mat recognitionImage,
+        NormalizedRectangle anchorBounds,
+        double featureRegionRatio,
+        bool clampToBounds)
+    {
+        ArgumentNullException.ThrowIfNull(recognitionImage);
+        ArgumentNullException.ThrowIfNull(anchorBounds);
+        if (!double.IsFinite(featureRegionRatio)
+            || featureRegionRatio <= 0d
+            || featureRegionRatio > 1d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(featureRegionRatio));
+        }
+
+        var imageWidth  = recognitionImage.Width;
+        var imageHeight = recognitionImage.Height;
+        if (imageWidth < 1 || imageHeight < 1)
+            throw new ArgumentException("识别图尺寸无效。", nameof(recognitionImage));
+
+        var featureWidth = Math.Max(1, (int)Math.Round(imageWidth * featureRegionRatio));
+        var featureHeight = Math.Max(1, (int)Math.Round(imageHeight * featureRegionRatio));
+        return ProcessCore(
+            recognitionImage,
+            anchorBounds,
+            featureWidth,
+            featureHeight,
+            clampToBounds,
+            legacyRadius: (int)Math.Ceiling(Math.Max(featureWidth, featureHeight) / 2d));
+    }
+
+    private static SideEntranceFeatureResult ProcessCore(
+        Mat recognitionImage,
+        NormalizedRectangle anchorBounds,
+        int featureWidth,
+        int featureHeight,
+        bool clampToBounds,
+        int legacyRadius)
+    {
+        ArgumentNullException.ThrowIfNull(recognitionImage);
+        ArgumentNullException.ThrowIfNull(anchorBounds);
 
         var imageWidth  = recognitionImage.Width;
         var imageHeight = recognitionImage.Height;
@@ -69,20 +137,17 @@ public sealed class SideEntranceFeaturePreprocessor
         // 将归一化锚点中心换算为识别图像素坐标
         var cx = (anchorBounds.X + anchorBounds.Width  / 2d) * imageWidth;
         var cy = (anchorBounds.Y + anchorBounds.Height / 2d) * imageHeight;
-        var r  = featureRadius;
 
-        // 边界挤压：移动中心使裁剪框完全在图内
-        cx = ClampCenter(cx, r, imageWidth);
-        cy = ClampCenter(cy, r, imageHeight);
+        // 边界挤压是可选策略。关闭时保留锚点中心不变，超出图像的部分
+        // 通过边缘裁剪并补齐到目标尺寸，避免既改变中心又导致 OpenCV ROI 越界。
+        if (clampToBounds)
+        {
+            cx = ClampCenter(cx, featureWidth / 2d, imageWidth);
+            cy = ClampCenter(cy, featureHeight / 2d, imageHeight);
+        }
 
-        var left = (int)Math.Round(cx - r);
-        var top  = (int)Math.Round(cy - r);
-        // 防止浮点误差造成越界
-        left = Math.Clamp(left, 0, imageWidth  - 2 * r);
-        top  = Math.Clamp(top,  0, imageHeight - 2 * r);
-
-        var cropSize = Math.Min(2 * r, Math.Min(imageWidth, imageHeight));
-        var cropRect = new Rect(left, top, cropSize, cropSize);
+        var left = (int)Math.Round(cx - featureWidth / 2d);
+        var top  = (int)Math.Round(cy - featureHeight / 2d);
 
         // 转灰度后裁剪
         using var gray = new Mat();
@@ -91,7 +156,45 @@ public sealed class SideEntranceFeaturePreprocessor
         else
             Cv2.CvtColor(recognitionImage, gray, ColorConversionCodes.BGR2GRAY);
 
-        var feature = new Mat(gray, cropRect).Clone();
+        var imageRect = new Rect(0, 0, imageWidth, imageHeight);
+        var requestedRect = new Rect(left, top, featureWidth, featureHeight);
+        var clippedRect = requestedRect.Intersect(imageRect);
+        using var clipped = clippedRect.Width > 0 && clippedRect.Height > 0
+            ? new Mat(gray, clippedRect).Clone()
+            : new Mat();
+        var fill = Cv2.Mean(gray).Val0;
+        var feature = new Mat();
+        Cv2.CopyMakeBorder(
+            clipped,
+            feature,
+            Math.Max(0, -requestedRect.Y),
+            Math.Max(0, requestedRect.Bottom - imageHeight),
+            Math.Max(0, -requestedRect.X),
+            Math.Max(0, requestedRect.Right - imageWidth),
+            BorderTypes.Constant,
+            new Scalar(fill));
+
+        // Rounding at an image edge can leave one pixel missing from the pad.
+        // Normalize the final dimensions without changing the stored center.
+        if (feature.Width != featureWidth || feature.Height != featureHeight)
+        {
+            using var normalized = new Mat(feature, new Rect(
+                Math.Max(0, (feature.Width - featureWidth) / 2),
+                Math.Max(0, (feature.Height - featureHeight) / 2),
+                Math.Min(featureWidth, feature.Width),
+                Math.Min(featureHeight, feature.Height))).Clone();
+            feature.Dispose();
+            feature = new Mat();
+            Cv2.CopyMakeBorder(
+                normalized,
+                feature,
+                0,
+                Math.Max(0, featureHeight - normalized.Height),
+                0,
+                Math.Max(0, featureWidth - normalized.Width),
+                BorderTypes.Constant,
+                new Scalar(fill));
+        }
 
         // Every map uses the same side-gate glyph. Keeping that glyph in the
         // template makes it the strongest (and least discriminating) signal.
@@ -111,22 +214,23 @@ public sealed class SideEntranceFeaturePreprocessor
             var mean = Cv2.Mean(feature);
             Cv2.Rectangle(feature, iconRect, new Scalar(mean.Val0), -1);
         }
-        return new SideEntranceFeatureResult(feature, cx, cy, r);
+        return new SideEntranceFeatureResult(
+            feature,
+            cx,
+            cy,
+            legacyRadius,
+            featureWidth,
+            featureHeight);
     }
 
     /// <summary>
-    /// 将中心坐标平移，使 [center-r, center+r] 完全处于 [0, dimension) 内。
+    /// 将中心坐标平移，使指定半范围尽量处于 [0, dimension) 内。
     /// </summary>
-    private static double ClampCenter(double center, int radius, int dimension)
+    private static double ClampCenter(double center, double halfExtent, int dimension)
     {
-        if (center - radius < 0)
-            center = radius;
-        if (center + radius > dimension)
-            center = dimension - radius;
-        // 极端情况：图像比 2r 还小，固定在中央
-        if (center < 0)
-            center = dimension / 2d;
-        return center;
+        if (halfExtent * 2d >= dimension)
+            return dimension / 2d;
+        return Math.Clamp(center, halfExtent, dimension - halfExtent);
     }
 }
 /*

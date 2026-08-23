@@ -16,13 +16,29 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> candidates,
         string reason,
-        CancellationToken cancellationToken)
+        string mapClass,
+        CancellationToken cancellationToken,
+        bool nativeChoicesPrepared = false,
+        IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>? preloadedChoicePreviews = null,
+        MapManualCandidateWindow.CandidateLivePreviewAssets? preloadedLivePreview = null)
     {
-        var orderedCandidates = candidates
+        var scopedCandidates = candidates
+            .Where(candidate => string.Equals(
+                candidate.Recognition.Map.Class,
+                mapClass,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var orderedCandidates = scopedCandidates
             .OrderBy(candidate => candidate.IsReferenceOnly)
             .ThenBy(candidate => candidate.PreferredOrder)
             .ThenByDescending(candidate => candidate.RawConfidence)
             .ToArray();
+        // 预加载缓存以原候选顺序生成；候选窗口沿用排序后的顺序时同步重排，
+        // 避免卡片标题与预览图错位。
+        var orderedPreviews = ReorderChoicePreviews(
+            candidates,
+            orderedCandidates,
+            preloadedChoicePreviews);
         _lastCandidateChoices = orderedCandidates;
         if (_activeCandidateSelector is not null)
         {
@@ -62,8 +78,11 @@ public sealed partial class SessionOrchestrator
 
         try
         {
-            var displayChoices = await BuildNativeCandidateChoicesAsync(
-                orderedCandidates);
+            var displayChoices = nativeChoicesPrepared
+                ? orderedCandidates
+                : await BuildNativeCandidateChoicesAsync(
+                    orderedCandidates,
+                    mapClass);
             _lastCandidateChoices = displayChoices;
             var decision = await MapManualCandidateWindow.ShowAsync(
                 frame,
@@ -72,7 +91,9 @@ public sealed partial class SessionOrchestrator
                 cancellationToken,
                 _captureProtection,
                 _mapRepository,
-                frame.ViewportBounds);
+                frame.ViewportBounds,
+                orderedPreviews,
+                preloadedLivePreview);
             if (decision.Kind == MapCandidateDecisionKind.StartSurvey)
                 return new CandidateSelectionResolution(null, true);
             if (decision.Kind != MapCandidateDecisionKind.SelectKnownMap
@@ -89,6 +110,7 @@ public sealed partial class SessionOrchestrator
             _statusMessage = displayChoices[index].IsReferenceOnly
                 ? $"正在严格复核参考线索：{recognition.Map.DisplayName}……"
                 : $"用户选择了可靠候选：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
+            LockUserSelectedMapIdentity(recognition, frame);
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
@@ -108,14 +130,39 @@ public sealed partial class SessionOrchestrator
         }
     }
 
+    private static IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>?
+        ReorderChoicePreviews(
+            IReadOnlyList<MapRecognitionChoice> source,
+            IReadOnlyList<MapRecognitionChoice> ordered,
+            IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>? previews)
+    {
+        if (previews is null || previews.Count != source.Count)
+            return null;
+
+        var result = new Microsoft.UI.Xaml.Media.ImageSource?[ordered.Count];
+        for (var orderedIndex = 0; orderedIndex < ordered.Count; orderedIndex++)
+        {
+            for (var sourceIndex = 0; sourceIndex < source.Count; sourceIndex++)
+            {
+                if (!ReferenceEquals(ordered[orderedIndex], source[sourceIndex]))
+                    continue;
+                result[orderedIndex] = previews[sourceIndex];
+                break;
+            }
+        }
+        return result;
+    }
+
     private async Task<IReadOnlyList<MapRecognitionChoice>>
         BuildNativeCandidateChoicesAsync(
-            IReadOnlyList<MapRecognitionChoice> orderedCandidates)
+            IReadOnlyList<MapRecognitionChoice> orderedCandidates,
+            string mapClass)
     {
         var maps = await _mapRepository.GetMapsAsync();
         return MapCandidatePresentationRules.AppendCatalogMaps(
             orderedCandidates,
             maps,
+            mapClass,
             _mapRepository.GetFloorOverlayPath);
     }
 
@@ -149,6 +196,7 @@ public sealed partial class SessionOrchestrator
         var recognition = MapCvRecognitionService.ConfirmChoice(candidates[index]);
         _statusMessage =
             $"候选地图接口已选择：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
+        LockUserSelectedMapIdentity(recognition, frame);
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
@@ -162,6 +210,61 @@ public sealed partial class SessionOrchestrator
                 ["confidence"] = recognition.Result.Confidence
             });
         return new CandidateSelectionResolution(recognition, false);
+    }
+
+    private void LockUserSelectedMapIdentity(
+        RuntimeMapRecognition selected,
+        CapturedGameFrame frame)
+    {
+        var floorKey = selected.Result.Floor;
+        if (MapFloorRules.GetFloorProfile(selected.Map, floorKey) is null)
+            floorKey = MapFloorRules.GetPrimaryFloorKey(selected.Map);
+
+        var identityLock = new RuntimeMapRecognition
+        {
+            Map = selected.Map,
+            FloorImagePath = _mapRepository.GetFloorOverlayPath(
+                selected.Map,
+                floorKey),
+            Result = new MapRecognitionResult
+            {
+                MapId = selected.Map.Id,
+                Floor = floorKey,
+                Confidence = selected.Result.Confidence,
+                IdentityConfidence = 1d,
+                LocalizationConfidence = 0d,
+                Source = MapRecognitionSource.UserConfirmed
+            }
+        };
+
+        _lastRecognition = identityLock;
+        _pendingAlignmentIdentity = identityLock;
+        _mapLease.Bind(_matchSession.Snapshot, identityLock.Map.Id);
+        _mapOpenSession.LockMapIdentity(
+            identityLock.Map.Id,
+            floorKey,
+            identityLock.Result.IdentityConfidence);
+        _currentFloorKey = floorKey;
+        _lastGameBounds = frame.ClientBounds;
+        _lastGameWindowHandle = frame.WindowHandle;
+        _statusMessage =
+            $"已锁定所选地图：{identityLock.Map.DisplayName} · "
+            + $"{floorKey.ToUpperInvariant()}；正在首次对齐……";
+        RefreshMiniMapForCurrentFloor();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+
+        _logCollector.Append(
+            MapLogCategory.Session,
+            MapLogLevel.Info,
+            $"用户选择后已立即锁定地图身份 · map={identityLock.Map.DisplayName} "
+            + $"· floor={floorKey}",
+            details: new()
+            {
+                ["mapId"] = identityLock.Map.Id,
+                ["floor"] = floorKey,
+                ["identityLocked"] = true,
+                ["alignmentPending"] = true
+            });
     }
 }
 /*

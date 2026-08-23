@@ -8,6 +8,35 @@ public sealed partial class SessionOrchestrator
     private long _adaptiveFrameId;
     private AdaptiveScaleKey? _lastReliableAdaptiveKey;
     private AdaptiveScaleKey? _primaryFloorAdaptiveKey;
+    private readonly object _manualFloorScaleLockGate = new();
+    private readonly Dictionary<ManualFloorScaleLockKey, double>
+        _manualFloorScaleLocks = [];
+
+    private readonly record struct ManualFloorScaleLockKey(
+        Guid MatchId,
+        Guid MapId,
+        long MapUpdatedAtTicks,
+        string FloorKey,
+        int ClientWidth,
+        int ClientHeight,
+        int ViewportWidth,
+        int ViewportHeight)
+    {
+        public static ManualFloorScaleLockKey Create(
+            MapMatchSnapshot match,
+            MapRecord map,
+            string floorKey,
+            MapCacheResolutionSignature resolution) =>
+            new(
+                match.MatchId,
+                map.Id,
+                map.UpdatedAt.UtcTicks,
+                AdaptiveScaleKey.NormalizeFloor(floorKey),
+                resolution.ClientWidth,
+                resolution.ClientHeight,
+                resolution.ViewportWidth,
+                resolution.ViewportHeight);
+    }
 
     private void InitializeAdaptiveScale()
     {
@@ -30,6 +59,12 @@ public sealed partial class SessionOrchestrator
         MapScanDiagnostics? diagnostics,
         MapFeatureCacheSource? explicitSource = null)
     {
+        // Manual runtime-scale locking is independent from adaptive-scale
+        // arbitration, but it still needs the exact capture geometry so that
+        // a lock cannot leak into another resolution. Record that context for
+        // every accepted alignment, including provisional/disabled adaptive
+        // results that are intentionally excluded from automatic cache writes.
+        RememberAlignmentCaptureContext(frame);
         var source = explicitSource ?? ResolveLegacyScaleSource(recognition, frame);
         var evidence = CreateAdaptiveInitialEvidence(recognition, diagnostics);
         return Task.FromResult(_adaptiveScale.EvaluateInitial(
@@ -58,7 +93,10 @@ public sealed partial class SessionOrchestrator
         }
         return new AdaptiveScaleInitialEvidence(
             Interlocked.Increment(ref _adaptiveFrameId),
-            CreateEffectiveStructureTuning().MinimumCandidateMargin,
+            CreateStructureTuningForFloor(
+                recognition.Map,
+                recognition.Result.Floor,
+                CreateEffectiveStructureTuning()).MinimumCandidateMargin,
             recognition.Result.EvidenceKind == MapAlignmentEvidenceKind.Structure
                 && !recognition.Result.ReusedLastTransform
                 && !recognition.Result.SkippedStructureValidation
@@ -78,7 +116,7 @@ public sealed partial class SessionOrchestrator
         var resolution = GetResolution(frame);
         if (!resolution.IsSupported)
             return null;
-        var key = MapFeatureCacheRules.CreateKey(
+        var key = CreateAlignmentCacheKey(
             recognition.Map,
             recognition.Result.Floor,
             resolution);
@@ -135,6 +173,38 @@ public sealed partial class SessionOrchestrator
         _primaryFloorAdaptiveKey = null;
     }
 
+    private async Task ResetAdaptiveScaleAfterSteadyRecoveryAsync(
+        CapturedGameFrame frame,
+        MapRecord map,
+        string floorKey)
+    {
+        var key = CreateAdaptiveScaleKey(frame, map, floorKey);
+        try
+        {
+            await _adaptiveScale.ResetForScaleRecoveryAsync(key);
+        }
+        catch (Exception exception)
+        {
+            // ResetAsync clears the in-memory store before persisting.  Keep
+            // rendering the recovered result, but retain a diagnostic if the
+            // stale on-disk entry could not be removed for the next process.
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Warning,
+                $"Steady 尺度恢复后的自适应基线持久化重置失败 · floor={floorKey}",
+                details: new()
+                {
+                    ["mapId"] = map.Id,
+                    ["floor"] = floorKey,
+                    ["exception"] = exception.GetBaseException().Message
+                });
+        }
+        if (_lastReliableAdaptiveKey == key)
+            _lastReliableAdaptiveKey = null;
+        if (_primaryFloorAdaptiveKey == key)
+            _primaryFloorAdaptiveKey = null;
+    }
+
     private bool IsAdaptiveTransformConfirmed(
         OrbTrackingContext context,
         MapOverlayTransform transform) =>
@@ -151,6 +221,57 @@ public sealed partial class SessionOrchestrator
             key,
             _gameMapToggleState.Version,
             scale);
+
+    private bool RememberManualFloorScaleLock(
+        RuntimeMapRecognition recognition,
+        double scale)
+    {
+        var match = _matchSession.Snapshot;
+        if (!match.IsStarted
+            || !double.IsFinite(scale)
+            || scale <= 0d
+            || _lastAlignmentResolution is not { } resolution)
+        {
+            return false;
+        }
+
+        var key = ManualFloorScaleLockKey.Create(
+            match,
+            recognition.Map,
+            recognition.Result.Floor,
+            resolution);
+        lock (_manualFloorScaleLockGate)
+            _manualFloorScaleLocks[key] = scale;
+        return true;
+    }
+
+    private bool TryGetManualFloorScaleLock(
+        MapMatchSnapshot match,
+        CapturedGameFrame frame,
+        MapRecord map,
+        string floorKey,
+        out double scale)
+    {
+        if (!match.IsStarted)
+        {
+            scale = 0d;
+            return false;
+        }
+
+        var key = ManualFloorScaleLockKey.Create(
+            match,
+            map,
+            floorKey,
+            GetResolution(frame));
+        lock (_manualFloorScaleLockGate)
+            return _manualFloorScaleLocks.TryGetValue(key, out scale);
+    }
+
+    private void ClearManualFloorScaleLocks()
+    {
+        lock (_manualFloorScaleLockGate)
+            _manualFloorScaleLocks.Clear();
+    }
 
     private bool IsAdaptiveScaleEnabled => _adaptiveScale.Enabled;
 
@@ -213,7 +334,10 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition recognition,
         long frameId)
     {
-        var margin = CreateEffectiveStructureTuning().MinimumCandidateMargin;
+        var margin = CreateStructureTuningForFloor(
+            recognition.Map,
+            recognition.Result.Floor,
+            CreateEffectiveStructureTuning()).MinimumCandidateMargin;
         var observed = _adaptiveScale.EvaluateStructureObservation(
             context.AdaptiveKey,
             context.Toggle.Version,

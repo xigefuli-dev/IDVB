@@ -6,6 +6,22 @@ namespace IDVBuff.Tests;
 
 public sealed class MapVpsgScaleEstimatorTests
 {
+    [Theory]
+    [InlineData(13, 0.84d, false)]
+    [InlineData(13, 0.85d, true)]
+    [InlineData(14, 0.70d, true)]
+    public void HighConfidenceCanBypassPairVoteTarget(
+        int pairVotes,
+        double confidence,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MapVpsgScaleEstimator.HasSufficientPairEvidence(
+                pairVotes,
+                confidence));
+    }
+
     [Fact]
     public void AkazeScaleGraphRecoversScaleWithoutTrustingWrongFloorPrior()
     {
@@ -113,6 +129,96 @@ public sealed class MapVpsgScaleEstimatorTests
     }
 
     [Fact]
+    public void AkazeScaleComesFromMatchedContentInsteadOfCanvasDimensions()
+    {
+        const double expectedScale = 0.46d;
+        var referencePoints = Enumerable.Range(0, 24)
+            .Select(index => new KeyPoint(
+                90f + ((index % 6) * 150f),
+                80f + ((index / 6) * 140f),
+                12f,
+                response: 1f))
+            .ToArray();
+        var livePoints = referencePoints
+            .Select(point => new KeyPoint(
+                (float)((point.Pt.X * expectedScale) + 24d),
+                (float)((point.Pt.Y * expectedScale) + 31d),
+                point.Size,
+                response: point.Response))
+            .ToArray();
+        var descriptors = CreateUniqueDescriptors(referencePoints.Length);
+        using var reference = CreateFeatures(
+            new Size(1200, 900),
+            referencePoints,
+            descriptors);
+        using var compactCanvas = CreateFeatures(
+            new Size(500, 400),
+            livePoints,
+            descriptors);
+        using var oversizedCanvas = CreateFeatures(
+            new Size(1700, 1300),
+            livePoints,
+            descriptors);
+        var graph = MapVpsgScaleGraphCache.Build(
+            reference.Edges.Size(),
+            referencePoints);
+        var estimator = new MapVpsgScaleEstimator();
+
+        Assert.True(estimator.TryEstimate(
+            reference,
+            compactCanvas,
+            graph,
+            priorScale: 1d,
+            out var compact,
+            out var compactRejection), compactRejection);
+        Assert.True(estimator.TryEstimate(
+            reference,
+            oversizedCanvas,
+            graph,
+            priorScale: 1d,
+            out var oversized,
+            out var oversizedRejection), oversizedRejection);
+
+        Assert.InRange(compact!.Scale, 0.458d, 0.462d);
+        Assert.InRange(oversized!.Scale, 0.458d, 0.462d);
+        Assert.Equal(compact.Scale, oversized.Scale, 9);
+    }
+
+    [Fact]
+    public void PreprocessedImageContentRecoversSubHalfScale()
+    {
+        const double expectedScale = 0.46d;
+        using var referenceImage = BuildFeatureRichImage(1000, 700);
+        using var liveImage = new Mat();
+        Cv2.Resize(
+            referenceImage,
+            liveImage,
+            new Size(
+                (int)Math.Round(referenceImage.Width * expectedScale),
+                (int)Math.Round(referenceImage.Height * expectedScale)),
+            interpolation: InterpolationFlags.Area);
+        var preprocessor = new MapStructurePreprocessor();
+        using var reference = preprocessor.Process(referenceImage);
+        using var live = preprocessor.ProcessLiveRoiAkaze(liveImage);
+        var graph = MapVpsgScaleGraphCache.Build(
+            reference.Edges.Size(),
+            reference.KeyPoints);
+
+        var succeeded = new MapVpsgScaleEstimator().TryEstimate(
+            reference,
+            live,
+            graph,
+            priorScale: 1d,
+            out var estimate,
+            out var rejection);
+
+        Assert.True(succeeded, rejection);
+        Assert.InRange(reference.KeyPoints.Length, 10, int.MaxValue);
+        Assert.InRange(live.KeyPoints.Length, 10, int.MaxValue);
+        Assert.InRange(estimate!.Scale, 0.44d, 0.48d);
+    }
+
+    [Fact]
     public void AkazeScaleGraphRejectsInsufficientMatches()
     {
         var points = Enumerable.Range(0, 8)
@@ -183,6 +289,55 @@ public sealed class MapVpsgScaleEstimatorTests
                 descriptorSize));
         }
         return values;
+    }
+
+    private static Mat BuildFeatureRichImage(int width, int height)
+    {
+        var image = new Mat(
+            new Size(width, height),
+            MatType.CV_8UC3,
+            new Scalar(18d, 18d, 18d));
+        var random = new Random(0x1D0B);
+        for (var index = 0; index < 80; index++)
+        {
+            var center = new Point(
+                random.Next(35, width - 35),
+                random.Next(35, height - 35));
+            var gray = random.Next(90, 245);
+            var color = new Scalar(gray, gray, gray);
+            if ((index & 1) == 0)
+            {
+                Cv2.Circle(
+                    image,
+                    center,
+                    random.Next(6, 22),
+                    color,
+                    random.Next(2, 6));
+            }
+            else
+            {
+                var halfWidth = random.Next(7, 24);
+                var halfHeight = random.Next(7, 24);
+                Cv2.Rectangle(
+                    image,
+                    new Rect(
+                        center.X - halfWidth,
+                        center.Y - halfHeight,
+                        halfWidth * 2,
+                        halfHeight * 2),
+                    color,
+                    random.Next(2, 6));
+            }
+            Cv2.Line(
+                image,
+                center,
+                new Point(
+                    Math.Clamp(center.X + random.Next(-45, 46), 0, width - 1),
+                    Math.Clamp(center.Y + random.Next(-45, 46), 0, height - 1)),
+                color,
+                2);
+        }
+        return image;
     }
 
     private static MapStructureFeatures CreateFeatures(

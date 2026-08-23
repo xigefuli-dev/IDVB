@@ -424,6 +424,12 @@ public sealed class MapScanDiagnostics
     // ── Initial/Steady alignment acceptance diagnostics ──
     public string AlignmentClass { get; set; } = string.Empty;
     public string AlignmentContextKey { get; set; } = string.Empty;
+    public string AlignmentChannel { get; set; } = "standard";
+    public string FloorMarkerKeys { get; set; } = string.Empty;
+    public string AlignmentConfigFingerprint { get; set; } = string.Empty;
+    public int LowStructureEvidenceCount { get; set; }
+    public int LowStructureEvidenceRequired { get; set; } = 1;
+    public bool LowStructureEvidencePending { get; set; }
     public bool WarmStateHit { get; set; }
     public string WarmStateMissReason { get; set; } = string.Empty;
     public double InputToFirstCaptureMilliseconds { get; set; }

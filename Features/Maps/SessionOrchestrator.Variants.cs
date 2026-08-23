@@ -111,6 +111,7 @@ public sealed partial class SessionOrchestrator
             {
                 _reliableFloorAlignments.Clear();
             }
+            ClearManualFloorScaleLocks();
 
             _lastRecognition = null;
             _lastAlignmentSession = null;
@@ -126,6 +127,7 @@ public sealed partial class SessionOrchestrator
             var currentMatch = _matchSession.Snapshot;
             _mapLease.Bind(currentMatch, targetMap.Id);
             _mapOpenSession.BeginVariantChange(targetMap.Id, targetFloor);
+            RefreshMiniMapForCurrentFloor();
             _statusMessage = $"已切换到 {targetMap.DisplayName}，等待重新对齐。";
             _logCollector.Append(
                 MapLogCategory.Session,

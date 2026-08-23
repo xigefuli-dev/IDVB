@@ -40,7 +40,12 @@ public sealed partial class IdvmPackageService
             && parsedHeader.MinorVersion == 1
             && manifest.FormatVersion == "1.1"
             && manifest.MinimumReader == "1.1";
-        if (manifest.Format != "idvm" || (!isVersion10 && !isVersion11)
+        var isVersion12 = parsedHeader.MajorVersion == 1
+            && parsedHeader.MinorVersion == 2
+            && manifest.FormatVersion == "1.2"
+            && manifest.MinimumReader == "1.2";
+        if (manifest.Format != "idvm"
+            || (!isVersion10 && !isVersion11 && !isVersion12)
             || manifest.PackageType != "class-set")
         {
             throw new InvalidDataException("不支持的 IDVM 格式或读取器版本。");
@@ -49,6 +54,8 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException("IDVM 1.0 包不能声明变体组合。");
         if (isVersion11 && !manifest.Capabilities.VariantGroups)
             throw new InvalidDataException("IDVM 1.1 包必须声明 variantGroups 能力。");
+        if (isVersion12 && !manifest.Capabilities.FloorMarkerKeys)
+            throw new InvalidDataException("IDVM 1.2 包必须声明 floorMarkerKeys 能力。");
         if (manifest.PackageId == Guid.Empty || manifest.PackageId != parsedHeader.PackageId)
             throw new InvalidDataException("header 与 manifest 的 packageId 不一致。");
         if (manifest.CreatedAt.ToUnixTimeMilliseconds() != parsedHeader.CreatedAtUnixMilliseconds)
@@ -78,11 +85,13 @@ public sealed partial class IdvmPackageService
         if (!actualFiles.SetEquals(declaredPaths))
             throw new InvalidDataException("manifest 文件清单与包内容不一致。");
 
-        ValidateManifestRelationships(manifest);
+        ValidateManifestRelationships(manifest, isVersion12);
         return manifest;
     }
 
-    private static void ValidateManifestRelationships(ManifestDto manifest)
+    private static void ValidateManifestRelationships(
+        ManifestDto manifest,
+        bool allowMarkers)
     {
         var classIds = new HashSet<Guid>();
         var classNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -106,7 +115,7 @@ public sealed partial class IdvmPackageService
             var expectedRoot = $"maps/{map.MapId:N}";
             if (!string.Equals(map.Root, expectedRoot, StringComparison.Ordinal))
                 throw new InvalidDataException($"地图 {map.MapId} 的资源根路径无效。");
-            ValidateFloors(map.Floors, expectedRoot);
+            ValidateFloors(map.Floors, expectedRoot, allowMarkers);
         }
         foreach (var item in manifest.Classes)
         {
@@ -161,7 +170,10 @@ public sealed partial class IdvmPackageService
         }
     }
 
-    private static void ValidateFloors(IReadOnlyList<ManifestFloorDto> floors, string root)
+    private static void ValidateFloors(
+        IReadOnlyList<ManifestFloorDto> floors,
+        string root,
+        bool allowMarkers)
     {
         if (floors.Count == 0)
             throw new InvalidDataException("地图必须至少包含一个楼层。");
@@ -172,6 +184,7 @@ public sealed partial class IdvmPackageService
             if (!IsSafeIdentifier(floor.Key) || !keys.Add(floor.Key)
                 || string.IsNullOrWhiteSpace(floor.DisplayName) || floor.SortOrder != index + 1)
                 throw new InvalidDataException("地图包含无效的楼层 ID、名称或顺序。");
+            ValidateMarkerKeys(floor.MarkerKeys, allowMarkers);
             ValidateLogicalPath(floor.Image);
             if (!floor.Image.StartsWith($"{root}/maps/", StringComparison.Ordinal)
                 || !MapRepository.IsSupportedImage(floor.Image))
@@ -183,14 +196,20 @@ public sealed partial class IdvmPackageService
         ManifestMapDto map,
         MetadataDto metadata,
         GatesDto gates,
-        AnchorsDto anchors)
+        AnchorsDto anchors,
+        bool requireFloorMarkerSchema)
     {
         if (metadata.Map is null || metadata.Floors is null || metadata.Recognition?.WholeImage is null
             || gates.Gates is null || anchors.Floors is null)
             throw new InvalidDataException("地图数据文件缺少必需对象或数组。");
-        if (metadata.SchemaVersion != 1 || gates.SchemaVersion != 1
+        if (metadata.SchemaVersion is not (1 or 2) || gates.SchemaVersion != 1
             || anchors.SchemaVersion is not (1 or 2 or 3 or 4))
             throw new InvalidDataException("不支持的数据 schemaVersion。");
+        if (requireFloorMarkerSchema && metadata.SchemaVersion != 2)
+        {
+            throw new InvalidDataException(
+                "IDVM 1.2 地图 metadata 必须使用 schemaVersion 2。");
+        }
         if (metadata.Map.Id != map.MapId || metadata.Map.ClassId != map.ClassId
             || metadata.Map.CoordinateSystem != "normalized-top-left-y-down"
             || string.IsNullOrWhiteSpace(metadata.Map.Title))
@@ -204,12 +223,16 @@ public sealed partial class IdvmPackageService
             var floor = metadata.Floors[index];
             if (floor.Key != declared.Key || floor.DisplayName != declared.DisplayName
                 || floor.SortOrder != declared.SortOrder || floor.Image != declared.Image
+                || !MapFloorMarkerRules.Normalize(floor.MarkerKeys).SequenceEqual(
+                    MapFloorMarkerRules.Normalize(declared.MarkerKeys),
+                    StringComparer.Ordinal)
                 || floor.ImageWidth <= 0 || floor.ImageHeight <= 0
                 || floor.OrientationDegrees is not (0 or 90 or 180 or 270)
                 || !anchors.Floors.ContainsKey(floor.Key))
             {
                 throw new InvalidDataException($"地图 {map.MapId} 的楼层 metadata 无效。");
             }
+            ValidateMarkerKeys(floor.MarkerKeys, metadata.SchemaVersion == 2);
             ValidateRectangle(floor.RecognitionRegion, allowNull: true, "recognitionRegion");
             ValidateRectangle(floor.ValidMapBounds, allowNull: false, "validMapBounds");
             if (!string.IsNullOrWhiteSpace(floor.RecognitionImage))
@@ -426,6 +449,23 @@ public sealed partial class IdvmPackageService
         {
             throw new InvalidDataException("文字标注样式无效。");
         }
+    }
+
+    private static void ValidateMarkerKeys(
+        IReadOnlyList<string>? markerKeys,
+        bool allowMarkers)
+    {
+        if (markerKeys is null)
+            throw new InvalidDataException("楼层 markerKeys 必须为数组。");
+        if (!allowMarkers && markerKeys.Count != 0)
+            throw new InvalidDataException("IDVM 旧版本不能声明楼层 markerKeys。");
+        if (markerKeys.Count > 32
+            || markerKeys.Any(key => !MapFloorMarkerRules.IsValid(key)))
+            throw new InvalidDataException("楼层 markerKeys 包含非法标记。");
+        if (!MapFloorMarkerRules.Normalize(markerKeys).SequenceEqual(
+                markerKeys,
+                StringComparer.Ordinal))
+            throw new InvalidDataException("楼层 markerKeys 必须小写、去重并稳定排序。");
     }
 
     private static void ValidatePoint(PointDto? point, string name)

@@ -21,7 +21,6 @@ public sealed partial class MainPage : Page
     private static readonly TimeSpan MainContentEnterDuration = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DetailFeedbackDuration = TimeSpan.FromMilliseconds(100);
     private const double CompactNavigationWidth = 68d;
-    private static readonly Color CompactNavigationIconColor = Color.FromArgb(255, 0x5B, 0x6B, 0x7A);
 
     private readonly ModuleCatalog _catalog = ModuleRegistration.CreateCatalog();
     private readonly IReadOnlyList<NavigationNode> _navigationNodes = ModuleRegistration.CreateNavigation();
@@ -31,11 +30,12 @@ public sealed partial class MainPage : Page
     private bool _selectionIndicatorPositioned;
     private bool _navigationLayoutRefreshPending;
     private NavigationEntry? _hoveredNavigationEntry;
+    private bool _navigationHoverIndicatorShown;
     private bool _navigationIsCompact;
+    private bool _navigationCompactPreference;
+    private readonly ShellLayoutMemory _layoutMemory = ShellLayoutMemory.Load();
     private bool _hasSavedNavigationWidth;
     private GridLength _savedNavigationWidth;
-    private readonly Dictionary<SymbolIcon, Brush?> _navigationIconForegrounds = [];
-    private readonly Dictionary<FontIcon, Brush?> _navigationFontIconForegrounds = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationRowElements = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationExpansionGlyphElements = [];
     private readonly Dictionary<NavigationEntry, ItemsControl> _navigationChildrenElements = [];
@@ -47,10 +47,19 @@ public sealed partial class MainPage : Page
         RootSurface.Background = FluentTheme.WindowBrush();
         foreach (var entry in NavigationEntry.CreateRoots(_navigationNodes))
             NavigationItems.Add(entry);
+        HelpNavigationItem = CreateFooterNavigationEntry("帮助", Symbol.Help, "help");
+        MainSettingsNavigationItem = CreateFooterNavigationEntry("主设置", Symbol.Setting, "main-settings");
+        _navigationCompactPreference = _layoutMemory.NavigationCompact;
+        ApplyInitialNavigationCompactPreference();
         Loaded += MainPage_Loaded;
     }
 
     public ObservableCollection<NavigationEntry> NavigationItems { get; } = [];
+    public NavigationEntry HelpNavigationItem { get; }
+    public NavigationEntry MainSettingsNavigationItem { get; }
+
+    private static NavigationEntry CreateFooterNavigationEntry(string name, Symbol icon, string moduleId) =>
+        new(new NavigationNode(name, icon, moduleId), parent: null);
 
     private void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
@@ -73,6 +82,14 @@ public sealed partial class MainPage : Page
         }
         else if (entry.Node.Children.Count > 0)
         {
+            if (_navigationIsCompact && TryNavigateToNextCompactChild(entry))
+                return;
+
+            // The pointer remains over the parent after the click, so no
+            // PointerExited event is raised.  Keeping its hover indicator while
+            // the selected child becomes visible makes the two 40px indicators
+            // overlap and look like one selection stopped between rows.
+            HideNavigationHoverIndicator();
             entry.Node.ToggleExpanded();
             AnimateNavigationExpansion(entry);
         }
@@ -164,14 +181,8 @@ public sealed partial class MainPage : Page
         children.OpacityTransition = null;
         children.TranslationTransition = null;
         children.Opacity = entry.Node.IsExpanded ? 1d : 0d;
-        children.Translation = entry.Node.IsExpanded
-            ? Vector3.Zero
-            : new Vector3(0f, -8f, 0f);
+        children.Translation = Vector3.Zero;
         children.OpacityTransition = new ScalarTransition
-        {
-            Duration = NavigationExpansionDuration
-        };
-        children.TranslationTransition = new Vector3Transition
         {
             Duration = NavigationExpansionDuration
         };
@@ -218,7 +229,7 @@ public sealed partial class MainPage : Page
         {
             children.Visibility = Visibility.Collapsed;
             children.Opacity = 0d;
-            children.Translation = new Vector3(0f, -8f, 0f);
+            children.Translation = Vector3.Zero;
             return;
         }
 
@@ -229,9 +240,10 @@ public sealed partial class MainPage : Page
         }
 
         children.Opacity = entry.Node.IsExpanded ? 1d : 0d;
-        children.Translation = entry.Node.IsExpanded
-            ? Vector3.Zero
-            : new Vector3(0f, -8f, 0f);
+        // Keep child rows in their final coordinate space throughout expansion.
+        // TransformToVisual is also used to position the selection indicator;
+        // animating this translation made it capture the transient -8px offset.
+        children.Translation = Vector3.Zero;
 
         if (!entry.Node.IsExpanded)
         {
@@ -264,17 +276,34 @@ public sealed partial class MainPage : Page
             return;
 
         _hoveredNavigationEntry = entry;
+        var shouldFadeInAtTarget = !_navigationHoverIndicatorShown;
         if (TryAnimateNavigationIndicator(
                 NavigationHoverIndicator,
                 entry,
-                NavigationHoverEnterDuration))
+                shouldFadeInAtTarget ? null : NavigationHoverEnterDuration))
         {
             AnimateNavigationIndicatorOpacity(1f, NavigationHoverEnterDuration);
+            _navigationHoverIndicatorShown = true;
         }
     }
 
-    private void Navigation_PointerExited(object sender, PointerRoutedEventArgs e) =>
+    private void Navigation_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        // PointerExited is raised by the individual list/footer hosts as the
+        // pointer moves between them. Keep the hover indicator alive while it
+        // remains anywhere inside the navigation surface, so row-to-row motion
+        // still uses its normal translation animation.
+        var position = e.GetCurrentPoint(NavigationSurface).Position;
+        if (position.X >= 0d
+            && position.X <= NavigationSurface.ActualWidth
+            && position.Y >= 0d
+            && position.Y <= NavigationSurface.ActualHeight)
+        {
+            return;
+        }
+
         HideNavigationHoverIndicator();
+    }
 
     private NavigationEntry? TryGetNavigationEntry(DependencyObject? source)
     {
@@ -359,44 +388,42 @@ public sealed partial class MainPage : Page
 
         if (compact)
         {
-            _savedNavigationWidth = NavigationColumn.Width;
-            _hasSavedNavigationWidth = true;
-            _navigationIsCompact = true;
-
-            foreach (var row in _navigationRowElements.Values.ToArray())
-                ApplyNavigationRowLayout(row);
-            foreach (var children in _navigationChildrenElements.Values)
+            if (!_hasSavedNavigationWidth)
             {
-                children.Visibility = Visibility.Collapsed;
-                children.Opacity = 0d;
-                children.Translation = new Vector3(0f, -8f, 0f);
+                _savedNavigationWidth = NavigationColumn.Width;
+                _hasSavedNavigationWidth = true;
             }
-
-            NavigationColumn.Width = new GridLength(CompactNavigationWidth);
+            _navigationIsCompact = true;
+            PrepareNavigationResizeAnimation(compact);
+            AnimateNavigationColumnWidth(CompactNavigationWidth);
         }
         else
         {
             _navigationIsCompact = false;
-            NavigationColumn.Width = _hasSavedNavigationWidth
+            var expandedWidth = _hasSavedNavigationWidth
                 ? _savedNavigationWidth
                 : new GridLength(250d);
-            _hasSavedNavigationWidth = false;
-
-            foreach (var row in _navigationRowElements.Values.ToArray())
-                ApplyNavigationRowLayout(row);
-            foreach (var (entry, children) in _navigationChildrenElements)
-            {
-                children.Visibility = entry.Node.IsExpanded
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-                children.Opacity = entry.Node.IsExpanded ? 1d : 0d;
-                children.Translation = entry.Node.IsExpanded
-                    ? Vector3.Zero
-                    : new Vector3(0f, -8f, 0f);
-            }
+            PrepareNavigationResizeAnimation(compact);
+            AnimateNavigationColumnWidth(expandedWidth.Value);
         }
 
+        UpdateNavigationCompactButtonAccessibility();
         QueueNavigationLayoutRefreshAfterCompactChange();
+    }
+
+    private void ApplyInitialNavigationCompactPreference()
+    {
+        if (!_navigationCompactPreference)
+            return;
+
+        // Apply the remembered state before the page is first rendered.  Calling
+        // SetNavigationCompact from Loaded would briefly expose the expanded bar.
+        _navigationIsCompact = true;
+        _savedNavigationWidth = NavigationColumn.Width;
+        _hasSavedNavigationWidth = true;
+        NavigationColumn.Width = new GridLength(CompactNavigationWidth);
+        UpdateNavigationChromeOpacity(0d);
+        UpdateNavigationCompactButtonAccessibility();
     }
 
     private void QueueNavigationLayoutRefreshAfterCompactChange()
@@ -433,14 +460,14 @@ public sealed partial class MainPage : Page
         contentGrid.Margin = compact
             ? new Thickness(0)
             : entry.Parent is null
-                ? new Thickness(12, 0, 0, 0)
+                ? new Thickness(0)
                 : new Thickness(38, 0, 0, 0);
 
         if (contentGrid.ColumnDefinitions.Count >= 3)
         {
             contentGrid.ColumnDefinitions[0].Width = compact
                 ? new GridLength(1, GridUnitType.Star)
-                : new GridLength(26);
+                : new GridLength(60);
             contentGrid.ColumnDefinitions[1].Width = compact
                 ? new GridLength(0)
                 : new GridLength(1, GridUnitType.Star);
@@ -451,41 +478,25 @@ public sealed partial class MainPage : Page
 
         foreach (var icon in FindDescendants<SymbolIcon>(contentGrid))
         {
-            if (compact)
-            {
-                if (!_navigationIconForegrounds.ContainsKey(icon))
-                    _navigationIconForegrounds[icon] = icon.Foreground;
-                icon.Foreground = new SolidColorBrush(CompactNavigationIconColor);
-            }
-            else if (_navigationIconForegrounds.Remove(icon, out var originalForeground))
-            {
-                icon.Foreground = originalForeground;
-            }
-
             icon.HorizontalAlignment = compact
                 ? HorizontalAlignment.Center
-                : HorizontalAlignment.Left;
+                : entry.Parent is null
+                    ? HorizontalAlignment.Center
+                    : HorizontalAlignment.Left;
         }
 
         foreach (var icon in FindDescendants<FontIcon>(contentGrid))
         {
-            if (compact)
-            {
-                if (!_navigationFontIconForegrounds.ContainsKey(icon))
-                    _navigationFontIconForegrounds[icon] = icon.Foreground;
-                icon.Foreground = new SolidColorBrush(CompactNavigationIconColor);
-            }
-            else if (_navigationFontIconForegrounds.Remove(icon, out var originalForeground))
-            {
-                icon.Foreground = originalForeground;
-            }
-
             icon.HorizontalAlignment = compact
                 ? HorizontalAlignment.Center
-                : HorizontalAlignment.Left;
+                : entry.Parent is null
+                    ? HorizontalAlignment.Center
+                    : HorizontalAlignment.Left;
         }
 
-        foreach (var textBlock in FindDescendants<TextBlock>(contentGrid))
+        // Only hide the navigation row's own labels. Recursing into the icon
+        // control templates also finds their glyph TextBlocks and erases them.
+        foreach (var textBlock in contentGrid.Children.OfType<TextBlock>())
         {
             textBlock.Visibility = compact
                 ? Visibility.Collapsed
@@ -588,6 +599,7 @@ public sealed partial class MainPage : Page
     private void HideNavigationHoverIndicator()
     {
         _hoveredNavigationEntry = null;
+        _navigationHoverIndicatorShown = false;
         AnimateNavigationIndicatorOpacity(0f, NavigationHoverExitDuration);
     }
 
@@ -602,15 +614,17 @@ public sealed partial class MainPage : Page
 
     private void NavigateTo(string moduleId, NavigationEntry? navigationEntry = null)
     {
-        SetNavigationCompact(false);
+        SetNavigationCompact(_navigationCompactPreference);
 
         if (navigationEntry is not null)
         {
             _selectedNavigationEntry = navigationEntry;
+            var visibleSelectionTarget = GetVisibleNavigationEntry(navigationEntry)
+                ?? navigationEntry;
             if (_selectionIndicatorPositioned)
-                QueueSelectionIndicatorAnimation(navigationEntry);
+                QueueSelectionIndicatorAnimation(visibleSelectionTarget);
             else
-                QueueInitialNavigationIndicatorPosition(navigationEntry);
+                QueueInitialNavigationIndicatorPosition(visibleSelectionTarget);
         }
 
         var animateMainContent = true;
@@ -618,14 +632,15 @@ public sealed partial class MainPage : Page
         {
             var view = _catalog.GetRequired(moduleId).CreateView();
             ModuleContentHost.Content = view;
+            ConfigureMainContentScrolling(view);
             // TeachingTip performs native popup placement from its target's visual.
             // Keep pages that host targeted tips out of the translated composition
             // chain; MapListPage already uses this stable path for its import tip.
-            animateMainContent = view is not MapListPage and not SettingsPage and not PluginsPage;
+            animateMainContent = true;
             if (view is MapListPage mapListPage)
             {
                 mapListPage.ParentScrollViewer = MainContentHost;
-                mapListPage.NavigationCompactStateChanged = SetNavigationCompact;
+                mapListPage.NavigationCompactStateChanged = SetEditorNavigationCompact;
             }
         }
         catch (Exception exception)
@@ -650,73 +665,7 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private static FrameworkElement CreateModuleFailureView(
-        string moduleId,
-        Exception exception) =>
-        new StackPanel
-        {
-            Margin = new Thickness(48, 42, 48, 72),
-            Spacing = 14,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = "页面加载失败",
-                    FontSize = 29,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-                },
-                new TextBlock
-                {
-                    Text = $"模块 {moduleId} 初始化失败，应用其余功能仍可继续使用。",
-                    TextWrapping = TextWrapping.Wrap
-                },
-                new Border
-                {
-                    Background = new SolidColorBrush(
-                        Color.FromArgb(32, 255, 72, 72)),
-                    CornerRadius = new CornerRadius(6),
-                    Padding = new Thickness(12),
-                    Child = new TextBlock
-                    {
-                        Text = $"{exception.GetType().Name}: {exception.Message}",
-                        TextWrapping = TextWrapping.Wrap
-                    }
-                }
-            }
-        };
-
-    private static void TryLogModuleFailure(
-        string moduleId,
-        Exception exception,
-        string stage = "create-view")
-    {
-        try
-        {
-            App.Session.LogCollector.Append(
-                MapLogCategory.System,
-                MapLogLevel.Error,
-                $"Module '{moduleId}' failed to create its view: {exception.Message}",
-                details: new()
-                {
-                    ["moduleId"] = moduleId,
-                    ["stage"] = stage,
-                    ["exceptionType"] = exception.GetType().FullName
-                        ?? exception.GetType().Name
-                });
-        }
-        catch (Exception loggingException)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"Module view failure could not be logged: {loggingException}");
-        }
-    }
-
     private void Settings_Click(object sender, RoutedEventArgs e) => NavigateTo("settings");
-
-    private void Back_Click(object sender, RoutedEventArgs e)
-    {
-        NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
-    }
 
     private void PlayMainContentEnterAnimation()
     {
@@ -724,8 +673,10 @@ public sealed partial class MainPage : Page
         var visual = ElementCompositionPreview.GetElementVisual(MainContentHost);
         visual.StopAnimation("Opacity");
         visual.StopAnimation("Translation");
+        visual.StopAnimation("Scale");
         visual.Opacity = 0;
-        MainContentHost.Translation = Vector3.Zero;
+        visual.Scale = Vector3.One;
+        MainContentHost.Translation = new Vector3(0f, 14f, 0f);
 
         var opacity = visual.Compositor.CreateScalarKeyFrameAnimation();
         opacity.InsertKeyFrame(0f, 0f);
@@ -733,7 +684,7 @@ public sealed partial class MainPage : Page
         opacity.Duration = MainContentEnterDuration;
 
         var translation = visual.Compositor.CreateVector3KeyFrameAnimation();
-        translation.InsertKeyFrame(0f, new Vector3(0, 14, 0));
+        translation.InsertKeyFrame(0f, new Vector3(0f, 14f, 0f));
         translation.InsertKeyFrame(1f, Vector3.Zero, CreateMainEase(visual));
         translation.Duration = MainContentEnterDuration;
         visual.StartAnimation("Opacity", opacity);
@@ -746,7 +697,9 @@ public sealed partial class MainPage : Page
         var visual = ElementCompositionPreview.GetElementVisual(MainContentHost);
         visual.StopAnimation("Opacity");
         visual.StopAnimation("Translation");
+        visual.StopAnimation("Scale");
         visual.Opacity = 1f;
+        visual.Scale = Vector3.One;
         MainContentHost.Translation = Vector3.Zero;
     }
 

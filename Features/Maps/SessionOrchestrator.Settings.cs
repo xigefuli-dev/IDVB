@@ -1,5 +1,6 @@
 // IDVB Remaster — Session Orchestrator 设置器方法
 
+using IDVBuff.Features.QuickStart;
 using System.Text;
 
 namespace IDVBuff.Features.Maps;
@@ -7,6 +8,13 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
     // ════════════════ Settings ════════════════
+
+    /// <summary>
+    /// Gets the map Class remembered by the match control panel.
+    /// Consumers must treat this as read-only; changing the preference goes
+    /// through <see cref="SetLastSelectedMapClassAsync"/>.
+    /// </summary>
+    public string? LastSelectedMapClass => _settings?.LastSelectedMapClass;
 
     private async Task SaveSettingsAsync()
     {
@@ -47,6 +55,28 @@ public sealed partial class SessionOrchestrator
         await SaveSettingsAsync();
         ApplyBindings();
     }
+
+    /// <summary>
+    /// Applies the first-run recommended profile to the active runtime and
+    /// persists it. Values not specified by the recommendation remain at the
+    /// normal runtime defaults.
+    /// </summary>
+    public async Task ApplyQuickStartRecommendedSettingsAsync()
+    {
+        if (_settings is null)
+            throw new InvalidOperationException("SessionOrchestrator has not been initialized.");
+
+        var recommended = QuickStartRecommendedSettings.CreateRecommendation1();
+        recommended.Normalize();
+        await _researchCollector.SetEnabledAsync(recommended.CollectAlignmentResearchData);
+        _settings = recommended;
+        _logCollector.IsEnabled = recommended.CollectLogs;
+        ApplyBindings();
+        ApplyDisplaySettingsToOverlay();
+        await SaveSettingsAsync();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     public async Task SetOverlayStatusVisibleAsync(bool v) { _settings!.ShowOverlayStatus = v; await SaveSettingsAsync(); _overlay.SetStatusVisible(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetReverseAlternateDisplayAsync(bool v) { _settings!.ReverseAlternateDisplay = v; await SaveSettingsAsync(); _overlay.SetReverseAlternateDisplay(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetMapOpacityAsync(double v) { _settings!.MapOpacity = v; await SaveSettingsAsync(); _overlay.SetMapOpacity(v); await SaveOverlayConfigToPresetAsync(); }
@@ -68,7 +98,15 @@ public sealed partial class SessionOrchestrator
     public async Task SetStatusOpacityAsync(double v) { _settings!.StatusOpacity = v; await SaveSettingsAsync(); _overlay.SetStatusOpacity(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOffsetXAsync(double v) { _settings!.StatusOffsetX = v; await SaveSettingsAsync(); _overlay.SetStatusOffsetX(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOffsetYAsync(double v) { _settings!.StatusOffsetY = v; await SaveSettingsAsync(); _overlay.SetStatusOffsetY(v); await SaveOverlayConfigToPresetAsync(); }
-    public async Task SetCollectLogsAsync(bool v) { _settings!.CollectLogs = v; _logCollector.IsEnabled = v; await SaveSettingsAsync(); }
+    public async Task SetCollectLogsAsync(bool v)
+    {
+        _settings!.CollectLogs = v;
+        if (v)
+            _logCollector.IsEnabled = true;
+        else
+            await _logCollector.ClearDataAsync();
+        await SaveSettingsAsync();
+    }
 
     /// <summary>
     /// Enables structured diagnostics for the in-process CLI without changing
@@ -109,7 +147,10 @@ public sealed partial class SessionOrchestrator
 
         try
         {
-            await _researchCollector.SetEnabledAsync(enabled);
+            if (enabled)
+                await _researchCollector.SetEnabledAsync(true);
+            else
+                await _researchCollector.ClearDataAsync();
             _settings.CollectAlignmentResearchData = enabled;
             await SaveSettingsAsync();
         }

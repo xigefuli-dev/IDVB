@@ -124,12 +124,15 @@ public sealed partial class IdvmPackageService
             var manifest = new ManifestDto
             {
                 Format = "idvm",
-                FormatVersion = "1.1",
+                FormatVersion = "1.2",
                 PackageType = "class-set",
                 PackageId = packageId,
                 CreatedAt = createdAt,
-                MinimumReader = "1.1",
-                Capabilities = new CapabilitiesDto()
+                MinimumReader = "1.2",
+                Capabilities = new CapabilitiesDto
+                {
+                    FloorMarkerKeys = true
+                }
             };
 
             foreach (var classLabel in selectedClasses)
@@ -320,6 +323,7 @@ public sealed partial class IdvmPackageService
         public string DisplayName { get; set; } = string.Empty;
         public int SortOrder { get; set; }
         public string Image { get; set; } = string.Empty;
+        public List<string> MarkerKeys { get; set; } = [];
     }
 
     private sealed class ManifestFileDto
@@ -338,6 +342,7 @@ public sealed partial class IdvmPackageService
         public bool BackgroundLayers { get; set; } = true;
         public bool ClassBackgroundRemoval { get; set; } = true;
         public bool VariantGroups { get; set; } = true;
+        public bool FloorMarkerKeys { get; set; }
     }
 
     private sealed class MetadataDto
@@ -367,6 +372,7 @@ public sealed partial class IdvmPackageService
         public string DisplayName { get; set; } = string.Empty;
         public int SortOrder { get; set; }
         public string Image { get; set; } = string.Empty;
+        public List<string> MarkerKeys { get; set; } = [];
         public string? RecognitionImage { get; set; }
         public int ImageWidth { get; set; }
         public int ImageHeight { get; set; }

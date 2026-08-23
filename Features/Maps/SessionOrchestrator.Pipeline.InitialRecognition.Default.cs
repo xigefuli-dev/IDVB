@@ -25,6 +25,7 @@ public sealed partial class SessionOrchestrator
         ref var pendingSideEntranceScan = ref result.PendingSideEntranceScan;
         var repairCacheKeys = result.RepairCacheKeys;
         ref var scanSucceeded = ref result.ScanSucceeded;
+        var mapClass = _matchSession.Snapshot.MapClass;
 
         ScanPipelineContext scanCtx;
         var initialRecognition = MapOperationTraceAmbient.Current?.StartTopLevel(
@@ -59,7 +60,11 @@ public sealed partial class SessionOrchestrator
             MapOperationWaitKind.Compute);
         foreach (var mapObj in maps)
         {
-            if (mapObj is MapRecord map)
+            if (mapObj is MapRecord map
+                && string.Equals(
+                    map.Class,
+                    mapClass,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 using var mapFingerprint = MapOperationTraceAmbient.StartChild(
                     "map_fingerprint",
@@ -172,8 +177,16 @@ public sealed partial class SessionOrchestrator
                         attemptIndex: candidate.Rank);
                     try
                     {
-                        var candidateStructureTuning =
-                            CreateInitialAlignmentStructureTuning();
+                        var candidateMap = _recognition.TryGetMap(cMapId);
+                        var candidateFloorKey = candidateMap is null
+                            ? candidate.FloorKey
+                            : MapFloorRules.GetPrimaryFloorKey(candidateMap);
+                        var candidateStructureTuning = candidateMap is null
+                            ? CreateInitialAlignmentStructureTuning()
+                            : CreateStructureTuningForFloor(
+                                candidateMap,
+                                candidateFloorKey,
+                                CreateInitialAlignmentStructureTuning());
                         MapRecognitionAttempt AlignCandidate() =>
                             MapCvAlignmentService.AlignSelectedCore(
                                 _recognition, frame, cMapId,
@@ -185,16 +198,15 @@ public sealed partial class SessionOrchestrator
                                 liveIgnoreRegions: null, candidateHistory: null,
                                 alignmentSearchContext: null,
                                 nativeScaleChangeRatio: 1.0,
-                                mapClass: null,
+                                mapClass: mapClass,
                                 route: SelectedAlignmentRoute.Default);
-                        var candidateMap = _recognition.TryGetMap(cMapId);
                         MapFeatureCacheKey? candidateRepairKey = null;
                         var cAttempt = candidateMap is null
                             ? AlignCandidate()
                             : AlignUsingScaleCache(
                                 frame,
                                 candidateMap,
-                                MapFloorRules.GetPrimaryFloorKey(candidateMap),
+                                candidateFloorKey,
                                 alignmentTuning,
                                 candidateStructureTuning,
                                 0d,
@@ -302,8 +314,16 @@ public sealed partial class SessionOrchestrator
             attemptIndex: 0);
         try
         {
-            var selectedStructureTuning =
-                CreateInitialAlignmentStructureTuning();
+            var selectedMap = _recognition.TryGetMap(mapId);
+            var selectedFloorKey = selectedMap is null
+                ? scanCtx.SelectedCandidate.FloorKey
+                : MapFloorRules.GetPrimaryFloorKey(selectedMap);
+            var selectedStructureTuning = selectedMap is null
+                ? CreateInitialAlignmentStructureTuning()
+                : CreateStructureTuningForFloor(
+                    selectedMap,
+                    selectedFloorKey,
+                    CreateInitialAlignmentStructureTuning());
             MapRecognitionAttempt AlignSelected() =>
                 MapCvAlignmentService.AlignSelectedCore(
                     _recognition, frame, mapId,
@@ -315,16 +335,15 @@ public sealed partial class SessionOrchestrator
                     liveIgnoreRegions: null, candidateHistory: null,
                     alignmentSearchContext: null,
                     nativeScaleChangeRatio: 1.0,
-                    mapClass: null,
+                    mapClass: mapClass,
                     route: SelectedAlignmentRoute.Default);
-            var selectedMap = _recognition.TryGetMap(mapId);
             MapFeatureCacheKey? selectedRepairKey = null;
             attempt = selectedMap is null
                 ? AlignSelected()
                 : AlignUsingScaleCache(
                     frame,
                     selectedMap,
-                    MapFloorRules.GetPrimaryFloorKey(selectedMap),
+                    selectedFloorKey,
                     alignmentTuning,
                     selectedStructureTuning,
                     0d,

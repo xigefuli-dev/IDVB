@@ -4,6 +4,8 @@ public sealed partial class SessionOrchestrator
 {
     private readonly SemaphoreSlim _matchLifecycleGate = new(1, 1);
     private CancellationTokenSource? _matchCancellation;
+    private readonly object _mapOpenCancellationGate = new();
+    private CancellationTokenSource? _mapOpenCancellation;
     private int _matchEnding;
 
     // A user-confirmed map remains useful evidence even when its first
@@ -32,6 +34,7 @@ public sealed partial class SessionOrchestrator
     {
         EndAdaptiveMapOpen("match lifecycle changed");
         CancelOrbTracking("match lifecycle changed");
+        CancelMapOpenAlignment();
         try
         {
             _matchCancellation?.Cancel();
@@ -42,6 +45,35 @@ public sealed partial class SessionOrchestrator
         }
         _alignmentCommitGuard.Invalidate();
         _gameMapToggleState.Reset();
+    }
+
+    private CancellationTokenSource BeginMapOpenCancellationScope()
+    {
+        lock (_mapOpenCancellationGate)
+        {
+            _mapOpenCancellation?.Cancel();
+            var scope = CancellationTokenSource.CreateLinkedTokenSource(
+                CurrentMatchCancellationToken);
+            _mapOpenCancellation = scope;
+            return scope;
+        }
+    }
+
+    private void CompleteMapOpenCancellationScope(
+        CancellationTokenSource scope)
+    {
+        lock (_mapOpenCancellationGate)
+        {
+            if (ReferenceEquals(_mapOpenCancellation, scope))
+                _mapOpenCancellation = null;
+        }
+        scope.Dispose();
+    }
+
+    private void CancelMapOpenAlignment()
+    {
+        lock (_mapOpenCancellationGate)
+            _mapOpenCancellation?.Cancel();
     }
 
     private async Task DrainMatchOperationsAsync()
@@ -96,6 +128,7 @@ public sealed partial class SessionOrchestrator
         {
             _reliableFloorAlignments.Clear();
         }
+        ClearManualFloorScaleLocks();
         ClearMapViewportPresenceReferences();
 
         // Do not allow samples collected for a wrongly selected map to be
@@ -146,6 +179,7 @@ public sealed partial class SessionOrchestrator
         _lastGameWindowHandle = IntPtr.Zero;
         lock (_reliableFloorAlignmentGate)
             _reliableFloorAlignments.Clear();
+        ClearManualFloorScaleLocks();
         ClearMapViewportPresenceReferences();
 
         if (resetAutomaticCacheSamples)

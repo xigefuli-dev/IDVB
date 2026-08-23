@@ -156,6 +156,13 @@ public sealed class PluginPreferencesStore
                 PluginToggleSetting toggle => toggle.DefaultValue,
                 PluginSliderSetting slider => slider.DefaultValue,
                 PluginChoiceSetting choice when choice.Options.Length > 0 => choice.DefaultValue,
+                PluginKeyBindingSetting binding =>
+                    PluginInputBinding.TryParse(
+                        binding.DefaultValue,
+                        binding.AllowedKinds,
+                        out _)
+                            ? binding.DefaultValue
+                            : null,
                 _ => null
             };
             if (TryGetSetting(pluginId, setting.Key, out var stored)
@@ -198,6 +205,15 @@ public sealed class PluginPreferencesStore
                     && stored.GetString() is { } text
                     && choice.Options.Contains(text, StringComparer.Ordinal):
                 value = text;
+                return true;
+            case PluginKeyBindingSetting binding
+                when stored.ValueKind == JsonValueKind.String
+                    && stored.GetString() is { } bindingText
+                    && PluginInputBinding.TryParse(
+                        bindingText,
+                        binding.AllowedKinds,
+                        out _):
+                value = bindingText;
                 return true;
             default:
                 value = null;

@@ -44,6 +44,89 @@ public sealed class MapOpenAlignmentRouteTests
     }
 
     [Theory]
+    [InlineData(false, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, false, true, true)]
+    public void MapCacheSaveRequiresOpenBigMapAndLockedIdentity(
+        bool isBigMapOpen,
+        bool isMapIdentityLocked,
+        bool isSurvey,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MapOpenAlignmentRouteRules.CanSaveMapCache(
+                isBigMapOpen,
+                isMapIdentityLocked,
+                isSurvey));
+    }
+
+    [Theory]
+    [InlineData(MapAlignmentChannel.Standard, false, false)]
+    [InlineData(MapAlignmentChannel.Standard, true, true)]
+    [InlineData(MapAlignmentChannel.LowStructure, false, false)]
+    [InlineData(MapAlignmentChannel.LowStructure, true, true)]
+    public void EveryWarmStateRequiresReliableSameFloorScale(
+        MapAlignmentChannel channel,
+        bool isScaleReliable,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MapOpenAlignmentRouteRules.CanUseWarmAlignmentState(
+                channel,
+                isScaleReliable));
+    }
+
+    [Theory]
+    [InlineData(true, false, 0d, true)]
+    [InlineData(false, false, 0.51d, false)]
+    [InlineData(false, false, 0.52d, true)]
+    [InlineData(true, true, 0.90d, false)]
+    public void InitialSideSeedAlwaysReceivesItsPromisedGlobalRecovery(
+        bool isInitialSeed,
+        bool accepted,
+        double localConfidence,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MapOpenAlignmentRouteRules.ShouldAttemptSideEntranceGlobalRecovery(
+                isInitialSeed,
+                accepted,
+                localConfidence));
+    }
+
+    [Theory]
+    [InlineData(false, true, 0d, false, true)]
+    [InlineData(false, true, 0.85d, false, false)]
+    [InlineData(false, false, 0d, false, false)]
+    [InlineData(false, true, 0d, true, false)]
+    [InlineData(true, false, 0d, false, true)]
+    public void IndependentFloorAlignmentIsRestrictedToOtherFloorsOrPendingVariantWithoutSideSeed(
+        bool isOtherFloor,
+        bool isPendingVariantAlignment,
+        double sidePrior,
+        bool hasGatePairLock,
+        bool expected)
+    {
+        var session = new MapAlignmentSession
+        {
+            SideEntranceScanPriorConfidence = sidePrior,
+            HasGatePairLock = hasGatePairLock
+        };
+
+        Assert.Equal(
+            expected,
+            MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+                isOtherFloor,
+                isPendingVariantAlignment,
+                session));
+    }
+
+    [Theory]
     [InlineData(100, 250)]
     [InlineData(1500, 1000)]
     [InlineData(3000, 1000)]
@@ -128,7 +211,7 @@ public sealed class MapOpenAlignmentRouteTests
     }
 
     [Theory]
-    [InlineData(false, 0.30d)]
+    [InlineData(false, 0.70d)]
     [InlineData(true, 0.15d)]
     public void NoDoorRouteHasOneGlobalRecoveryRadius(
         bool calibrated,
@@ -213,7 +296,7 @@ public sealed class MapOpenAlignmentRouteTests
             pendingSideEntranceSeed: null,
             previous: null,
             canReusePrevious: false,
-            independentFloorKey: "2f");
+            targetFloorKey: "2f");
 
         Assert.Equal(map.Id, session.MapId);
         Assert.Equal("2f", session.FloorKey);
@@ -222,6 +305,108 @@ public sealed class MapOpenAlignmentRouteTests
         Assert.Equal(400, session.LockedTransform.ReferenceHeight);
         Assert.False(session.HasGatePairLock);
         Assert.Equal(0d, session.SideEntranceScanPriorConfidence);
+    }
+
+    [Fact]
+    public void SecondaryFloorSessionsCanNeverSeedPrimaryFloor()
+    {
+        var map = new MapRecord
+        {
+            Id = Guid.NewGuid(),
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        map.Recognition.EnsureStandardAnchors();
+        map.Recognition.FirstFloor.RecognitionPixelWidth = 1000;
+        map.Recognition.FirstFloor.RecognitionPixelHeight = 800;
+        var secondaryTransform = new MapOverlayTransform
+        {
+            ScaleX = 0.46666d,
+            ScaleY = 0.46666d,
+            ReferenceWidth = 700,
+            ReferenceHeight = 600,
+            AlignmentMode = MapOverlayAlignmentMode.Uniform
+        };
+        var secondaryResult = new MapRecognitionResult
+        {
+            MapId = map.Id,
+            Floor = "b1f",
+            OverlayTransform = secondaryTransform
+        };
+        var secondarySession = new MapAlignmentSession
+        {
+            MapId = map.Id,
+            MapUpdatedAt = map.UpdatedAt,
+            FloorKey = "b1f",
+            LockedTransform = secondaryTransform,
+            BaselineGateScale = secondaryTransform.ScaleX
+        };
+
+        var primarySession =
+            MapOpenAlignmentRouteRules.ResolveMapOpenAlignmentSession(
+                map,
+                secondaryResult,
+                pendingSideEntranceSeed: secondarySession,
+                previous: secondarySession,
+                canReusePrevious: true,
+                targetFloorKey: "1f");
+
+        Assert.Equal("1f", primarySession.FloorKey);
+        Assert.Equal(1d, primarySession.LockedTransform.ScaleX);
+        Assert.Equal(1000, primarySession.LockedTransform.ReferenceWidth);
+        Assert.NotSame(secondarySession, primarySession);
+    }
+
+    [Fact]
+    public void ReopenDriftCannotComparePrimaryAndLowStructureFloors()
+    {
+        var map = new MapRecord
+        {
+            Id = Guid.NewGuid(),
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var primary = new RuntimeMapRecognition
+        {
+            Map = map,
+            Result = new MapRecognitionResult
+            {
+                MapId = map.Id,
+                Floor = "1f",
+                OverlayTransform = new MapOverlayTransform
+                {
+                    ScaleX = 0.736d,
+                    ScaleY = 0.736d,
+                    ReferenceWidth = 1000,
+                    ReferenceHeight = 800,
+                    AlignmentMode = MapOverlayAlignmentMode.Uniform
+                }
+            }
+        };
+        var basement = new RuntimeMapRecognition
+        {
+            Map = map,
+            Result = new MapRecognitionResult
+            {
+                MapId = map.Id,
+                Floor = "b1f",
+                OverlayTransform = new MapOverlayTransform
+                {
+                    ScaleX = 0.4671d,
+                    ScaleY = 0.4671d,
+                    ReferenceWidth = 700,
+                    ReferenceHeight = 600,
+                    AlignmentMode = MapOverlayAlignmentMode.Uniform
+                }
+            }
+        };
+
+        Assert.False(MapOpenAlignmentRouteRules.CanCompareMapOpenDrift(
+            primary,
+            basement,
+            "b1f"));
+        Assert.True(MapOpenAlignmentRouteRules.CanCompareMapOpenDrift(
+            basement,
+            basement,
+            "b1f"));
     }
 
     [Fact]

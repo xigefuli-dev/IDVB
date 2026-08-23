@@ -122,7 +122,10 @@ public sealed partial class SessionOrchestrator
             // 保存为完成状态，玩家第一次打开游戏地图时再消费（候选→缩放→对齐）。
             if (backgroundMode)
             {
-                CompleteBackgroundScan(initialState);
+                await CompleteBackgroundScanAsync(
+                    initialState,
+                    frame,
+                    cancellationToken);
                 return;
             }
 
@@ -163,6 +166,7 @@ public sealed partial class SessionOrchestrator
                         string.IsNullOrWhiteSpace(pendingChoicesReason)
                             ? failureReason ?? "未找到可确认的已记录地图。"
                             : pendingChoicesReason,
+                        operationMatch.MapClass!,
                         cancellationToken);
                 }
                 finally
@@ -241,7 +245,10 @@ public sealed partial class SessionOrchestrator
                             useInitialHighPrecisionRecovery: true);
                     var selectedStructureTuning =
                         MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
-                            CreateInitialAlignmentStructureTuning());
+                            CreateStructureTuningForFloor(
+                                selectedCandidate.Map,
+                                selectedSeed.FloorKey,
+                                CreateInitialAlignmentStructureTuning()));
                     MapFeatureCacheKey? selectedRepairKey = null;
                     var selectedAlignment = trace?.StartTopLevel(
                         "selected_candidate_alignment",
@@ -351,10 +358,18 @@ public sealed partial class SessionOrchestrator
                                 Source = MapRecognitionSource.UserConfirmed
                             }
                         };
+                        _lastRecognition = _pendingAlignmentIdentity;
+                        _mapOpenSession.LockMapIdentity(
+                            selectedCandidate.Map.Id,
+                            floorKey,
+                            1d);
+                        _currentFloorKey = floorKey;
                         _mapLease.Bind(_matchSession.Snapshot, selectedCandidate.Map.Id);
                         // 必须与身份成对设置，否则重试时 Pipeline.cs:119 的
                         // MapAlignmentSession.FromRecognition 会对 null 变换抛异常。
                         _pendingAlignmentSeed = selectedSeed;
+                        RefreshMiniMapForCurrentFloor();
+                        StateChanged?.Invoke(this, EventArgs.Empty);
                         recognition = null; // 跳过 overlay 提交块
 
                         var selectedFailure = string.IsNullOrWhiteSpace(
@@ -528,6 +543,22 @@ public sealed partial class SessionOrchestrator
                     floorKey: recognition.Result.Floor);
                 try
                 {
+                    if (recognition.Result.OverlayTransform is { } committedTransform)
+                    {
+                        _mapOpenSession.LockAlignedMap(
+                            recognition.Map.Id,
+                            recognition.Result.Floor,
+                            MapSimilarityTransform.FromOverlay(committedTransform),
+                            recognition.Result.EvidenceKind switch
+                            {
+                                MapAlignmentEvidenceKind.DualGate => MapLocationMethod.DualAnchor,
+                                MapAlignmentEvidenceKind.SingleGateAndAuxiliary => MapLocationMethod.SingleAnchor,
+                                MapAlignmentEvidenceKind.AuxiliaryConsensus => MapLocationMethod.AuxiliaryAnchor,
+                                MapAlignmentEvidenceKind.Structure => MapLocationMethod.StructureTranslation,
+                                _ => MapLocationMethod.Manual
+                            },
+                            recognition.Result.LocalizationConfidence);
+                    }
                     _lastRecognition = recognition;
                     _mapLease.Bind(_matchSession.Snapshot, recognition.Map.Id);
                     _pendingAlignmentIdentity = null;
@@ -546,7 +577,8 @@ public sealed partial class SessionOrchestrator
                         operationMatch,
                         recognition,
                         _lastAlignmentSession,
-                        frame);
+                        frame,
+                        adaptiveDecision.AllowReliableSession);
                     _lastGameBounds = frame.ClientBounds;
                     _lastGameWindowHandle = frame.WindowHandle;
                 }

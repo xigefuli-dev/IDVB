@@ -163,6 +163,7 @@ internal static partial class MapCvAlignmentService
         var structureRequest = new MapStructureRegistrationRequest
         {
             ReferenceImage = reference,
+            Channel = structureSearchTuning.Channel,
             LiveRoi = frame.Image,
             ViewportBounds = frame.ViewportBounds,
             LockedTransform = structureSeed,
@@ -220,8 +221,10 @@ internal static partial class MapCvAlignmentService
         var structure = service.StructureRegistrar.Register(structureRequest);
         if (isSideEntranceStructureRoute
             && restrictStructureSearch
-            && !structure.Accepted
-            && IsGlobalRecoveryWorthAttempting(structure))
+            && MapOpenAlignmentRouteRules.ShouldAttemptSideEntranceGlobalRecovery(
+                isInitialSideEntranceSeed,
+                structure.Accepted,
+                structure.Confidence))
         {
             // A global recovery is a new identity search, so start from the
             // caller's complete tuning instead of inheriting local-search
@@ -238,6 +241,7 @@ internal static partial class MapCvAlignmentService
                 var globalRecoveryRequest = new MapStructureRegistrationRequest
                 {
                     ReferenceImage = reference,
+                    Channel = globalRecoveryTuning.Channel,
                     LiveRoi = frame.Image,
                     ViewportBounds = frame.ViewportBounds,
                     LockedTransform = structureSeed,
@@ -458,15 +462,6 @@ internal static partial class MapCvAlignmentService
         };
     }
 
-    // 全局恢复是 unrestricted 全尺度第二轮（实测慢尾 ~270ms），只有局部搜索已
-    // 给出一定结构证据时才有恢复价值：置信度低于 GlobalRecoveryMinimumLocalConfidence
-    // 的帧（chamferQuality≈0 的"最佳候选绝对贴合度不足"）全局第二轮几乎注定
-    // 同样白付，短路跳过，避免把失败路径跑成最慢路径。
-    private static bool IsGlobalRecoveryWorthAttempting(
-        MapStructureRegistrationResult structure) =>
-        double.IsFinite(structure.Confidence)
-        && structure.Confidence
-            >= MapOpenAlignmentRouteRules.GlobalRecoveryMinimumLocalConfidence;
 }
 /*
  * 文件职责：MapCvAlignmentService.AlignSelected.Structure。

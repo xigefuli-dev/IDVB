@@ -4,6 +4,7 @@ using IDVBuff.Core.Contracts;
 using IDVBuff.Features.Maps;
 using IDVBuff.Features.Maps.Adapters;
 using IDVBuff.Features.Capture;
+using IDVBuff.Features.Plugins;
 using IDVBuff.Infrastructure.Configuration;
 using IDVBuff.Pipeline;
 using IDVBuff.Pipeline.Stages;
@@ -15,6 +16,7 @@ using IDVBuff.Survey.Preprocessing.OpenCv;
 using IDVBuff.Survey.Registration.OpenCv;
 using IDVBuff.Survey.Fusion.OpenCv;
 using IDVBuff.Survey.Idvm;
+using IDVBuff.PluginContracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 
@@ -95,6 +97,7 @@ public static class ServiceCollectionExtensions
         // Infrastructure — Capture & Input
         // ════════════════════════════════════════════════════════════
         services.AddSingleton<IGameWindowCapture, GameWindowCaptureAdapter>();
+        services.AddSingleton<IPluginScreenshotService, PluginScreenshotService>();
         services.AddSingleton<IGlobalInput>(_ =>
             new GlobalInputAdapter(dispatcher));
 

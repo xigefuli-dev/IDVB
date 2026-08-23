@@ -1,11 +1,48 @@
 using OpenCvSharp;
 using System.Diagnostics;
 using IDVBuff.Pipeline;
-
 namespace IDVBuff.Features.Maps;
-
 internal static class MapStructureScaleSearch
 {
+    internal static IReadOnlyList<double> BuildLowStructureScaleHypotheses(
+        double minimumScale,
+        double maximumScale,
+        int count,
+        double minimumUsableScale = 0.05d,
+        double? preferredScale = null)
+    {
+        minimumScale = Math.Max(minimumUsableScale, minimumScale);
+        maximumScale = Math.Max(minimumScale, maximumScale);
+        count = Math.Max(2, count);
+        if (count == 2)
+            return [minimumScale, maximumScale];
+        var logMinimum = Math.Log(minimumScale);
+        var logMaximum = Math.Log(maximumScale);
+        var scales = Enumerable.Range(0, count)
+            .Select(index => Math.Exp(
+                logMinimum + ((logMaximum - logMinimum) * index / (count - 1d))))
+            .ToArray();
+        if (preferredScale is { } preferred
+            && double.IsFinite(preferred)
+            && preferred >= minimumScale
+            && preferred <= maximumScale
+            && !scales.Any(scale => Math.Abs(scale - preferred) < 1e-9d))
+        {
+            var nearestInteriorIndex = Enumerable.Range(1, count - 2)
+                .MinBy(index => Math.Abs(scales[index] - preferred));
+            scales[nearestInteriorIndex] = preferred;
+        }
+        if (preferredScale is { } preferredOrder
+            && double.IsFinite(preferredOrder)
+            && preferredOrder >= minimumScale
+            && preferredOrder <= maximumScale)
+        {
+            return scales
+                .OrderBy(scale => Math.Abs(Math.Log(scale / preferredOrder)))
+                .ToArray();
+        }
+        return scales;
+    }
     internal static IReadOnlyList<double> BuildScaleHypotheses(
         double baseline,
         bool allowScaleSearch,
@@ -14,10 +51,10 @@ internal static class MapStructureScaleSearch
     {
         if (!allowScaleSearch || scaleSearchRadius <= 0d)
             return [baseline];
-        // Keep global recovery bounded even for the 0.15/0.30 fallback
-        // radii.  Eleven evenly distributed hypotheses preserve the existing
-        // search budget while actually covering the requested radius.
-        const int maximumStepsPerSide = 5;
+        // The uncalibrated 0.30-1.70 recovery domain needs seven 0.10 steps
+        // per side. Capping this at five made the wider domain deceptively
+        // sparse and skipped important scales such as 0.40.
+        const int maximumStepsPerSide = 7;
         var count = Math.Clamp(
             (int)Math.Ceiling(scaleSearchRadius / scaleSearchStep),
             1,
@@ -31,7 +68,6 @@ internal static class MapStructureScaleSearch
             .ToArray();
         return hypotheses;
     }
-
     internal static QueryGeometry CreateQuery(
         MapStructureFeatures live,
         Size liveSize,
@@ -57,8 +93,6 @@ internal static class MapStructureScaleSearch
             0d,
             0d,
             InterpolationFlags.Nearest);
-
-        // VisibleMask 同步变换（与 StructureMask 相同的 target size 和插值方法）
         Mat? visibleMask = null;
         if (includeVisibleMask
             && live.RawVisibleMask is not null
@@ -72,7 +106,6 @@ internal static class MapStructureScaleSearch
                 0d, 0d,
                 InterpolationFlags.Nearest);
         }
-
         var points = FindNonZeroPoints(edges);
         var bounds = points.Length == 0
             ? new Rect()
@@ -90,12 +123,10 @@ internal static class MapStructureScaleSearch
             relativeEdgePoints,
             visibleMask: visibleMask);
     }
-
     internal static Mat CreateDistanceMap(
         MapStructureFeatures reference,
         double clip) =>
         reference.GetOrCreateClippedReferenceDistanceMap(clip);
-
     internal static Mat CreateDistanceMapFromEdges(
         Mat edges,
         double clip)
@@ -116,7 +147,6 @@ internal static class MapStructureScaleSearch
         }
         return distance;
     }
-
     internal static Point ExpectedReferenceLocation(
         MapStructureRegistrationRequest request,
         double scale,
@@ -130,7 +160,6 @@ internal static class MapStructureScaleSearch
                 (request.ViewportBounds.Y
                     + (queryBounds.Y * scale)
                     - request.LockedTransform.OffsetY) / scale));
-
     internal static Rect CenteredSearchRect(
         Size size,
         int centerX,
@@ -143,7 +172,6 @@ internal static class MapStructureScaleSearch
         var bottom = Math.Clamp(centerY + radius + 1, top + 1, size.Height);
         return new Rect(left, top, right - left, bottom - top);
     }
-
     internal static Point[] FindNonZeroPoints(Mat binary)
     {
         using var pointMatrix = new Mat();
@@ -153,11 +181,6 @@ internal static class MapStructureScaleSearch
         pointMatrix.GetArray(out Point[] points);
         return points;
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 缩放搜索上下文：在 RegisterLegacy 迭代中携带跨假设的状态
-    // ═══════════════════════════════════════════════════════════════
-
     internal sealed class ScaleSearchContext : IDisposable
     {
         public VisibleAwareCorrelationSession? VisibleAwareSession;
@@ -183,8 +206,6 @@ internal static class MapStructureScaleSearch
         public bool TimeBudgetExceeded;
         public bool WorkPreflightRejected;
         public int EstimatedRestrictedTemplateMilliseconds;
-
-        // Visible-aware 诊断累加器
         public double VisibleAwareTotalMs;
         public int VisibleAwareCandidateCount;
         public double VisibleAwareBestCost = double.PositiveInfinity;
@@ -196,24 +217,19 @@ internal static class MapStructureScaleSearch
         public bool VisibleAwareEarlyAccepted;
         public string? VisibleAwareFallbackReason;
         public bool SkipLegacyCandidates;
+        public double MarginNormalizationFloor = 0.01d;
         public void Dispose()
         {
             VisibleAwareSession?.Dispose();
             VisibleAwareReciprocalReference?.Dispose();
         }
-
         public double VisibleAwareTopMargin => double.IsPositiveInfinity(VisibleAwareSecondCost)
             ? 0d
             : Math.Clamp(
                 (VisibleAwareSecondCost - VisibleAwareBestCost)
-                / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, VisibleAwareSecondCost),
+                / Math.Max(MarginNormalizationFloor, VisibleAwareSecondCost),
                 0d, 1d);
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 受限搜索分支：ORB 特征投票 + 局部模板匹配
-    // ═══════════════════════════════════════════════════════════════
-
     internal static void SearchRestrictedBranch(
         QueryGeometry query,
         MapStructureFeatures reference,
@@ -242,7 +258,6 @@ internal static class MapStructureScaleSearch
             ctx.FeatureMatchCount = Math.Max(ctx.FeatureMatchCount, matches);
             ctx.FeatureInlierCount = Math.Max(ctx.FeatureInlierCount, inliers);
         }
-
         var scoreDomain = new Size(
             referenceDistance.Width - query.Bounds.Width + 1,
             referenceDistance.Height - query.Bounds.Height + 1);
@@ -277,7 +292,6 @@ internal static class MapStructureScaleSearch
                 reciprocalScale, ctx.Candidates, allowTemplateSearch);
         }
     }
-
     internal static int EstimateRestrictedTemplateMilliseconds(
         QueryGeometry query,
         Rect searchDomain)
@@ -296,11 +310,6 @@ internal static class MapStructureScaleSearch
             * Math.Max(0.25d, searchPixels / baselineSearchPixels);
         return Math.Clamp((int)Math.Ceiling(estimate), 20, 400);
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 全局搜索分支：Visible-aware → ORB → 金字塔 → 局部模板 → 全局降采样
-    // ═══════════════════════════════════════════════════════════════
-
     internal static void SearchGlobalBranch(
         QueryGeometry query,
         MapStructureFeatures reference,
@@ -314,7 +323,6 @@ internal static class MapStructureScaleSearch
         bool isReciprocalScale,
         ScaleSearchContext ctx)
     {
-        // Step 1: Visible-aware 快速候选
         var visibleAwareSw = Stopwatch.StartNew();
         VisibleAwareSearchDiagnostics vaDiag;
         using (var visibleAware = MapOperationTraceAmbient.StartChild(
@@ -347,8 +355,6 @@ internal static class MapStructureScaleSearch
             }
         }
         if (vaDiag.BudgetSkipped) ctx.VisibleAwareBudgetSkippedScales++;
-
-        // Step 2: 判断是否提前终止
         if (tuning.EnableVisibleAwareEarlyExit
             && tuning.VisibleAwareEarlyTerminationMaxCompositeCost > 0d)
         {
@@ -390,8 +396,6 @@ internal static class MapStructureScaleSearch
                     "No visible-aware candidates found for early termination";
             }
         }
-
-        // Step 3: Legacy 候选生成（由 skipLegacyCandidates 门控）
         if (!ctx.SkipLegacyCandidates)
         {
             var bestFastCost = ctx.Candidates.Count == 0
@@ -429,8 +433,6 @@ internal static class MapStructureScaleSearch
                 ctx.PyramidSearchMs += pyramidTimer.Elapsed.TotalMilliseconds;
             }
         }
-
-        // Step 4: 模板匹配（由 skipLegacyCandidates 门控）
         if (!ctx.SkipLegacyCandidates)
         {
             using var template = new Mat(query.Edges, query.Bounds);
@@ -441,8 +443,6 @@ internal static class MapStructureScaleSearch
                 (int)Math.Round(
                     Math.Max(reference.Edges.Width, reference.Edges.Height)
                     * tuning.LocalSearchRadiusRatio));
-
-            // 局部搜索
             var localTemplate = MapOperationTraceAmbient.StartChild(
                 "local_template_search",
                 MapOperationWaitKind.Compute);
@@ -455,7 +455,6 @@ internal static class MapStructureScaleSearch
             var localRefH = Math.Min(
                 referenceDistance.Height - localRefY,
                 Math.Max(1, expected.Y + localRadius + template.Height - localRefY));
-
             if (localRefW > template.Width && localRefH > template.Height)
             {
                 using var localRefPatch = new Mat(
@@ -469,7 +468,6 @@ internal static class MapStructureScaleSearch
                     localScores,
                     1d / Math.Max(1, query.EdgeCount),
                     localScores);
-
                 MapStructureCandidateCollector.CollectCandidates(
                     localScores, query, reference, referenceDistance,
                     request, scale,
@@ -481,8 +479,6 @@ internal static class MapStructureScaleSearch
             localTimer.Stop();
             ctx.LocalTemplateSearchMs += localTimer.Elapsed.TotalMilliseconds;
             localTemplate.Complete();
-
-            // 2x 降采样全局搜索
             using var globalTemplate = MapOperationTraceAmbient.StartChild(
                 "global_template_search",
                 MapOperationWaitKind.Compute);
@@ -496,21 +492,18 @@ internal static class MapStructureScaleSearch
                 && dsRefH >= StructureRegistrationRules.CoarseMinRefDimension
                 && dsTplW >= StructureRegistrationRules.CoarseMinTplDimension
                 && dsTplH >= StructureRegistrationRules.CoarseMinTplDimension;
-
             if (useDownsampled)
             {
                 using var dsRefDist = new Mat();
                 Cv2.Resize(referenceDistance, dsRefDist,
                     new Size(dsRefW, dsRefH),
                     interpolation: InterpolationFlags.Area);
-
                 using var dsTemplate = new Mat();
                 Cv2.Resize(template, dsTemplate,
                     new Size(dsTplW, dsTplH),
                     interpolation: InterpolationFlags.Area);
                 using var dsTplFloat = new Mat();
                 dsTemplate.ConvertTo(dsTplFloat, MatType.CV_32FC1, 1d / 255d);
-
                 using var dsScores = new Mat();
                 Cv2.MatchTemplate(
                     dsRefDist, dsTplFloat, dsScores,
@@ -519,7 +512,6 @@ internal static class MapStructureScaleSearch
                     dsScores,
                     1d / Math.Max(1, query.EdgeCount),
                     dsScores);
-
                 var coordScaleX = (double)referenceDistance.Width / dsRefW;
                 var coordScaleY = (double)referenceDistance.Height / dsRefH;
                 var dsSuppression = Math.Max(
@@ -528,7 +520,6 @@ internal static class MapStructureScaleSearch
                         Math.Min(query.Bounds.Width, query.Bounds.Height)
                         / StructureRegistrationRules.CoarseSuppressionDivisor)
                     / dsFactor);
-
                 for (var gi = 0; gi < tuning.TopCandidateCount; gi++)
                 {
                     Cv2.MinMaxLoc(dsScores,
@@ -544,13 +535,21 @@ internal static class MapStructureScaleSearch
                         (int)Math.Round(minLoc.Y * coordScaleY),
                         0,
                         referenceDistance.Height - query.Bounds.Height);
+                    var isLowStructure = request.Channel ==
+                        MapAlignmentChannel.LowStructure;
+                    var scaleDuplicateTolerance = isLowStructure
+                        ? tuning.ScaleDuplicateTolerance
+                        : StructureRegistrationRules.ScaleDuplicateTolerance;
+                    var spatialDuplicateTolerance = isLowStructure
+                        ? tuning.SpatialDuplicateTolerance
+                        : StructureRegistrationRules.SpatialDuplicateTolerance;
                     if (!ctx.Candidates.Any(c =>
                             Math.Abs(c.Scale - scale)
-                                < StructureRegistrationRules.ScaleDuplicateTolerance
+                                < scaleDuplicateTolerance
                             && Math.Sqrt(
                                 Math.Pow(c.ReferenceX - refX, 2)
                                 + Math.Pow(c.ReferenceY - refY, 2))
-                                < StructureRegistrationRules.SpatialDuplicateTolerance))
+                                < spatialDuplicateTolerance))
                     {
                         ctx.Candidates.Add(MapStructureEvaluator.Evaluate(
                             query, reference, referenceDistance,
@@ -574,7 +573,6 @@ internal static class MapStructureScaleSearch
             }
             else
             {
-                // 小图回退：全分辨率全局搜索
                 using var fullScores = new Mat();
                 Cv2.MatchTemplate(
                     referenceDistance, templateFloat, fullScores,
@@ -594,11 +592,6 @@ internal static class MapStructureScaleSearch
             ctx.GlobalTemplateSearchMs += globalDsTimer.Elapsed.TotalMilliseconds;
         }
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 快速粗搜索候选项收集（提取自 MapStructureRegistrar）
-    // ═══════════════════════════════════════════════════════════════
-
     internal static void CollectFastCoarseCandidates(
         QueryGeometry query,
         MapStructureFeatures reference,
@@ -609,52 +602,106 @@ internal static class MapStructureScaleSearch
         MapStructureRegistrar.ReciprocalScaleContext reciprocalScale,
         List<MapStructureCandidate> output)
     {
-        var D = tuning.FastCoarseDownsampleFactor;
         using var fullTemplate = new Mat(query.Edges, query.Bounds);
-
+        var isLowStructure =
+            request.Channel == MapAlignmentChannel.LowStructure;
+        using var paddedReferenceEdges = new Mat();
+        using var paddedReferenceStructure = new Mat();
+        using var paddedReferenceDistance = new Mat();
+        var paddingX = 0;
+        var paddingY = 0;
+        Mat matchingReferenceEdges = reference.Edges;
+        Mat matchingReferenceStructure = reference.StructureMask;
+        Mat matchingReferenceDistance = referenceDistance;
+        if (isLowStructure)
+        {
+            paddingX = query.Bounds.Width;
+            paddingY = query.Bounds.Height;
+            Cv2.CopyMakeBorder(
+                reference.Edges,
+                paddedReferenceEdges,
+                paddingY,
+                paddingY,
+                paddingX,
+                paddingX,
+                BorderTypes.Constant,
+                Scalar.Black);
+            Cv2.CopyMakeBorder(
+                reference.StructureMask,
+                paddedReferenceStructure,
+                paddingY,
+                paddingY,
+                paddingX,
+                paddingX,
+                BorderTypes.Constant,
+                Scalar.Black);
+            using var generatedDistance = CreateDistanceMapFromEdges(
+                paddedReferenceEdges, tuning.DistanceClipPixels);
+            generatedDistance.CopyTo(paddedReferenceDistance);
+            matchingReferenceEdges = paddedReferenceEdges;
+            matchingReferenceStructure = paddedReferenceStructure;
+            matchingReferenceDistance = paddedReferenceDistance;
+        }
+        var minimumTemplateDimension = isLowStructure
+            ? tuning.FastCoarseMinimumTemplateDimension
+            : StructureRegistrationRules.CoarseFastCoarseMinTemplateDim;
+        var D = tuning.FastCoarseDownsampleFactor;
+        if (isLowStructure)
+        {
+            var maximumSafeDownsample = Math.Max(
+                1,
+                Math.Min(fullTemplate.Width, fullTemplate.Height)
+                    / minimumTemplateDimension);
+            D = Math.Clamp(D, 1, maximumSafeDownsample);
+        }
         var targetWidth = Math.Max(1, fullTemplate.Width / D);
         var targetHeight = Math.Max(1, fullTemplate.Height / D);
-        var refTargetWidth = Math.Max(1, reference.Edges.Width / D);
-        var refTargetHeight = Math.Max(1, reference.Edges.Height / D);
-
+        var refTargetWidth = Math.Max(1, matchingReferenceEdges.Width / D);
+        var refTargetHeight = Math.Max(1, matchingReferenceEdges.Height / D);
         var maxDim = Math.Max(targetWidth, targetHeight);
         if (maxDim > tuning.FastCoarseMaxDimension)
         {
-            // Capping only the long side can collapse a long, thin viewport
-            // below the minimum template dimension.  That used to make the
-            // fast path return NoCandidate without running a search at all.
-            // Preserve enough pixels on the short side even when that means
-            // allowing the long side to exceed the preferred performance cap.
-            var minDim = Math.Min(targetWidth, targetHeight);
             var scaleForMaximum = (double)tuning.FastCoarseMaxDimension / maxDim;
-            var scaleForMinimum = minDim > 0
-                ? (double)StructureRegistrationRules.CoarseFastCoarseMinTemplateDim / minDim
-                : 1d;
-            var extraScale = Math.Min(1d, Math.Max(scaleForMaximum, scaleForMinimum));
+            var extraScale = scaleForMaximum;
+            if (isLowStructure)
+            {
+                var minDim = Math.Min(targetWidth, targetHeight);
+                var scaleForMinimum = minDim > 0
+                    ? (double)minimumTemplateDimension / minDim
+                    : 1d;
+                extraScale = Math.Max(scaleForMaximum, scaleForMinimum);
+            }
+            extraScale = Math.Min(1d, extraScale);
             targetWidth = Math.Max(1, (int)Math.Round(targetWidth * extraScale));
             targetHeight = Math.Max(1, (int)Math.Round(targetHeight * extraScale));
             refTargetWidth = Math.Max(1, (int)Math.Round(refTargetWidth * extraScale));
             refTargetHeight = Math.Max(1, (int)Math.Round(refTargetHeight * extraScale));
         }
-        if (targetWidth < StructureRegistrationRules.CoarseFastCoarseMinTemplateDim
-            || targetHeight < StructureRegistrationRules.CoarseFastCoarseMinTemplateDim)
+        if (targetWidth < minimumTemplateDimension
+            || targetHeight < minimumTemplateDimension)
             return;
-
         using var template = new Mat();
         Cv2.Resize(fullTemplate, template,
             new Size(targetWidth, targetHeight),
             interpolation: InterpolationFlags.Area);
-
         using var refEdgesDown = new Mat();
-        Cv2.Resize(reference.Edges, refEdgesDown,
+        Cv2.Resize(matchingReferenceEdges, refEdgesDown,
             new Size(refTargetWidth, refTargetHeight),
             interpolation: InterpolationFlags.Area);
+        if (isLowStructure)
+        {
+            Cv2.Threshold(
+                refEdgesDown,
+                refEdgesDown,
+                0d,
+                255d,
+                ThresholdTypes.Binary);
+        }
         using var inverse = new Mat();
         Cv2.BitwiseNot(refEdgesDown, inverse);
         using var coarseDistMap = new Mat();
         Cv2.DistanceTransform(inverse, coarseDistMap,
             DistanceTypes.L2, DistanceTransformMasks.Mask3);
-
         using var templateFloat = new Mat();
         template.ConvertTo(templateFloat, MatType.CV_32FC1, 1d / 255d);
         using var scores = new Mat();
@@ -662,10 +709,8 @@ internal static class MapStructureScaleSearch
             TemplateMatchModes.CCorr);
         var edgePixelCount = Math.Max(1, Cv2.CountNonZero(template));
         Cv2.Multiply(scores, 1d / edgePixelCount, scores);
-
-        var actualDownsampleX = (double)reference.Edges.Width / refTargetWidth;
-        var actualDownsampleY = (double)reference.Edges.Height / refTargetHeight;
-
+        var actualDownsampleX = (double)matchingReferenceEdges.Width / refTargetWidth;
+        var actualDownsampleY = (double)matchingReferenceEdges.Height / refTargetHeight;
         var suppression = Math.Max(2, tuning.FastCoarseNmsRadius);
         for (var index = 0; index < tuning.FastCoarseTopK; index++)
         {
@@ -673,25 +718,28 @@ internal static class MapStructureScaleSearch
                 out var location, out _);
             if (!double.IsFinite(minimum))
                 break;
-
-            var clampRefWidth = reciprocalScale.StructureMask?.Width
-                ?? reference.Edges.Width;
-            var clampRefHeight = reciprocalScale.StructureMask?.Height
-                ?? reference.Edges.Height;
+            var clampRefWidth = isLowStructure
+                ? matchingReferenceEdges.Width
+                : reciprocalScale.StructureMask?.Width ?? reference.Edges.Width;
+            var clampRefHeight = isLowStructure
+                ? matchingReferenceEdges.Height
+                : reciprocalScale.StructureMask?.Height ?? reference.Edges.Height;
             var referenceX = Math.Clamp(
                 (int)Math.Round(location.X * actualDownsampleX),
                 0, clampRefWidth - query.Bounds.Width);
             var referenceY = Math.Clamp(
                 (int)Math.Round(location.Y * actualDownsampleY),
                 0, clampRefHeight - query.Bounds.Height);
-
             output.Add(MapStructureEvaluator.Evaluate(
                 query, reference, referenceDistance,
                 request, scale, referenceX, referenceY,
                 usedGlobalSearch: !request.RestrictSearchToLockedTransform,
                 tuning,
-                reciprocalScale));
-
+                reciprocalScale,
+                matchingReferenceDistance,
+                matchingReferenceStructure,
+                paddingX,
+                paddingY));
             var left = Math.Max(0, location.X - suppression);
             var top = Math.Max(0, location.Y - suppression);
             var right = Math.Min(scores.Width, location.X + suppression + 1);

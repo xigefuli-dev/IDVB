@@ -74,19 +74,17 @@ public sealed partial class SessionOrchestrator
 
         if (cacheSeed is not null)
         {
-            var projectedSeed = templateSeed.WithUniformScale(cacheSeed.Scale);
+            var exactSeed = templateSeed.WithUniformScale(cacheSeed.Scale);
             var cacheAttempt = AlignSideEntranceFromSeed(
                 frame,
                 candidate,
-                projectedSeed,
+                exactSeed,
                 alignmentTuning,
                 structureTuning);
             SetScaleSeedDiagnostics(cacheAttempt, cacheSeed, cacheRejection);
             LogScaleSeedDecision(
                 candidate,
-                cacheSeed.Source == MapScaleSeedSource.ExactCache
-                    ? "exact-cache"
-                    : "cross-resolution",
+                "exact-cache",
                 cacheSeed.Scale,
                 cacheSeed.SourceResolution,
                 targetResolution,
@@ -96,16 +94,10 @@ public sealed partial class SessionOrchestrator
                 && cacheAttempt.Recognition is { } cacheRecognition
                 && IsAdaptiveInitialScaleQualified(cacheAttempt, structureTuning))
             {
-                usedSeed = projectedSeed;
+                usedSeed = exactSeed;
                 cacheAttempt = CopyAttempt(
                     cacheAttempt,
                     MarkUsedCachedScale(cacheRecognition));
-                if (cacheSeed.IsProjected)
-                    StageCrossResolutionValidatedScale(
-                        frame,
-                        candidate,
-                        targetResolution,
-                        cacheAttempt);
                 return cacheAttempt;
             }
             rejectionChain.Add(
@@ -143,8 +135,8 @@ public sealed partial class SessionOrchestrator
             targetResolution,
             string.Join(";", rejectionChain),
             cacheSeed?.CacheSource.ToString() ?? string.Empty,
-            cacheSeed?.IsProjected ?? false,
-            cacheSeed is { IsProjected: true } ? cacheSeed.Scale : 0d);
+            false,
+            0d);
         LogScaleSeedDecision(
             candidate,
             "vpsg",
@@ -159,26 +151,41 @@ public sealed partial class SessionOrchestrator
             return vpsgAttempt;
         rejectionChain.Add($"vpsg:{DescribeAttemptFailure(vpsgAttempt)}");
 
+        var fallbackSeed = templateSeed;
+        var vpsgScale = vpsgAttempt.Diagnostics.ScaleBootstrapScale;
+        var hasVpsgScale = double.IsFinite(vpsgScale) && vpsgScale > 0.05d;
+        if (hasVpsgScale)
+        {
+            // Preserve the content-derived scale even when its strict
+            // validation is inconclusive. The observed side entrance keeps
+            // the translation anchored while the normal side route performs
+            // its unrestricted structure recovery around the VPSG scale.
+            fallbackSeed = templateSeed.WithUniformScale(vpsgScale);
+        }
+
         var templateAttempt = AlignSideEntranceFromSeed(
             frame,
             candidate,
-            templateSeed,
+            fallbackSeed,
             alignmentTuning,
             structureTuning);
+        usedSeed = fallbackSeed;
         SetScaleSeedDiagnostics(
             templateAttempt,
-            MapScaleSeedSource.SideTemplate,
-            templateSeed.LockedTransform.ScaleX,
+            hasVpsgScale
+                ? MapScaleSeedSource.Vpsg
+                : MapScaleSeedSource.SideTemplate,
+            fallbackSeed.LockedTransform.ScaleX,
             cacheSeed?.SourceResolution,
             targetResolution,
             string.Join(";", rejectionChain),
             cacheSeed?.CacheSource.ToString() ?? string.Empty,
-            cacheSeed?.IsProjected ?? false,
-            cacheSeed is { IsProjected: true } ? cacheSeed.Scale : 0d);
+            false,
+            0d);
         LogScaleSeedDecision(
             candidate,
-            "side-template",
-            templateSeed.LockedTransform.ScaleX,
+            hasVpsgScale ? "vpsg-global-recovery" : "side-template",
+            fallbackSeed.LockedTransform.ScaleX,
             null,
             targetResolution,
             templateAttempt,

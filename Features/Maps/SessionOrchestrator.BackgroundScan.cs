@@ -7,10 +7,19 @@ public sealed partial class SessionOrchestrator
     private BackgroundScanStatus _backgroundScanStatus;
     private RuntimeMapRecognition? _pendingBackgroundIdentity;
     private IReadOnlyList<MapRecognitionChoice>? _pendingBackgroundChoices;
+    // 已补齐目录尾项、可直接传给原生候选窗口的候选列表。
+    private bool _pendingBackgroundChoicesAreDisplayReady;
+    private IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>?
+        _pendingBackgroundChoicePreviews;
+    // 候选窗的实时识别区预览也在后台冻结；开图只负责显示窗口，不以稳定
+    // 地图帧捕获作为候选界面的前置条件。
+    private CapturedGameFrame? _pendingBackgroundCandidateFrame;
+    private MapManualCandidateWindow.CandidateLivePreviewAssets?
+        _pendingBackgroundLivePreview;
     private string _pendingBackgroundChoicesReason = string.Empty;
     private string? _pendingBackgroundFailureReason;
-    // 侧门策略下的后台扫描：识别即对齐，侧门种子（SideEntranceScanPriorConfidence>0）
-    // 随身份一并保存，开图消费时用其走侧门路由（Default 自动升级 SideEntrance）。
+    // 侧门后台扫描仍会严格验证候选身份。唯一可靠候选可随验证后的侧门
+    // 种子一起保存；歧义路径则在消费阶段按玩家所选候选重建对应种子。
     private MapAlignmentSession? _pendingBackgroundSeed;
     // 侧门扫描结果：歧义路径（多个可靠候选）下扫描不产单一侧门种子，
     // 消费候选确认后需用保存的扫描结果为选中的候选重建种子，与前台
@@ -33,7 +42,10 @@ public sealed partial class SessionOrchestrator
     /// 后台扫描完成后保存待消费结果并标记状态。不弹候选/缩放界面、不对齐、
     /// 不提交 overlay——全部延迟到玩家第一次打开游戏地图时消费。
     /// </summary>
-    private void CompleteBackgroundScan(InitialRecognitionPipelineState state)
+    private async Task CompleteBackgroundScanAsync(
+        InitialRecognitionPipelineState state,
+        CapturedGameFrame frame,
+        CancellationToken cancellationToken)
     {
         if (state.ScanSucceeded)
         {
@@ -55,12 +67,43 @@ public sealed partial class SessionOrchestrator
         _pendingBackgroundIdentity = outcome.Identity;
         _pendingBackgroundChoices = outcome.Choices;
         _pendingBackgroundChoicesReason = state.PendingChoicesReason;
+        _pendingBackgroundChoicesAreDisplayReady = false;
+        _pendingBackgroundChoicePreviews = null;
+        _pendingBackgroundLivePreview = null;
         _pendingBackgroundFailureReason = outcome.FailureReason;
-        // 侧门策略下识别即对齐：随身份保存侧门种子，供开图消费走侧门路由。
-        // 歧义路径种子为 null，但侧门扫描结果保留候选特征，消费候选确认后重建。
+        // 唯一严格验证候选会携带侧门种子；歧义路径种子为 null，但扫描
+        // 特征会保留，消费候选确认后可为所选地图重建对应种子。
         _pendingBackgroundSeed = state.PendingSideEntranceSeed;
         _pendingBackgroundScan = state.PendingSideEntranceScan;
         _backgroundScanStatus = outcome.Status;
+
+        // 候选界面依赖的目录补齐此前被放在「开图后」才执行，使第一次开图
+        // 仍有后台准备工作。预扫描到 100% 前完成它，开图事件即可直接弹窗。
+        if (_pendingBackgroundChoices is { Count: > 0 }
+            && !_headless
+            && _activeCandidateSelector is null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _pendingBackgroundChoices = await BuildNativeCandidateChoicesAsync(
+                _pendingBackgroundChoices,
+                _matchSession.Snapshot.MapClass!);
+            _pendingBackgroundChoicePreviews =
+                await MapManualCandidateWindow.PrepareChoicePreviewsAsync(
+                    _pendingBackgroundChoices,
+                    _mapRepository);
+            _pendingBackgroundCandidateFrame?.Dispose();
+            _pendingBackgroundCandidateFrame = new CapturedGameFrame(
+                frame.Image.Clone(),
+                frame.ClientBounds,
+                frame.ViewportBounds,
+                frame.WindowHandle);
+            _pendingBackgroundLivePreview =
+                await MapManualCandidateWindow.PrepareLivePreviewAsync(
+                    _pendingBackgroundCandidateFrame,
+                    _pendingBackgroundChoices,
+                    _pendingBackgroundCandidateFrame.ViewportBounds);
+            _pendingBackgroundChoicesAreDisplayReady = true;
+        }
 
         _statusMessage = outcome.Status switch
         {
@@ -79,6 +122,11 @@ public sealed partial class SessionOrchestrator
         _backgroundScanStatus = BackgroundScanStatus.Idle;
         _pendingBackgroundIdentity = null;
         _pendingBackgroundChoices = null;
+        _pendingBackgroundChoicesAreDisplayReady = false;
+        _pendingBackgroundChoicePreviews = null;
+        _pendingBackgroundCandidateFrame?.Dispose();
+        _pendingBackgroundCandidateFrame = null;
+        _pendingBackgroundLivePreview = null;
         _pendingBackgroundChoicesReason = string.Empty;
         _pendingBackgroundFailureReason = null;
         _pendingBackgroundSeed = null;

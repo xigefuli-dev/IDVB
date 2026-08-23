@@ -15,6 +15,22 @@ public sealed class MouseWheelInputEventArgs(long timestamp, int delta, bool cap
     public bool CapsHeld { get; } = capsHeld;
 }
 
+/// <summary>插件级绑定的全局按键状态变化。</summary>
+public sealed class PluginInputInvokedEventArgs(
+    string pluginId,
+    string bindingKey,
+    long timestamp,
+    bool isDown) : EventArgs
+{
+    public string PluginId { get; } = pluginId;
+
+    public string BindingKey { get; } = bindingKey;
+
+    public long Timestamp { get; } = timestamp;
+
+    public bool IsDown { get; } = isDown;
+}
+
 // TODO: Phase 0.4 — 替换为 Core/Models 中的实际类型
 // using IDVBuff.Core.Models;
 
@@ -63,6 +79,9 @@ public interface IGlobalInput : IDisposable
     /// <summary>全局鼠标滚轮事件，供需要组合键滚轮操作的插件使用。</summary>
     event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
 
+    /// <summary>插件级绑定的按下 / 抬起事件。</summary>
+    event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
+
     /// <summary>
     /// 应用新的按键绑定配置。
     /// </summary>
@@ -79,6 +98,15 @@ public interface IGlobalInput : IDisposable
     /// 清除所有按键绑定并释放钩子。
     /// </summary>
     void ClearBindings();
+
+    /// <summary>应用或替换一个插件级绑定。</summary>
+    void ApplyPluginBinding(string pluginId, string bindingKey, object binding);
+
+    /// <summary>清除指定插件注册的所有绑定。</summary>
+    void ClearPluginBindings(string pluginId);
+
+    /// <summary>查询插件绑定当前是否处于按下状态。</summary>
+    bool IsPluginBindingPressed(string pluginId, string bindingKey);
 
     /// <summary>
     /// 释放所有当前按下的键盘按键和鼠标按钮（用于叠加窗口取得焦点前的手动释放）。

@@ -43,6 +43,7 @@ public static class MapStructureConfidenceCalculator
         bool isTrackingMode = false,
         double sideEntrancePrior = 0d)
     {
+        var isLowStructure = tuning.Channel == MapAlignmentChannel.LowStructure;
         var chamferQuality = Math.Clamp(
             1d - (best.ChamferPixels / tuning.MaximumChamferPixels),
             0d,
@@ -88,14 +89,25 @@ public static class MapStructureConfidenceCalculator
             0d,
             1d);
 
-        // 追踪模式下(已知地图ID)降低chamfer权重，提高覆盖率权重：
-        // 视口边缘裁剪、动态遮挡等会降低chamfer分数，但edge/occupancy
-        // 覆盖率能更可靠地反映对齐质量。
-        var structureQuality = isTrackingMode
+        // 追踪模式下(已知地图ID)提高 Chamfer 权重：
+        // 让边缘贴合度更直接地抑制持续对齐中的残留错位和重影。
+        var structureQuality = isLowStructure
             ? Math.Clamp(
-                (chamferQuality * 0.15d)        // 35% → 15%
-                + (best.EdgeCoverage * 0.35d)   // 30% → 35%
-                + (best.OccupancyCoverage * 0.35d) // 20% → 35%
+                // Sparse floors naturally have weaker Chamfer and partition
+                // evidence. Edge/occupancy agreement is more stable there,
+                // while the absolute Chamfer hard gate still rejects runaway
+                // fits before this confidence score is considered.
+                (chamferQuality * 0.15d)
+                + (best.EdgeCoverage * 0.35d)
+                + (best.OccupancyCoverage * 0.35d)
+                + (partitionQuality * 0.15d),
+                0d,
+                1d)
+            : isTrackingMode
+            ? Math.Clamp(
+                (chamferQuality * 0.45d)
+                + (best.EdgeCoverage * 0.20d)
+                + (best.OccupancyCoverage * 0.20d)
                 + (partitionQuality * 0.15d),   // 保持 15%
                 0d,
                 1d)
@@ -128,8 +140,32 @@ public static class MapStructureConfidenceCalculator
             + (refinementQuality.HasValue ? 0.10d : 0d);
         var lockConfidence = runtimeEvidence.Calculate();
 
+        if (isLowStructure)
+        {
+            // Candidate separation is intrinsically compressed on long,
+            // repetitive sparse corridors. Use it as supporting evidence,
+            // rather than letting the standard 25% weight dominate the final
+            // score. This formula is intentionally channel-local.
+            var rawGeometricConfidence = Math.Clamp(
+                (structureQuality * 0.65d)
+                + (evidenceConfidence * 0.25d)
+                + (boundsAndPrior * 0.10d),
+                0d,
+                1d);
+            var rawLockConfidence = Math.Clamp(
+                (structureQuality * 0.60d)
+                + (evidenceConfidence * 0.25d)
+                + (boundsAndPrior * 0.10d)
+                + (candidateMargin * 0.05d),
+                0d,
+                1d);
+            geometricLockConfidence = rawGeometricConfidence;
+            lockConfidence = rawLockConfidence;
+            runtimeEffectiveWeight = 1d;
+        }
+
         // 侧门扫描先验融合：地图ID已知，结构配准只需定位视口
-        if (sideEntrancePrior > 0d)
+        if (!isLowStructure && sideEntrancePrior > 0d)
         {
             var locationQuality = structureQuality;
             lockConfidence = MapAlignmentConfidence.ComputeSideEntranceStructureConfidence(
@@ -178,6 +214,7 @@ public static class MapStructureConfidenceCalculator
             FinalScore = lockConfidence
         };
     }
+
 }
 /*
  * 文件职责：MapStructureRegistrationModels.Detail。

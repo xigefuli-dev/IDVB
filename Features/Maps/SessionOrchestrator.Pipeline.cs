@@ -20,8 +20,12 @@ public sealed partial class SessionOrchestrator
     {
         var alignmentWallClock = Stopwatch.StartNew();
         var trace = ActiveOperationTrace;
-        var recoveringSelectedIdentity = _lastRecognition is null;
-        var locked = _lastRecognition ?? _pendingAlignmentIdentity;
+        // A user choice is committed to _lastRecognition immediately, while
+        // _pendingAlignmentIdentity records that its transform is still
+        // awaiting validation. Prefer the pending identity and keep using the
+        // strict initial-alignment route until that transform is accepted.
+        var recoveringSelectedIdentity = _pendingAlignmentIdentity is not null;
+        var locked = _pendingAlignmentIdentity ?? _lastRecognition;
         if (locked is null)
         {
             trace?.SetTerminal("failed", "no-locked-map");
@@ -37,6 +41,9 @@ public sealed partial class SessionOrchestrator
             targetFloorKey,
             primaryFloorKey,
             StringComparison.Ordinal);
+        var isPendingVariantAlignment = IsPendingVariantAlignment(
+            locked.Map.Id,
+            targetFloorKey);
         trace?.SetContext(
             route: isOtherFloor ? "structure-only-floor" : "primary-floor",
             mapId: locked.Map.Id.ToString("D"),
@@ -70,10 +77,14 @@ public sealed partial class SessionOrchestrator
         // is being captured. The operation remains Initial until the captured
         // context is classified below; this task only removes disk/decode
         // latency from the alignment critical path.
+        var initialPrewarmTuning = CreateStructureTuningForFloor(
+            locked.Map,
+            targetFloorKey,
+            CreateInitialAlignmentStructureTuning());
         var initialPrewarmTask = _recognition.WarmFloorStructureCacheAsync(
             locked.Map,
             targetFloorKey,
-            _settings!.StructureRegistrationTuning.Generation);
+            initialPrewarmTuning.Generation);
 
         // Presence detection selects the first frame that belongs to the map;
         // no second screenshot is taken after readiness is confirmed.
@@ -184,10 +195,17 @@ public sealed partial class SessionOrchestrator
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var alignmentMode = _settings.OverlayAlignmentMode;
+            var alignmentMode = _settings!.OverlayAlignmentMode;
             var structureTuning = recoveringSelectedIdentity
                 ? CreateInitialAlignmentStructureTuning()
                 : CreateEffectiveStructureTuning();
+            var alignmentChannel = MapAlignmentChannelRegistry.Resolve(
+                locked.Map,
+                targetFloorKey);
+            structureTuning = CreateStructureTuningForFloor(
+                locked.Map,
+                targetFloorKey,
+                structureTuning);
             var tuning = recoveringSelectedIdentity
                 ? CreateInitialAlignmentRecognitionTuning()
                 : _settings.RecognitionTuning.Clone();
@@ -199,11 +217,19 @@ public sealed partial class SessionOrchestrator
                 targetFloorKey);
             RuntimeMapRecognition? aligned = null;
             string? failureReason = null;
-            MapFeatureCacheKey? repairCacheKey = null; MapRecognitionAttempt? finalAttempt = null;
+            MapFeatureCacheKey? repairCacheKey = null;
+            MapRecognitionAttempt? finalAttempt = null;
+            var resetRecoveredScaleState = false;
             try
             {
                 await Task.Run(() =>
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var alignmentDeadline = new NoDoorAlignmentDeadline(
+                        cancellationToken,
+                        MapOpenAlignmentRouteRules.MaximumNoDoorAlignmentBudgetMilliseconds,
+                        enforceTimeBudget: false);
+                    using var alignmentBudget = alignmentDeadline.EnterAmbient();
                     alignmentDispatch?.Complete();
                     var alignmentCompute = trace?.StartTopLevel(
                         "alignment_compute",
@@ -222,6 +248,10 @@ public sealed partial class SessionOrchestrator
                         var canReuseLastSession = lastSession is not null
                             && lastSession.MapId == locked.Map.Id
                             && lastSession.MapUpdatedAt == locked.Map.UpdatedAt
+                            && string.Equals(
+                                lastSession.FloorKey,
+                                targetFloorKey,
+                                StringComparison.Ordinal)
                             && (!IsAdaptiveScaleEnabled
                                 || _lastReliableAdaptiveKey == adaptiveKey)
                             && CanUseAdaptiveReliableSession(lastSession, adaptiveKey);
@@ -234,15 +264,20 @@ public sealed partial class SessionOrchestrator
                                     : null,
                                 lastSession,
                                 canReuseLastSession,
-                                recoveringSelectedIdentity ? targetFloorKey : null);
+                                targetFloorKey);
 
-                // Secondary floors are locked to the map identity already, so
-                // they must use their own static structure directly.  This
-                // branch intentionally runs before the primary-floor side-door
-                // route and never invokes gate detection.
+                // Secondary floors and a newly selected variant without a
+                // genuine side-door seed must use their own static structure
+                // directly. This branch intentionally runs before the
+                // primary-floor side-door route and never invokes gate
+                // detection.
                         var primarySession = _primaryFloorAlignmentSession is { } savedPrimary
                                 && savedPrimary.MapId == locked.Map.Id
                                 && savedPrimary.MapUpdatedAt == locked.Map.UpdatedAt
+                                && string.Equals(
+                                    savedPrimary.FloorKey,
+                                    targetFloorKey,
+                                    StringComparison.Ordinal)
                                 && (!IsAdaptiveScaleEnabled
                                     || _primaryFloorAdaptiveKey == adaptiveKey)
                                 && CanUseAdaptiveReliableSession(savedPrimary, adaptiveKey)
@@ -288,7 +323,9 @@ public sealed partial class SessionOrchestrator
                             alignmentMode,
                             tuning,
                             structureTuning,
-                            tryDirectFeature: tryDirectSideFeature);
+                            tryDirectFeature: tryDirectSideFeature,
+                            useInitialHighPrecisionRecovery:
+                                executionClass == MapAlignmentExecutionClass.Initial);
                     }
                     return MapCvAlignmentService.AlignSelectedCore(
                             _recognition,
@@ -344,6 +381,7 @@ public sealed partial class SessionOrchestrator
 
                 MapRecognitionAttempt attempt;
                 MapFeatureCacheKey? localRepairKey;
+                var lowStructureEvidenceAccepted = true;
                 if (warmSeed is not null)
                 {
                     // Initial/Steady classification is shared by every floor.
@@ -352,8 +390,40 @@ public sealed partial class SessionOrchestrator
                     // recovery on the current frame before publishing.
                     attempt = RunSteadyAlignment(warmSeed);
                     localRepairKey = null;
+                    var steadyRejection = attempt.StructureResult?
+                        .RejectionReason ?? MapStructureRejectionReason.None;
+                    if (attempt.Recognition is null
+                        && MapOpenAlignmentRouteRules
+                            .ShouldAttemptSteadyScaleRecovery(
+                                alignmentChannel.Channel,
+                                steadyRejection))
+                    {
+                        var fixedScaleFailure = attempt;
+                        attempt = AlignSteadyScaleRecovery(
+                            frame,
+                            locked,
+                            targetFloorKey,
+                            alignmentMode,
+                            tuning,
+                            structureTuning,
+                            alignmentSession.SideEntranceScanPriorConfidence,
+                            fixedScaleFailure,
+                            out localRepairKey);
+                        if (attempt.Recognition?.Result.OverlayTransform
+                                is { } recoveredTransform
+                            && MapOpenAlignmentRouteRules.HasMaterialScaleChange(
+                                warmSeed.Session.LockedTransform.ScaleX,
+                                recoveredTransform.ScaleX))
+                        {
+                            resetRecoveredScaleState = true;
+                        }
+                    }
                 }
-                else if (isOtherFloor)
+                        else if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure
+                            || MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+                             isOtherFloor,
+                             isPendingVariantAlignment,
+                             alignmentSession))
                 {
                     var scaleSeed = MapFloorScaleSeedRules
                         .CreateIndependentFloorSeed(locked.Map, targetFloorKey);
@@ -383,6 +453,13 @@ public sealed partial class SessionOrchestrator
                         RunFallback,
                         out localRepairKey);
                 }
+                if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure)
+                {
+                    var evidence = ObserveLowStructureEvidence(attempt);
+                    lowStructureEvidenceAccepted = evidence.Accepted;
+                    attempt.Diagnostics.LowStructureEvidenceCount = evidence.Count;
+                    attempt.Diagnostics.LowStructureEvidencePending = evidence.Pending;
+                }
                 repairCacheKey = localRepairKey;
                 finalAttempt = attempt;
                 _lastDiagnostics = attempt.Diagnostics;
@@ -409,14 +486,16 @@ public sealed partial class SessionOrchestrator
                     alignmentDiag.InputToAlignmentStartMilliseconds =
                         openingAnimationWaitMs + stableViewportWaitMs;
                 }
-                aligned = attempt.Recognition;
+                aligned = lowStructureEvidenceAccepted
+                    ? attempt.Recognition
+                    : null;
                 failureReason = attempt.FailureReason;
                     }
                     finally
                     {
                         alignmentCompute?.Complete();
                     }
-                });
+                }, cancellationToken);
             }
             finally
             {
@@ -452,7 +531,8 @@ public sealed partial class SessionOrchestrator
                     recoveringSelectedIdentity,
                     aligned,
                     failureReason,
-                    repairCacheKey);
+                    repairCacheKey,
+                    resetRecoveredScaleState);
             if (publishOutcome == MapOpenAlignmentPublishOutcome.Superseded)
             {
                 trace?.SetTerminal("superseded", "map-operation-version-changed");

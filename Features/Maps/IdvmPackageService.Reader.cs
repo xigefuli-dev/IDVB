@@ -82,7 +82,7 @@ public sealed partial class IdvmPackageService
         var minor = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2));
         if (!bytes.AsSpan(0, 4).SequenceEqual("IDVM"u8)
             || major != 1
-            || minor is not (0 or 1)
+            || minor is not (0 or 1 or 2)
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2)) != HeaderSize
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(10, 2)) != 0
             || bytes.AsSpan(68, 12).IndexOfAnyExcept((byte)0) >= 0)
@@ -211,7 +211,12 @@ public sealed partial class IdvmPackageService
             var metadata = await ReadJsonAsync<MetadataDto>(Path.Combine(dataRoot, "metadata.json"), cancellationToken);
             var gatesDocument = await ReadJsonAsync<GatesDto>(Path.Combine(dataRoot, "gates.json"), cancellationToken);
             var anchorsDocument = await ReadJsonAsync<AnchorsDto>(Path.Combine(dataRoot, "anchors.json"), cancellationToken);
-            ValidateMapDocuments(map, metadata, gatesDocument, anchorsDocument);
+            ValidateMapDocuments(
+                map,
+                metadata,
+                gatesDocument,
+                anchorsDocument,
+                manifest.FormatVersion == "1.2");
 
             var floorDefinitions = new List<FloorDefinition>();
             var floorPaths = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -275,7 +280,8 @@ public sealed partial class IdvmPackageService
                 {
                     Key = floor.Key,
                     DisplayName = floor.DisplayName,
-                    SortOrder = floor.SortOrder
+                    SortOrder = floor.SortOrder,
+                    MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList()
                 });
                 floorPaths.Add(floor.Key, imagePath);
                 profiles.Add(floor.Key, profile);

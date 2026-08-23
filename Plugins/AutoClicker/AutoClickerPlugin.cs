@@ -11,16 +11,20 @@ namespace IDVBuff.Plugins.AutoClicker;
 [Plugin(
     "auto-clicker",
     DisplayName = "连点器",
-    Description = "按住鼠标右键超过 0.1 秒后，以可调周期发送完整 F↓/F↑ 事件，松开即停。"
-        + "可在插件设置中分别调整按下后与抬手后的延迟。",
+    Description = "按住自定义触发键超过长按阈值后，以可调周期发送键盘按下/抬起事件，松开即停。",
     Version = "1.3.0")]
 public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
 {
+    private const string TriggerBindingKey = "trigger-binding";
+    private const string OutputBindingKey = "output-binding";
     private const string KeyDownDelayKey = "key-down-delay-ms";
     private const string UpToNextDownDelayKey = "up-to-next-down-delay-ms";
 
     private readonly AutoClickerOptions _options = new();
     private readonly AutoClickerService _service;
+    private PluginInputBinding _triggerBinding =
+        PluginInputBinding.Mouse(PluginMouseButton.Right);
+    private PluginInputBinding _outputBinding = PluginInputBinding.Keyboard(0x46);
 
     public AutoClickerPlugin()
     {
@@ -37,7 +41,7 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = KeyDownDelayKey,
             DisplayName = "按下后延迟（毫秒）",
-            Description = "每次连点中 F 键按下后保持的时间，再抬起。",
+            Description = "每次连点中发送按键按下后保持的时间，再抬起。",
             Minimum = 1,
             Maximum = AutoClickerOptions.MaxKeyDownDelayMilliseconds,
             StepFrequency = 1,
@@ -47,11 +51,26 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = UpToNextDownDelayKey,
             DisplayName = "抬手后延迟（毫秒）",
-            Description = "每次连点中 F 键抬起后到下一次按下的间隔。",
+            Description = "每次连点中发送按键抬起后到下一次按下的间隔。",
             Minimum = 1,
             Maximum = AutoClickerOptions.MaxUpToNextDownDelayMilliseconds,
             StepFrequency = 1,
             DefaultValue = AutoClickerOptions.DefaultUpToNextDownDelayMilliseconds
+        },
+        new PluginKeyBindingSetting
+        {
+            Key = TriggerBindingKey,
+            DisplayName = "触发按键",
+            Description = "按住此键达到长按阈值后启动连点；支持键盘组合键或鼠标键。",
+            DefaultValue = "mouse:1"
+        },
+        new PluginKeyBindingSetting
+        {
+            Key = OutputBindingKey,
+            DisplayName = "发送按键",
+            Description = "连点器循环发送的键盘按键。",
+            DefaultValue = "keyboard:46:0",
+            AllowedKinds = PluginInputBindingKinds.Keyboard
         }
     ];
 
@@ -59,11 +78,12 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
     {
         try
         {
+            _service.ConfigureBindings(_triggerBinding, _outputBinding);
             _service.Start();
             Context.Logger.Info(
-                $"连点器已启动：按住鼠标右键超过 {AutoClickerPolicy.HoldBeforeClickMilliseconds}ms 后，"
-                + $"以 {_options.TotalPeriodMilliseconds}ms 周期发送完整 F↓/F↑ 事件，松开停止。"
-                + " 可在插件设置中调整按下/抬手延迟。");
+                $"连点器已启动：按住自定义触发键超过 {AutoClickerPolicy.HoldBeforeClickMilliseconds}ms 后，"
+                + $"以 {_options.TotalPeriodMilliseconds}ms 周期发送完整按下/抬起事件，松开停止。"
+                + " 可在插件设置中调整按键与按下/抬手延迟。");
         }
         catch (Exception exception)
         {
@@ -79,21 +99,49 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
     {
         KeyDownDelayKey => (double)_options.KeyDownDelayMilliseconds,
         UpToNextDownDelayKey => (double)_options.UpToNextDownDelayMilliseconds,
+        TriggerBindingKey => _triggerBinding.StorageValue,
+        OutputBindingKey => _outputBinding.StorageValue,
         _ => null
     };
 
     public void SetSettingValue(string key, object? value)
     {
-        if (!TryConvertToMilliseconds(value, out var milliseconds))
-            return;
-        switch (key)
+        if (key is KeyDownDelayKey or UpToNextDownDelayKey
+            && TryConvertToMilliseconds(value, out var milliseconds))
         {
-            case KeyDownDelayKey:
+            if (key == KeyDownDelayKey)
                 _options.KeyDownDelayMilliseconds = milliseconds;
-                break;
-            case UpToNextDownDelayKey:
+            else
                 _options.UpToNextDownDelayMilliseconds = milliseconds;
-                break;
+            return;
+        }
+
+        if (key == TriggerBindingKey
+            && value is string triggerText
+            && PluginInputBinding.TryParse(triggerText, out var trigger))
+        {
+            _triggerBinding = trigger;
+            if (Context is not null)
+            {
+                _service.ConfigureBindings(_triggerBinding, _outputBinding);
+                _service.Start();
+            }
+            return;
+        }
+
+        if (key == OutputBindingKey
+            && value is string outputText
+            && PluginInputBinding.TryParse(
+                outputText,
+                PluginInputBindingKinds.Keyboard,
+                out var output))
+        {
+            _outputBinding = output;
+            if (Context is not null)
+            {
+                _service.ConfigureBindings(_triggerBinding, _outputBinding);
+                _service.Start();
+            }
         }
     }
 

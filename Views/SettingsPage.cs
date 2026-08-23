@@ -36,9 +36,10 @@ public sealed class SettingsPage : Page
         informationGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         informationGrid.Children.Add(CreateInfoCard(
             "作者与维护者",
-            "@xigefuli · 对镜自演 · 精通骗人的骗术师",
-            "三个署名均指向同一位作者。",
-            Symbol.Contact));
+            "@xigefuli",
+            "作者与维护者",
+            Symbol.Contact,
+            "◉  GitHub  ·  xigefuli-dev/IDVB"));
         var versionCard = CreateInfoCard(
             "当前版本",
             GetDisplayVersion(),
@@ -209,7 +210,12 @@ public sealed class SettingsPage : Page
         return panel;
     }
 
-    private static Border CreateInfoCard(string label, string value, string detail, Symbol icon)
+    private static Border CreateInfoCard(
+        string label,
+        string value,
+        string detail,
+        Symbol icon,
+        string? githubLabel = null)
     {
         var content = new StackPanel { Spacing = 8 };
         content.Children.Add(new SymbolIcon(icon) { Foreground = AccentBrush });
@@ -229,6 +235,16 @@ public sealed class SettingsPage : Page
             Foreground = SecondaryTextBrush,
             TextWrapping = TextWrapping.Wrap
         });
+        if (githubLabel is not null)
+        {
+            content.Children.Add(new HyperlinkButton
+            {
+                Content = githubLabel,
+                NavigateUri = new Uri("https://github.com/xigefuli-dev/IDVB"),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(0, 2, 0, 2)
+            });
+        }
         return new Border
         {
             Padding = new Thickness(18),

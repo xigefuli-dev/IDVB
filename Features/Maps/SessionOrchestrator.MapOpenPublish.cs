@@ -21,7 +21,8 @@ public sealed partial class SessionOrchestrator
         bool recoveringSelectedIdentity,
         RuntimeMapRecognition? aligned,
         string? failureReason,
-        MapFeatureCacheKey? repairCacheKey)
+        MapFeatureCacheKey? repairCacheKey,
+        bool resetRecoveredScaleState)
     {
         var trace = ActiveOperationTrace;
         var resultPublish = trace?.StartTopLevel(
@@ -47,6 +48,19 @@ public sealed partial class SessionOrchestrator
 
         if (aligned is not null)
         {
+            if (resetRecoveredScaleState)
+            {
+                var recoveredContextKey = CreateAlignmentContextKey(
+                    operationMatch,
+                    frame,
+                    aligned.Map,
+                    targetFloorKey);
+                ForgetReliableFloorAlignment(recoveredContextKey);
+                await ResetAdaptiveScaleAfterSteadyRecoveryAsync(
+                    frame,
+                    aligned.Map,
+                    targetFloorKey);
+            }
             // 在 adaptive 仲裁改写 transform 之前记录：这里 aligned 是结构配准在
             // 就绪帧上找出的真实对齐，locked 是上次成功对齐。二者位移差就是
             // 「重开图漂移」——决定投影边界掩膜能否复用上次位移的关键证据。
@@ -113,7 +127,8 @@ public sealed partial class SessionOrchestrator
                     operationMatch,
                     aligned,
                     updatedSession,
-                    frame);
+                    frame,
+                    adaptiveDecision.AllowReliableSession);
                 _lastGameBounds = frame.ClientBounds;
                 _lastGameWindowHandle = frame.WindowHandle;
                 _statusMessage =
@@ -239,6 +254,17 @@ public sealed partial class SessionOrchestrator
                     persistence?.Complete();
                 }
             }
+            if (MapAlignmentChannelRegistry.Resolve(
+                    aligned.Map,
+                    aligned.Result.Floor).Channel
+                == MapAlignmentChannel.LowStructure
+                && _lastDiagnostics is { } lowDiagnostics)
+            {
+                await PersistLowStructureScaleAsync(
+                    aligned,
+                    frame,
+                    lowDiagnostics);
+            }
             return MapOpenAlignmentPublishOutcome.Succeeded;
         }
 
@@ -340,6 +366,14 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition aligned,
         string targetFloorKey)
     {
+        if (!MapOpenAlignmentRouteRules.CanCompareMapOpenDrift(
+                locked,
+                aligned,
+                targetFloorKey))
+        {
+            return;
+        }
+
         var previous = locked.Result.OverlayTransform;
         var current = aligned.Result.OverlayTransform;
         if (previous is null

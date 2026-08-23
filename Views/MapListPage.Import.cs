@@ -33,6 +33,22 @@ public sealed partial class MapListPage : UserControl
             PlaceholderText = "例如：一楼、地下室",
             Height = 36
         };
+        var lowStructureToggle = new ToggleSwitch
+        {
+            Header = "低结构楼层",
+            OnContent = "开启",
+            OffContent = "关闭",
+            IsOn = existing is not null
+                && MapFloorMarkerRules.Has(
+                    existing.MarkerKeys,
+                    MapFloorMarkerRules.LowStructure)
+        };
+        var lowStructureDescription = new TextBlock
+        {
+            Text = "结构稀疏时使用独立的全尺度搜索通道。",
+            FontSize = 12,
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+        };
 
         var panel = new StackPanel { Spacing = 12 };
         panel.Children.Add(new TextBlock
@@ -49,6 +65,8 @@ public sealed partial class MapListPage : UserControl
             Foreground = new SolidColorBrush(Color.FromArgb(255, 80, 80, 80))
         });
         panel.Children.Add(nameBox);
+        panel.Children.Add(lowStructureToggle);
+        panel.Children.Add(lowStructureDescription);
 
         var dialog = new ContentDialog
         {
@@ -96,7 +114,16 @@ public sealed partial class MapListPage : UserControl
         if (string.IsNullOrWhiteSpace(displayName))
             displayName = key;
 
-        return new FloorIdentity(key, displayName);
+        var markerKeys = MapFloorMarkerRules.Normalize(existing?.MarkerKeys);
+        markerKeys = lowStructureToggle.IsOn
+            ? MapFloorMarkerRules.Normalize(markerKeys.Append(MapFloorMarkerRules.LowStructure))
+            : markerKeys
+                .Where(key => !string.Equals(
+                    key,
+                    MapFloorMarkerRules.LowStructure,
+                    StringComparison.Ordinal))
+                .ToArray();
+        return new FloorIdentity(key, displayName, markerKeys);
     }
 
     private async Task ShowImportAsync(MapDraft draft)
@@ -110,13 +137,24 @@ public sealed partial class MapListPage : UserControl
             ? (draft.Floors.Count > 0
                 ? draft.Floors.OrderBy(floor => floor.SortOrder)
                     .Where(floor => draft.FloorPaths.ContainsKey(floor.Key))
-                    .Select(floor => new { floor.Key, floor.DisplayName })
-                : draft.FloorPaths.Select(kvp => new { Key = kvp.Key, DisplayName = kvp.Key }))
+                    .Select(floor => new
+                    {
+                        floor.Key,
+                        floor.DisplayName,
+                        MarkerKeys = floor.MarkerKeys.ToArray()
+                    })
+                : draft.FloorPaths.Select(kvp => new
+                {
+                    Key = kvp.Key,
+                    DisplayName = kvp.Key,
+                    MarkerKeys = Array.Empty<string>()
+                }))
                 .Select(floor => new ImportFloorEntry
             {
                 OriginalFloorKey = floor.Key,
                 FloorKey = floor.Key,
                 DisplayName = floor.DisplayName,
+                MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList(),
                 ImagePath = draft.FloorPaths[floor.Key],
                 PreviewImagePath = draft.FloorPreviewPaths.TryGetValue(floor.Key, out var previewPath)
                     ? previewPath
@@ -292,7 +330,8 @@ public sealed partial class MapListPage : UserControl
             {
                 Key = entry.FloorKey,
                 DisplayName = entry.DisplayName,
-                SortOrder = i + 1
+                SortOrder = i + 1,
+                MarkerKeys = MapFloorMarkerRules.Normalize(entry.MarkerKeys).ToList()
             });
             profilesByNewKey[entry.FloorKey] = profile;
 
@@ -407,6 +446,7 @@ public sealed partial class MapListPage : UserControl
                     OriginalFloorKey = identity.FloorKey,
                     FloorKey = identity.FloorKey,
                     DisplayName = identity.DisplayName,
+                    MarkerKeys = identity.MarkerKeys.ToList(),
                     ImagePath = selectedPath,
                     PreviewImagePath = selectedPath
                 };

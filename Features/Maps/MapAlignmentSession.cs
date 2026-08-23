@@ -180,7 +180,11 @@ public sealed class MapAlignmentSession
             || previous.SideEntranceScanPriorConfidence <= 0d
             || rebuilt.SideEntranceScanPriorConfidence > 0d
             || previous.MapId != rebuilt.MapId
-            || previous.MapUpdatedAt != rebuilt.MapUpdatedAt)
+            || previous.MapUpdatedAt != rebuilt.MapUpdatedAt
+            || !string.Equals(
+                previous.FloorKey,
+                rebuilt.FloorKey,
+                StringComparison.Ordinal))
         {
             return rebuilt;
         }

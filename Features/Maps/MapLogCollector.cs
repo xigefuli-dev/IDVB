@@ -142,6 +142,33 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// Stops the active session, waits for pending writes, and removes all
+    /// persisted log data and temporary files.
+    /// </summary>
+    public async Task ClearDataAsync()
+    {
+        Task[] finalizations;
+        lock (_stateGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_isEnabled)
+                StopCurrentSessionLocked("Log collection stopped before data cleanup");
+            finalizations = _finalizationTasks.ToArray();
+        }
+
+        try
+        {
+            await Task.WhenAll(finalizations).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"[MapLogCollector] cleanup wait failed: {exception}");
+        }
+
+        _repository.ClearData();
+    }
+
+    /// <summary>
     /// Returns only entries still waiting to be written. Persisted entries are intentionally
     /// removed from memory so normal memory usage follows the pending write backlog.
     /// </summary>

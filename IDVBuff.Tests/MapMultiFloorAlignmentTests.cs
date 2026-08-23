@@ -96,7 +96,7 @@ public sealed class MapMultiFloorAlignmentTests
 
     [Theory]
     [InlineData(true, 0.04d, 0.15d)]
-    [InlineData(false, 0.15d, 0.30d)]
+    [InlineData(false, 0.15d, 0.70d)]
     public void FloorSearchPolicyUsesRequiredTwoStages(
         bool calibrated,
         double expectedInitial,
@@ -110,7 +110,7 @@ public sealed class MapMultiFloorAlignmentTests
 
     [Theory]
     [InlineData(0.15d)]
-    [InlineData(0.30d)]
+    [InlineData(0.60d)]
     public void RecoverySearchRadiusSurvivesTuningNormalization(double radius)
     {
         var tuning = new MapStructureRegistrationTuning
@@ -121,6 +121,28 @@ public sealed class MapMultiFloorAlignmentTests
         tuning.Normalize();
 
         Assert.Equal(radius, tuning.ScaleSearchRadius, 8);
+    }
+
+    [Fact]
+    public void UncalibratedRecoveryCoversPointThreeThroughPointOneSeven()
+    {
+        var radius = MapFloorScaleSearchPolicy.GetRadii(false).ExpandedRadius;
+
+        var hypotheses = MapStructureScaleSearch.BuildScaleHypotheses(
+            1d,
+            allowScaleSearch: true,
+            radius,
+            scaleSearchStep: 0.01d);
+
+        Assert.InRange(
+            hypotheses.Min(),
+            MapFloorScaleSearchPolicy.UncalibratedMinimumScale - 0.000001d,
+            MapFloorScaleSearchPolicy.UncalibratedMinimumScale + 0.000001d);
+        Assert.InRange(
+            hypotheses.Max(),
+            MapFloorScaleSearchPolicy.UncalibratedMaximumScale - 0.000001d,
+            MapFloorScaleSearchPolicy.UncalibratedMaximumScale + 0.000001d);
+        Assert.Contains(hypotheses, scale => Math.Abs(scale - 0.40d) < 0.000001d);
     }
 
     [Fact]
@@ -183,6 +205,68 @@ public sealed class MapMultiFloorAlignmentTests
     }
 
     [Fact]
+    public void LowStructureConfidenceUsesOnlyItsDedicatedFormula()
+    {
+        var candidate = new MapStructureCandidate
+        {
+            ChamferPixels = 2.85d,
+            EdgeCoverage = 0.53d,
+            OccupancyCoverage = 0.85d,
+            ConsistentPartitions = 2,
+            IsWithinValidBounds = true,
+            PriorAgreement = 1d
+        };
+        var standardTuning = new MapStructureRegistrationTuning
+        {
+            Channel = MapAlignmentChannel.Standard,
+            MaximumChamferPixels = 3d
+        };
+        standardTuning.Normalize();
+        var lowTuning = MapAlignmentChannelRegistry.CreateLowStructure();
+
+        var standard = MapStructureConfidenceCalculator.Calculate(
+            candidate,
+            0.25d,
+            standardTuning);
+        var low = MapStructureConfidenceCalculator.Calculate(
+            candidate,
+            0.25d,
+            lowTuning);
+
+        Assert.InRange(standard.LockConfidence, 0.51d, 0.52d);
+        Assert.Equal(0.6278416666666667d, low.LockConfidence, 12);
+        Assert.Equal(0.6436166666666667d, low.GeometricLockConfidence, 12);
+        Assert.Equal(low.LockConfidence, low.FinalScore, 12);
+        Assert.Equal(1d, low.EffectiveWeight);
+    }
+
+    [Fact]
+    public void LowStructureConfidenceUsesRawFormulaAndStaysBounded()
+    {
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure();
+        var weak = MapStructureConfidenceCalculator.Calculate(
+            new MapStructureCandidate
+            {
+                ChamferPixels = 3d,
+                IsWithinValidBounds = true
+            }, 0d, tuning);
+        var strong = MapStructureConfidenceCalculator.Calculate(
+            new MapStructureCandidate
+            {
+                EdgeCoverage = 1d,
+                OccupancyCoverage = 1d,
+                ConsistentPartitions = 4,
+                IsWithinValidBounds = true,
+                PriorAgreement = 1d
+            }, 1d, tuning);
+
+        Assert.InRange(weak.FinalScore, 0d, 1d);
+        Assert.InRange(strong.FinalScore, 0d, 1d);
+        Assert.True(strong.FinalScore > weak.FinalScore);
+        Assert.Equal(strong.LockConfidence, strong.FinalScore, 12);
+    }
+
+    [Fact]
     public void WeakFeatureClusterIsDiagnosticAndDoesNotReduceLockConfidence()
     {
         var tuning = new MapStructureRegistrationTuning();
@@ -226,7 +310,7 @@ public sealed class MapMultiFloorAlignmentTests
         tuning.Normalize();
         var candidate = new MapStructureCandidate
         {
-            ChamferPixels = 3.2d * (1d - 0.2336d),
+            ChamferPixels = tuning.MaximumChamferPixels * (1d - 0.2336d),
             EdgeCoverage = 0.7067d,
             OccupancyCoverage = 0.8766d,
             ConsistentPartitions = 4,
@@ -350,7 +434,7 @@ public sealed class MapMultiFloorAlignmentTests
                 new MapScreenRect(0d, 0d, mainImage.Width, mainImage.Height),
                 IntPtr.Zero))
             {
-                var rejectedPrimary = service.AlignFloorWithoutGates(
+                var primaryAttempt = service.AlignFloorWithoutGates(
                     primaryFrame,
                     map.Id,
                     "main",
@@ -364,9 +448,12 @@ public sealed class MapMultiFloorAlignmentTests
                     },
                     MapOverlayAlignmentMode.Uniform,
                     new MapRecognitionTuning());
-                Assert.Null(rejectedPrimary.Recognition);
-                Assert.Contains("double-gate", rejectedPrimary.FailureReason);
-                Assert.Equal(0, rejectedPrimary.Diagnostics.GateCandidateCount);
+                Assert.NotNull(primaryAttempt.Recognition);
+                Assert.True(
+                    primaryAttempt.StructureAccepted,
+                    primaryAttempt.StructureFailureReason);
+                Assert.Equal("main", primaryAttempt.Recognition.Result.Floor);
+                Assert.Equal(0, primaryAttempt.Diagnostics.GateCandidateCount);
             }
 
             await AssertFloorAlignmentAsync(

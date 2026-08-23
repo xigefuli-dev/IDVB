@@ -12,13 +12,15 @@ public interface IPluginSettingsProvider
 
     /// <summary>
     /// 读取某键的当前值。宿主约定的返回类型与描述符对应：
-    /// toggle→bool、slider→double、choice→选中项字符串；未设置返回 null。
+    /// toggle→bool、slider→double、choice→选中项字符串、key binding→稳定存储字符串；
+    /// 未设置返回 null。
     /// </summary>
     object? GetSettingValue(string key);
 
     /// <summary>
     /// 写入某键的值。宿主保证传入类型与描述符一致，插件应自行钳制
-    /// 到合理范围并安全地应用到运行时。
+    /// 到合理范围并安全地应用到运行时；键位设置应解析为
+    /// <see cref="PluginInputBinding.StorageValue"/>。
     /// </summary>
     void SetSettingValue(string key, object? value);
 }

@@ -39,8 +39,7 @@ public sealed partial class MapRepository
     /// </summary>
     private async Task TryGenerateSideEntranceFeatureAsync(
         string stagingDirectory,
-        FloorRecognitionProfile profile,
-        int featureRadius)
+        FloorRecognitionProfile profile)
     {
         var sideAnchor = profile.FindAnchor("side-entrance");
         if (sideAnchor?.IsMarked is not true)
@@ -59,7 +58,10 @@ public sealed partial class MapRepository
                 return;
 
             using var result = _sideEntrancePreprocessor.Process(
-                recognitionMat, sideAnchor.Bounds!, featureRadius);
+                recognitionMat,
+                sideAnchor.Bounds!,
+                SideEntranceScanRules.FeatureRegionRatio,
+                SideEntranceScanRules.ClampFeatureToBounds);
 
             var featureFileName = GetSideEntranceFeatureFileName(profile.FloorKey);
             var featurePath = Path.Combine(stagingDirectory, featureFileName);
@@ -90,15 +92,13 @@ public sealed partial class MapRepository
     }
 
     /// <summary>
-    /// 批量为所有地图重新生成侧门特征图（半径参数改变时调用）。
+    /// 批量按当前侧门 TOML 配置重新生成所有地图的侧门特征图。
     /// 每张地图处理完毕后通知进度；出错地图跳过。
     /// </summary>
     public async Task RebuildAllSideEntranceFeaturesAsync(
-        int featureRadius,
         IProgress<(int done, int total)>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        featureRadius = Math.Clamp(featureRadius, 20, 500);
         await Gate.WaitAsync(cancellationToken);
         MapCatalogDocument catalog;
         try
@@ -140,7 +140,10 @@ public sealed partial class MapRepository
                         continue;
 
                     using var result = _sideEntrancePreprocessor.Process(
-                        recognitionMat, sideAnchor.Bounds!, featureRadius);
+                        recognitionMat,
+                        sideAnchor.Bounds!,
+                        SideEntranceScanRules.FeatureRegionRatio,
+                        SideEntranceScanRules.ClampFeatureToBounds);
 
                     var featureFileName = GetSideEntranceFeatureFileName(floorDef.Key);
                     var featurePath = Path.Combine(mapDirectory, featureFileName);
@@ -329,16 +332,11 @@ public sealed partial class MapRepository
             using var recognition = Cv2.ImRead(recognitionPath, ImreadModes.Grayscale);
             if (recognition.Empty())
                 return false;
-            var radius = Math.Clamp(
-                profile.SideEntranceFeatureRadius > 0
-                    ? profile.SideEntranceFeatureRadius
-                    : 80,
-                20,
-                Math.Max(20, Math.Min(recognition.Width, recognition.Height) / 2));
             using var result = _sideEntrancePreprocessor.Process(
                 recognition,
                 anchor.Bounds,
-                radius);
+                SideEntranceScanRules.FeatureRegionRatio,
+                SideEntranceScanRules.ClampFeatureToBounds);
             var fileName = GetSideEntranceFeatureFileName(floorKey);
             var featurePath = Path.Combine(GetMapDirectory(record.Id), fileName);
             if (!Cv2.ImWrite(featurePath, result.Feature))

@@ -598,7 +598,9 @@ public sealed class MapOperationTraceSummary
             ["terminalReason"] = TerminalReason,
             ["unaccountedThresholdMs"] = UnaccountedThresholdMs,
             ["shouldWarnUnaccounted"] = ShouldWarnUnaccounted,
-            ["humanTimeline"] = ToHumanTimeline(),
+            // Spans are the canonical persisted timeline. Persisting the same
+            // operation again as a large formatted string doubled log volume
+            // and amplified the one-second diagnostic flush pause.
             ["spans"] = Spans.Select(static span => new Dictionary<string, object?>
             {
                 ["operationId"] = span.OperationId,

@@ -150,7 +150,6 @@ public sealed partial class MapRuntimeSettings
             ConfirmationRoiMinimumPaddingPixels = 24,
             ConfirmationMaximumMapDragPixelsPerSecond = 600d,
             ConfirmationSchedulingSlackMilliseconds = 100,
-            SideEntranceFeatureRadius = 80
         },
         StructureRegistrationTuning = new MapStructureRegistrationTuning
         {
@@ -170,7 +169,7 @@ public sealed partial class MapRuntimeSettings
             MinimumSpanPixels = 28,
             MinimumConsistentPartitions = 2,
             TopCandidateCount = 6,
-            MaximumChamferPixels = 3.2d,
+            MaximumChamferPixels = 3.0d,
             MinimumEdgeCoverage = 0.40d,
             MinimumOccupancyCoverage = 0.42d,
             MinimumCandidateMargin = 0.04d,
@@ -494,7 +493,7 @@ public sealed partial class MapRuntimeSettings
                 {
                     Name = "1920×1080 @ 120 DPI",
                     ClientWidth = 1920, ClientHeight = 1080, Dpi = 120,
-                    MaximumChamferPixels = 4.5d,
+                    MaximumChamferPixels = 3.0d,
                     MinimumEdgeCoverage = 0.30d,
                     EdgeDistanceTolerancePixels = 3.5d,
                     FastCoarseMaxDimension = 180,
@@ -506,7 +505,7 @@ public sealed partial class MapRuntimeSettings
                 {
                     Name = "2560×1440 @ 120 DPI",
                     ClientWidth = 2560, ClientHeight = 1440, Dpi = 120,
-                    MaximumChamferPixels = 3.5d,
+                    MaximumChamferPixels = 3.0d,
                     FastCoarseMaxDimension = 160
                 }
             ]);

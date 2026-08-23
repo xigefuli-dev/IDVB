@@ -13,6 +13,8 @@ public static class ModuleRegistration
         catalog.Register(new StatusModule());
         catalog.Register(new ListModule());
         catalog.Register(new PluginsModule());
+        catalog.Register(new MainSettingsModule());
+        catalog.Register(new HelpModule());
 
         // Example after adding a ProjectReference to an imported WinUI project:
         // catalog.Register(new ImportedProjectModule());

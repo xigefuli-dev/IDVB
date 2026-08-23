@@ -22,8 +22,8 @@ public sealed class SideEntranceCandidateEvidenceTests
         Assert.Equal(3d, strict.RestrictedSearchMaximumChamferPixels);
         Assert.Equal(0.04d, strict.ScaleSearchRadius);
         Assert.Equal(0.68d, strict.MinimumEdgeCoverage);
-        Assert.Equal(8d, source.MaximumChamferPixels);
-        Assert.Equal(5d, source.RestrictedSearchMaximumChamferPixels);
+        Assert.Equal(3d, source.MaximumChamferPixels);
+        Assert.Equal(3d, source.RestrictedSearchMaximumChamferPixels);
     }
 
     [Fact]

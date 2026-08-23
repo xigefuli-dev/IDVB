@@ -6,6 +6,14 @@ namespace IDVBuff.Views;
 
 internal static class FluentTheme
 {
+    public static bool UseLegacyTheme { get; private set; }
+
+    public static SystemBackdrop? CreateWindowBackdrop(bool useLegacyTheme)
+    {
+        UseLegacyTheme = useLegacyTheme;
+        return useLegacyTheme ? null : new GaussianBlurBackdrop();
+    }
+
     public static Brush Brush(string resourceKey) =>
         Application.Current.Resources[resourceKey] as Brush
         ?? throw new InvalidOperationException($"Missing WinUI theme resource '{resourceKey}'.");
@@ -32,6 +40,9 @@ internal static class FluentTheme
 
     public static Brush CardBrush()
     {
+        if (UseLegacyTheme)
+            return Brush("CardBackgroundFillColorDefaultBrush");
+
         var brush = new SolidColorBrush(IsDarkTheme() ? DarkCardColor : LightCardColor);
         lock (Gate)
         {
@@ -43,6 +54,9 @@ internal static class FluentTheme
 
     public static Brush WindowBrush()
     {
+        if (UseLegacyTheme)
+            return Brush("ApplicationPageBackgroundThemeBrush");
+
         var brush = new SolidColorBrush(IsDarkTheme() ? DarkWindowColor : LightWindowColor);
         lock (Gate)
         {

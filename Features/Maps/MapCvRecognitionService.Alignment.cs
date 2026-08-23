@@ -107,7 +107,8 @@ public sealed partial class MapCvRecognitionService
         bool isTracking = false,
         bool useProjectedBoundaryMask = false,
         MapScaleSearchPolicy scaleSearchPolicy = MapScaleSearchPolicy.Search,
-        double identityPriorConfidence = 0d) =>
+        double identityPriorConfidence = 0d,
+        bool allowPrimaryFloor = false) =>
         MapCvAlignmentService.AlignStructureOnly(
             this,
             frame,
@@ -123,9 +124,10 @@ public sealed partial class MapCvRecognitionService
             candidateHistory,
             isTracking,
             useProjectedBoundaryMask,
-            allowPrimaryFloor: false,
+            allowPrimaryFloor,
             scaleSearchPolicy,
-            identityPriorConfidence);
+            identityPriorConfidence,
+            restrictTranslationToSeed: true);
 
     public MapRecognitionAttempt AlignWithCachedScale(
         CapturedGameFrame frame,
@@ -135,7 +137,8 @@ public sealed partial class MapCvRecognitionService
         MapOverlayAlignmentMode alignmentMode,
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning? structureTuning = null,
-        double identityPriorConfidence = 0d) =>
+        double identityPriorConfidence = 0d,
+        bool restrictTranslationToSeed = true) =>
         MapCvAlignmentService.AlignStructureOnly(
             this,
             frame,
@@ -153,7 +156,8 @@ public sealed partial class MapCvRecognitionService
             useProjectedBoundaryMask: false,
             allowPrimaryFloor: true,
             scaleSearchPolicy: MapScaleSearchPolicy.Fixed,
-            identityPriorConfidence);
+            identityPriorConfidence,
+            restrictTranslationToSeed);
 
     /// <summary>
     /// Thin wrapper that reuses AlignSelected for confirmation frames.

@@ -46,6 +46,8 @@ public sealed partial class SessionOrchestrator
                 + $"{decision.ConsecutiveHighQualityCount}/{decision.RequiredHighQualityCount}",
             AdaptiveScaleReliabilityReason.StructureConsensus =>
                 $"{confidence} · 多帧结构共识",
+            AdaptiveScaleReliabilityReason.VpsgDirectLock =>
+                $"{confidence} · VPSG 高置信直锁",
             _ => $"{confidence} · 已验证启动标定"
         };
         _statusMessage =

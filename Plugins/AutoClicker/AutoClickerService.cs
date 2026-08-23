@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using IDVBuff.PluginContracts;
 using IDVBuff.PluginHostMessages;
 
 namespace IDVBuff.Plugins.AutoClicker;
@@ -14,15 +15,29 @@ namespace IDVBuff.Plugins.AutoClicker;
 public sealed class AutoClickerService : IDisposable
 {
     private const int WhMouseLl = 14;
+    private const int WhKeyboardLl = 13;
+    private const uint WmKeyDown = 0x0100;
+    private const uint WmKeyUp = 0x0101;
+    private const uint WmSysKeyDown = 0x0104;
+    private const uint WmSysKeyUp = 0x0105;
+    private const uint WmLButtonDown = 0x0201;
+    private const uint WmLButtonUp = 0x0202;
     private const uint WmRButtonDown = 0x0204;
     private const uint WmRButtonUp = 0x0205;
+    private const uint WmMButtonDown = 0x0207;
+    private const uint WmMButtonUp = 0x0208;
+    private const uint WmXButtonDown = 0x020B;
+    private const uint WmXButtonUp = 0x020C;
     private const uint WmQuit = 0x0012;
     private const uint PmNoRemove = 0x0000;
     private const uint LlmhfInjected = 0x00000001;
     private const uint InputKeyboard = 1;
     private const uint InputMouse = 0;
     private const uint KeyeventfKeyup = 0x0002;
-    private const uint MouseeventfRightup = 0x0008;
+    private const uint MouseeventfLeftup = 0x0004;
+    private const uint MouseeventfRightup = 0x0010;
+    private const uint MouseeventfMiddleup = 0x0040;
+    private const uint MouseeventfXup = 0x0100;
     // Must match MapGlobalInputService so auto-clicker input is not
     // reinterpreted as a host hotkey or mouse binding.
     private static readonly IntPtr InputInjectionMarker =
@@ -32,7 +47,12 @@ public sealed class AutoClickerService : IDisposable
     private readonly object _sendInputSync = new();
     private readonly LowLevelMouseProc _mouseProc;
     private readonly AutoClickerOptions _options;
+    private PluginInputBinding _triggerBinding =
+        PluginInputBinding.Mouse(PluginMouseButton.Right);
+    private ushort _outputVirtualKey = 0x46;
+    private bool _outputVirtualKeyConfigured = true;
     private IntPtr _hook;
+    private IntPtr _keyboardHook;
     private Thread? _hookThread;
     private uint _hookThreadId;
     private Thread? _clickingThread;
@@ -47,6 +67,48 @@ public sealed class AutoClickerService : IDisposable
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _mouseProc = MouseHookCallback;
+        _keyboardProc = KeyboardHookCallback;
+    }
+
+    private readonly LowLevelKeyboardProc _keyboardProc;
+
+    public void ConfigureBindings(
+        PluginInputBinding triggerBinding,
+        PluginInputBinding outputBinding)
+    {
+        ArgumentNullException.ThrowIfNull(triggerBinding);
+        ArgumentNullException.ThrowIfNull(outputBinding);
+        if (outputBinding.IsConfigured
+            && (outputBinding.Kind != PluginInputBindingKind.Keyboard
+                || outputBinding.VirtualKey == 0))
+        {
+            throw new ArgumentException("连点器按键绑定无效。", nameof(triggerBinding));
+        }
+
+        var nextTriggerBinding = triggerBinding.Clone();
+        var nextOutputVirtualKey = outputBinding.IsConfigured
+            ? checked((ushort)outputBinding.VirtualKey)
+            : (ushort)0;
+        bool restart;
+        lock (_sync)
+            restart = _started;
+
+        // Stop while the old output key is still configured. Otherwise
+        // Stop() would release the newly selected key and leave an old
+        // injected key-down stuck in the target application.
+        if (restart)
+            Stop();
+
+        lock (_sync)
+        {
+            _triggerBinding = nextTriggerBinding;
+            _outputVirtualKeyConfigured = outputBinding.IsConfigured;
+            if (outputBinding.IsConfigured)
+                _outputVirtualKey = nextOutputVirtualKey;
+        }
+
+        if (restart)
+            Start();
     }
 
     public void Start()
@@ -54,6 +116,8 @@ public sealed class AutoClickerService : IDisposable
         lock (_sync)
         {
             if (_started)
+                return;
+            if (!_triggerBinding.IsConfigured || !_outputVirtualKeyConfigured)
                 return;
             _started = true;
         }
@@ -120,11 +184,16 @@ public sealed class AutoClickerService : IDisposable
                 PeekMessage(out _, IntPtr.Zero, 0, 0, PmNoRemove);
                 var module = GetModuleHandle(null);
                 _hook = SetWindowsHookEx(WhMouseLl, _mouseProc, module, 0);
-                if (_hook == IntPtr.Zero)
+                _keyboardHook = SetWindowsHookEx(
+                    WhKeyboardLl,
+                    _keyboardProc,
+                    module,
+                    0);
+                if (_hook == IntPtr.Zero || _keyboardHook == IntPtr.Zero)
                 {
                     throw new Win32Exception(
                         Marshal.GetLastWin32Error(),
-                        "无法注册连点器全局鼠标钩子。");
+                        "无法注册连点器全局输入钩子。");
                 }
                 started.Set();
                 while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
@@ -142,7 +211,10 @@ public sealed class AutoClickerService : IDisposable
             {
                 if (_hook != IntPtr.Zero)
                     UnhookWindowsHookEx(_hook);
+                if (_keyboardHook != IntPtr.Zero)
+                    UnhookWindowsHookEx(_keyboardHook);
                 _hook = IntPtr.Zero;
+                _keyboardHook = IntPtr.Zero;
                 _hookThreadId = 0;
             }
         })
@@ -167,26 +239,64 @@ public sealed class AutoClickerService : IDisposable
 
     private IntPtr MouseHookCallback(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (code >= 0 && AutoClickerPolicy.IsTriggerMouseMessage((uint)wParam.ToInt64()))
+        if (code >= 0)
         {
             var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
             // 注入的连点信号（本服务 SendInput 产生）：透传给目标程序。
-            if ((mouse.Flags & LlmhfInjected) == 0)
+            if ((mouse.Flags & LlmhfInjected) == 0
+                && TryGetMouseButton(
+                    (uint)wParam.ToInt64(),
+                    lParam,
+                    out var button,
+                    out var isDown))
             {
-                var message = (uint)wParam.ToInt64();
-                if (message == WmRButtonDown)
+                PluginInputBinding trigger;
+                lock (_sync)
+                    trigger = _triggerBinding;
+                if (trigger.Kind == PluginInputBindingKind.Mouse
+                    && trigger.MouseButton == button)
                 {
-                    if (HandlePhysicalButtonDown())
-                        return new IntPtr(1);
-                }
-                else if (message == WmRButtonUp)
-                {
-                    if (HandlePhysicalButtonUp())
+                    var swallow = isDown
+                        ? HandlePhysicalButtonDown()
+                        : HandlePhysicalButtonUp();
+                    if (swallow)
                         return new IntPtr(1);
                 }
             }
         }
         return CallNextHookEx(_hook, code, wParam, lParam);
+    }
+
+    private IntPtr KeyboardHookCallback(int code, IntPtr wParam, IntPtr lParam)
+    {
+        if (code >= 0)
+        {
+            var keyboard = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
+            if ((keyboard.Flags & 0x00000010) == 0)
+            {
+                var message = (uint)wParam.ToInt64();
+                var isDown = message is WmKeyDown or WmSysKeyDown;
+                if (isDown || message is WmKeyUp or WmSysKeyUp)
+                {
+                    PluginInputBinding trigger;
+                    lock (_sync)
+                        trigger = _triggerBinding;
+                    if (trigger.Kind == PluginInputBindingKind.Keyboard
+                        && trigger.VirtualKey == keyboard.VirtualKey
+                        && (isDown
+                            ? AreRequiredModifiersDown(trigger.Modifiers)
+                            : true))
+                    {
+                        var swallow = isDown
+                            ? HandlePhysicalButtonDown()
+                            : HandlePhysicalButtonUp();
+                        if (swallow)
+                            return new IntPtr(1);
+                    }
+                }
+            }
+        }
+        return CallNextHookEx(_keyboardHook, code, wParam, lParam);
     }
 
     /// <summary>物理鼠标右键按下；返回 true 表示已接管、应吞掉该输入。</summary>
@@ -294,7 +404,7 @@ public sealed class AutoClickerService : IDisposable
                     // 达到阈值，先结束此前透传的物理右键按下，再进入接管态。
                     // 在 SendInput 成功前不吞掉物理右键抬起，否则注入失败会
                     // 把目标程序永久留在“右键按下”状态。
-                    if (!SendButtonUp())
+                    if (!SendTriggerUp())
                         break;
                     lock (_sync)
                     {
@@ -354,20 +464,36 @@ public sealed class AutoClickerService : IDisposable
         }
     }
 
-    /// <summary>接管时结束此前透传的物理鼠标右键按下。</summary>
-    private bool SendButtonUp()
+    /// <summary>接管时结束此前透传的物理触发键按下。</summary>
+    private bool SendTriggerUp()
     {
+        PluginInputBinding trigger;
+        lock (_sync)
+            trigger = _triggerBinding;
         var input = new NativeInput
         {
-            Type = InputMouse,
-            Data = new NativeInputUnion
-            {
-                Mouse = new MouseInput
+            Type = trigger.Kind == PluginInputBindingKind.Mouse
+                ? InputMouse
+                : InputKeyboard,
+            Data = trigger.Kind == PluginInputBindingKind.Mouse
+                ? new NativeInputUnion
                 {
-                    Flags = MouseeventfRightup,
-                    ExtraInfo = InputInjectionMarker
+                    Mouse = new MouseInput
+                    {
+                        Flags = GetMouseUpFlags(trigger.MouseButton),
+                        MouseData = GetMouseData(trigger.MouseButton),
+                        ExtraInfo = InputInjectionMarker
+                    }
                 }
-            }
+                : new NativeInputUnion
+                {
+                    Keyboard = new KeyboardInput
+                    {
+                        VirtualKey = (ushort)trigger.VirtualKey,
+                        Flags = KeyeventfKeyup,
+                        ExtraInfo = InputInjectionMarker
+                    }
+                }
         };
         lock (_sendInputSync)
             return SendInput(1, [input], Marshal.SizeOf<NativeInput>()) == 1;
@@ -397,7 +523,7 @@ public sealed class AutoClickerService : IDisposable
                 {
                     Keyboard = new KeyboardInput
                     {
-                        VirtualKey = AutoClickerPolicy.OutputVirtualKey,
+                        VirtualKey = _outputVirtualKey,
                         Flags = keyUp ? KeyeventfKeyup : 0,
                         ExtraInfo = InputInjectionMarker
                     }
@@ -436,7 +562,7 @@ public sealed class AutoClickerService : IDisposable
                 {
                     Keyboard = new KeyboardInput
                     {
-                        VirtualKey = AutoClickerPolicy.OutputVirtualKey,
+                        VirtualKey = _outputVirtualKey,
                         Flags = KeyeventfKeyup,
                         ExtraInfo = InputInjectionMarker
                     }
@@ -459,6 +585,78 @@ public sealed class AutoClickerService : IDisposable
                 Thread.Sleep(Math.Max(1, (int)Math.Min(remainingMs, 2.0)));
         }
     }
+
+    private static bool TryGetMouseButton(
+        uint message,
+        IntPtr lParam,
+        out PluginMouseButton button,
+        out bool isDown)
+    {
+        button = PluginMouseButton.Left;
+        isDown = true;
+        switch (message)
+        {
+            case WmLButtonDown: button = PluginMouseButton.Left; return true;
+            case WmLButtonUp: button = PluginMouseButton.Left; isDown = false; return true;
+            case WmRButtonDown: button = PluginMouseButton.Right; return true;
+            case WmRButtonUp: button = PluginMouseButton.Right; isDown = false; return true;
+            case WmMButtonDown: button = PluginMouseButton.Middle; return true;
+            case WmMButtonUp: button = PluginMouseButton.Middle; isDown = false; return true;
+            case WmXButtonDown:
+                button = ReadXButton(lParam);
+                return true;
+            case WmXButtonUp:
+                button = ReadXButton(lParam);
+                isDown = false;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static PluginMouseButton ReadXButton(IntPtr lParam)
+    {
+        var data = Marshal.PtrToStructure<MsLlHookStruct>(lParam).MouseData;
+        return ((data >> 16) & 0xFFFF) == 2
+            ? PluginMouseButton.XButton2
+            : PluginMouseButton.XButton1;
+    }
+
+    private static uint GetMouseUpFlags(PluginMouseButton button) => button switch
+    {
+        PluginMouseButton.Left => MouseeventfLeftup,
+        PluginMouseButton.Right => MouseeventfRightup,
+        PluginMouseButton.Middle => MouseeventfMiddleup,
+        PluginMouseButton.XButton1 or PluginMouseButton.XButton2 => MouseeventfXup,
+        _ => MouseeventfLeftup
+    };
+
+    private static uint GetMouseData(PluginMouseButton button) => button switch
+    {
+        PluginMouseButton.XButton1 => 1u << 16,
+        PluginMouseButton.XButton2 => 2u << 16,
+        _ => 0
+    };
+
+    private static bool AreRequiredModifiersDown(PluginInputModifiers modifiers)
+    {
+        if (modifiers.HasFlag(PluginInputModifiers.Control)
+            && !IsAnyKeyDown(0x11, 0xA2, 0xA3))
+            return false;
+        if (modifiers.HasFlag(PluginInputModifiers.Alt)
+            && !IsAnyKeyDown(0x12, 0xA4, 0xA5))
+            return false;
+        if (modifiers.HasFlag(PluginInputModifiers.Shift)
+            && !IsAnyKeyDown(0x10, 0xA0, 0xA1))
+            return false;
+        if (modifiers.HasFlag(PluginInputModifiers.Windows)
+            && !IsAnyKeyDown(0x5B, 0x5C))
+            return false;
+        return true;
+    }
+
+    private static bool IsAnyKeyDown(params int[] keys) =>
+        keys.Any(key => (GetAsyncKeyState(key) & 0x8000) != 0);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeInput
@@ -509,6 +707,16 @@ public sealed class AutoClickerService : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct KbdLlHookStruct
+    {
+        public uint VirtualKey;
+        public uint ScanCode;
+        public uint Flags;
+        public uint Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct NativeMessage
     {
         public IntPtr Window;
@@ -528,10 +736,14 @@ public sealed class AutoClickerService : IDisposable
     }
 
     private delegate IntPtr LowLevelMouseProc(int code, IntPtr wParam, IntPtr lParam);
+    private delegate IntPtr LowLevelKeyboardProc(int code, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true, EntryPoint = "SetWindowsHookExW")]
     private static extern IntPtr SetWindowsHookEx(
         int hookId, LowLevelMouseProc callback, IntPtr module, uint threadId);
+    [DllImport("user32.dll", SetLastError = true, EntryPoint = "SetWindowsHookExW")]
+    private static extern IntPtr SetWindowsHookEx(
+        int hookId, LowLevelKeyboardProc callback, IntPtr module, uint threadId);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnhookWindowsHookEx(IntPtr hook);
     [DllImport("user32.dll")]
@@ -557,6 +769,8 @@ public sealed class AutoClickerService : IDisposable
     private static extern bool TranslateMessage(ref NativeMessage message);
     [DllImport("user32.dll")]
     private static extern IntPtr DispatchMessage(ref NativeMessage message);
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
     [DllImport("winmm.dll")]
     private static extern uint timeBeginPeriod(uint period);
     [DllImport("winmm.dll")]

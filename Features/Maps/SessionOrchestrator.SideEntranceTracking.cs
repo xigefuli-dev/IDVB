@@ -9,7 +9,8 @@ public sealed partial class SessionOrchestrator
         MapOverlayAlignmentMode alignmentMode,
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
-        bool tryDirectFeature = true)
+        bool tryDirectFeature = true,
+        bool useInitialHighPrecisionRecovery = false)
     {
         if (tryDirectFeature)
         {
@@ -27,7 +28,7 @@ public sealed partial class SessionOrchestrator
         var searchContext = CreateSideEntranceSearchContext(
             session,
             tuning,
-            useInitialHighPrecisionRecovery: false);
+            useInitialHighPrecisionRecovery);
         return _recognition.AlignSideEntrance(
             frame,
             locked.Map.Id,

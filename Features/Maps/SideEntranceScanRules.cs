@@ -5,10 +5,14 @@ namespace IDVBuff.Features.Maps;
 /// <summary>
 /// 侧门扫描调参。可通过 <see cref="IConfigProvider"/> 在 "side_entrance" TOML
 /// 段下覆盖。三个分辨率预设目录（1920x1080 / 2560x1440 / 2560x1600）各提供
-/// 专属 side_entrance.toml，按分辨率定制扫描网格密度与并行度。
+/// 专属 side_entrance.toml，按分辨率定制特征区域和扫描网格密度。
 /// </summary>
 public sealed class SideEntranceScanConfig
 {
+    /// <summary>是否将侧门特征裁剪中心向内挤压，以保证裁剪框完全位于识别图内。</summary>
+    public bool ClampFeatureToBounds { get; set; } = false;
+    /// <summary>侧门特征宽度和高度相对识别图宽高的比例。</summary>
+    public double FeatureRegionRatio { get; set; } = 0.12d;
     /// <summary>粗搜索的相对步长；决定缩放网格疏密。0.06 → 约 24 档。</summary>
     public double CoarseScaleStep { get; set; } = 0.06d;
     /// <summary>细化阶段在粗峰值两侧各取的档数。</summary>
@@ -50,6 +54,14 @@ internal static class SideEntranceScanRules
 {
     private static SideEntranceScanConfig _config = new();
 
+    public static bool ClampFeatureToBounds => _config.ClampFeatureToBounds;
+    public static double FeatureRegionRatio =>
+        Math.Clamp(
+            double.IsFinite(_config.FeatureRegionRatio)
+                ? _config.FeatureRegionRatio
+                : 0.12d,
+            0.01d,
+            1d);
     public static double CoarseScaleStep => _config.CoarseScaleStep;
     public static int RefineStepsPerSide => _config.RefineStepsPerSide;
     public static int CoarsePyramidFactor => _config.CoarsePyramidFactor;

@@ -26,6 +26,11 @@ public sealed class MapSessionSnapshot
     public bool IsLocked =>
         State == MapSessionState.Locked
         && LockedTransform?.IsValid is true;
+
+    [JsonIgnore]
+    public bool IsIdentityLocked =>
+        MapId is not null
+        && State is MapSessionState.Confirming or MapSessionState.Locked;
 }
 
 public sealed class MapOpenSession
@@ -263,6 +268,39 @@ public sealed class MapOpenSession
             Confidence = Math.Clamp(confidence, 0d, 1d),
             StableCandidateFrames = 1,
             Detail = "independent alignment committed"
+        };
+        return Snapshot;
+    }
+
+    /// <summary>
+    /// Commits an explicit user map choice immediately, before a trustworthy
+    /// screen transform is available. Identity lock and alignment lock are
+    /// intentionally separate: a rejected first alignment must not undo the
+    /// map selected by the user.
+    /// </summary>
+    public MapSessionSnapshot LockMapIdentity(
+        Guid mapId,
+        string floor,
+        double confidence)
+    {
+        if (mapId == Guid.Empty)
+            throw new ArgumentOutOfRangeException(nameof(mapId));
+        if (string.IsNullOrWhiteSpace(floor))
+            throw new ArgumentException("A floor is required.", nameof(floor));
+
+        Snapshot = new MapSessionSnapshot
+        {
+            Version = ++_version,
+            AlignmentRevision = ++_alignmentRevision,
+            MapId = mapId,
+            Floor = floor,
+            State = MapSessionState.Confirming,
+            LocationMethod = MapLocationMethod.None,
+            Confidence = Math.Clamp(
+                double.IsFinite(confidence) ? confidence : 0d,
+                0d,
+                1d),
+            Detail = "user-selected map identity locked; alignment pending"
         };
         return Snapshot;
     }

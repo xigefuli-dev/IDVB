@@ -408,6 +408,15 @@ public sealed partial class MapStatusPage : UserControl
             return;
         try
         {
+            if (!_collectLogsToggle.IsOn
+                && !await ConfirmDataCleanupAsync(
+                    "关闭日志收集",
+                    "关闭后会清理已收集的日志数据和临时文件，此操作不可恢复。"))
+            {
+                RestoreToggle(_collectLogsToggle);
+                return;
+            }
+
             await _runtime.SetCollectLogsAsync(_collectLogsToggle.IsOn);
         }
         catch (Exception exception)
@@ -423,6 +432,15 @@ public sealed partial class MapStatusPage : UserControl
             return;
         try
         {
+            if (!_collectResearchToggle.IsOn
+                && !await ConfirmDataCleanupAsync(
+                    "关闭算法研究采集",
+                    "关闭后会清理已采集的算法研究样本和临时文件，此操作不可恢复。"))
+            {
+                RestoreToggle(_collectResearchToggle);
+                return;
+            }
+
             await _runtime.SetCollectAlignmentResearchDataAsync(
                 _collectResearchToggle.IsOn);
         }
@@ -430,6 +448,33 @@ public sealed partial class MapStatusPage : UserControl
         {
             _status.Text = exception.Message;
             Refresh();
+        }
+    }
+
+    private async Task<bool> ConfirmDataCleanupAsync(string title, string content)
+    {
+        var prompt = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = title,
+            Content = content + "\n\n是否继续关闭并清理？",
+            PrimaryButtonText = "关闭并清理",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close
+        };
+        return await prompt.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private void RestoreToggle(ToggleSwitch toggle)
+    {
+        _refreshing = true;
+        try
+        {
+            toggle.IsOn = true;
+        }
+        finally
+        {
+            _refreshing = false;
         }
     }
 

@@ -232,7 +232,7 @@ public sealed class ResolutionTuningProfileTests
 
         var profile = new ResolutionTuningProfile
         {
-            MaximumChamferPixels = 4.5,        // 应覆盖
+            MaximumChamferPixels = 4.5,        // 运行时硬锁 3.0，忽略覆盖
             MinimumEdgeCoverage = null,         // 不覆盖
             FastCoarseMaxDimension = 160,       // 应覆盖
             MinimumCandidateMargin = null       // 不覆盖
@@ -240,7 +240,7 @@ public sealed class ResolutionTuningProfileTests
 
         profile.ApplyTo(tuning);
 
-        Assert.Equal(4.5, tuning.MaximumChamferPixels);
+        Assert.Equal(3.0, tuning.MaximumChamferPixels);
         Assert.Equal(0.50, tuning.MinimumEdgeCoverage);     // 未变
         Assert.Equal(0.40, tuning.MinimumOccupancyCoverage); // 未变
         Assert.Equal(4.0, tuning.EdgeDistanceTolerancePixels); // 未变
@@ -282,7 +282,7 @@ public sealed class ResolutionTuningProfileTests
 
         profile.ApplyTo(tuning);
 
-        Assert.Equal(4.5, tuning.MaximumChamferPixels);
+        Assert.Equal(3.0, tuning.MaximumChamferPixels);
         Assert.Equal(0.30, tuning.MinimumEdgeCoverage);
         Assert.Equal(0.25, tuning.MinimumOccupancyCoverage);
         Assert.Equal(3.5, tuning.EdgeDistanceTolerancePixels);
@@ -416,7 +416,7 @@ public sealed class ResolutionTuningProfileTests
         var profile = settings.ResolutionTuningProfiles
             .Single(p => p.Name == "1920×1080 @ 120 DPI");
 
-        Assert.Equal(4.5d, profile.MaximumChamferPixels);
+        Assert.Equal(3.0d, profile.MaximumChamferPixels);
         Assert.Equal(0.30d, profile.MinimumEdgeCoverage);
         Assert.Equal(3.5d, profile.EdgeDistanceTolerancePixels);
         Assert.Equal(180, profile.FastCoarseMaxDimension);

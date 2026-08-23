@@ -17,7 +17,10 @@ public sealed partial class SessionOrchestrator
 
         if (!IsAdaptiveScaleEnabled)
         {
-            var legacyRadius = CreateEffectiveStructureTuning()
+            var legacyRadius = CreateStructureTuningForFloor(
+                    predicted.Map,
+                    predicted.Result.Floor,
+                    CreateEffectiveStructureTuning())
                 .TrackingScaleSearchRadius;
             return RunAdaptiveFineScalePass(frame, predicted, legacyRadius)
                 .Recognition;
@@ -26,7 +29,10 @@ public sealed partial class SessionOrchestrator
         var seed = predicted;
         if (AdaptiveScaleRequiresWideSearch(context))
         {
-            var recoveryTuning = CreateEffectiveStructureTuning();
+            var recoveryTuning = CreateStructureTuningForFloor(
+                predicted.Map,
+                predicted.Result.Floor,
+                CreateEffectiveStructureTuning());
             recoveryTuning.ScaleSearchRadius = Math.Max(
                 0.15d,
                 recoveryTuning.ScaleSearchRadius);
@@ -82,7 +88,10 @@ public sealed partial class SessionOrchestrator
             lockedSession,
             MapOverlayAlignmentMode.Uniform,
             _settings!.RecognitionTuning.Clone(),
-            CreateEffectiveStructureTuning(),
+            CreateStructureTuningForFloor(
+                fixedRecognition.Map,
+                fixedRecognition.Result.Floor,
+                CreateEffectiveStructureTuning()),
             [],
             fixedRecognition.Result.IdentityConfidence,
             allowTrackingScaleSearch: false);
@@ -96,7 +105,10 @@ public sealed partial class SessionOrchestrator
         var lockedSession = MapAlignmentSession.FromRecognition(
             seed.Map,
             seed.Result);
-        var structureTuning = CreateEffectiveStructureTuning();
+        var structureTuning = CreateStructureTuningForFloor(
+            seed.Map,
+            seed.Result.Floor,
+            CreateEffectiveStructureTuning());
         structureTuning.TrackingScaleSearchRadius = radius;
         return AlignNoDoorLocalStructure(
             frame,

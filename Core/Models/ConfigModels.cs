@@ -80,7 +80,8 @@ public sealed class AuxiliaryConfig
 
 public sealed class SideEntranceConfig
 {
-    public int FeatureRadius { get; init; } = 80;
+    public bool ClampFeatureToBounds { get; init; }
+    public double FeatureRegionRatio { get; init; } = 0.12d;
     public bool UseAuxiliaryAnchorRecognition { get; init; }
     public bool ReusePreviousAlignmentResult { get; init; } = true;
 }
@@ -188,7 +189,7 @@ public sealed class AlignmentConfig
 
 public sealed class StructureConfig
 {
-    public double MaximumChamferPixels { get; init; } = 3.2;
+    public double MaximumChamferPixels { get; init; } = 3.0;
     /// <summary>受限搜索（RestrictSearchToLockedTransform=true）专用的 chamfer 上限。</summary>
     public double RestrictedSearchMaximumChamferPixels { get; init; } = 3.0;
     public double MinimumEdgeCoverage { get; init; } = 0.40;
@@ -196,6 +197,56 @@ public sealed class StructureConfig
     public double MinimumCandidateMargin { get; init; } = 0.04;
     public double EdgeDistanceTolerancePixels { get; init; } = 2.25;
     public double DistanceClipPixels { get; init; } = 12;
+}
+
+/// <summary>
+/// Independent low-structure alignment values. This section is deliberately
+/// not merged from the standard alignment values by the runtime.
+/// </summary>
+public sealed class LowStructureConfig
+{
+    public double MinimumScale { get; init; } = 0.40;
+    public double MaximumScale { get; init; } = 1.60;
+    public int ScaleHypothesisCount { get; init; } = 13;
+    public double MaximumChamferPixels { get; init; } = 3.0;
+    public double MinimumEdgeCoverage { get; init; } = 0.30;
+    public double MinimumOccupancyCoverage { get; init; } = 0.25;
+    public double MinimumCandidateMargin { get; init; } = 0.08;
+    public int MinimumConsistentPartitions { get; init; } = 1;
+    public int TopCandidateCount { get; init; } = 3;
+    public double EdgeCoverageWeight { get; init; } = 5.0;
+    public double ChamferWeight { get; init; } = 1.0;
+    public double OccupancyCoverageWeight { get; init; } = 0.75;
+    public double ReferenceCoverageWeight { get; init; } = 5.0;
+    public double PartitionPenaltyWeight { get; init; } = 0.75;
+    public double PriorDisagreementWeight { get; init; } = 0.0;
+    public int MinimumEdgesPerPartition { get; init; } = 12;
+    public double MinimumPartitionCoverage { get; init; } = 0.45;
+    public double BoundsPenalty { get; init; } = 100.0;
+    public double MaximumScaleChangeRatio { get; init; } = 0.15;
+    public double MinimumPriorAgreement { get; init; } = 0.05;
+    public double GlobalSearchMarginMultiplier { get; init; } = 1.25;
+    public double MarginNormalizationFloor { get; init; } = 0.01;
+    public double ScaleDuplicateTolerance { get; init; } = 0.000001;
+    public double SpatialDuplicateTolerance { get; init; } = 2.0;
+    public double CandidateDuplicateRadius { get; init; } = 1.0;
+    public double RefinementWorsenTolerance { get; init; } = 0.001;
+    public double EdgeDistanceTolerancePixels { get; init; } = 2.25;
+    public double DistanceClipPixels { get; init; } = 12.0;
+    public int MinimumEdgePixels { get; init; } = 90;
+    public int MinimumSpanPixels { get; init; } = 28;
+    public double ScaleSearchStep { get; init; } = 0.01;
+    public double TrackingScaleSearchRadius { get; init; } = 0.005;
+    public int FastCoarseDownsampleFactor { get; init; } = 4;
+    public int FastCoarseTopK { get; init; } = 5;
+    public int FastCoarseNmsRadius { get; init; } = 12;
+    public int FastCoarseMaxDimension { get; init; } = 200;
+    public int FastCoarseMinimumTemplateDimension { get; init; } = 12;
+    public double MinimumUsableScale { get; init; } = 0.05;
+    public int StructureOpenKernelSize { get; init; } = 1;
+    public int MinimumEdgeComponentAreaPixels { get; init; } = 1;
+    public int EdgeClosingIterations { get; init; } = 0;
+    public bool EnableFeatureScaleEstimate { get; init; }
 }
 
 public sealed class CoarseConfig

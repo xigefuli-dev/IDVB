@@ -18,87 +18,6 @@ public sealed partial class SessionOrchestrator
         double Confidence,
         double CandidateMargin);
 
-    /// <summary>
-    /// One deadline shared by stable-frame capture and every synchronous
-    /// no-door fallback. Synchronous stages retain their existing signatures;
-    /// they consult <see cref="Current"/> and receive only the time remaining.
-    /// </summary>
-    private sealed class NoDoorAlignmentDeadline : IDisposable
-    {
-        private static readonly AsyncLocal<NoDoorAlignmentDeadline?> Ambient = new();
-        private readonly CancellationToken _parentToken;
-        private readonly CancellationTokenSource _linkedCancellation;
-        private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
-        private bool _disposed;
-
-        public NoDoorAlignmentDeadline(
-            CancellationToken parentToken,
-            int budgetMilliseconds)
-        {
-            _parentToken = parentToken;
-            BudgetMilliseconds =
-                MapOpenAlignmentRouteRules.ResolveNoDoorAlignmentBudgetMilliseconds(
-                    budgetMilliseconds);
-            _linkedCancellation =
-                CancellationTokenSource.CreateLinkedTokenSource(parentToken);
-            _linkedCancellation.CancelAfter(BudgetMilliseconds);
-        }
-
-        public static NoDoorAlignmentDeadline? Current => Ambient.Value;
-        public int BudgetMilliseconds { get; }
-        public CancellationToken Token => _linkedCancellation.Token;
-        public double ElapsedMilliseconds => _stopwatch.Elapsed.TotalMilliseconds;
-        public int RemainingMilliseconds => Math.Max(
-            0,
-            BudgetMilliseconds - (int)Math.Ceiling(ElapsedMilliseconds));
-        public bool IsExpired =>
-            _linkedCancellation.IsCancellationRequested
-            || RemainingMilliseconds <= 0;
-        public bool TimedOut =>
-            !_parentToken.IsCancellationRequested
-            && IsExpired;
-
-        public bool CanStartStage(
-            int minimumMilliseconds =
-                MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds) =>
-            !IsExpired && RemainingMilliseconds >= minimumMilliseconds;
-
-        public IDisposable EnterAmbient()
-        {
-            var previous = Ambient.Value;
-            Ambient.Value = this;
-            return new AmbientLease(
-                previous,
-                MapNoDoorAlignmentBudgetContext.Enter(
-                    () => RemainingMilliseconds));
-        }
-
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-            _stopwatch.Stop();
-            _linkedCancellation.Dispose();
-        }
-
-        private sealed class AmbientLease(
-            NoDoorAlignmentDeadline? previous,
-            IDisposable budgetLease) : IDisposable
-        {
-            private bool _disposed;
-
-            public void Dispose()
-            {
-                if (_disposed)
-                    return;
-                _disposed = true;
-                budgetLease.Dispose();
-                Ambient.Value = previous;
-            }
-        }
-    }
-
     private void EnsureReliableFloorAlignmentScope(MapMatchSnapshot match)
     {
         lock (_reliableFloorAlignmentGate)
@@ -117,8 +36,23 @@ public sealed partial class SessionOrchestrator
         MapRecord map,
         string floorKey)
     {
-        var generation = _settings?.StructureRegistrationTuning.Generation
-            ?.CacheFingerprint ?? string.Empty;
+        var generationFingerprint =
+            _settings?.StructureRegistrationTuning.Generation
+                ?.CacheFingerprint ?? string.Empty;
+        var channel = MapAlignmentChannelRegistry.Resolve(map, floorKey);
+        var generation = generationFingerprint;
+        if (channel.Channel == MapAlignmentChannel.LowStructure)
+        {
+            var effectiveTuning = CreateStructureTuningForFloor(
+                map,
+                floorKey,
+                CreateEffectiveStructureTuning());
+            generation = string.Join(
+                "|",
+                channel.DiagnosticLabel,
+                effectiveTuning.CacheFingerprint,
+                generationFingerprint);
+        }
         return new MapAlignmentContextKey(
             match.MatchId,
             map.Id,
@@ -176,7 +110,11 @@ public sealed partial class SessionOrchestrator
         lock (_reliableFloorAlignmentGate)
         {
             _reliableFloorAlignments.TryGetValue(key, out var state);
+            var channel = MapAlignmentChannelRegistry.Resolve(map, floorKey).Channel;
             if (state is null
+                || !MapOpenAlignmentRouteRules.CanUseWarmAlignmentState(
+                    channel,
+                    state.IsScaleReliable)
                 || !MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
                     state.Session,
                     map.Id,
@@ -191,6 +129,13 @@ public sealed partial class SessionOrchestrator
                     .FirstOrDefault();
                 missReason = GetWarmStateMissReason(key, nearestState, map, floorKey)
                     ?? "confidence-insufficient";
+                if (state is not null
+                    && !MapOpenAlignmentRouteRules.CanUseWarmAlignmentState(
+                        channel,
+                        state.IsScaleReliable))
+                {
+                    missReason = "same-floor-scale-provisional";
+                }
                 _logCollector.Append(
                     MapLogCategory.StructureRegistration,
                     MapLogLevel.Info,
@@ -199,7 +144,9 @@ public sealed partial class SessionOrchestrator
                     {
                         ["warmStateMissReason"] = missReason,
                         ["alignmentContextKey"] = key.ToString(),
-                        ["adaptiveScaleNoLongerGatesWarmState"] = true
+                        ["scaleReliable"] = state?.IsScaleReliable,
+                        ["adaptiveScaleNoLongerGatesWarmState"] =
+                            channel != MapAlignmentChannel.LowStructure
                     });
                 return null;
             }
@@ -217,7 +164,8 @@ public sealed partial class SessionOrchestrator
         MapMatchSnapshot match,
         RuntimeMapRecognition recognition,
         MapAlignmentSession? session,
-        CapturedGameFrame frame)
+        CapturedGameFrame frame,
+        bool isScaleReliable)
     {
         if (!match.IsStarted
             || !_matchSession.IsCurrent(match)
@@ -248,6 +196,7 @@ public sealed partial class SessionOrchestrator
             recognition.Result.Floor);
         var similarity = MapSimilarityTransform.FromOverlay(transform);
         int successCount;
+        bool effectiveScaleReliable;
         lock (_reliableFloorAlignmentGate)
         {
             if (!_reliableFloorAlignments.TryGetValue(key, out var state))
@@ -260,6 +209,7 @@ public sealed partial class SessionOrchestrator
                     Confidence = recognition.Result.LocalizationConfidence,
                     CandidateMargin = MapFeatureCacheRules.GetCandidateMargin(
                         recognition.Result),
+                    IsScaleReliable = isScaleReliable,
                     LastValidatedAt = DateTimeOffset.UtcNow,
                     SuccessCount = 1
                 };
@@ -272,6 +222,9 @@ public sealed partial class SessionOrchestrator
                 state.Confidence = recognition.Result.LocalizationConfidence;
                 state.CandidateMargin = MapFeatureCacheRules.GetCandidateMargin(
                     recognition.Result);
+                // A later provisional observation must not undo a player lock
+                // or a previously confirmed same-floor scale.
+                state.IsScaleReliable |= isScaleReliable;
                 state.LastValidatedAt = DateTimeOffset.UtcNow;
                 state.SuccessCount++;
             }
@@ -292,6 +245,7 @@ public sealed partial class SessionOrchestrator
             while (state.RecentTransforms.Count > MaximumReliableFloorHistory)
                 state.RecentTransforms.RemoveAt(0);
             successCount = state.SuccessCount;
+            effectiveScaleReliable = state.IsScaleReliable;
         }
 
         _logCollector.Append(
@@ -302,8 +256,45 @@ public sealed partial class SessionOrchestrator
             {
                 ["warmStateHit"] = true,
                 ["successCount"] = successCount,
-                ["adaptiveScaleNoLongerGatesWarmState"] = true
+                ["scaleReliable"] = effectiveScaleReliable,
+                ["adaptiveScaleGatesWarmState"] = true
             });
+    }
+
+    private void ForgetReliableFloorAlignment(MapAlignmentContextKey key)
+    {
+        lock (_reliableFloorAlignmentGate)
+            _reliableFloorAlignments.Remove(key.Normalize());
+    }
+
+    private void MarkReliableFloorScale(
+        RuntimeMapRecognition recognition,
+        double scale)
+    {
+        var match = _matchSession.Snapshot;
+        if (!match.IsStarted || !double.IsFinite(scale) || scale <= 0d)
+            return;
+
+        lock (_reliableFloorAlignmentGate)
+        {
+            foreach (var state in _reliableFloorAlignments.Values)
+            {
+                if (state.ContextKey.MatchId != match.MatchId
+                    || state.ContextKey.MapId != recognition.Map.Id
+                    || state.ContextKey.MapUpdatedAt != recognition.Map.UpdatedAt
+                    || !string.Equals(
+                        state.ContextKey.FloorKey,
+                        recognition.Result.Floor,
+                        StringComparison.Ordinal)
+                    || Math.Abs(state.Session.LockedTransform.ScaleX - scale)
+                        > 0.0005d)
+                {
+                    continue;
+                }
+
+                state.IsScaleReliable = true;
+            }
+        }
     }
 
     private static bool TryCreateNoDoorStageTuning(
@@ -312,6 +303,12 @@ public sealed partial class SessionOrchestrator
         int? maximumStageMilliseconds = null)
     {
         tuning = source.Clone();
+        if (tuning.Channel == MapAlignmentChannel.LowStructure)
+        {
+            tuning.EnforceTimeBudget = false;
+            tuning.Normalize();
+            return true;
+        }
         var deadline = NoDoorAlignmentDeadline.Current;
         if (deadline is null)
         {
@@ -438,6 +435,10 @@ public sealed partial class SessionOrchestrator
         double identityPriorConfidence,
         bool allowTrackingScaleSearch = false)
     {
+        structureTuning = CreateStructureTuningForFloor(
+            locked.Map,
+            floorKey,
+            structureTuning);
         if (!TryCreateNoDoorStageTuning(
                 structureTuning,
                 out var localTuning,
@@ -576,6 +577,7 @@ public sealed partial class SessionOrchestrator
             new()
             {
                 ReferenceImage = reference,
+                Channel = requestTuning.Channel,
                 LiveRoi = frame.Image,
                 ViewportBounds = frame.ViewportBounds,
                 LockedTransform = sameFloorSession.LockedTransform,
@@ -599,9 +601,12 @@ public sealed partial class SessionOrchestrator
         var structure = localStructure;
         var usedGlobalTranslationRecovery = false;
         if (!allowTrackingScaleSearch
-            && (!localStructure.Accepted
-                || localStructure.Transform is null
-                || localStructure.Confidence < tuning.MinimumConfidence))
+            && !MapOpenAlignmentRouteRules.IsAcceptedStructureAlignment(
+                structureTuning.Channel,
+                localStructure.Accepted,
+                localStructure.Transform is not null,
+                localStructure.Confidence,
+                tuning.MinimumConfidence))
         {
             // Local evidence can leave the 96px tracking window as the game
             // recenters its large map. Continue on the same observation with
@@ -663,9 +668,12 @@ public sealed partial class SessionOrchestrator
         if (NoDoorAlignmentDeadline.Current?.IsExpired == true)
             return CreateNoDoorBudgetFailure("same-floor-local", diagnostics);
 
-        if (!structure.Accepted
-            || structure.Transform is null
-            || structure.Confidence < tuning.MinimumConfidence)
+        if (!MapOpenAlignmentRouteRules.IsAcceptedStructureAlignment(
+                structureTuning.Channel,
+                structure.Accepted,
+                structure.Transform is not null,
+                structure.Confidence,
+                tuning.MinimumConfidence))
         {
             diagnostics.TrackingMode =
                 MapAlignmentTrackingMode.HoldingLastTransform;
@@ -693,7 +701,7 @@ public sealed partial class SessionOrchestrator
                     _recognition.Repository.GetFloorOverlayPath(
                         locked.Map,
                         floorKey),
-                    structure.Transform,
+                    structure.Transform!,
                     structure,
                     identityPriorConfidence),
             StructureAttempted = true,

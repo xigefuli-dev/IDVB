@@ -19,10 +19,13 @@ internal static class MapOpenAlignmentRouteRules
     // 并为信任降级提供"成功→重置 / 失败→计数+1"的验证证据。
     internal const int CachedScaleRepairSearchBudgetMilliseconds = 300;
     internal const double CachedScaleRepairSearchRadius = 0.03d; // 覆盖 ±3%
-    // 全局恢复（unrestricted 第二轮）的局部证据门槛：实测局部结构配准置信度
+    internal const double SteadyScaleRecoverySearchRadius = 0.70d;
+    internal const double MaterialScaleChangeRatio = 0.002d;
+    // 跟踪恢复（unrestricted 第二轮）的局部证据门槛：实测局部结构配准置信度
     // < 0.52（chamferQuality≈0 的"最佳候选绝对贴合度不足"）时全局第二轮 2/2
     // 白付 ~270ms；≥0.68 时 2/2 成功。0.52 只砍掉证据极弱的帧，保留接近成功
-    // 的恢复机会，避免把注定失败的全局全尺度搜索跑成最慢路径。
+    // 的跟踪恢复机会，避免把注定失败的跟踪帧跑成最慢路径。首次身份对齐不受
+    // 这个门槛限制，因为它尚没有可信的局部平移盆地，必须完成一次全局恢复。
     internal const double GlobalRecoveryMinimumLocalConfidence = 0.52d;
 
     internal static void ApplyCachedScaleRepairSearchPolicy(
@@ -60,6 +63,23 @@ internal static class MapOpenAlignmentRouteRules
         tuning.Normalize();
     }
 
+    internal static void ApplySteadyScaleRecoveryPolicy(
+        MapStructureRegistrationTuning tuning)
+    {
+        // A Steady fixed-scale rejection may prove that the supposedly reliable
+        // scale is stale.  Recovery is an exact-floor Initial search: expand
+        // both scale and translation, and do not let the failed warm seed or a
+        // fast single-hypothesis path terminate the search early.
+        tuning.SchemaVersion = MapStructureRegistrationTuning.CurrentSchemaVersion;
+        tuning.ScaleSearchRadius = SteadyScaleRecoverySearchRadius;
+        tuning.TrackingScaleSearchRadius = 0d;
+        tuning.DisableScaleEarlyTermination = true;
+        tuning.EnableFastAlignment = false;
+        tuning.EnableFeatureVoting = false;
+        tuning.EnforceTimeBudget = false;
+        tuning.Normalize();
+    }
+
     internal static bool ShouldPreferLockedSideFeature(
         bool isOtherFloor,
         bool recoveringSelectedIdentity,
@@ -67,6 +87,69 @@ internal static class MapOpenAlignmentRouteRules
         !isOtherFloor
         && !recoveringSelectedIdentity
         && sideEntrancePriorConfidence > 0d;
+
+    /// <summary>
+    /// Manual runtime-scale locking is available while the game's large map
+    /// is open and the map identity has been committed. Identity locking is
+    /// deliberately independent from whether the overlay currently presents
+    /// a transform: a provisional low-structure result may need to be locked
+    /// precisely while the overlay is between presentation updates. Survey
+    /// capture remains the only path that does not require a map identity.
+    /// </summary>
+    internal static bool CanSaveMapCache(
+        bool isBigMapOpen,
+        bool isMapIdentityLocked,
+        bool isSurvey = false) =>
+        isBigMapOpen && (isSurvey || isMapIdentityLocked);
+
+    internal static bool CanUseWarmAlignmentState(
+        MapAlignmentChannel channel,
+        bool isScaleReliable) => isScaleReliable;
+
+    internal static bool ShouldAttemptSteadyScaleRecovery(
+        MapAlignmentChannel channel,
+        MapStructureRejectionReason rejectionReason) =>
+        channel == MapAlignmentChannel.Standard
+        && rejectionReason is MapStructureRejectionReason.WeakAbsoluteScore
+            or MapStructureRejectionReason.ScaleChangeTooLarge
+            or MapStructureRejectionReason.NativeScaleChanged;
+
+    internal static bool HasMaterialScaleChange(
+        double previousScale,
+        double recoveredScale) =>
+        double.IsFinite(previousScale)
+        && previousScale > 0d
+        && double.IsFinite(recoveredScale)
+        && recoveredScale > 0d
+        && Math.Abs(recoveredScale - previousScale) / previousScale
+            > MaterialScaleChangeRatio;
+
+    internal static bool IsAcceptedStructureAlignment(
+        MapAlignmentChannel channel,
+        bool structureAccepted,
+        bool hasTransform,
+        double confidence,
+        double minimumStandardConfidence) =>
+        structureAccepted
+        && hasTransform
+        && double.IsFinite(confidence)
+        // Low-structure registration owns its acceptance formula. Once its
+        // channel-specific hard gates pass, do not run the result through the
+        // unrelated standard-floor confidence threshold a second time.
+        && (channel == MapAlignmentChannel.LowStructure
+            || confidence >= Math.Clamp(
+                minimumStandardConfidence,
+                0d,
+                1d));
+
+    internal static bool ShouldAttemptSideEntranceGlobalRecovery(
+        bool isInitialSideEntranceSeed,
+        bool structureAccepted,
+        double localConfidence) =>
+        !structureAccepted
+        && (isInitialSideEntranceSeed
+            || (double.IsFinite(localConfidence)
+                && localConfidence >= GlobalRecoveryMinimumLocalConfidence));
 
     internal static SelectedAlignmentRoute ResolveMatchRoute(
         FirstScanStrategy firstScanStrategy,
@@ -96,20 +179,43 @@ internal static class MapOpenAlignmentRouteRules
                 ? SelectedAlignmentRoute.SideEntrance
                 : SelectedAlignmentRoute.Default;
 
+    internal static bool ShouldUseIndependentFloorAlignment(
+        bool isOtherFloor,
+        bool isPendingVariantAlignment,
+        MapAlignmentSession session) =>
+        isOtherFloor
+        || (isPendingVariantAlignment
+            && session.SideEntranceScanPriorConfidence <= 0d
+            && !session.HasGatePairLock);
+
     internal static MapAlignmentSession ResolveMapOpenAlignmentSession(
         MapRecord map,
         MapRecognitionResult result,
         MapAlignmentSession? pendingSideEntranceSeed,
         MapAlignmentSession? previous,
         bool canReusePrevious,
-        string? independentFloorKey = null)
+        string? targetFloorKey = null)
     {
-        if (pendingSideEntranceSeed is not null)
+        var hasExactTargetFloor = !string.IsNullOrWhiteSpace(targetFloorKey);
+        bool MatchesExactTargetFloor(MapAlignmentSession session) =>
+            !hasExactTargetFloor
+            || string.Equals(
+                session.FloorKey,
+                targetFloorKey,
+                StringComparison.Ordinal);
+
+        if (pendingSideEntranceSeed is not null
+            && pendingSideEntranceSeed.MapId == map.Id
+            && pendingSideEntranceSeed.MapUpdatedAt == map.UpdatedAt
+            && MatchesExactTargetFloor(pendingSideEntranceSeed))
+        {
             return pendingSideEntranceSeed;
+        }
 
         if (previous is not null
             && previous.MapId == map.Id
-            && previous.MapUpdatedAt == map.UpdatedAt)
+            && previous.MapUpdatedAt == map.UpdatedAt
+            && MatchesExactTargetFloor(previous))
         {
             // Adaptive scale reliability controls whether the old transform
             // may be reused, not which first-scan strategy owns this match.
@@ -127,17 +233,21 @@ internal static class MapOpenAlignmentRouteRules
         // rejects a transform-less result. Give the exact target floor its own
         // neutral seed so VPSG/cache/structure recovery can perform the first
         // honest alignment without touching another map or floor's evidence.
-        if (!string.IsNullOrWhiteSpace(independentFloorKey)
-            && result.OverlayTransform is null)
+        if (hasExactTargetFloor
+            && (result.OverlayTransform is null
+                || !string.Equals(
+                    result.Floor,
+                    targetFloorKey,
+                    StringComparison.Ordinal)))
         {
             var transform = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
                 map,
-                independentFloorKey);
+                targetFloorKey!);
             return new MapAlignmentSession
             {
                 MapId = map.Id,
                 MapUpdatedAt = map.UpdatedAt,
-                FloorKey = independentFloorKey,
+                FloorKey = targetFloorKey!,
                 LockedTransform = transform,
                 BaselineGateScale = transform.ScaleX,
                 HasGatePairLock = false,
@@ -189,6 +299,23 @@ internal static class MapOpenAlignmentRouteRules
         return MapSimilarityTransform.FromOverlay(session.LockedTransform)
             .IsValid;
     }
+
+    internal static bool CanCompareMapOpenDrift(
+        RuntimeMapRecognition previous,
+        RuntimeMapRecognition current,
+        string targetFloorKey) =>
+        previous.Map.Id == current.Map.Id
+        && previous.Map.UpdatedAt == current.Map.UpdatedAt
+        && previous.Result.MapId == previous.Map.Id
+        && current.Result.MapId == current.Map.Id
+        && string.Equals(
+            previous.Result.Floor,
+            targetFloorKey,
+            StringComparison.Ordinal)
+        && string.Equals(
+            current.Result.Floor,
+            targetFloorKey,
+            StringComparison.Ordinal);
 }
 
 internal static class MapNoDoorAlignmentBudgetContext

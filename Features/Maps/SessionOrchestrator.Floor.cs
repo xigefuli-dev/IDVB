@@ -199,16 +199,21 @@ public sealed partial class SessionOrchestrator
             _mapOpenSession.RetargetVariantFloor(
                 recognition.Map.Id,
                 nextFloorKey);
-            _overlayStatus.Clear();
         }
-        if (!string.Equals(
-                recognition.Result.Floor,
-                nextFloorKey,
-                StringComparison.Ordinal))
+        MapOverlayPresentationBatch.Apply(_overlay, () =>
         {
-            _overlay.ClearMap();
-        }
-        RefreshMiniMapForCurrentFloor();
+            if (retargetsPendingVariant)
+                _overlayStatus.Clear();
+            if (!string.Equals(
+                    recognition.Result.Floor,
+                    nextFloorKey,
+                    StringComparison.Ordinal))
+            {
+                _overlay.ClearMap();
+            }
+            RefreshMiniMapForCurrentFloor();
+            try { _overlay.Show(); } catch { }
+        });
         var floorLabel = MapFloorRules.GetFloorDisplayName(recognition.Map, nextFloorKey);
         _statusMessage = retargetsPendingVariant && _gameMapToggleState.IsOpen
             ? $"已手动切换到{floorLabel}，正在按目标变体重新对齐。"
@@ -228,7 +233,6 @@ public sealed partial class SessionOrchestrator
                 ["toFloor"] = nextFloorKey,
                 ["requestedPosition"] = requestedPosition
             });
-        _overlay.Show();
         NotifyStateChanged();
         if (retargetsPendingVariant && _gameMapToggleState.IsOpen)
         {

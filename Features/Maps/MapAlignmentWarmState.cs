@@ -46,6 +46,7 @@ internal sealed class WarmAlignmentState
     public required MapSimilarityTransform LastTransform { get; set; }
     public double Confidence { get; set; }
     public double CandidateMargin { get; set; }
+    public bool IsScaleReliable { get; set; }
     public DateTimeOffset LastValidatedAt { get; set; }
     public int SuccessCount { get; set; }
     public List<MapSimilarityTransform> RecentTransforms { get; } = [];

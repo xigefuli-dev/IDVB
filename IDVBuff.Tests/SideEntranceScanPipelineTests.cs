@@ -400,7 +400,57 @@ public sealed partial class SideEntranceScanPipelineTests
 
         Assert.InRange(standardDeviation.Val0, 0d, 0.001d);
         Assert.True(mean.Val0 < 250d);
-        Assert.Equal("2-gate-masked", SideEntranceFeaturePreprocessor.AlgorithmVersion);
+        Assert.Equal("3-ratio-gate-masked", SideEntranceFeaturePreprocessor.AlgorithmVersion);
+    }
+
+    [Fact]
+    public void FeaturePreprocessorUsesRecognitionResolutionRatioWithoutClampingCenter()
+    {
+        using var image = BuildTexture(1000, 500, seed: 141);
+        var anchor = new NormalizedRectangle
+        {
+            X = 0.01d,
+            Y = 0.42d,
+            Width = 0.04d,
+            Height = 0.08d
+        };
+
+        using var result = new SideEntranceFeaturePreprocessor().Process(
+            image,
+            anchor,
+            featureRegionRatio: 0.12d,
+            clampToBounds: false);
+
+        Assert.Equal(120, result.Feature.Width);
+        Assert.Equal(60, result.Feature.Height);
+        Assert.Equal(30d, result.CenterX, 8);
+        Assert.Equal(230d, result.CenterY, 8);
+        Assert.Equal(120, result.Width);
+        Assert.Equal(60, result.Height);
+    }
+
+    [Fact]
+    public void FeaturePreprocessorCanStillClampCenterWhenConfigured()
+    {
+        using var image = BuildTexture(1000, 500, seed: 142);
+        var anchor = new NormalizedRectangle
+        {
+            X = 0.01d,
+            Y = 0.42d,
+            Width = 0.04d,
+            Height = 0.08d
+        };
+
+        using var result = new SideEntranceFeaturePreprocessor().Process(
+            image,
+            anchor,
+            featureRegionRatio: 0.12d,
+            clampToBounds: true);
+
+        Assert.Equal(60d, result.CenterX, 8);
+        Assert.Equal(230d, result.CenterY, 8);
+        Assert.Equal(120, result.Feature.Width);
+        Assert.Equal(60, result.Feature.Height);
     }
 
     /// <summary>

@@ -16,8 +16,8 @@ public sealed class MapRepositoryAdapter : IMapRepository
     public async Task<object?> CreateDraftAsync(Guid id) =>
         await _repo.CreateDraftAsync(id);
 
-    public async Task<object> SaveAsync(object draft, int sideEntranceFeatureRadius = 0) =>
-        await _repo.SaveAsync((MapDraft)draft, sideEntranceFeatureRadius);
+    public async Task<object> SaveAsync(object draft) =>
+        await _repo.SaveAsync((MapDraft)draft);
 
     public Task DeleteAsync(Guid id) =>
         _repo.DeleteAsync(id);
@@ -68,10 +68,10 @@ public sealed class MapRepositoryAdapter : IMapRepository
     public async Task EnsureDerivedAssetsAsync(IReadOnlyList<object> maps) =>
         await _repo.EnsureDerivedAssetsAsync(maps.Cast<MapRecord>().ToList());
 
-    public Task RebuildAllSideEntranceFeaturesAsync(int featureRadius,
+    public Task RebuildAllSideEntranceFeaturesAsync(
         IProgress<(int done, int total)>? progress = null,
         CancellationToken cancellationToken = default) =>
-        _repo.RebuildAllSideEntranceFeaturesAsync(featureRadius, progress, cancellationToken);
+        _repo.RebuildAllSideEntranceFeaturesAsync(progress, cancellationToken);
 
     public string GetFloorOnePath(object record) =>
         _repo.GetFloorOnePath((MapRecord)record);

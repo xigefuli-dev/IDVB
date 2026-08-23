@@ -170,9 +170,16 @@ internal static class MapStructureCandidateCollector
             // Only skip the same integer location here. Nearby points can
             // still be materially better and are deduplicated after their
             // full structural score is known.
-            var duplicateRadius = StructureRegistrationRules.CandidateDuplicateRadius;
+            var isLowStructure =
+                tuning.Channel == MapAlignmentChannel.LowStructure;
+            var duplicateRadius = isLowStructure
+                ? tuning.CandidateDuplicateRadius
+                : StructureRegistrationRules.CandidateDuplicateRadius;
             if (!output.Any(candidate =>
-                    Math.Abs(candidate.Scale - scale) < StructureRegistrationRules.ScaleDuplicateTolerance
+                    Math.Abs(candidate.Scale - scale) <
+                        (isLowStructure
+                            ? tuning.ScaleDuplicateTolerance
+                            : StructureRegistrationRules.ScaleDuplicateTolerance)
                     && Math.Sqrt(
                         Math.Pow(candidate.ReferenceX - referenceX, 2d)
                         + Math.Pow(candidate.ReferenceY - referenceY, 2d))
@@ -225,6 +232,36 @@ internal static class MapStructureCandidateCollector
                 distinct.Add(candidate);
         }
         return distinct;
+    }
+
+    internal static (
+        MapStructureCandidate[] Ordered,
+        MapStructureCandidate[] Diagnostic,
+        MapStructureCandidate[] Valid) RankCandidatesByValidity(
+        IReadOnlyList<MapStructureCandidate> candidates,
+        MapStructureRegistrationTuning tuning,
+        MapOverlayTransform lockedTransform,
+        bool restrictedSearch)
+    {
+        var ordered = DistinctCandidates(candidates, tuning, lockedTransform)
+            .OrderBy(candidate => candidate.CompositeCost)
+            .ThenBy(candidate => MapStructureEvaluator.Distance(
+                candidate.OffsetX,
+                candidate.OffsetY,
+                lockedTransform.OffsetX,
+                lockedTransform.OffsetY))
+            .ToArray();
+        var diagnostic = ordered
+            .Take(tuning.TopCandidateCount)
+            .ToArray();
+        var valid = ordered
+            .Where(candidate => MapStructureValidator.ValidateAbsolute(
+                candidate,
+                tuning,
+                restrictedSearch) == MapStructureRejectionReason.None)
+            .Take(tuning.TopCandidateCount)
+            .ToArray();
+        return (ordered, diagnostic, valid);
     }
 }
 /*

@@ -446,27 +446,97 @@ public sealed class IdvmPackageServiceTests
         return root;
     }
 
+    [Fact]
+    public async Task Version12RequiresSchemaTwoMetadata()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "schema.png", "S1", "Schema"));
+            var package = Path.Combine(root, "schema.idvm");
+            await new IdvmPackageService(source).ExportAsync(
+                IdvmExportScope.AllClasses,
+                null,
+                package);
+            RewriteDataDocument(
+                package,
+                "metadata.json",
+                metadata => metadata["schemaVersion"] = 1);
+
+            var target = new IdvmPackageService(
+                new MapRepository(Path.Combine(root, "target")));
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => target.InspectAsync(package));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Version12RequiresExplicitFloorMarkerCapability()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "capability.png", "S1", "Capability"));
+            var package = Path.Combine(root, "capability.idvm");
+            await new IdvmPackageService(source).ExportAsync(
+                IdvmExportScope.AllClasses,
+                null,
+                package);
+            RewriteManifestDocument(
+                package,
+                manifest => manifest["capabilities"]!.AsObject()
+                    .Remove("floorMarkerKeys"));
+
+            var target = new IdvmPackageService(
+                new MapRepository(Path.Combine(root, "target")));
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => target.InspectAsync(package));
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
     private static void RewriteAnchorsDocument(string package, Action<JsonObject> mutate)
+        => RewriteDataDocument(package, "anchors.json", mutate);
+
+    private static void RewriteDataDocument(
+        string package,
+        string documentName,
+        Action<JsonObject> mutate)
     {
         var staging = Path.Combine(Path.GetDirectoryName(package)!, $"rewrite-{Guid.NewGuid():N}");
         Directory.CreateDirectory(staging);
         try
         {
             ZipFile.ExtractToDirectory(package, staging);
-            var anchorsPath = Directory.EnumerateFiles(staging, "anchors.json", SearchOption.AllDirectories).Single();
-            var anchors = JsonNode.Parse(File.ReadAllText(anchorsPath))!.AsObject();
-            mutate(anchors);
-            File.WriteAllText(anchorsPath, anchors.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            var documentPath = Directory.EnumerateFiles(
+                staging,
+                documentName,
+                SearchOption.AllDirectories).Single();
+            var document = JsonNode.Parse(File.ReadAllText(documentPath))!.AsObject();
+            mutate(document);
+            File.WriteAllText(
+                documentPath,
+                document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
             var manifestPath = Path.Combine(staging, "manifest.json");
             var manifest = JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
-            var relative = Path.GetRelativePath(staging, anchorsPath).Replace('\\', '/');
+            var relative = Path.GetRelativePath(staging, documentPath).Replace('\\', '/');
             var manifestFile = manifest["files"]!.AsArray()
                 .Select(item => item!.AsObject())
                 .Single(item => item["path"]!.GetValue<string>() == relative);
-            var anchorsBytes = File.ReadAllBytes(anchorsPath);
-            manifestFile["size"] = anchorsBytes.LongLength;
-            manifestFile["sha256"] = Convert.ToHexString(SHA256.HashData(anchorsBytes)).ToLowerInvariant();
+            var documentBytes = File.ReadAllBytes(documentPath);
+            manifestFile["size"] = documentBytes.LongLength;
+            manifestFile["sha256"] = Convert.ToHexString(
+                SHA256.HashData(documentBytes)).ToLowerInvariant();
             var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllBytes(manifestPath, manifestBytes);
 
@@ -487,6 +557,63 @@ public sealed class IdvmPackageServiceTests
                 var entryName = Path.GetRelativePath(staging, path).Replace('\\', '/');
                 var entry = archive.CreateEntry(entryName,
                     entryName == "header" ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
+                using var input = File.OpenRead(path);
+                using var output = entry.Open();
+                input.CopyTo(output);
+            }
+        }
+        finally
+        {
+            Directory.Delete(staging, true);
+        }
+    }
+
+    private static void RewriteManifestDocument(
+        string package,
+        Action<JsonObject> mutate)
+    {
+        var staging = Path.Combine(
+            Path.GetDirectoryName(package)!,
+            $"rewrite-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(staging);
+        try
+        {
+            ZipFile.ExtractToDirectory(package, staging);
+            var manifestPath = Path.Combine(staging, "manifest.json");
+            var manifest = JsonNode.Parse(
+                File.ReadAllText(manifestPath))!.AsObject();
+            mutate(manifest);
+            var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(
+                manifest,
+                new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllBytes(manifestPath, manifestBytes);
+
+            var headerPath = Path.Combine(staging, "header");
+            var header = File.ReadAllBytes(headerPath);
+            SHA256.HashData(manifestBytes).CopyTo(header, 36);
+            File.WriteAllBytes(headerPath, header);
+
+            File.Delete(package);
+            using var stream = new FileStream(
+                package,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
+            var ordered = new[] { headerPath, manifestPath }.Concat(
+                Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories)
+                    .Where(path => path != headerPath && path != manifestPath)
+                    .OrderBy(
+                        path => Path.GetRelativePath(staging, path),
+                        StringComparer.Ordinal));
+            foreach (var path in ordered)
+            {
+                var entryName = Path.GetRelativePath(staging, path).Replace('\\', '/');
+                var entry = archive.CreateEntry(
+                    entryName,
+                    entryName == "header"
+                        ? CompressionLevel.NoCompression
+                        : CompressionLevel.Optimal);
                 using var input = File.OpenRead(path);
                 using var output = entry.Open();
                 input.CopyTo(output);

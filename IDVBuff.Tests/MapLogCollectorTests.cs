@@ -167,6 +167,41 @@ public sealed class MapLogCollectorTests
     }
 
     [Fact]
+    public async Task LaterFlushesAppendToTheExistingSessionFile()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var repository = new MapLogRepository(root);
+            var path = repository.CreateSessionPath();
+            await repository.FlushAsync(path,
+            [
+                new MapLogEntry { Sequence = 1, Message = "first" }
+            ]);
+
+            await using var observer = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var firstLength = observer.Length;
+
+            await repository.FlushAsync(path,
+            [
+                new MapLogEntry { Sequence = 2, Message = "second" }
+            ]);
+
+            Assert.True(observer.Length > firstLength);
+            var entries = await repository.ReadSessionAsync(path);
+            Assert.Equal([1, 2], entries.Select(entry => entry.Sequence));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [Fact]
     public async Task SerializationFailureDisablesPersistenceAndBoundsTheBacklog()
     {
         var root = CreateTempDirectory();

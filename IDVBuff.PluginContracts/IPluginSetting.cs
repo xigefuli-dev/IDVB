@@ -67,3 +67,20 @@ public sealed class PluginChoiceSetting : IPluginSetting
                 ? Options[DefaultIndex]
                 : Options[0];
 }
+
+/// <summary>可在插件设置页录制的键盘 / 鼠标绑定。</summary>
+public sealed class PluginKeyBindingSetting : IPluginSetting
+{
+    public required string Key { get; init; }
+
+    public required string DisplayName { get; init; }
+
+    public string? Description { get; init; }
+
+    /// <summary>默认绑定的 PluginInputBinding.StorageValue。</summary>
+    public required string DefaultValue { get; init; }
+
+    /// <summary>允许录制的设备类型，默认同时允许键盘和鼠标。</summary>
+    public PluginInputBindingKinds AllowedKinds { get; init; } =
+        PluginInputBindingKinds.All;
+}

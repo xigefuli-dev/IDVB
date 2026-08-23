@@ -13,7 +13,10 @@ internal static class MapStructureValidator
     {
         if (!best.IsWithinValidBounds)
             return MapStructureRejectionReason.OutsideValidBounds;
-        if (best.PriorAgreement <= StructureRegistrationRules.MinimumPriorAgreement)
+        var isLowStructure = tuning.Channel == MapAlignmentChannel.LowStructure;
+        if (best.PriorAgreement <= (isLowStructure
+                ? tuning.MinimumPriorAgreement
+                : StructureRegistrationRules.MinimumPriorAgreement))
             return MapStructureRejectionReason.PlayerPriorMismatch;
         var chamferLimit = restrictedSearch
             ? Math.Min(
@@ -21,14 +24,23 @@ internal static class MapStructureValidator
                 tuning.RestrictedSearchMaximumChamferPixels)
             : tuning.MaximumChamferPixels;
         if (best.ChamferPixels > chamferLimit
-            || best.EdgeCoverage < tuning.MinimumEdgeCoverage)
+            || best.EdgeCoverage < tuning.MinimumEdgeCoverage
+            || best.OccupancyCoverage < tuning.MinimumOccupancyCoverage)
         {
             return MapStructureRejectionReason.WeakAbsoluteScore;
         }
+        if (best.ConsistentPartitions < tuning.MinimumConsistentPartitions)
+            return MapStructureRejectionReason.InconsistentStructure;
         if (margin < requiredMargin)
             return MapStructureRejectionReason.AmbiguousCandidates;
         return MapStructureRejectionReason.None;
     }
+
+    internal static MapStructureRejectionReason ValidateAbsolute(
+        MapStructureCandidate candidate,
+        MapStructureRegistrationTuning tuning,
+        bool restrictedSearch = false) =>
+        Validate(candidate, 1d, 0d, tuning, restrictedSearch);
 
     internal static MapStructureRejectionReason ValidateFastConfidence(
         MapStructureConfidenceBreakdown confidence,
@@ -84,8 +96,12 @@ internal static class MapStructureValidator
         // Top-1 vs Top-2 边际
         if (double.IsFinite(secondBestCost))
         {
+            var marginNormalizationFloor = tuning.Channel ==
+                MapAlignmentChannel.LowStructure
+                    ? tuning.MarginNormalizationFloor
+                    : StructureRegistrationRules.MarginNormalizationFloor;
             var margin = (secondBestCost - best.CompositeCost)
-                / Math.Max(StructureRegistrationRules.MarginNormalizationFloor, secondBestCost);
+                / Math.Max(marginNormalizationFloor, secondBestCost);
             if (margin < tuning.MinimumCandidateMargin * StructureRegistrationRules.EarlyTermMarginFactor)
                 return false;
         }
@@ -114,7 +130,10 @@ internal static class MapStructureValidator
             ReferenceHeight = reference.Edges.Height,
             OrientationDegrees = 0,
             AlignmentMode = MapOverlayAlignmentMode.Uniform,
-            MaximumResidualPixels = candidate.ChamferPixels * candidate.Scale
+            MaximumResidualPixels = request.Channel ==
+                MapAlignmentChannel.LowStructure
+                    ? candidate.ChamferPixels
+                    : candidate.ChamferPixels * candidate.Scale
         };
     }
 
@@ -158,8 +177,12 @@ internal static class MapStructureValidator
                 usedRestrictedSearch: usedRestrictedSearch);
         }
         var baselineScale = request.LockedTransform.ScaleX;
+        var minimumUsableScale = request.Channel ==
+            MapAlignmentChannel.LowStructure
+                ? request.Tuning.MinimumUsableScale
+                : StructureRegistrationRules.MinimumUsableScale;
         if (!double.IsFinite(baselineScale)
-            || baselineScale <= StructureRegistrationRules.MinimumUsableScale)
+            || baselineScale <= minimumUsableScale)
         {
             return MapStructureRegistrationResult.Reject(
                 MapStructureRejectionReason.InvalidLockedScale,

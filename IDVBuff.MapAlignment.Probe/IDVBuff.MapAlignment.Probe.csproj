@@ -37,6 +37,8 @@
     <Compile Include="..\Features\Maps\MapGameToggleState.cs" Link="Production\MapGameToggleState.cs" />
     <Compile Include="..\Features\Maps\MapPlayerModels.cs" Link="Production\MapPlayerModels.cs" />
     <Compile Include="..\Features\Maps\MapModels.cs" Link="Production\MapModels.cs" />
+    <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
+    <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
     <Compile Include="..\Features\Maps\MapModels.Anchor.cs" Link="Production\MapModels.Anchor.cs" />
@@ -95,7 +97,9 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Processing.cs" Link="Production\MapStructurePreprocessor.Processing.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.Features.cs" Link="Production\MapStructurePreprocessor.Features.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.cs" Link="Production\MapStructureRegistrar.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.Entry.cs" Link="Production\MapStructureRegistrar.Entry.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.FastPath.cs" Link="Production\MapStructureRegistrar.FastPath.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ScalePolicy.cs" Link="Production\MapStructureRegistrar.ScalePolicy.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.Logging.cs" Link="Production\MapStructureRegistrar.Logging.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ConfidenceLog.cs" Link="Production\MapStructureRegistrar.ConfidenceLog.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureQueryGeometry.cs" Link="Production\MapStructureQueryGeometry.cs" />

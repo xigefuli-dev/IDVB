@@ -56,6 +56,7 @@ internal sealed partial class AdaptiveScaleCoordinator
         var entry = _store.TryGet(key);
         var persistedTrusted = AdaptiveScaleStore.IsTrusted(entry);
         var strongInitial = IsStrongStructure(recognition, evidence);
+        var strongVpsg = IsStrongVpsg(evidence.Vpsg, transform);
 
         lock (_stateGate)
         {
@@ -83,8 +84,11 @@ internal sealed partial class AdaptiveScaleCoordinator
                 trusted,
                 requiresRecovery: !strongInitial);
             AddInitialObservations(controller, recognition, transform, evidence);
+            if (strongVpsg)
+                controller.LockCurrentScale(evidence.Vpsg!.Scale);
             var reliable = controller.IsReliable;
-            var render = resumed && controller.HasReliableBaseline
+            var render = controller.HasReliableBaseline
+                && (resumed || strongVpsg)
                 ? MapCvRecognitionBuilders.ReplaceTransformAndSource(
                     recognition,
                     AdaptiveScaleTransformArbitrator.KeepScale(
@@ -93,7 +97,9 @@ internal sealed partial class AdaptiveScaleCoordinator
                     recognition.Result.Source)
                 : recognition;
             var reason = reliable
-                ? trusted
+                ? strongVpsg
+                    ? AdaptiveScaleReliabilityReason.VpsgDirectLock
+                    : trusted
                     ? persistedTrusted
                         ? AdaptiveScaleReliabilityReason.TrustedCalibration
                         : AdaptiveScaleReliabilityReason.InitialFiveStreak

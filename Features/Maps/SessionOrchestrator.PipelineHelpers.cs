@@ -30,11 +30,16 @@ public sealed partial class SessionOrchestrator
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
         {
+            CancelMapOpenAlignment();
             EndAdaptiveMapOpen("game map closed");
             CancelOrbTracking("game map closed");
-            _overlay.ClearMap();
-            RefreshMiniMapForCurrentFloor();
-            try { _overlay.Show(); } catch { }
+            MapOverlayPresentationBatch.Apply(_overlay, () =>
+            {
+                _overlayStatus.Clear();
+                _overlay.ClearMap();
+                RefreshMiniMapForCurrentFloor();
+                try { _overlay.Show(); } catch { }
+            });
             if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             {
                 await HandleSurveyMapClosedAsync();

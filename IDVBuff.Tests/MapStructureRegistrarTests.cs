@@ -166,7 +166,7 @@ public sealed partial class MapStructureRegistrarTests
         Assert.Equal(
             144,
             restored.StructureRegistrationTuning.PreviousAlignmentSearchRadiusPixels);
-        Assert.Equal(2.7d, restored.StructureRegistrationTuning.MaximumChamferPixels);
+        Assert.Equal(3.0d, restored.StructureRegistrationTuning.MaximumChamferPixels);
         Assert.Equal(0.12d, restored.StructureRegistrationTuning.MinimumCandidateMargin);
         Assert.True(restored.StructureRegistrationTuning.EnableDebugOutput);
     }

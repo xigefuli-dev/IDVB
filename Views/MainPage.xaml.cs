@@ -636,7 +636,7 @@ public sealed partial class MainPage : Page
             // TeachingTip performs native popup placement from its target's visual.
             // Keep pages that host targeted tips out of the translated composition
             // chain; MapListPage already uses this stable path for its import tip.
-            animateMainContent = true;
+            animateMainContent = view is not MapListPage and not SettingsPage;
             if (view is MapListPage mapListPage)
             {
                 mapListPage.ParentScrollViewer = MainContentHost;

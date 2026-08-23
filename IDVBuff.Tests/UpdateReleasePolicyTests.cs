@@ -98,7 +98,7 @@ public sealed class UpdateReleasePolicyTests
         Assert.DoesNotContain("UpdateChannelPreference.IsPreviewEnabled", settings);
         Assert.Contains("Content = enablePreview ? \"加入预览计划\" : \"退出预览计划\"", settings);
         Assert.DoesNotContain("new TeachingTip", settings);
-        Assert.Contains("view is not MapListPage and not SettingsPage", mainPage);
+        Assert.Contains("animateMainContent = true", mainPage);
     }
 
     [Fact]

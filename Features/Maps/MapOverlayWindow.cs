@@ -10,7 +10,7 @@ namespace IDVBuff.Features.Maps;
 /// Rendering is delegated to a native layered window so the game receives
 /// mouse input through every transparent and painted pixel.
 /// </summary>
-public sealed class MapOverlayWindow : IDisposable
+public sealed partial class MapOverlayWindow : IDisposable
 {
     private readonly MapOverlayNativeWindow _nativeWindow;
     private MapOverlayRenderMap? _map;
@@ -39,16 +39,16 @@ public sealed class MapOverlayWindow : IDisposable
     private bool _showFloorOnMiniMap;
     private float _mapOpacity = 0.46f;
     private float _statusOpacity = 1f;
+    private float _statusScale = 1f;
     private float _statusOffsetX;
     private float _statusOffsetY;
     private float _miniMapOpacity = 0.55f;
     private float _miniMapOffsetX;
-    private float _miniMapOffsetY = 50f;
+    private float _miniMapOffsetY;
     private double? _miniMapScale;
     private double? _miniMapBaseScale;
     private string? _miniMapImageKey;
-    private readonly Dictionary<string, double> _temporaryMiniMapScales =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly MiniMapFloorScaleState _miniMapFloorScales = new();
     private bool _showMainContent = true;
     private int _presentDepth;
     private bool _presentDirty;
@@ -444,6 +444,7 @@ public sealed class MapOverlayWindow : IDisposable
             ShowLineAnnotationsOnMiniMap: _showLineAnnotationsOnMiniMap,
             MapOpacity: _mapOpacity,
             StatusOpacity: _statusOpacity,
+            StatusScale: _statusScale,
             StatusOffsetX: _statusOffsetX,
             StatusOffsetY: _statusOffsetY,
             MiniMapOpacity: _miniMapOpacity,
@@ -646,16 +647,23 @@ public sealed class MapOverlayWindow : IDisposable
             Present();
     }
 
+    public void SetStatusScale(double scale)
+    {
+        _statusScale = (float)Math.Clamp(scale, 0d, 1d);
+        if (IsVisible)
+            Present();
+    }
+
     public void SetStatusOffsetX(double offsetX)
     {
-        _statusOffsetX = (float)offsetX;
+        _statusOffsetX = (float)Math.Clamp(offsetX, 0d, 1d);
         if (IsVisible)
             Present();
     }
 
     public void SetStatusOffsetY(double offsetY)
     {
-        _statusOffsetY = (float)offsetY;
+        _statusOffsetY = (float)Math.Clamp(offsetY, 0d, 1d);
         if (IsVisible)
             Present();
     }
@@ -669,106 +677,14 @@ public sealed class MapOverlayWindow : IDisposable
 
     public void SetMiniMapOffsetX(double offsetX)
     {
-        _miniMapOffsetX = (float)offsetX;
+        _miniMapOffsetX = (float)Math.Clamp(offsetX, 0d, 1d);
         if (IsVisible)
             Present();
     }
 
     public void SetMiniMapOffsetY(double offsetY)
     {
-        _miniMapOffsetY = (float)offsetY;
-        if (IsVisible)
-            Present();
-    }
-
-    public void SetMiniMapScale(double scale)
-    {
-        if (_persistentMiniMap is not { } miniMap) return;
-        if (!MapOverlayBitmapRenderer.TryGetScaledImageSize(
-                miniMap.ImagePath, scale, out var w, out var h))
-            return;
-        _persistentMiniMap = miniMap with { Width = w, Height = h };
-        _miniMapScale = scale;
-        if (_miniMapImageKey is not null)
-            _temporaryMiniMapScales[_miniMapImageKey] = scale;
-        InvalidateLockedBackground();
-        if (IsVisible)
-            Present();
-    }
-
-    internal void SetPersistentMiniMapState(
-        string imagePath,
-        MapOverlayTransform transform,
-        MapScreenRect gameBounds,
-        IntPtr gameWindowHandle,
-        double miniMapScale,
-        IReadOnlyList<MapOverlayRenderAnchor>? anchors = null,
-        IReadOnlyList<MapOverlayRenderAnnotation>? annotations = null,
-        string? floorLabel = null)
-    {
-        _gameBounds = gameBounds;
-        _gameWindowHandle = gameWindowHandle;
-        var imageKey = Path.GetFullPath(imagePath);
-        var effectiveScale = _temporaryMiniMapScales.TryGetValue(imageKey, out var temporaryScale)
-            ? temporaryScale
-            : miniMapScale;
-        if (!MapOverlayBitmapRenderer.TryGetScaledImageSize(
-                imagePath,
-                effectiveScale,
-                out var scaledWidth,
-                out var scaledHeight))
-        {
-            _persistentMiniMap = null;
-            _miniMapScale = null;
-            _miniMapBaseScale = null;
-            _miniMapImageKey = null;
-            return;
-        }
-        _persistentMiniMap = new MapOverlayRenderMap(
-            imagePath,
-            0, 0,
-            scaledWidth,
-            scaledHeight,
-            anchors ?? (IReadOnlyList<MapOverlayRenderAnchor>)Array.Empty<MapOverlayRenderAnchor>(),
-            null,
-            annotations,
-            floorLabel);
-        _miniMapScale = effectiveScale;
-        _miniMapBaseScale = miniMapScale;
-        _miniMapImageKey = imageKey;
-        InvalidateLockedBackground();
-        if (IsVisible)
-            Present();
-    }
-
-    public void ClearPersistentMiniMap()
-    {
-        _persistentMiniMap = null;
-        _miniMapScale = null;
-        _miniMapBaseScale = null;
-        _miniMapImageKey = null;
-        RefreshVisibleContent();
-    }
-
-    public void ClearTemporaryMiniMapScales()
-    {
-        _temporaryMiniMapScales.Clear();
-        if (_miniMapBaseScale is double baseScale)
-            SetMiniMapScaleCore(baseScale);
-    }
-
-    private void SetMiniMapScaleCore(double scale)
-    {
-        if (_persistentMiniMap is not { } miniMap
-            || !MapOverlayBitmapRenderer.TryGetScaledImageSize(
-                miniMap.ImagePath, scale, out var width, out var height))
-        {
-            return;
-        }
-
-        _persistentMiniMap = miniMap with { Width = width, Height = height };
-        _miniMapScale = scale;
-        InvalidateLockedBackground();
+        _miniMapOffsetY = (float)Math.Clamp(offsetY, 0d, 1d);
         if (IsVisible)
             Present();
     }

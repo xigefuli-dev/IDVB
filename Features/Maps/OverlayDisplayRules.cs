@@ -13,6 +13,7 @@ internal static class OverlayDisplayRules
 
     // ── 状态层 ──
     public static double StatusOpacity => _config.StatusOpacity;
+    public static double StatusScale => _config.StatusScale;
     public static double StatusOffsetX => _config.StatusOffsetX;
     public static double StatusOffsetY => _config.StatusOffsetY;
     public static bool ShowOverlayStatus => _config.ShowOverlayStatus;

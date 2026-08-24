@@ -86,11 +86,12 @@ internal sealed record MapOverlayRenderScene(
     bool ShowLineAnnotationsOnMiniMap = true,
     float MapOpacity = 0.46f,
     float StatusOpacity = 1f,
+    float StatusScale = 1f,
     float StatusOffsetX = 0f,
     float StatusOffsetY = 0f,
     float MiniMapOpacity = 0.55f,
     float MiniMapOffsetX = 0f,
-    float MiniMapOffsetY = 50f,
+    float MiniMapOffsetY = 0f,
     bool ShowFloorOnMiniMap = false);
 
 internal static partial class MapOverlayBitmapRenderer
@@ -204,25 +205,7 @@ internal static partial class MapOverlayBitmapRenderer
                     scene.ShowGateMarkers, scene.ShowAuxiliaryAnchors,
                     scene.ShowTextAnnotations, scene.ShowBoxAnnotations,
                     scene.ShowLineAnnotations, scene.MapOpacity);
-            if (scene.MiniMap is not null)
-                DrawMiniMap(graphics, scene.MiniMap, ScaleFor(scene.Dpi),
-                    scene.GameScreenBounds, scene.MonitorWorkingArea,
-                    scene.MiniMapOpacity, scene.MiniMapOffsetX, scene.MiniMapOffsetY,
-                    scene.ShowGateMarkersOnMiniMap, scene.ShowAuxiliaryAnchorsOnMiniMap,
-                    scene.ShowTextAnnotationsOnMiniMap, scene.ShowBoxAnnotationsOnMiniMap,
-                    scene.ShowLineAnnotationsOnMiniMap,
-                    scene.ShowGateMarkers, scene.ShowAuxiliaryAnchors,
-                    scene.ShowTextAnnotations, scene.ShowBoxAnnotations,
-                    scene.ShowLineAnnotations,
-                    scene.ShowFloorOnMiniMap);
-            if (scene.Player is not null)
-                DrawPlayer(
-                    graphics,
-                    scene.Player,
-                    scene.Map?.ClipBounds);
-            if (scene.ShowStatus && scene.Status is not null)
-                DrawStatus(graphics, scene.Status, ScaleFor(scene.Dpi),
-                    scene.StatusOpacity, scene.StatusOffsetX, scene.StatusOffsetY);
+            DrawDynamicParts(graphics, scene);
             return bitmap;
         }
         catch
@@ -253,10 +236,34 @@ internal static partial class MapOverlayBitmapRenderer
         graphics.PixelOffsetMode = PixelOffsetMode.Half;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-        if (scene.MiniMap is not null)
-            DrawMiniMap(graphics, scene.MiniMap, ScaleFor(scene.Dpi),
-                scene.GameScreenBounds, scene.MonitorWorkingArea,
-                scene.MiniMapOpacity, scene.MiniMapOffsetX, scene.MiniMapOffsetY,
+        DrawDynamicParts(graphics, scene);
+        return bitmap;
+    }
+
+    private static void DrawDynamicParts(Graphics graphics, MapOverlayRenderScene scene)
+    {
+        var dpiScale = ScaleFor(scene.Dpi);
+        var statusScale = Math.Clamp(scene.StatusScale, 0f, 1f);
+        var statusSize = scene.ShowStatus && scene.Status is not null && statusScale > 0f
+            ? MeasureStatusPanel(graphics, scene.Status, dpiScale * statusScale)
+            : (SizeF?)null;
+        var miniMapSize = scene.MiniMap is { Width: > 0f, Height: > 0f } miniMap
+            ? new SizeF(miniMap.Width, miniMap.Height)
+            : (SizeF?)null;
+        var margin = MiniMapMargin * dpiScale;
+        var layout = OverlayNormalizedLayout.Resolve(
+            new SizeF(
+                Math.Max(0f, scene.PixelWidth - (margin * 2f)),
+                Math.Max(0f, scene.PixelHeight - (margin * 2f))),
+            statusSize,
+            new PointF(scene.StatusOffsetX, scene.StatusOffsetY),
+            miniMapSize,
+            new PointF(scene.MiniMapOffsetX, scene.MiniMapOffsetY),
+            8f * dpiScale);
+
+        if (scene.MiniMap is not null && layout.MiniMap is { IsEmpty: false } miniBounds)
+            DrawMiniMap(graphics, scene.MiniMap, Offset(miniBounds, margin), dpiScale,
+                scene.MiniMapOpacity,
                 scene.ShowGateMarkersOnMiniMap, scene.ShowAuxiliaryAnchorsOnMiniMap,
                 scene.ShowTextAnnotationsOnMiniMap, scene.ShowBoxAnnotationsOnMiniMap,
                 scene.ShowLineAnnotationsOnMiniMap,
@@ -265,17 +272,18 @@ internal static partial class MapOverlayBitmapRenderer
                 scene.ShowLineAnnotations,
                 scene.ShowFloorOnMiniMap);
         if (scene.Player is not null)
-        {
-            DrawPlayer(
-                graphics,
-                scene.Player,
-                scene.Map?.ClipBounds);
-        }
-        if (scene.ShowStatus && scene.Status is not null)
-            DrawStatus(graphics, scene.Status, ScaleFor(scene.Dpi),
-                scene.StatusOpacity, scene.StatusOffsetX, scene.StatusOffsetY);
-        return bitmap;
+            DrawPlayer(graphics, scene.Player, scene.Map?.ClipBounds);
+        if (scene.Status is not null && layout.Status is { IsEmpty: false } statusBounds)
+            DrawStatus(graphics, scene.Status, dpiScale * statusScale,
+                Offset(statusBounds, margin).Location, scene.StatusOpacity);
     }
+
+    private static RectangleF Offset(RectangleF rectangle, float amount) =>
+        new(
+            rectangle.X + amount,
+            rectangle.Y + amount,
+            rectangle.Width,
+            rectangle.Height);
 
     private static Bitmap GetOrLoadMapImage(string imagePath)
     {

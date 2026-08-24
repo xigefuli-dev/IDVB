@@ -12,13 +12,15 @@ namespace IDVBuff.Views;
 /// 插件管理页：列出宿主已注册的插件卡片（名称 / Id / 版本 / 描述 / 订阅消息）。
 /// 卡片右上角「···」按钮打开该插件的设置页——由 TTM 统一管理的 TeachingTip。
 /// </summary>
-public sealed class PluginsPage : Page
+public sealed partial class PluginsPage : Page
 {
     private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
     private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
 
     /// <summary>root Grid，同时是 TTM 的 tip 宿主（overlay 槽）。</summary>
     private Panel? _tipHost;
+    private StackPanel? _thirdPartyContainer;
+    private InfoBar? _thirdPartyNotice;
 
     public PluginsPage()
     {
@@ -31,12 +33,17 @@ public sealed class PluginsPage : Page
     {
         if (_tipHost is not null)
             App.TeachingTips?.Attach(_tipHost);
+        if (App.PluginNotifications is not null)
+            App.PluginNotifications.NotificationPosted += PluginNotifications_NotificationPosted;
+        _ = RefreshThirdPartyPluginsAsync();
     }
 
     private void PluginsPage_Unloaded(object sender, RoutedEventArgs e)
     {
         // 页面离开导航树前摘除并关闭 tip，避免悬垂的 TeachingTip 引用本页元素。
         App.TeachingTips?.Close();
+        if (App.PluginNotifications is not null)
+            App.PluginNotifications.NotificationPosted -= PluginNotifications_NotificationPosted;
     }
 
     private FrameworkElement CreateContent()
@@ -86,33 +93,36 @@ public sealed class PluginsPage : Page
                 FontSize = 14,
                 Foreground = SecondaryTextBrush
             });
-            return root;
+        }
+        else
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = $"{plugins.Count} 个插件",
+                FontSize = 14,
+                Foreground = SecondaryTextBrush
+            });
+
+            var cards = new Grid
+            {
+                ColumnSpacing = 12,
+                RowSpacing = 12
+            };
+            cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (var row = 0; row < (plugins.Count + 1) / 2; row++)
+                cards.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (var index = 0; index < plugins.Count; index++)
+            {
+                var card = CreatePluginCard(plugins[index], manager!);
+                Grid.SetColumn(card, index % 2);
+                Grid.SetRow(card, index / 2);
+                cards.Children.Add(card);
+            }
+            content.Children.Add(cards);
         }
 
-        content.Children.Add(new TextBlock
-        {
-            Text = $"{plugins.Count} 个插件",
-            FontSize = 14,
-            Foreground = SecondaryTextBrush
-        });
-
-        var cards = new Grid
-        {
-            ColumnSpacing = 12,
-            RowSpacing = 12
-        };
-        cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        for (var row = 0; row < (plugins.Count + 1) / 2; row++)
-            cards.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        for (var index = 0; index < plugins.Count; index++)
-        {
-            var card = CreatePluginCard(plugins[index], manager!);
-            Grid.SetColumn(card, index % 2);
-            Grid.SetRow(card, index / 2);
-            cards.Children.Add(card);
-        }
-        content.Children.Add(cards);
+        AddThirdPartySection(content);
         return root;
     }
 

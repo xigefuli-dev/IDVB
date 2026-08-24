@@ -154,20 +154,22 @@ public sealed partial class MapStatusPage : UserControl
     };
     private readonly Slider _statusOpacitySlider = CreatePercentageSlider("状态不透明度");
     private readonly TextBlock _statusOpacityValue = CreateMutedText();
-    private readonly Slider _statusOffsetXSlider = CreateOffsetSlider("状态 X 偏移 (px)");
+    private readonly Slider _statusScaleSlider = CreatePercentageSlider("状态栏缩放比例");
+    private readonly TextBlock _statusScaleValue = CreateMutedText();
+    private readonly Slider _statusOffsetXSlider = CreatePercentageSlider("状态栏 X 位置比例");
     private readonly TextBlock _statusOffsetXValue = CreateMutedText();
-    private readonly Slider _statusOffsetYSlider = CreateOffsetSlider("状态 Y 偏移 (px)");
+    private readonly Slider _statusOffsetYSlider = CreatePercentageSlider("状态栏 Y 位置比例");
     private readonly TextBlock _statusOffsetYValue = CreateMutedText();
     private readonly Slider _miniMapOpacitySlider = CreatePercentageSlider("小地图不透明度");
     private readonly TextBlock _miniMapOpacityValue = CreateMutedText();
-    private readonly Slider _miniMapOffsetXSlider = CreateOffsetSlider("小地图 X 偏移 (px)");
+    private readonly Slider _miniMapOffsetXSlider = CreatePercentageSlider("小地图 X 位置比例");
     private readonly TextBlock _miniMapOffsetXValue = CreateMutedText();
-    private readonly Slider _miniMapOffsetYSlider = CreateOffsetSlider("小地图 Y 偏移 (px)");
+    private readonly Slider _miniMapOffsetYSlider = CreatePercentageSlider("小地图 Y 位置比例");
     private readonly TextBlock _miniMapOffsetYValue = CreateMutedText();
     private readonly Slider _miniMapScaleSlider = new()
     {
         Header = "小地图缩放",
-        Minimum = 10,
+        Minimum = 0,
         Maximum = 100,
         StepFrequency = 1,
         TickFrequency = 10,
@@ -176,8 +178,10 @@ public sealed partial class MapStatusPage : UserControl
         HorizontalAlignment = HorizontalAlignment.Left
     };
     private readonly TextBlock _miniMapScaleValue = CreateMutedText();
+    private bool _displayPreviewExpanded;
     private CancellationTokenSource? _miniMapScaleSaveCancellation;
     private readonly SliderSaveState _statusOpacitySave = new();
+    private readonly SliderSaveState _statusScaleSave = new();
     private readonly SliderSaveState _statusOffsetXSave = new();
     private readonly SliderSaveState _statusOffsetYSave = new();
     private readonly SliderSaveState _mapOpacitySave = new();

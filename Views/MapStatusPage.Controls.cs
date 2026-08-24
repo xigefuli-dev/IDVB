@@ -195,6 +195,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowGateMarkers_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowGateMarkersAsync(_showGateMarkersToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -210,6 +211,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowAuxiliaryAnchors_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowAuxiliaryAnchorsAsync(_showAuxiliaryAnchorsToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -217,6 +219,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowTextAnnotations_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowTextAnnotationsAsync(_showTextAnnotationsToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -224,6 +227,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowBoxAnnotations_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowBoxAnnotationsAsync(_showBoxAnnotationsToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -231,6 +235,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowLineAnnotations_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowLineAnnotationsAsync(_showLineAnnotationsToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -238,6 +243,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowGateMarkersOnMiniMap_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowGateMarkersOnMiniMapAsync(_showGateMarkersOnMiniMapToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -245,6 +251,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowAuxiliaryAnchorsOnMiniMap_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowAuxiliaryAnchorsOnMiniMapAsync(_showAuxiliaryAnchorsOnMiniMapToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -252,6 +259,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowTextAnnotationsOnMiniMap_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowTextAnnotationsOnMiniMapAsync(_showTextAnnotationsOnMiniMapToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -259,6 +267,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowBoxAnnotationsOnMiniMap_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowBoxAnnotationsOnMiniMapAsync(_showBoxAnnotationsOnMiniMapToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -266,6 +275,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowLineAnnotationsOnMiniMap_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowLineAnnotationsOnMiniMapAsync(_showLineAnnotationsOnMiniMapToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -273,6 +283,7 @@ public sealed partial class MapStatusPage : UserControl
     private async void ShowFloorOnMiniMap_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         try { await _runtime.SetShowFloorOnMiniMapAsync(_showFloorOnMiniMapToggle.IsOn); }
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
@@ -282,8 +293,9 @@ public sealed partial class MapStatusPage : UserControl
         if (_refreshing || double.IsNaN(args.NewValue))
             return;
 
-        var percentage = Math.Clamp(args.NewValue, 10d, 100d);
+        var percentage = Math.Clamp(args.NewValue, 0d, 100d);
         _miniMapScaleValue.Text = $"当前：{percentage:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
 
         _miniMapScaleSaveCancellation?.Cancel();
         var cancellation = new CancellationTokenSource();
@@ -321,23 +333,26 @@ public sealed partial class MapStatusPage : UserControl
         if (_refreshing || double.IsNaN(args.NewValue)) return;
         var percentage = Math.Clamp(args.NewValue, 0d, 100d);
         _miniMapOpacityValue.Text = $"当前：{percentage:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
         QueueSliderSave(_miniMapOpacitySave, percentage / 100d, _runtime.SetMiniMapOpacityAsync);
     }
 
     private void MiniMapOffsetX_Changed(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_refreshing || double.IsNaN(args.NewValue)) return;
-        var offset = Math.Clamp(args.NewValue, -500d, 500d);
-        _miniMapOffsetXValue.Text = $"当前：{offset:F0} px";
-        QueueSliderSave(_miniMapOffsetXSave, offset, _runtime.SetMiniMapOffsetXAsync);
+        var offset = Math.Clamp(args.NewValue, 0d, 100d);
+        _miniMapOffsetXValue.Text = $"当前：{offset:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
+        QueueSliderSave(_miniMapOffsetXSave, offset / 100d, _runtime.SetMiniMapOffsetXAsync);
     }
 
     private void MiniMapOffsetY_Changed(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_refreshing || double.IsNaN(args.NewValue)) return;
-        var offset = Math.Clamp(args.NewValue, -500d, 500d);
-        _miniMapOffsetYValue.Text = $"当前：{offset:F0} px";
-        QueueSliderSave(_miniMapOffsetYSave, offset, _runtime.SetMiniMapOffsetYAsync);
+        var offset = Math.Clamp(args.NewValue, 0d, 100d);
+        _miniMapOffsetYValue.Text = $"当前：{offset:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
+        QueueSliderSave(_miniMapOffsetYSave, offset / 100d, _runtime.SetMiniMapOffsetYAsync);
     }
 
     private void StatusOpacity_Changed(object sender, RangeBaseValueChangedEventArgs args)
@@ -345,23 +360,35 @@ public sealed partial class MapStatusPage : UserControl
         if (_refreshing || double.IsNaN(args.NewValue)) return;
         var percentage = Math.Clamp(args.NewValue, 0d, 100d);
         _statusOpacityValue.Text = $"当前：{percentage:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.Status);
         QueueSliderSave(_statusOpacitySave, percentage / 100d, _runtime.SetStatusOpacityAsync);
     }
 
     private void StatusOffsetX_Changed(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_refreshing || double.IsNaN(args.NewValue)) return;
-        var offset = Math.Clamp(args.NewValue, -500d, 500d);
-        _statusOffsetXValue.Text = $"当前：{offset:F0} px";
-        QueueSliderSave(_statusOffsetXSave, offset, _runtime.SetStatusOffsetXAsync);
+        var offset = Math.Clamp(args.NewValue, 0d, 100d);
+        _statusOffsetXValue.Text = $"当前：{offset:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.Status);
+        QueueSliderSave(_statusOffsetXSave, offset / 100d, _runtime.SetStatusOffsetXAsync);
     }
 
     private void StatusOffsetY_Changed(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_refreshing || double.IsNaN(args.NewValue)) return;
-        var offset = Math.Clamp(args.NewValue, -500d, 500d);
-        _statusOffsetYValue.Text = $"当前：{offset:F0} px";
-        QueueSliderSave(_statusOffsetYSave, offset, _runtime.SetStatusOffsetYAsync);
+        var offset = Math.Clamp(args.NewValue, 0d, 100d);
+        _statusOffsetYValue.Text = $"当前：{offset:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.Status);
+        QueueSliderSave(_statusOffsetYSave, offset / 100d, _runtime.SetStatusOffsetYAsync);
+    }
+
+    private void StatusScale_Changed(object sender, RangeBaseValueChangedEventArgs args)
+    {
+        if (_refreshing || double.IsNaN(args.NewValue)) return;
+        var percentage = Math.Clamp(args.NewValue, 0d, 100d);
+        _statusScaleValue.Text = $"当前：{percentage:F0}%";
+        PublishDisplayPreview(OverlayPreviewPart.Status);
+        QueueSliderSave(_statusScaleSave, percentage / 100d, _runtime.SetStatusScaleAsync);
     }
 
     private void QueueSliderSave(

@@ -81,6 +81,9 @@
         <ProjectReference Include="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
         <ProjectReference Include="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
         <ProjectReference Include="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+        <ProjectReference Include="IDVB.PluginSdk.Abstractions\IDVB.PluginSdk.Abstractions.csproj" />
+        <ProjectReference Include="IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
+        <ProjectReference Include="IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
         <ProjectReference Include="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
         <ProjectReference Include="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
         <ProjectReference Include="Plugins\NightVision\IDVBuff.NightVision.csproj" />
@@ -138,6 +141,13 @@
         <Compile Remove="Survey\**\*.cs" />
         <Compile Remove="IDVBuff.PluginContracts\**\*.cs" />
         <Compile Remove="IDVBuff.PluginHostMessages\**\*.cs" />
+        <Compile Remove="IDVB.PluginSdk.Abstractions\**\*.cs" />
+        <Compile Remove="IDVB.PluginPackaging\**\*.cs" />
+        <Compile Remove="IDVB.PluginRuntime\**\*.cs" />
+        <Compile Remove="IDVB.PluginTool\**\*.cs" />
+        <Compile Remove="IDVB.PluginTestHost\**\*.cs" />
+        <Compile Remove="IDVB.PluginSystem.Tests\**\*.cs" />
+        <Compile Remove="PluginTemplates\**\*.cs" />
         <Compile Remove="IDVBuff.PluginContracts.Tests\**\*.cs" />
         <Compile Remove="Plugins\**\*.cs" />
         <!-- Local validation/release snapshots and auxiliary worktrees can

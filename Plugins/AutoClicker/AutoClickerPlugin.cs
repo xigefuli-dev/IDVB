@@ -10,15 +10,17 @@ namespace IDVBuff.Plugins.AutoClicker;
 /// </summary>
 [Plugin(
     "auto-clicker",
-    DisplayName = "连点器",
-    Description = "按住自定义触发键超过长按阈值后，以可调周期发送键盘按下/抬起事件，松开即停。",
-    Version = "1.3.0")]
+    DisplayName = "开棺无需连按",
+    Description = "按住自定义触发键即可自动开棺，无需连续按键；松开触发键后停止。",
+    Version = "1.4.0")]
 public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
 {
     private const string TriggerBindingKey = "trigger-binding";
     private const string OutputBindingKey = "output-binding";
     private const string KeyDownDelayKey = "key-down-delay-ms";
     private const string UpToNextDownDelayKey = "up-to-next-down-delay-ms";
+    private const string RandomDelayLowerBoundKey = "minimum-random-delay-ms";
+    private const string RandomDelayUpperBoundKey = "maximum-random-delay-ms";
 
     private readonly AutoClickerOptions _options = new();
     private readonly AutoClickerService _service;
@@ -33,7 +35,7 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
 
     public override string Id => "auto-clicker";
 
-    public override string DisplayName => "连点器";
+    public override string DisplayName => "开棺无需连按";
 
     public IReadOnlyList<IPluginSetting> Settings { get; } =
     [
@@ -56,6 +58,26 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
             Maximum = AutoClickerOptions.MaxUpToNextDownDelayMilliseconds,
             StepFrequency = 1,
             DefaultValue = AutoClickerOptions.DefaultUpToNextDownDelayMilliseconds
+        },
+        new PluginSliderSetting
+        {
+            Key = RandomDelayLowerBoundKey,
+            DisplayName = "随机延迟下限（毫秒）",
+            Description = "每段等待强制加入的随机延迟下限，不能低于 30 毫秒。",
+            Minimum = AutoClickerOptions.MinimumRandomDelayMilliseconds,
+            Maximum = AutoClickerOptions.MaximumRandomDelayMilliseconds,
+            StepFrequency = 1,
+            DefaultValue = AutoClickerOptions.MinimumRandomDelayMilliseconds
+        },
+        new PluginSliderSetting
+        {
+            Key = RandomDelayUpperBoundKey,
+            DisplayName = "随机延迟上限（毫秒）",
+            Description = "每段等待强制加入的随机延迟上限，不能低于 50 毫秒。",
+            Minimum = AutoClickerOptions.MinimumRandomDelayUpperBoundMilliseconds,
+            Maximum = AutoClickerOptions.MaximumRandomDelayMilliseconds,
+            StepFrequency = 1,
+            DefaultValue = AutoClickerOptions.DefaultMaximumRandomDelayMilliseconds
         },
         new PluginKeyBindingSetting
         {
@@ -82,8 +104,9 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
             _service.Start();
             Context.Logger.Info(
                 $"连点器已启动：按住自定义触发键超过 {AutoClickerPolicy.HoldBeforeClickMilliseconds}ms 后，"
-                + $"以 {_options.TotalPeriodMilliseconds}ms 周期发送完整按下/抬起事件，松开停止。"
-                + " 可在插件设置中调整按键与按下/抬手延迟。");
+                + $"以 {_options.TotalPeriodMilliseconds}ms 基础周期发送完整按下/抬起事件，"
+                + "每段强制加入不低于 30ms 的随机延迟，松开停止。"
+                + " 可在插件设置中调整按键、基础延迟与随机延迟范围。");
         }
         catch (Exception exception)
         {
@@ -99,6 +122,8 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
     {
         KeyDownDelayKey => (double)_options.KeyDownDelayMilliseconds,
         UpToNextDownDelayKey => (double)_options.UpToNextDownDelayMilliseconds,
+        RandomDelayLowerBoundKey => (double)_options.RandomDelayLowerBoundMilliseconds,
+        RandomDelayUpperBoundKey => (double)_options.RandomDelayUpperBoundMilliseconds,
         TriggerBindingKey => _triggerBinding.StorageValue,
         OutputBindingKey => _outputBinding.StorageValue,
         _ => null
@@ -107,12 +132,17 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
     public void SetSettingValue(string key, object? value)
     {
         if (key is KeyDownDelayKey or UpToNextDownDelayKey
+                or RandomDelayLowerBoundKey or RandomDelayUpperBoundKey
             && TryConvertToMilliseconds(value, out var milliseconds))
         {
             if (key == KeyDownDelayKey)
                 _options.KeyDownDelayMilliseconds = milliseconds;
-            else
+            else if (key == UpToNextDownDelayKey)
                 _options.UpToNextDownDelayMilliseconds = milliseconds;
+            else if (key == RandomDelayLowerBoundKey)
+                _options.RandomDelayLowerBoundMilliseconds = milliseconds;
+            else
+                _options.RandomDelayUpperBoundMilliseconds = milliseconds;
             return;
         }
 

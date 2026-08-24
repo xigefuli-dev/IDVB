@@ -209,6 +209,15 @@
                                       VerticalContentAlignment="Stretch" />
                 </ScrollViewer>
             </Border>
+
+            <Grid x:Name="DisplaySkeletonPreviewHost"
+                  Grid.Column="1"
+                  Margin="0,0,24,24"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Bottom"
+                  Visibility="Collapsed"
+                  IsHitTestVisible="False"
+                  Canvas.ZIndex="20" />
         </Grid>
     </Grid>
 </Page>

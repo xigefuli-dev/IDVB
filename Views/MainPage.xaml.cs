@@ -39,10 +39,15 @@ public sealed partial class MainPage : Page
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationRowElements = [];
     private readonly Dictionary<NavigationEntry, FrameworkElement> _navigationExpansionGlyphElements = [];
     private readonly Dictionary<NavigationEntry, ItemsControl> _navigationChildrenElements = [];
+    private readonly OverlaySkeletonPreview _displaySkeletonPreview = new();
+    private MapStatusPage? _displayPreviewSource;
+    private int _displayPreviewVisibilityRevision;
 
     public MainPage()
     {
         InitializeComponent();
+        DisplaySkeletonPreviewHost.Children.Add(_displaySkeletonPreview);
+        PrepareDisplayPreviewMotion();
         FluentTheme.RegisterThemeRoot(this);
         RootSurface.Background = FluentTheme.WindowBrush();
         foreach (var entry in NavigationEntry.CreateRoots(_navigationNodes))
@@ -614,6 +619,7 @@ public sealed partial class MainPage : Page
 
     private void NavigateTo(string moduleId, NavigationEntry? navigationEntry = null)
     {
+        DisconnectDisplayPreviewSource();
         SetNavigationCompact(_navigationCompactPreference);
 
         if (navigationEntry is not null)
@@ -633,6 +639,8 @@ public sealed partial class MainPage : Page
             var view = _catalog.GetRequired(moduleId).CreateView();
             ModuleContentHost.Content = view;
             ConfigureMainContentScrolling(view);
+            if (view is MapStatusPage mapStatusPage)
+                ConnectDisplayPreviewSource(mapStatusPage);
             // Keep the main content entrance motion consistent across all modules.
             animateMainContent = true;
             if (view is MapListPage mapListPage)

@@ -39,6 +39,22 @@ public sealed class MapOverlayPresentationBatchTests
         Assert.Equal(1, overlay.PresentCount);
     }
 
+    [Fact]
+    public void FloorSwitchPresentsOnlyTheTargetFloorsResolvedScale()
+    {
+        var overlay = new RecordingOverlay { CurrentMiniMapScale = 0.44d };
+
+        MapOverlayPresentationBatch.Apply(overlay, () =>
+            overlay.SetPersistentMiniMapState(
+                "floor-2-overlay.png",
+                new object(),
+                new object(),
+                new IntPtr(1),
+                0.68d));
+
+        Assert.Equal([0.68d], overlay.PresentedMiniMapScales);
+    }
+
     private sealed class RecordingOverlay : IOverlayWindow
     {
         private int _deferDepth;
@@ -50,6 +66,8 @@ public sealed class MapOverlayPresentationBatchTests
         public int ShowCount { get; private set; }
         public int PresentCount { get; private set; }
         public bool ThrowWhenPresenting { get; init; }
+        public double? CurrentMiniMapScale { get; set; }
+        public List<double?> PresentedMiniMapScales { get; } = [];
 
         public bool IsVisible => true;
         public bool HasMap => true;
@@ -89,7 +107,10 @@ public sealed class MapOverlayPresentationBatchTests
             if (_deferDepth > 0)
                 _presentPending = true;
             else
+            {
                 PresentCount++;
+                PresentedMiniMapScales.Add(CurrentMiniMapScale);
+            }
         }
 
         private void EndPresentDeferral()
@@ -99,6 +120,7 @@ public sealed class MapOverlayPresentationBatchTests
                 return;
             _presentPending = false;
             PresentCount++;
+            PresentedMiniMapScales.Add(CurrentMiniMapScale);
             if (ThrowWhenPresenting)
                 throw new InvalidOperationException("presentation failed");
         }
@@ -120,7 +142,11 @@ public sealed class MapOverlayPresentationBatchTests
         public void SetPersistentMiniMapState(string imagePath,
             object transform, object gameBounds, IntPtr gameWindowHandle,
             double miniMapScale, object? anchors = null,
-            object? annotations = null, string? floorLabel = null) { }
+            object? annotations = null, string? floorLabel = null)
+        {
+            CurrentMiniMapScale = miniMapScale;
+            RequestPresent();
+        }
         public void ClearPersistentMiniMap() { }
         public void SetStatusVisible(bool visible) { }
         public void SetReverseAlternateDisplay(bool enabled) { }

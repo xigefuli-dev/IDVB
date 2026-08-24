@@ -7,4 +7,8 @@
     <AssemblyName>IDVB.PluginContracts</AssemblyName>
     <PackageId>IdentityVisionBridge.PluginContracts</PackageId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IDVB.PluginSdk.Abstractions\IDVB.PluginSdk.Abstractions.csproj" />
+  </ItemGroup>
 </Project>

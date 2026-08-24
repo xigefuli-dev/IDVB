@@ -391,6 +391,14 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public MapRuntimeSettings Settings => _settings ??= new MapRuntimeSettings();
     public MapRecord? SelectedMap => null;
     public string? CurrentFloorKey => _currentFloorKey;
+    public (double Width, double Height)? CurrentMiniMapPixelSize =>
+        _overlay.CurrentMiniMapWidth is { } width
+        && _overlay.CurrentMiniMapHeight is { } height
+        && width > 0d
+        && height > 0d
+            ? (width, height)
+            : null;
+    public double? CurrentMiniMapScale => _overlay.CurrentMiniMapScale;
     public bool IsOverlayVisible => _overlay.IsVisible;
     public bool IsGameMapOpen => _gameMapToggleState.IsOpen;
     public int GameMapToggleVersion => _gameMapToggleState.Version;

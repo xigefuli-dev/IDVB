@@ -5,6 +5,7 @@ namespace IDVBuff.PluginContracts;
 /// 渲染该插件的 SettingPage 并统一托管生命周期；插件同时实现
 /// <see cref="IPlugin"/> 与 <c>IPluginSettingsProvider</c> 即可。
 /// </summary>
+[Obsolete("Legacy built-in compatibility contract. Third-party settings must be declared in manifest.json.")]
 public interface IPluginSettingsProvider
 {
     /// <summary>设置项描述列表，顺序即设置页中的显示顺序。</summary>

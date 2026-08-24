@@ -63,12 +63,9 @@ internal static partial class MapOverlayBitmapRenderer
     private static void DrawMiniMap(
         Graphics graphics,
         MapOverlayRenderMap miniMap,
+        RectangleF destRect,
         float dpiScale,
-        MapScreenRect gameScreenBounds,
-        MapScreenRect monitorWorkingArea,
         float miniMapOpacity = 0.55f,
-        float miniMapOffsetX = 0f,
-        float miniMapOffsetY = 50f,
         bool showGateMarkersOnMiniMap = false,
         bool showAuxiliaryAnchorsOnMiniMap = false,
         bool showTextAnnotationsOnMiniMap = false,
@@ -85,25 +82,13 @@ internal static partial class MapOverlayBitmapRenderer
             || !File.Exists(miniMap.ImagePath))
             return;
 
-        var margin = MiniMapMargin * dpiScale;
-        var miniLeft = margin + (miniMapOffsetX * dpiScale);
-        var miniTop = margin + (miniMapOffsetY * dpiScale);
-
-        var screenMiniRight = gameScreenBounds.X + miniLeft + miniMap.Width;
-        var screenMiniBottom = gameScreenBounds.Y + miniTop + miniMap.Height;
-
-        var workRight = monitorWorkingArea.X + monitorWorkingArea.Width;
-        var workBottom = monitorWorkingArea.Y + monitorWorkingArea.Height;
-
-        if (screenMiniRight > workRight)
-            miniLeft = Math.Max(0f, miniLeft - (float)(screenMiniRight - workRight));
-        if (screenMiniBottom > workBottom)
-            miniTop = Math.Max(0f, miniTop - (float)(screenMiniBottom - workBottom));
-
-        miniLeft = Math.Max(0f, miniLeft);
-        miniTop = Math.Max(0f, miniTop);
-
-        var destRect = new RectangleF(miniLeft, miniTop, miniMap.Width, miniMap.Height);
+        var miniLeft = destRect.Left;
+        var miniTop = destRect.Top;
+        var effectiveMiniMap = miniMap with
+        {
+            Width = destRect.Width,
+            Height = destRect.Height
+        };
         var graphicsState = graphics.Save();
         try
         {
@@ -131,10 +116,10 @@ internal static partial class MapOverlayBitmapRenderer
                     graphics.TranslateTransform(miniLeft, miniTop);
                     try
                     {
-                        DrawMiniMapAnchors(graphics, miniMap, dpiScale,
+                        DrawMiniMapAnchors(graphics, effectiveMiniMap, dpiScale,
                             showGateMarkersOnMiniMap ? showGateMarkers : false,
                             showAuxiliaryAnchorsOnMiniMap ? showAuxiliaryAnchors : false);
-                        DrawAnnotations(graphics, miniMap, dpiScale,
+                        DrawAnnotations(graphics, effectiveMiniMap, dpiScale,
                             showTextAnnotationsOnMiniMap ? showTextAnnotations : false,
                             showBoxAnnotationsOnMiniMap ? showBoxAnnotations : false,
                             showLineAnnotationsOnMiniMap ? showLineAnnotations : false);
@@ -145,7 +130,7 @@ internal static partial class MapOverlayBitmapRenderer
                     }
                 }
                 if (showFloorOnMiniMap)
-                    DrawMiniMapFloorLabel(graphics, miniMap, miniLeft, miniTop, dpiScale);
+                    DrawMiniMapFloorLabel(graphics, effectiveMiniMap, miniLeft, miniTop, dpiScale);
             }
         }
         finally
@@ -226,30 +211,46 @@ internal static partial class MapOverlayBitmapRenderer
         }
     }
 
-    private static void DrawStatus(Graphics graphics, MapOverlayStatus status, float dpiScale,
-        float opacity = 1f, float offsetX = 0f, float offsetY = 0f)
+    private static SizeF MeasureStatusPanel(
+        Graphics graphics,
+        MapOverlayStatus status,
+        float scale)
     {
-        using var titleFont = CreateFont(13f * dpiScale, FontStyle.Bold);
-        using var messageFont = CreateFont(12f * dpiScale, FontStyle.Regular);
-        using var detailFont = CreateFont(11f * dpiScale, FontStyle.Regular);
+        using var titleFont = CreateFont(13f * scale, FontStyle.Bold);
+        using var messageFont = CreateFont(12f * scale, FontStyle.Regular);
+        using var detailFont = CreateFont(11f * scale, FontStyle.Regular);
 
-        var maxContentWidth = 360f * dpiScale;
-        var paddingX = 10f * dpiScale;
-        var paddingY = 7f * dpiScale;
-        var spacing = 2f * dpiScale;
-        var origin = 12f * dpiScale;
-        var ox = offsetX * dpiScale;
-        var oy = offsetY * dpiScale;
+        var maxContentWidth = 360f * scale;
+        var paddingX = 10f * scale;
+        var paddingY = 7f * scale;
+        var spacing = 2f * scale;
+        var contentWidth = MeasureStatusContentWidth(
+            graphics, status, titleFont, messageFont, detailFont, maxContentWidth);
+        var contentHeight = MeasureStatusContentHeight(
+            graphics, status, titleFont, messageFont, detailFont, contentWidth, spacing);
+        return new SizeF(
+            contentWidth + (paddingX * 2f),
+            contentHeight + (paddingY * 2f));
+    }
+
+    private static void DrawStatus(
+        Graphics graphics,
+        MapOverlayStatus status,
+        float scale,
+        PointF location,
+        float opacity = 1f)
+    {
+        using var titleFont = CreateFont(13f * scale, FontStyle.Bold);
+        using var messageFont = CreateFont(12f * scale, FontStyle.Regular);
+        using var detailFont = CreateFont(11f * scale, FontStyle.Regular);
+
+        var maxContentWidth = 360f * scale;
+        var paddingX = 10f * scale;
+        var paddingY = 7f * scale;
+        var spacing = 2f * scale;
         var opacityByte = (int)Math.Clamp(MathF.Round(opacity * 255f), 0, 255);
-        var titleWidth = MeasureUnwrappedWidth(graphics, status.Title, titleFont);
-        var messageWidth = MeasureUnwrappedWidth(graphics, status.Message, messageFont);
-        var detailWidth = string.IsNullOrWhiteSpace(status.Detail)
-            ? 0f
-            : MeasureUnwrappedWidth(graphics, status.Detail, detailFont);
-        var contentWidth = Math.Clamp(
-            Math.Max(titleWidth, Math.Max(messageWidth, detailWidth)),
-            1f,
-            maxContentWidth);
+        var contentWidth = MeasureStatusContentWidth(
+            graphics, status, titleFont, messageFont, detailFont, maxContentWidth);
 
         var titleSize = MeasureWrapped(graphics, status.Title, titleFont, contentWidth);
         var messageSize = MeasureWrapped(graphics, status.Message, messageFont, contentWidth);
@@ -261,11 +262,11 @@ internal static partial class MapOverlayBitmapRenderer
             contentHeight += spacing + detailSize.Height;
 
         var panel = new RectangleF(
-            origin + ox,
-            origin + oy,
+            location.X,
+            location.Y,
             contentWidth + (paddingX * 2),
             contentHeight + (paddingY * 2));
-        using var path = CreateRoundedRectangle(panel, 6f * dpiScale);
+        using var path = CreateRoundedRectangle(panel, 6f * scale);
         var bgAlpha = ScaleAlpha(190, opacityByte);
         using var background = new SolidBrush(Color.FromArgb(bgAlpha, 15, 15, 15));
         graphics.FillPath(background, path);
@@ -285,6 +286,45 @@ internal static partial class MapOverlayBitmapRenderer
             textY += messageSize.Height + spacing;
             DrawWrapped(graphics, status.Detail, detailFont, detailBrush, textX, textY, contentWidth, detailSize.Height);
         }
+    }
+
+    private static float MeasureStatusContentWidth(
+        Graphics graphics,
+        MapOverlayStatus status,
+        Font titleFont,
+        Font messageFont,
+        Font detailFont,
+        float maximum)
+    {
+        var titleWidth = MeasureUnwrappedWidth(graphics, status.Title, titleFont);
+        var messageWidth = MeasureUnwrappedWidth(graphics, status.Message, messageFont);
+        var detailWidth = string.IsNullOrWhiteSpace(status.Detail)
+            ? 0f
+            : MeasureUnwrappedWidth(graphics, status.Detail, detailFont);
+        return Math.Clamp(
+            Math.Max(titleWidth, Math.Max(messageWidth, detailWidth)),
+            Math.Min(1f, maximum),
+            maximum);
+    }
+
+    private static float MeasureStatusContentHeight(
+        Graphics graphics,
+        MapOverlayStatus status,
+        Font titleFont,
+        Font messageFont,
+        Font detailFont,
+        float contentWidth,
+        float spacing)
+    {
+        var titleSize = MeasureWrapped(graphics, status.Title, titleFont, contentWidth);
+        var messageSize = MeasureWrapped(graphics, status.Message, messageFont, contentWidth);
+        var detailSize = string.IsNullOrWhiteSpace(status.Detail)
+            ? SizeF.Empty
+            : MeasureWrapped(graphics, status.Detail, detailFont, contentWidth);
+        var height = titleSize.Height + spacing + messageSize.Height;
+        if (!detailSize.IsEmpty)
+            height += spacing + detailSize.Height;
+        return height;
     }
 
     private static void DrawWrapped(

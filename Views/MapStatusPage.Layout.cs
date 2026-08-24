@@ -172,6 +172,9 @@ public sealed partial class MapStatusPage : UserControl
         _statusOpacitySlider.ValueChanged += StatusOpacity_Changed;
         displayPanel.Children.Add(_statusOpacitySlider);
         displayPanel.Children.Add(_statusOpacityValue);
+        _statusScaleSlider.ValueChanged += StatusScale_Changed;
+        displayPanel.Children.Add(_statusScaleSlider);
+        displayPanel.Children.Add(_statusScaleValue);
         _statusOffsetXSlider.ValueChanged += StatusOffsetX_Changed;
         displayPanel.Children.Add(_statusOffsetXSlider);
         displayPanel.Children.Add(_statusOffsetXValue);
@@ -222,13 +225,16 @@ public sealed partial class MapStatusPage : UserControl
         displayPanel.Children.Add(_miniMapOffsetYSlider);
         displayPanel.Children.Add(_miniMapOffsetYValue);
 
-        content.Children.Add(new Expander
+        var displayExpander = new Expander
         {
             Header = "显示与渲染",
             Content = displayPanel,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
-        });
+        };
+        displayExpander.Expanding += DisplayExpander_Expanding;
+        displayExpander.Collapsed += DisplayExpander_Collapsed;
+        content.Children.Add(displayExpander);
 
         var calibrationButton = new Button
         {
@@ -717,18 +723,6 @@ public sealed partial class MapStatusPage : UserControl
         Maximum = 100,
         StepFrequency = 1,
         TickFrequency = 10,
-        IsThumbToolTipEnabled = true,
-        MinWidth = 300,
-        HorizontalAlignment = HorizontalAlignment.Left
-    };
-
-    private static Slider CreateOffsetSlider(string header) => new()
-    {
-        Header = header,
-        Minimum = -500,
-        Maximum = 500,
-        StepFrequency = 1,
-        TickFrequency = 100,
         IsThumbToolTipEnabled = true,
         MinWidth = 300,
         HorizontalAlignment = HorizontalAlignment.Left

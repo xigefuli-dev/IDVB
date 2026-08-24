@@ -145,7 +145,9 @@ public sealed partial class MapStatusPage : UserControl
         {
             var items = new List<PresetSelectionItem> { PresetSelectionItem.Auto };
             items.AddRange(_runtime.GetAvailablePresets()
-                .Select(profile => new PresetSelectionItem(profile.Name, profile.Name)));
+                .Select(profile => new PresetSelectionItem(
+                    $"{profile.ClientWidth}×{profile.ClientHeight}",
+                    profile.Name)));
             _presetSelector.ItemsSource = items;
         }
         var selectedPreset = _runtime.GetSelectedResolutionPreset();
@@ -351,21 +353,24 @@ public sealed partial class MapStatusPage : UserControl
         var miniMapOpacityPercentage = _runtime.Settings.MiniMapOpacity * 100d;
         _miniMapOpacitySlider.Value = miniMapOpacityPercentage;
         _miniMapOpacityValue.Text = $"当前：{miniMapOpacityPercentage:F0}%";
-        var miniMapOffsetX = _runtime.Settings.MiniMapOffsetX;
+        var miniMapOffsetX = _runtime.Settings.MiniMapOffsetX * 100d;
         _miniMapOffsetXSlider.Value = miniMapOffsetX;
-        _miniMapOffsetXValue.Text = $"当前：{miniMapOffsetX:F0} px";
-        var miniMapOffsetY = _runtime.Settings.MiniMapOffsetY;
+        _miniMapOffsetXValue.Text = $"当前：{miniMapOffsetX:F0}%";
+        var miniMapOffsetY = _runtime.Settings.MiniMapOffsetY * 100d;
         _miniMapOffsetYSlider.Value = miniMapOffsetY;
-        _miniMapOffsetYValue.Text = $"当前：{miniMapOffsetY:F0} px";
+        _miniMapOffsetYValue.Text = $"当前：{miniMapOffsetY:F0}%";
         var statusOpacityPercentage = _runtime.Settings.StatusOpacity * 100d;
         _statusOpacitySlider.Value = statusOpacityPercentage;
         _statusOpacityValue.Text = $"当前：{statusOpacityPercentage:F0}%";
-        var statusOffsetX = _runtime.Settings.StatusOffsetX;
+        var statusScalePercentage = _runtime.Settings.StatusScale * 100d;
+        _statusScaleSlider.Value = statusScalePercentage;
+        _statusScaleValue.Text = $"当前：{statusScalePercentage:F0}%";
+        var statusOffsetX = _runtime.Settings.StatusOffsetX * 100d;
         _statusOffsetXSlider.Value = statusOffsetX;
-        _statusOffsetXValue.Text = $"当前：{statusOffsetX:F0} px";
-        var statusOffsetY = _runtime.Settings.StatusOffsetY;
+        _statusOffsetXValue.Text = $"当前：{statusOffsetX:F0}%";
+        var statusOffsetY = _runtime.Settings.StatusOffsetY * 100d;
         _statusOffsetYSlider.Value = statusOffsetY;
-        _statusOffsetYValue.Text = $"当前：{statusOffsetY:F0} px";
+        _statusOffsetYValue.Text = $"当前：{statusOffsetY:F0}%";
         _logState.Text = _runtime.LogCollector.IsEnabled
             ? $"正在收集 · {_runtime.LogCollector.EntryCount} 条"
             : "已关闭";
@@ -376,6 +381,7 @@ public sealed partial class MapStatusPage : UserControl
             : $"已关闭 · {_runtime.ResearchCollector.RootDirectory}";
         _status.Text = _runtime.StatusMessage;
         _surveyStatusCard.Update(_runtime.SurveyStatus);
+        PublishDisplayPreview(OverlayPreviewPart.None);
     }
 
     private static string FormatSessionSnapshot(MapSessionSnapshot snapshot)

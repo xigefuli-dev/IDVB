@@ -28,6 +28,13 @@
     <Project Path="IDVBuff.MapAlignment.Probe\IDVBuff.MapAlignment.Probe.csproj" />
     <Project Path="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <Project Path="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+    <Project Path="IDVB.PluginSdk.Abstractions\IDVB.PluginSdk.Abstractions.csproj" />
+    <Project Path="IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
+    <Project Path="IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
+    <Project Path="IDVB.PluginTool\IDVB.PluginTool.csproj" />
+    <Project Path="IDVB.PluginTestHost\IDVB.PluginTestHost.csproj" />
+    <Project Path="IDVB.PluginSystem.Tests\IDVB.PluginSystem.Tests.csproj" />
+    <Project Path="Plugins\Samples\MatchNotifier\IDVB.Sample.MatchNotifier.csproj" />
     <Project Path="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
     <Project Path="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
     <Project Path="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />

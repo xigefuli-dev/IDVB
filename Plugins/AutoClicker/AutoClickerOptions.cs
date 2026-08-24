@@ -13,9 +13,15 @@ public sealed class AutoClickerOptions
     public const int MinDelayMilliseconds = 1;
     public const int MaxKeyDownDelayMilliseconds = 50;
     public const int MaxUpToNextDownDelayMilliseconds = 100;
+    public const int MinimumRandomDelayMilliseconds = 30;
+    public const int MinimumRandomDelayUpperBoundMilliseconds = 50;
+    public const int DefaultMaximumRandomDelayMilliseconds = 50;
+    public const int MaximumRandomDelayMilliseconds = 10000;
 
     private volatile int _keyDownDelayMilliseconds = DefaultKeyDownDelayMilliseconds;
     private volatile int _upToNextDownDelayMilliseconds = DefaultUpToNextDownDelayMilliseconds;
+    private volatile int _minimumRandomDelayMilliseconds = MinimumRandomDelayMilliseconds;
+    private volatile int _maximumRandomDelayMilliseconds = DefaultMaximumRandomDelayMilliseconds;
 
     /// <summary>按下后延迟：F↓ 后保持的时长。</summary>
     public int KeyDownDelayMilliseconds
@@ -31,6 +37,33 @@ public sealed class AutoClickerOptions
         get => _upToNextDownDelayMilliseconds;
         set => _upToNextDownDelayMilliseconds = Math.Clamp(
             value, MinDelayMilliseconds, MaxUpToNextDownDelayMilliseconds);
+    }
+
+    public int RandomDelayLowerBoundMilliseconds
+    {
+        get => _minimumRandomDelayMilliseconds;
+        set => _minimumRandomDelayMilliseconds = Math.Clamp(
+            value, MinimumRandomDelayMilliseconds, MaximumRandomDelayMilliseconds);
+    }
+
+    public int RandomDelayUpperBoundMilliseconds
+    {
+        get => _maximumRandomDelayMilliseconds;
+        set => _maximumRandomDelayMilliseconds = Math.Clamp(
+            value, MinimumRandomDelayUpperBoundMilliseconds, MaximumRandomDelayMilliseconds);
+    }
+
+    public (int Minimum, int Maximum) GetOrderedRandomDelayRange()
+    {
+        var first = RandomDelayLowerBoundMilliseconds;
+        var second = RandomDelayUpperBoundMilliseconds;
+        return (Math.Min(first, second), Math.Max(first, second));
+    }
+
+    public int NextRandomDelayMilliseconds()
+    {
+        var (minimum, maximum) = GetOrderedRandomDelayRange();
+        return Random.Shared.Next(minimum, maximum + 1);
     }
 
     /// <summary>一次完整 F↓/F↑ 的周期。</summary>

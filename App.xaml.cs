@@ -13,7 +13,6 @@ using IDVBuff.Cli;
 using System.Runtime.InteropServices;
 using IDVBuff.Lifecycle;
 using WinRT.Interop;
-
 // Windows App SDK 单文件发布要求：在程序入口前设置此环境变量，
 // 以便运行时能在单文件包内找到原生 DLL。
 static class SingleFileBootstrap
@@ -61,12 +60,10 @@ namespace IDVBuff
 
         /// <summary>快捷访问插件宿主（供插件管理页读取已注册插件）。</summary>
         public static PluginManager? Plugins => _currentApp?._pluginManager;
-
         /// <summary>快捷访问插件设置 TeachingTip 管理器（供插件管理页挂载/触发设置页）。</summary>
         public static TeachingTipManager? TeachingTips => _currentApp?._teachingTipManager;
 
         private static App? _currentApp;
-
         public Window MainWindow => window ?? throw new InvalidOperationException("主窗口尚未初始化。");
 
         /// <summary>
@@ -106,7 +103,8 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Creating the main window.");
-                var startMinimized = MainProgramPreferences.Load().StartMinimized;
+                var preferences = MainProgramPreferences.Load();
+                var startMinimized = preferences.StartMinimized;
                 var isIsolatedDevelopmentInstance = Environment.GetCommandLineArgs().Any(argument =>
                     string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
                 window = new Window
@@ -115,7 +113,7 @@ namespace IDVBuff
                         ? $"{AppDataPaths.DisplayName} [DEV {BuildVersionInfo.BuildVersion}]"
                         : AppDataPaths.DisplayName,
                     ExtendsContentIntoTitleBar = false,
-                    SystemBackdrop = FluentTheme.CreateWindowBackdrop(MainProgramPreferences.Load().UseLegacyTheme)
+                    SystemBackdrop = FluentTheme.CreateWindowBackdrop(preferences.UseLegacyTheme)
                 };
                 TrySetWindowIcon(window);
                 window.AppWindow.Closing += AppWindow_Closing;
@@ -130,7 +128,7 @@ namespace IDVBuff
                 if (window.AppWindow.Presenter is OverlappedPresenter presenter)
                     presenter.Maximize();
 
-                var rootFrame = new Frame();
+                var rootFrame = new Frame { RequestedTheme = AppThemePreference.Resolve(preferences) };
                 rootFrame.NavigationFailed += OnNavigationFailed;
                 window.Content = rootFrame;
                 _ = rootFrame.Navigate(typeof(MainPage), e.Arguments);
@@ -205,6 +203,8 @@ namespace IDVBuff
                 _hostEventBridge.Attach();
                 PluginRegistration.Register(_pluginManager);
                 _pluginManager.Start();
+
+                await InitializeThirdPartyPluginsAsync(pluginBus);
 
                 if (!string.IsNullOrWhiteSpace(cliOptions.IdvbControlPipeName))
                 {
@@ -522,6 +522,7 @@ namespace IDVBuff
                 // TTM 持有插件设置页的 UI 实例，必须在插件停止前关闭摘除。
                 _teachingTipManager?.Close();
                 _teachingTipManager = null;
+                await StopThirdPartyPluginsAsync();
                 _pluginManager?.Stop();
                 _pluginManager = null;
                 _hostEventBridge?.Dispose();

@@ -12,6 +12,18 @@ public static class AutoGatlingPlan
 
     public const int InventorySlotCount = 6;
 
+    public static IReadOnlyList<int> GetInventorySlotSequence(
+        int equipmentSlotCount) => equipmentSlotCount switch
+    {
+        2 => [1, 2],
+        4 => [1, 2, 3, 4],
+        6 => [1, 2, 3, 4, 5, 6],
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(equipmentSlotCount),
+            equipmentSlotCount,
+            "装备方案只支持双枪、四枪或六枪。")
+    };
+
     public static PluginInventoryCoordinate GetInventorySlot(
         IReadOnlyList<PluginInventoryCoordinate> coordinates,
         int slot)

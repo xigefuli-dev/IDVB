@@ -157,6 +157,7 @@ public sealed class RecordingOverlayWindow : IOverlayWindow
     public void SetShowLineAnnotationsOnMiniMap(bool show) => _events.Add($"SetShowLineAnnotationsOnMiniMap({show})");
     public void SetShowFloorOnMiniMap(bool show) => _events.Add($"SetShowFloorOnMiniMap({show})");
     public void SetStatusOpacity(double opacity) => _events.Add($"SetStatusOpacity({opacity:F2})");
+    public void SetStatusScale(double scale) => _events.Add($"SetStatusScale({scale:F2})");
     public void SetStatusOffsetX(double offsetX) => _events.Add($"SetStatusOffsetX({offsetX:F1})");
     public void SetStatusOffsetY(double offsetY) => _events.Add($"SetStatusOffsetY({offsetY:F1})");
     public void SetMiniMapOpacity(double opacity) => _events.Add($"SetMiniMapOpacity({opacity:F2})");

@@ -165,6 +165,7 @@ public interface IOverlayWindow : IDisposable
     void SetShowLineAnnotationsOnMiniMap(bool show);
     void SetShowFloorOnMiniMap(bool show);
     void SetStatusOpacity(double opacity);
+    void SetStatusScale(double scale) { }
     void SetStatusOffsetX(double offsetX);
     void SetStatusOffsetY(double offsetY);
     void SetMiniMapOpacity(double opacity);
@@ -182,6 +183,10 @@ public interface IOverlayWindow : IDisposable
     /// 该值是渲染状态，不代表已持久化的用户设置。
     /// </summary>
     double? CurrentMiniMapScale => null;
+
+    /// <summary>当前持久小地图经过缩放后的物理像素宽高；仅供显示预览等只读场景。</summary>
+    double? CurrentMiniMapWidth => null;
+    double? CurrentMiniMapHeight => null;
 
 }
 

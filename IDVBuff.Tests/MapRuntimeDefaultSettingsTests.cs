@@ -9,7 +9,7 @@ public sealed class MapRuntimeDefaultSettingsTests
     {
         var settings = MapRuntimeSettings.CreateDefault();
 
-        Assert.Equal(13, settings.SchemaVersion);
+        Assert.Equal(14, settings.SchemaVersion);
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
         Assert.False(settings.BackgroundScanEnabled);
@@ -25,9 +25,10 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.Equal(0.25d, settings.MiniMapScale);
         Assert.Equal(0.46d, settings.MapOpacity);
         Assert.Equal(1.0d, settings.StatusOpacity);
+        Assert.Equal(1.0d, settings.StatusScale);
         Assert.Equal(0d, settings.StatusOffsetY);
         Assert.Equal(0.55d, settings.MiniMapOpacity);
-        Assert.Equal(50d, settings.MiniMapOffsetY);
+        Assert.Equal(0d, settings.MiniMapOffsetY);
         Assert.False(settings.QuickScanBinding.IsConfigured);
         Assert.False(settings.OverlayToggleBinding.IsConfigured);
         Assert.False(settings.GameMapToggleBinding.IsConfigured);

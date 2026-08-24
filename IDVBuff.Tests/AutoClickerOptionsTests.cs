@@ -13,6 +13,20 @@ public class AutoClickerOptionsTests
         Assert.Equal(5, options.KeyDownDelayMilliseconds);
         Assert.Equal(10, options.UpToNextDownDelayMilliseconds);
         Assert.Equal(15, options.TotalPeriodMilliseconds);
+        Assert.Equal((30, 50), options.GetOrderedRandomDelayRange());
+    }
+
+    [Fact]
+    public void RandomDelayRange_CannotBeDisabledOrLoweredBelowThirtyMilliseconds()
+    {
+        var options = new AutoClickerOptions
+        {
+            RandomDelayLowerBoundMilliseconds = 0,
+            RandomDelayUpperBoundMilliseconds = 20
+        };
+
+        Assert.Equal((30, 50), options.GetOrderedRandomDelayRange());
+        Assert.InRange(options.NextRandomDelayMilliseconds(), 30, 50);
     }
 
     [Fact]

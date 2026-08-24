@@ -11,6 +11,9 @@ namespace IDVBuff.Views;
 /// <summary>Runtime control center for scanning, manual recognition, and overlay state.</summary>
 public sealed partial class MapStatusPage : UserControl
 {
+    internal event Action<bool>? DisplayPreviewVisibilityChanged;
+    internal event Action<OverlaySkeletonPreviewState>? DisplayPreviewChanged;
+
     private sealed record AlignmentModeChoice(
         MapOverlayAlignmentMode Mode,
         string DisplayName);
@@ -52,6 +55,8 @@ public sealed partial class MapStatusPage : UserControl
 
     private void MapStatusPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        _displayPreviewExpanded = false;
+        DisplayPreviewVisibilityChanged?.Invoke(false);
         if (!_subscribedToRuntime)
             return;
         _runtime.StateChanged -= Runtime_StateChanged;

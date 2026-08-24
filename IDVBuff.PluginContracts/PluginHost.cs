@@ -83,7 +83,13 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             foreach (var registration in _registrations)
             {
                 registration.Context = _contextFactory.Create(registration.Plugin);
-                registration.Plugin.OnLoad(registration.Context);
+                registration.SdkContext = new LegacyPluginV2Context(registration.Plugin, registration.Context);
+                registration.Adapter = new LegacyPluginV2CompatibilityAdapter(
+                    registration.Plugin,
+                    () => Subscribe(registration),
+                    () => Unsubscribe(registration));
+                registration.Adapter.InitializeAsync(registration.SdkContext, CancellationToken.None)
+                    .AsTask().GetAwaiter().GetResult();
             }
 
             foreach (var registration in _registrations)
@@ -100,7 +106,7 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
                 DisableRegistration(registration);
                 try
                 {
-                    registration.Plugin.OnUnload();
+                    registration.Adapter?.DisposeAsync().AsTask().GetAwaiter().GetResult();
                 }
                 catch (Exception exception)
                 {
@@ -143,7 +149,7 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
                 continue;
             try
             {
-                registration.Plugin.OnTick();
+                registration.Adapter?.Tick();
             }
             catch (Exception exception)
             {
@@ -165,7 +171,7 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             DisableRegistration(registration);
             try
             {
-                registration.Plugin.OnUnload();
+                registration.Adapter?.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
             catch (Exception exception)
             {
@@ -176,36 +182,14 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
 
     private void EnableRegistration(Registration registration)
     {
-        var enabledCallbackEntered = false;
-        var subscribed = false;
         try
         {
-            registration.Plugin.OnEnable();
-            enabledCallbackEntered = true;
-            foreach (var type in registration.MessageTypes)
-                InvokeSubscription(true, type, registration.Plugin);
-            subscribed = true;
-            registration.Plugin.OnStart();
+            (registration.Adapter ?? throw new InvalidOperationException("Plugin adapter is not initialized."))
+                .StartAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
             registration.Enabled = true;
         }
         catch
         {
-            if (subscribed)
-            {
-                foreach (var type in registration.MessageTypes)
-                    InvokeSubscription(false, type, registration.Plugin);
-            }
-            if (enabledCallbackEntered)
-            {
-                try
-                {
-                    registration.Plugin.OnDisable();
-                }
-                catch (Exception exception)
-                {
-                    registration.Context?.Logger.Error($"OnDisable 异常：{exception}");
-                }
-            }
             registration.Enabled = false;
             throw;
         }
@@ -216,11 +200,9 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         if (!registration.Enabled)
             return;
 
-        foreach (var type in registration.MessageTypes)
-            InvokeSubscription(false, type, registration.Plugin);
         try
         {
-            registration.Plugin.OnDisable();
+            registration.Adapter?.StopAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
         }
         catch (Exception exception)
         {
@@ -230,6 +212,18 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
     }
 
     public void Dispose() => Stop();
+
+    private void Subscribe(Registration registration)
+    {
+        foreach (var type in registration.MessageTypes)
+            InvokeSubscription(true, type, registration.Plugin);
+    }
+
+    private void Unsubscribe(Registration registration)
+    {
+        foreach (var type in registration.MessageTypes)
+            InvokeSubscription(false, type, registration.Plugin);
+    }
 
     private void InvokeSubscription(bool subscribe, Type messageType, object plugin)
     {
@@ -257,6 +251,10 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         public IReadOnlyList<Type> MessageTypes { get; }
 
         public IPluginContext? Context { get; set; }
+
+        public LegacyPluginV2Context? SdkContext { get; set; }
+
+        public LegacyPluginV2CompatibilityAdapter? Adapter { get; set; }
 
         public bool DesiredEnabled { get; set; }
 

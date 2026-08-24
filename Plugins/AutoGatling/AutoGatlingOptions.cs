@@ -4,6 +4,14 @@ namespace IDVBuff.Plugins.AutoGatling;
 public sealed class AutoGatlingOptions
 {
     public const int MaximumDelayMilliseconds = 10000;
+    public const int MinimumRandomDelayMillisecondsAllowed = 30;
+    public const int MinimumRandomDelayUpperBoundMillisecondsAllowed = 50;
+    public const int DefaultMaximumRandomDelayMilliseconds = 50;
+    public const int MaximumActivationCycleCount = 2;
+
+    public int EquipmentSlotCount { get; set; } = 2;
+
+    public int ActivationCycleCount { get; set; } = 1;
 
     public int StandardDelayMilliseconds { get; set; } = 50;
 
@@ -13,17 +21,34 @@ public sealed class AutoGatlingOptions
 
     public int DragDelayMilliseconds { get; set; } = 50;
 
-    public int MinimumRandomDelayMilliseconds { get; set; } = 10;
+    private int _minimumRandomDelayMilliseconds = MinimumRandomDelayMillisecondsAllowed;
+    private int _maximumRandomDelayMilliseconds = DefaultMaximumRandomDelayMilliseconds;
 
-    public int MaximumRandomDelayMilliseconds { get; set; } = 20;
+    public int MinimumRandomDelayMilliseconds
+    {
+        get => _minimumRandomDelayMilliseconds;
+        set => _minimumRandomDelayMilliseconds = CoerceRandomDelay(value);
+    }
+
+    public int MaximumRandomDelayMilliseconds
+    {
+        get => _maximumRandomDelayMilliseconds;
+        set => _maximumRandomDelayMilliseconds = CoerceRandomDelayUpperBound(value);
+    }
 
     public int CoerceDelay(int value) =>
         Math.Clamp(value, 0, MaximumDelayMilliseconds);
 
+    public int CoerceRandomDelay(int value) =>
+        Math.Clamp(value, MinimumRandomDelayMillisecondsAllowed, MaximumDelayMilliseconds);
+
+    public int CoerceRandomDelayUpperBound(int value) =>
+        Math.Clamp(value, MinimumRandomDelayUpperBoundMillisecondsAllowed, MaximumDelayMilliseconds);
+
     public (int Minimum, int Maximum) GetOrderedRandomDelayRange()
     {
-        var first = CoerceDelay(MinimumRandomDelayMilliseconds);
-        var second = CoerceDelay(MaximumRandomDelayMilliseconds);
+        var first = CoerceRandomDelay(MinimumRandomDelayMilliseconds);
+        var second = CoerceRandomDelayUpperBound(MaximumRandomDelayMilliseconds);
         return (Math.Min(first, second), Math.Max(first, second));
     }
 }

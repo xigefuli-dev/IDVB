@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 13;
+    public const int CurrentSchemaVersion = 14;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -54,11 +54,12 @@ public sealed partial class MapRuntimeSettings
     public bool ShowLineAnnotationsOnMiniMap { get; set; } = true;
     public bool ShowFloorOnMiniMap { get; set; } = true;
     public double StatusOpacity { get; set; } = 1.0d;
+    public double StatusScale { get; set; } = 1.0d;
     public double StatusOffsetX { get; set; }
     public double StatusOffsetY { get; set; }
     public double MiniMapOpacity { get; set; } = 0.55d;
     public double MiniMapOffsetX { get; set; }
-    public double MiniMapOffsetY { get; set; } = 50d;
+    public double MiniMapOffsetY { get; set; }
     public MapOverlayAlignmentMode OverlayAlignmentMode { get; set; } = MapOverlayAlignmentMode.Uniform;
     public MapInputBinding QuickScanBinding { get; set; } = new();
     public MapInputBinding OverlayToggleBinding { get; set; } = new();
@@ -122,11 +123,12 @@ public sealed partial class MapRuntimeSettings
         ShowLineAnnotationsOnMiniMap = true,
         ShowFloorOnMiniMap = true,
         StatusOpacity = 1.0d,
+        StatusScale = 1.0d,
         StatusOffsetX = 0d,
         StatusOffsetY = 0d,
         MiniMapOpacity = 0.55d,
         MiniMapOffsetX = 0d,
-        MiniMapOffsetY = 50d,
+        MiniMapOffsetY = 0d,
         OverlayAlignmentMode = MapOverlayAlignmentMode.Uniform,
         QuickScanBinding = new MapInputBinding(),
         OverlayToggleBinding = new MapInputBinding(),
@@ -347,6 +349,7 @@ public sealed partial class MapRuntimeSettings
         ShowLineAnnotationsOnMiniMap = ShowLineAnnotationsOnMiniMap,
         ShowFloorOnMiniMap = ShowFloorOnMiniMap,
         StatusOpacity = StatusOpacity,
+        StatusScale = StatusScale,
         StatusOffsetX = StatusOffsetX,
         StatusOffsetY = StatusOffsetY,
         MiniMapOpacity = MiniMapOpacity,
@@ -536,20 +539,35 @@ public sealed partial class MapRuntimeSettings
             FloorCalibrationVersion = 0;
         }
         NormalizeDisplayCalibrationProfiles();
+        if (previousSchema < 14)
+        {
+            StatusOffsetX = LegacyOffsetToNormalized(StatusOffsetX);
+            StatusOffsetY = LegacyOffsetToNormalized(StatusOffsetY);
+            MiniMapOffsetX = LegacyOffsetToNormalized(MiniMapOffsetX);
+            MiniMapOffsetY = LegacyOffsetToNormalized(MiniMapOffsetY);
+        }
         MiniMapScale = double.IsFinite(MiniMapScale)
-            ? Math.Clamp(MiniMapScale, 0.10d, 1.0d)
+            ? Math.Clamp(MiniMapScale, 0d, 1.0d)
             : 0.25d;
         MapOpacity = double.IsFinite(MapOpacity)
             ? Math.Clamp(MapOpacity, 0d, 1.0d) : 0.46d;
         StatusOpacity = double.IsFinite(StatusOpacity)
             ? Math.Clamp(StatusOpacity, 0d, 1.0d) : 1.0d;
-        StatusOffsetX = double.IsFinite(StatusOffsetX) ? StatusOffsetX : 0d;
-        StatusOffsetY = double.IsFinite(StatusOffsetY) ? StatusOffsetY : 0d;
+        StatusScale = double.IsFinite(StatusScale)
+            ? Math.Clamp(StatusScale, 0d, 1.0d) : 1.0d;
+        StatusOffsetX = NormalizeRatio(StatusOffsetX);
+        StatusOffsetY = NormalizeRatio(StatusOffsetY);
         MiniMapOpacity = double.IsFinite(MiniMapOpacity)
             ? Math.Clamp(MiniMapOpacity, 0d, 1.0d) : 0.55d;
-        MiniMapOffsetX = double.IsFinite(MiniMapOffsetX) ? MiniMapOffsetX : 0d;
-        MiniMapOffsetY = double.IsFinite(MiniMapOffsetY) ? MiniMapOffsetY : 50d;
+        MiniMapOffsetX = NormalizeRatio(MiniMapOffsetX);
+        MiniMapOffsetY = NormalizeRatio(MiniMapOffsetY);
     }
+
+    private static double LegacyOffsetToNormalized(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value / 500d, 0d, 1d) : 0d;
+
+    private static double NormalizeRatio(double value) =>
+        double.IsFinite(value) ? Math.Clamp(value, 0d, 1d) : 0d;
 
     private static void NormalizeBinding(MapInputBinding binding)
     {

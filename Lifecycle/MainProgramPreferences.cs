@@ -12,6 +12,8 @@ public sealed class MainProgramPreferences
     public bool StartMinimized { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool UseLegacyTheme { get; set; }
+    public bool FollowSystemTheme { get; set; } = true;
+    public bool UseDarkTheme { get; set; }
 
     public static MainProgramPreferences Load()
     {

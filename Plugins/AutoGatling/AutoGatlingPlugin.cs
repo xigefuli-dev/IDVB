@@ -5,10 +5,12 @@ namespace IDVBuff.Plugins.AutoGatling;
 [Plugin(
     "auto-gatling",
     DisplayName = "自动加特林",
-    Description = "依次使用六个背包格执行加特林开火和装弹操作。",
-    Version = "1.0.0")]
+    Description = "按所选双枪、四枪或六枪方案执行加特林开火和装弹操作。",
+    Version = "1.2.0")]
 public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
 {
+    private const string EquipmentPlanKey = "equipment-plan";
+    private const string ActivationCycleCountKey = "activation-cycle-count";
     private const string InventoryBindingKey = "inventory-binding";
     private const string ActivateBindingKey = "activate-binding";
     private const string ReloadBindingKey = "reload-binding";
@@ -18,6 +20,10 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
     private const string DragDelayKey = "drag-delay-ms";
     private const string MinimumRandomDelayKey = "minimum-random-delay-ms";
     private const string MaximumRandomDelayKey = "maximum-random-delay-ms";
+    private static readonly string[] EquipmentPlanOptions =
+        ["双枪", "四枪", "六枪"];
+    private static readonly string[] ActivationCycleOptions =
+        ["1 轮", "2 轮"];
 
     private readonly AutoGatlingOptions _options = new();
     private readonly AutoGatlingService _service;
@@ -27,7 +33,10 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         AutoGatlingPlan.DefaultActivateVirtualKey);
     private PluginInputBinding _reloadBinding = PluginInputBinding.Keyboard(
         AutoGatlingPlan.DefaultReloadVirtualKey);
-    private bool _started;
+    // Plugin lifecycle state is intentionally separate from the hook state.
+    // A temporarily incomplete/invalid binding can stop the hook while the
+    // plugin remains enabled; the next setting change must still retry it.
+    private bool _enabled;
 
     public AutoGatlingPlugin()
     {
@@ -42,6 +51,22 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
 
     public IReadOnlyList<IPluginSetting> Settings { get; } =
     [
+        new PluginChoiceSetting
+        {
+            Key = EquipmentPlanKey,
+            DisplayName = "装备方案",
+            Description = "选择依次使用背包格 1–2、1–4 或 1–6；默认为双枪。",
+            Options = EquipmentPlanOptions,
+            DefaultIndex = 0
+        },
+        new PluginChoiceSetting
+        {
+            Key = ActivationCycleCountKey,
+            DisplayName = "激活循环次数",
+            Description = "每次触发“激活加特林一次”时完整执行装备方案的轮数；默认为 1 轮。",
+            Options = ActivationCycleOptions,
+            DefaultIndex = 0
+        },
         new PluginKeyBindingSetting
         {
             Key = InventoryBindingKey,
@@ -54,7 +79,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = ActivateBindingKey,
             DisplayName = "激活加特林一次",
-            Description = "依次使用六个背包格执行一次开火循环；支持组合快捷键，默认为 T。",
+            Description = "按所选装备方案和循环次数执行开火；支持组合快捷键，默认为 T。",
             DefaultValue = "keyboard:54:0",
             AllowedKinds = PluginInputBindingKinds.Keyboard
         },
@@ -62,7 +87,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = ReloadBindingKey,
             DisplayName = "重新装弹",
-            Description = "依次使用六个背包格执行装弹循环；支持组合快捷键，默认为 Y。",
+            Description = "依次为所选装备方案中的全部加特林装弹；支持组合快捷键，默认为 Y。",
             DefaultValue = "keyboard:59:0",
             AllowedKinds = PluginInputBindingKinds.Keyboard
         },
@@ -75,13 +100,16 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         CreateDelaySetting(DragDelayKey, "拖动时长（毫秒）",
             "物品从背包格平滑拖动到快捷栏的基础时长。", 50),
         CreateDelaySetting(MinimumRandomDelayKey, "随机延迟下限（毫秒）",
-            "每次等待额外加入的随机延迟下限。", 10),
+            "每次等待额外加入的随机延迟下限，不能低于 30 毫秒。", 30,
+            AutoGatlingOptions.MinimumRandomDelayMillisecondsAllowed),
         CreateDelaySetting(MaximumRandomDelayKey, "随机延迟上限（毫秒）",
-            "每次等待额外加入的随机延迟上限；低于下限时自动按有序范围使用。", 20)
+            "每次等待额外加入的随机延迟上限，不能低于 50 毫秒。", 50,
+            AutoGatlingOptions.MinimumRandomDelayUpperBoundMillisecondsAllowed)
     ];
 
     public override void OnStart()
     {
+        _enabled = true;
         try
         {
             _service.ConfigureBindings(
@@ -89,8 +117,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
                 _activateBinding,
                 _reloadBinding);
             _service.Start();
-            _started = _service.IsStarted;
-            if (!_started)
+            if (!_service.IsStarted)
             {
                 Context.Logger.Warning(
                     "自动加特林未启动：请先在插件设置页面绑定全部三个按键。");
@@ -98,30 +125,33 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
             }
 
             Context.Logger.Info(
-                "自动加特林已启动：T 执行六格开火，Y 执行六格装弹；"
+                $"自动加特林已启动：当前为 {FormatEquipmentPlan(_options.EquipmentSlotCount)}、"
+                + $"每次激活 {_options.ActivationCycleCount} 轮；"
                 + "当前游戏客户区必须为精确 16:9 或 16:10。 ");
         }
         catch (Exception exception)
         {
-            _started = false;
             Context.Logger.Error($"自动加特林启动失败：{exception.Message}");
         }
     }
 
     public override void OnDisable()
     {
-        _started = false;
+        _enabled = false;
         _service.Stop();
     }
 
     public override void OnUnload()
     {
-        _started = false;
+        _enabled = false;
         _service.Dispose();
     }
 
     public object? GetSettingValue(string key) => key switch
     {
+        EquipmentPlanKey => FormatEquipmentPlan(_options.EquipmentSlotCount),
+        ActivationCycleCountKey => FormatActivationCycleCount(
+            _options.ActivationCycleCount),
         InventoryBindingKey => _inventoryBinding.StorageValue,
         ActivateBindingKey => _activateBinding.StorageValue,
         ReloadBindingKey => _reloadBinding.StorageValue,
@@ -136,6 +166,9 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
 
     public void SetSettingValue(string key, object? value)
     {
+        if (TrySetChoice(key, value))
+            return;
+
         if (TrySetDelay(key, value))
             return;
 
@@ -163,7 +196,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
                 return;
         }
 
-        if (_started)
+        if (_enabled)
         {
             try
             {
@@ -172,14 +205,36 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
                     _activateBinding,
                     _reloadBinding);
                 _service.Start();
-                _started = _service.IsStarted;
             }
             catch (Exception exception)
             {
-                _started = false;
                 Context.Logger.Error($"自动加特林绑定更新失败：{exception.Message}");
             }
         }
+    }
+
+    private bool TrySetChoice(string key, object? value)
+    {
+        if (value is not string text)
+            return false;
+
+        if (key == EquipmentPlanKey)
+        {
+            var selectedIndex = Array.IndexOf(EquipmentPlanOptions, text);
+            if (selectedIndex >= 0)
+                _options.EquipmentSlotCount = (selectedIndex + 1) * 2;
+            return true;
+        }
+
+        if (key == ActivationCycleCountKey)
+        {
+            var selectedIndex = Array.IndexOf(ActivationCycleOptions, text);
+            if (selectedIndex >= 0)
+                _options.ActivationCycleCount = selectedIndex + 1;
+            return true;
+        }
+
+        return false;
     }
 
     private bool TrySetDelay(string key, object? value)
@@ -202,10 +257,12 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
                 _options.DragDelayMilliseconds = milliseconds;
                 return true;
             case MinimumRandomDelayKey:
-                _options.MinimumRandomDelayMilliseconds = milliseconds;
+                _options.MinimumRandomDelayMilliseconds =
+                    _options.CoerceRandomDelay(milliseconds);
                 return true;
             case MaximumRandomDelayKey:
-                _options.MaximumRandomDelayMilliseconds = milliseconds;
+                _options.MaximumRandomDelayMilliseconds =
+                    _options.CoerceRandomDelayUpperBound(milliseconds);
                 return true;
             default:
                 return false;
@@ -216,16 +273,31 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         string key,
         string displayName,
         string description,
-        double defaultValue) => new()
+        double defaultValue,
+        double minimum = 0) => new()
     {
         Key = key,
         DisplayName = displayName,
         Description = description,
-        Minimum = 0,
+        Minimum = minimum,
         Maximum = AutoGatlingOptions.MaximumDelayMilliseconds,
         StepFrequency = 1,
         DefaultValue = defaultValue
     };
+
+    private static string FormatEquipmentPlan(int slotCount) => slotCount switch
+    {
+        4 => EquipmentPlanOptions[1],
+        6 => EquipmentPlanOptions[2],
+        _ => EquipmentPlanOptions[0]
+    };
+
+    private static string FormatActivationCycleCount(int cycleCount) =>
+        ActivationCycleOptions[
+            Math.Clamp(
+                cycleCount,
+                1,
+                AutoGatlingOptions.MaximumActivationCycleCount) - 1];
 
     private static bool TryConvertToMilliseconds(object? value, out int milliseconds)
     {

@@ -72,6 +72,9 @@ public sealed class AutoClickerService : IDisposable
 
     private readonly LowLevelKeyboardProc _keyboardProc;
 
+    private static long MillisecondsToTicks(int milliseconds, double tickRate) =>
+        (long)(milliseconds * tickRate / 1000.0);
+
     public void ConfigureBindings(
         PluginInputBinding triggerBinding,
         PluginInputBinding outputBinding)
@@ -423,8 +426,12 @@ public sealed class AutoClickerService : IDisposable
 
                 // 每轮读取 volatile options，让设置页改动即时生效。F↓ 先发，
                 // 保持按下后延迟再 F↑，余量（抬手后延迟）在等待下一次周期时自然消耗。
-                var keyDownTicks = _options.KeyDownTicks(tickRate);
-                var periodTicks = _options.PeriodTicks(tickRate);
+                var keyDownRandomDelay = _options.NextRandomDelayMilliseconds();
+                var upRandomDelay = _options.NextRandomDelayMilliseconds();
+                var keyDownTicks = _options.KeyDownTicks(tickRate)
+                    + MillisecondsToTicks(keyDownRandomDelay, tickRate);
+                var periodTicks = _options.PeriodTicks(tickRate)
+                    + MillisecondsToTicks(keyDownRandomDelay + upRandomDelay, tickRate);
                 if (!SendKeyDown(sessionGeneration))
                     break;
                 var downSentAt = Stopwatch.GetTimestamp();

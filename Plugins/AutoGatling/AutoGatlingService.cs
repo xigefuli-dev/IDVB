@@ -362,11 +362,20 @@ public sealed partial class AutoGatlingService : IDisposable
             return;
         }
 
-        for (var slot = 1; slot <= AutoGatlingPlan.InventorySlotCount; slot++)
+        var slots = AutoGatlingPlan.GetInventorySlotSequence(
+            _options.EquipmentSlotCount);
+        var cycleCount = Math.Clamp(
+            _options.ActivationCycleCount,
+            1,
+            AutoGatlingOptions.MaximumActivationCycleCount);
+        for (var cycle = 0; cycle < cycleCount; cycle++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await ExecuteFireMethodAsync(layout, slot, cancellationToken)
-                .ConfigureAwait(false);
+            foreach (var slot in slots)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await ExecuteFireMethodAsync(layout, slot, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
     }
 
@@ -378,7 +387,9 @@ public sealed partial class AutoGatlingService : IDisposable
             return;
         }
 
-        for (var slot = 1; slot <= AutoGatlingPlan.InventorySlotCount; slot++)
+        var slots = AutoGatlingPlan.GetInventorySlotSequence(
+            _options.EquipmentSlotCount);
+        foreach (var slot in slots)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await ExecuteReloadMethodAsync(layout, slot, cancellationToken)

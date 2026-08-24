@@ -120,6 +120,7 @@
     <Compile Include="..\Features\Maps\MapLogRepository.cs" Link="Production\MapLogRepository.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.cs" Link="Production\MapOverlayNativeWindow.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.cs" Link="Production\MapOverlayNativeWindow.Rendering.cs" />
+    <Compile Include="..\Features\Maps\OverlayNormalizedLayout.cs" Link="Production\OverlayNormalizedLayout.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.Map.cs" Link="Production\MapOverlayNativeWindow.Rendering.Map.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Rendering.Overlays.cs" Link="Production\MapOverlayNativeWindow.Rendering.Overlays.cs" />
     <Compile Include="..\Features\Maps\MapOverlayNativeWindow.Input.cs" Link="Production\MapOverlayNativeWindow.Input.cs" />

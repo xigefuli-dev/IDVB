@@ -7,6 +7,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
 namespace IDVBuff.Features.Plugins;
@@ -137,7 +138,7 @@ public sealed partial class TeachingTipManager
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
             IsHitTestVisible = true
         };
-        dismissLayer.Tapped += (_, _) => BeginClose();
+        dismissLayer.Tapped += (_, _) => { if (content.Tag is Action commit) commit(); BeginClose(); };
 
         var tip = new TeachingTip
         {
@@ -153,6 +154,7 @@ public sealed partial class TeachingTipManager
             MinHeight = TipMinHeight,
             MaxHeight = TipMaxHeight
         };
+        AttachBlankAreaEditingHandler(tip, content);
 
         _tip = tip;
         _currentPlugin = plugin;
@@ -304,8 +306,6 @@ public sealed partial class TeachingTipManager
         }
     }
 
-    // ─── 持久化值恢复 ─────────────────────────────────────────────
-
     private void RestorePersistedValues(IPluginSettingsProvider provider, string pluginId)
     {
         foreach (var setting in provider.Settings)
@@ -402,17 +402,19 @@ public sealed partial class TeachingTipManager
         }
     }
 
-    // ─── 内容构建 ─────────────────────────────────────────────────
-
     private FrameworkElement BuildSettingsContent(
         IPluginSettingsProvider provider, string pluginId)
     {
-        var rows = new StackPanel { Spacing = 16, MinWidth = TipMinWidth - 40 };
+        var rows = new StackPanel { Spacing = 16, MinWidth = TipMinWidth - 40,
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)) };
+        var numericEditors = new List<(NumberBox Input, Action Commit)>();
+        Action endNumericEditing = () => { };
         foreach (var setting in provider.Settings)
         {
             try
             {
-                var row = BuildSettingRow(provider, pluginId, setting);
+                var row = BuildSettingRow(provider, pluginId, setting, numericEditors,
+                    () => endNumericEditing());
                 if (row is not null)
                     rows.Children.Add(row);
             }
@@ -423,18 +425,27 @@ public sealed partial class TeachingTipManager
                     $"TTM 构建设置行失败 {setting.Key}: {exception}");
             }
         }
-        return new ScrollViewer
+        var scrollViewer = new ScrollViewer
         {
             Content = rows,
             MaxHeight = ContentMaxHeight,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            IsTabStop = false
+            IsTabStop = false,
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
         };
+        endNumericEditing = () =>
+            scrollViewer.Focus(FocusState.Programmatic);
+        AttachNumericCommit(scrollViewer, numericEditors, endNumericEditing);
+        return scrollViewer;
     }
 
     private FrameworkElement? BuildSettingRow(
-        IPluginSettingsProvider provider, string pluginId, IPluginSetting setting)
+        IPluginSettingsProvider provider,
+        string pluginId,
+        IPluginSetting setting,
+        ICollection<(NumberBox Input, Action Commit)> numericEditors,
+        Action endNumericEditing)
     {
         var row = new StackPanel { Spacing = 6 };
         row.Children.Add(new TextBlock
@@ -478,13 +489,15 @@ public sealed partial class TeachingTipManager
                         _ => slider.DefaultValue
                     };
                     initial = CoerceSlider(initial, slider);
-                    var valueText = new TextBlock
+                    var valueInput = new NumberBox
                     {
-                        Text = FormatSliderValue(initial),
-                        MinWidth = 48,
-                        TextAlignment = TextAlignment.Right,
+                        Value = initial,
+                        Minimum = slider.Minimum,
+                        Maximum = slider.Maximum,
+                        SmallChange = slider.StepFrequency > 0 ? slider.StepFrequency : 1,
+                        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Hidden,
+                        Width = 88,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
                     };
                     var control = new Slider
                     {
@@ -505,16 +518,37 @@ public sealed partial class TeachingTipManager
                         Width = GridLength.Auto
                     });
                     Grid.SetColumn(control, 0);
-                    Grid.SetColumn(valueText, 1);
+                    Grid.SetColumn(valueInput, 1);
                     sliderRow.Children.Add(control);
-                    sliderRow.Children.Add(valueText);
+                    sliderRow.Children.Add(valueInput);
                     control.ValueChanged += (_, e) =>
                     {
                         var snapped = SnapSliderValue(e.NewValue, slider);
-                        valueText.Text = FormatSliderValue(snapped);
+                        valueInput.Value = snapped;
                         PersistSetting(provider, pluginId, setting.Key,
                             JsonSerializer.SerializeToElement(snapped));
                     };
+                    void CommitNumberInput()
+                    {
+                        var requested = PluginNumericInput.TryGetValue(valueInput, out var typedValue)
+                            ? typedValue
+                            : double.IsFinite(valueInput.Value)
+                                ? valueInput.Value
+                            : control.Value;
+                        var snapped = SnapSliderValue(requested, slider);
+                        valueInput.Value = snapped;
+                        control.Value = snapped;
+                        PersistSetting(provider, pluginId, setting.Key,
+                            JsonSerializer.SerializeToElement(snapped));
+                    }
+                    valueInput.LostFocus += (_, _) => CommitNumberInput();
+                    numericEditors.Add((valueInput, CommitNumberInput));
+                    PluginNumericInput.Attach(valueInput, typedValue => PersistSetting(provider,
+                        pluginId, setting.Key, JsonSerializer.SerializeToElement(SnapSliderValue(typedValue, slider))), () =>
+                    {
+                        CommitNumberInput();
+                        endNumericEditing();
+                    }, endNumericEditing);
                     row.Children.Add(sliderRow);
                     break;
                 }
@@ -599,6 +633,11 @@ public sealed partial class TeachingTipManager
         var recording = false;
         var modifiers = PluginInputModifiers.None;
         var hovered = false;
+        var ignoreNextClick = false;
+        var xButton1WasDown = false;
+        var xButton2WasDown = false;
+        var sideButtonPoller = _dispatcher.CreateTimer();
+        sideButtonPoller.Interval = TimeSpan.FromMilliseconds(15);
         var host = new Grid
         {
             IsTabStop = true,
@@ -642,6 +681,7 @@ public sealed partial class TeachingTipManager
 
         async Task SaveBinding(PluginInputBinding next)
         {
+            sideButtonPoller.Stop();
             recording = false;
             modifiers = PluginInputModifiers.None;
             binding = next;
@@ -656,6 +696,11 @@ public sealed partial class TeachingTipManager
 
         button.Click += (_, _) =>
         {
+            if (ignoreNextClick)
+            {
+                ignoreNextClick = false;
+                return;
+            }
             if (recording)
                 return;
             if (binding.IsConfigured)
@@ -666,11 +711,43 @@ public sealed partial class TeachingTipManager
 
             recording = true;
             modifiers = PluginInputModifiers.None;
+            xButton1WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
+            xButton2WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
+            sideButtonPoller.Start();
             RefreshButton();
             host.Focus(FocusState.Programmatic);
         };
 
-        host.KeyDown += async (_, args) =>
+        sideButtonPoller.Tick += async (_, _) =>
+        {
+            if (!recording
+                || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
+            {
+                return;
+            }
+
+            var xButton1IsDown =
+                IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
+            var xButton2IsDown =
+                IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
+            if (xButton1IsDown && !xButton1WasDown)
+            {
+                await SaveBinding(
+                    PluginInputBinding.Mouse(PluginMouseButton.XButton1));
+                return;
+            }
+            if (xButton2IsDown && !xButton2WasDown)
+            {
+                await SaveBinding(
+                    PluginInputBinding.Mouse(PluginMouseButton.XButton2));
+                return;
+            }
+            xButton1WasDown = xButton1IsDown;
+            xButton2WasDown = xButton2IsDown;
+        };
+        host.Unloaded += (_, _) => sideButtonPoller.Stop();
+
+        host.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(async (_, args) =>
         {
             if (!recording)
                 return;
@@ -683,12 +760,12 @@ public sealed partial class TeachingTipManager
 
             var next = PluginInputBinding.Keyboard(
                 (uint)args.Key,
-                modifiers);
+                ReadCurrentPluginModifiers(modifiers));
             if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
                 await SaveBinding(next);
-        };
+        }), handledEventsToo: true);
 
-        host.KeyUp += async (_, args) =>
+        host.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler(async (_, args) =>
         {
             if (!recording
                 || !TryGetPluginModifier(args.Key, out var modifier))
@@ -704,9 +781,9 @@ public sealed partial class TeachingTipManager
                 await SaveBinding(PluginInputBinding.Keyboard(
                     (uint)args.Key));
             }
-        };
+        }), handledEventsToo: true);
 
-        host.PointerPressed += async (_, args) =>
+        host.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(async (_, args) =>
         {
             if (!recording
                 || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
@@ -715,54 +792,16 @@ public sealed partial class TeachingTipManager
             }
 
             var properties = args.GetCurrentPoint(host).Properties;
-            var mouseButton = properties.IsLeftButtonPressed
-                ? PluginMouseButton.Left
-                : properties.IsRightButtonPressed
-                    ? PluginMouseButton.Right
-                    : properties.IsMiddleButtonPressed
-                        ? PluginMouseButton.Middle
-                        : properties.IsXButton1Pressed
-                            ? PluginMouseButton.XButton1
-                            : PluginMouseButton.XButton2;
+            if (!TryGetPluginMouseButton(properties, out var mouseButton))
+                return;
+            ignoreNextClick = mouseButton == PluginMouseButton.Left;
             args.Handled = true;
             await SaveBinding(PluginInputBinding.Mouse(mouseButton));
-        };
+        }), handledEventsToo: true);
 
         RefreshButton();
         return control;
     }
-
-    private static bool TryGetPluginModifier(
-        Windows.System.VirtualKey key,
-        out PluginInputModifiers modifier)
-    {
-        modifier = (uint)key switch
-        {
-            0x10 or 0xA0 or 0xA1 => PluginInputModifiers.Shift,
-            0x11 or 0xA2 or 0xA3 => PluginInputModifiers.Control,
-            0x12 or 0xA4 or 0xA5 => PluginInputModifiers.Alt,
-            0x5B or 0x5C => PluginInputModifiers.Windows,
-            _ => PluginInputModifiers.None
-        };
-        return modifier != PluginInputModifiers.None;
-    }
-
-    private static object? ReadProviderValue(
-        IPluginSettingsProvider provider, IPluginSetting setting)
-    {
-        try
-        {
-            return provider.GetSettingValue(setting.Key);
-        }
-        catch (Exception exception)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"TTM 读取设置值失败 {setting.Key}: {exception}");
-            return null;
-        }
-    }
-
-    // ─── 持久化 ───────────────────────────────────────────────────
 
     /// <summary>
     /// 将控件新值同时写回插件内存态与存储层。任一失败只记日志，不影响 UI。
@@ -790,26 +829,4 @@ public sealed partial class TeachingTipManager
         }
     }
 
-    // ─── 数值辅助 ─────────────────────────────────────────────────
-
-    private static double CoerceSlider(double value, PluginSliderSetting slider)
-    {
-        if (double.IsNaN(value) || double.IsInfinity(value))
-            value = slider.DefaultValue;
-        return Math.Clamp(value, slider.Minimum, slider.Maximum);
-    }
-
-    private static double SnapSliderValue(double value, PluginSliderSetting slider)
-    {
-        if (double.IsNaN(value) || double.IsInfinity(value))
-            value = slider.Minimum;
-        if (slider.StepFrequency > 0)
-            value = Math.Round(value / slider.StepFrequency) * slider.StepFrequency;
-        value = Math.Clamp(value, slider.Minimum, slider.Maximum);
-        // 消除二进制浮点误差：5.999999999 之类的抖动值归整。
-        return Math.Round(value, 3);
-    }
-
-    private static string FormatSliderValue(double value) =>
-        value == Math.Floor(value) ? value.ToString("0") : value.ToString("0.###");
 }

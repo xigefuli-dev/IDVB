@@ -15,6 +15,8 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public bool IsVisible => _window.IsVisible;
     public bool HasMap => _window.HasMap;
     public double? CurrentMiniMapScale => _window.CurrentMiniMapScale;
+    public double? CurrentMiniMapWidth => _window.CurrentMiniMapWidth;
+    public double? CurrentMiniMapHeight => _window.CurrentMiniMapHeight;
     public bool IsCaptureExclusionEnabled => _window.IsCaptureExclusionEnabled;
 
     public void UpdateMap(object recognition, object gameBounds, IntPtr gameWindowHandle,
@@ -100,6 +102,7 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public void SetShowLineAnnotationsOnMiniMap(bool show) => _window.SetShowLineAnnotationsOnMiniMap(show);
     public void SetShowFloorOnMiniMap(bool show) => _window.SetShowFloorOnMiniMap(show);
     public void SetStatusOpacity(double opacity) => _window.SetStatusOpacity(opacity);
+    public void SetStatusScale(double scale) => _window.SetStatusScale(scale);
     public void SetStatusOffsetX(double offsetX) => _window.SetStatusOffsetX(offsetX);
     public void SetStatusOffsetY(double offsetY) => _window.SetStatusOffsetY(offsetY);
     public void SetMiniMapOpacity(double opacity) => _window.SetMiniMapOpacity(opacity);

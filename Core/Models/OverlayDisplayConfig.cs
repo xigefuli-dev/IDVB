@@ -11,6 +11,7 @@ public sealed class OverlayDisplayConfig
 {
     // ── 状态层 ──
     public double StatusOpacity { get; set; } = 1.0;
+    public double StatusScale { get; set; } = 1.0;
     public double StatusOffsetX { get; set; } = 0;
     public double StatusOffsetY { get; set; } = 0;
     public bool ShowOverlayStatus { get; set; } = true;
@@ -18,7 +19,7 @@ public sealed class OverlayDisplayConfig
     // ── 小地图 ──
     public double MinimapOpacity { get; set; } = 0.55;
     public double MinimapOffsetX { get; set; } = 0;
-    public double MinimapOffsetY { get; set; } = 50;
+    public double MinimapOffsetY { get; set; } = 0;
     public double MinimapScale { get; set; } = 0.25;
     public bool PersistentMinimapEnabled { get; set; } = false;
 

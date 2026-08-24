@@ -96,6 +96,7 @@ public sealed partial class SessionOrchestrator
     public async Task SetMiniMapOffsetXAsync(double v) { _settings!.MiniMapOffsetX = v; await SaveSettingsAsync(); _overlay.SetMiniMapOffsetX(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetMiniMapOffsetYAsync(double v) { _settings!.MiniMapOffsetY = v; await SaveSettingsAsync(); _overlay.SetMiniMapOffsetY(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOpacityAsync(double v) { _settings!.StatusOpacity = v; await SaveSettingsAsync(); _overlay.SetStatusOpacity(v); await SaveOverlayConfigToPresetAsync(); }
+    public async Task SetStatusScaleAsync(double v) { _settings!.StatusScale = v; await SaveSettingsAsync(); _overlay.SetStatusScale(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOffsetXAsync(double v) { _settings!.StatusOffsetX = v; await SaveSettingsAsync(); _overlay.SetStatusOffsetX(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOffsetYAsync(double v) { _settings!.StatusOffsetY = v; await SaveSettingsAsync(); _overlay.SetStatusOffsetY(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetCollectLogsAsync(bool v)
@@ -306,6 +307,7 @@ public sealed partial class SessionOrchestrator
         _overlay.SetShowFloorOnMiniMap(s.ShowFloorOnMiniMap);
 
         _overlay.SetStatusOpacity(s.StatusOpacity);
+        _overlay.SetStatusScale(s.StatusScale);
         _overlay.SetStatusOffsetX(s.StatusOffsetX);
         _overlay.SetStatusOffsetY(s.StatusOffsetY);
 
@@ -506,12 +508,13 @@ public sealed partial class SessionOrchestrator
         sb.AppendLine($"show_overlay_status = {Bool(s.ShowOverlayStatus)}");
         sb.AppendLine($"reverse_alternate_display = {Bool(s.ReverseAlternateDisplay)}");
         sb.AppendLine($"status_opacity = {s.StatusOpacity:F1}");
-        sb.AppendLine($"status_offset_x = {s.StatusOffsetX:F0}");
-        sb.AppendLine($"status_offset_y = {s.StatusOffsetY:F0}");
+        sb.AppendLine($"status_scale = {s.StatusScale:F3}");
+        sb.AppendLine($"status_offset_x = {s.StatusOffsetX:F3}");
+        sb.AppendLine($"status_offset_y = {s.StatusOffsetY:F3}");
         sb.AppendLine($"persistent_minimap_enabled = {Bool(s.PersistentMiniMapEnabled)}");
         sb.AppendLine($"minimap_opacity = {s.MiniMapOpacity:F2}");
-        sb.AppendLine($"minimap_offset_x = {s.MiniMapOffsetX:F0}");
-        sb.AppendLine($"minimap_offset_y = {s.MiniMapOffsetY:F0}");
+        sb.AppendLine($"minimap_offset_x = {s.MiniMapOffsetX:F3}");
+        sb.AppendLine($"minimap_offset_y = {s.MiniMapOffsetY:F3}");
         sb.AppendLine($"minimap_scale = {s.MiniMapScale:F3}");
         sb.AppendLine($"map_opacity = {s.MapOpacity:F2}");
         sb.AppendLine($"show_gate_markers = {Bool(s.ShowGateMarkers)}");

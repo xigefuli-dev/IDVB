@@ -39,18 +39,18 @@ public sealed partial class MapListPage : UserControl
     private static readonly (Color LightFill, Color LightOutline, Color DarkFill, Color DarkOutline)[]
         VariantPalette =
     [
-        (Hex("FDE7EC"), Hex("B4234D"), Hex("3A1722"), Hex("FF809F")),
-        (Hex("FBE9E4"), Hex("B13A21"), Hex("3A1C16"), Hex("FF9275")),
-        (Hex("FBEEDC"), Hex("A85B00"), Hex("382414"), Hex("FFB45B")),
-        (Hex("F8F0CF"), Hex("8A6800"), Hex("32290E"), Hex("E8C84E")),
-        (Hex("EEF0D4"), Hex("6C7300"), Hex("282B12"), Hex("C6D35C")),
-        (Hex("E1F2E7"), Hex("1F7A3F"), Hex("143021"), Hex("65D58B")),
-        (Hex("DDF2ED"), Hex("147363"), Hex("12302B"), Hex("5ED0B9")),
-        (Hex("EEE7FA"), Hex("6842A6"), Hex("261B3A"), Hex("B69AE9")),
-        (Hex("F2E5FA"), Hex("8038A5"), Hex("2D1738"), Hex("D899EF")),
-        (Hex("FAE4F1"), Hex("9B2D70"), Hex("35162B"), Hex("E58AC0")),
-        (Hex("FAE5E6"), Hex("9E3941"), Hex("34191C"), Hex("E68D94")),
-        (Hex("F2E9E1"), Hex("7C5234"), Hex("2E2119"), Hex("D1A27E"))
+        (Hex("EFCBD4"), Hex("B4234D"), Hex("3A1722"), Hex("FF809F")),
+        (Hex("EFD0C7"), Hex("B13A21"), Hex("3A1C16"), Hex("FF9275")),
+        (Hex("EED8BB"), Hex("A85B00"), Hex("382414"), Hex("FFB45B")),
+        (Hex("E9DCAD"), Hex("8A6800"), Hex("32290E"), Hex("E8C84E")),
+        (Hex("DDE2B9"), Hex("6C7300"), Hex("282B12"), Hex("C6D35C")),
+        (Hex("CBE4D4"), Hex("1F7A3F"), Hex("143021"), Hex("65D58B")),
+        (Hex("C7E4DC"), Hex("147363"), Hex("12302B"), Hex("5ED0B9")),
+        (Hex("DDD2EF"), Hex("6842A6"), Hex("261B3A"), Hex("B69AE9")),
+        (Hex("E4CDEE"), Hex("8038A5"), Hex("2D1738"), Hex("D899EF")),
+        (Hex("EECBDD"), Hex("9B2D70"), Hex("35162B"), Hex("E58AC0")),
+        (Hex("EDCACD"), Hex("9E3941"), Hex("34191C"), Hex("E68D94")),
+        (Hex("E1D3C7"), Hex("7C5234"), Hex("2E2119"), Hex("D1A27E"))
     ];
     private static readonly Color[] AnnotationColors =
     [

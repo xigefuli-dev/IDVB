@@ -41,6 +41,8 @@ public sealed partial class MapRepository
         string stagingDirectory,
         FloorRecognitionProfile profile)
     {
+        if (IsCvDisabledForSafeMode())
+            return;
         var sideAnchor = profile.FindAnchor("side-entrance");
         if (sideAnchor?.IsMarked is not true)
             return;
@@ -57,7 +59,7 @@ public sealed partial class MapRepository
             if (recognitionMat.Empty())
                 return;
 
-            using var result = _sideEntrancePreprocessor.Process(
+            using var result = _sideEntrancePreprocessor.Value.Process(
                 recognitionMat,
                 sideAnchor.Bounds!,
                 SideEntranceScanRules.FeatureRegionRatio,
@@ -139,7 +141,7 @@ public sealed partial class MapRepository
                     if (recognitionMat.Empty())
                         continue;
 
-                    using var result = _sideEntrancePreprocessor.Process(
+                    using var result = _sideEntrancePreprocessor.Value.Process(
                         recognitionMat,
                         sideAnchor.Bounds!,
                         SideEntranceScanRules.FeatureRegionRatio,
@@ -317,6 +319,8 @@ public sealed partial class MapRepository
         FloorRecognitionProfile profile,
         string recognitionPath)
     {
+        if (IsCvDisabledForSafeMode())
+            return false;
         if (profile.FindAnchor("side-entrance") is not { IsMarked: true } anchor
             || anchor.Bounds?.IsValid is not true
             || !File.Exists(recognitionPath))
@@ -332,7 +336,7 @@ public sealed partial class MapRepository
             using var recognition = Cv2.ImRead(recognitionPath, ImreadModes.Grayscale);
             if (recognition.Empty())
                 return false;
-            using var result = _sideEntrancePreprocessor.Process(
+            using var result = _sideEntrancePreprocessor.Value.Process(
                 recognition,
                 anchor.Bounds,
                 SideEntranceScanRules.FeatureRegionRatio,
@@ -357,6 +361,11 @@ public sealed partial class MapRepository
             return false;
         }
     }
+
+    private static bool IsCvDisabledForSafeMode() => string.Equals(
+        Environment.GetEnvironmentVariable("IDVB_SAFE_MODE"),
+        "1",
+        StringComparison.Ordinal);
 
     private static string ComputeFileSha256(string path)
     {

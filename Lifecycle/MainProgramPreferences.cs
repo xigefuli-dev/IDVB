@@ -9,11 +9,14 @@ public sealed class MainProgramPreferences
     private static readonly string FilePath = Path.Combine(AppDataPaths.RootDirectory, "main-program.json");
 
     public bool StartWithWindows { get; set; }
+    public bool SafeMode { get; set; } = true;
     public bool StartMinimized { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool UseLegacyTheme { get; set; }
     public bool FollowSystemTheme { get; set; } = true;
     public bool UseDarkTheme { get; set; }
+    public bool AllowUnsafePluginRandomDelayMinimums { get; set; }
+    public bool AllowSurveyMode { get; set; }
 
     public static MainProgramPreferences Load()
     {

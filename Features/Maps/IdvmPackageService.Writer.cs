@@ -37,7 +37,7 @@ public sealed partial class IdvmPackageService
         var bytes = new byte[HeaderSize];
         Encoding.ASCII.GetBytes("IDVM").CopyTo(bytes, 0);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4, 2), 1);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 3);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(8, 2), HeaderSize);
         WriteRfc4122Guid(packageId, bytes.AsSpan(12, 16));
         BinaryPrimitives.WriteInt64LittleEndian(
@@ -92,7 +92,7 @@ public sealed partial class IdvmPackageService
         };
         var metadata = new MetadataDto
         {
-            SchemaVersion = 2,
+            SchemaVersion = 3,
             Map = new MetadataMapDto
             {
                 Id = map.Id,
@@ -116,6 +116,15 @@ public sealed partial class IdvmPackageService
                 }
             }
         };
+        var tagGroups = (await _tagStore.LoadAsync()).ToDictionary(group => group.Id);
+        metadata.Tags = map.Tags
+            .Where(pair => tagGroups.ContainsKey(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+            .Select(pair => new MetadataTagDto
+            {
+                GroupId = pair.Key,
+                GroupName = tagGroups[pair.Key].Name,
+                Value = pair.Value
+            }).ToList();
 
         var orderedFloors = MapFloorRules.GetOrderedFloors(map);
         for (var index = 0; index < orderedFloors.Count; index++)

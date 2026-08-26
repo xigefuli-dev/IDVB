@@ -522,13 +522,6 @@ public sealed partial class MapStatusPage : UserControl
         1);
     private readonly Button _scanButton = CreateActionButton("3 秒后扫描");
     private readonly Button _manualButton = CreateActionButton("3 秒后手动识别");
-    private readonly Button _elevationButton = new()
-    {
-        Content = "管理员重启",
-        MinHeight = 38,
-        HorizontalAlignment = HorizontalAlignment.Left,
-        Visibility = Visibility.Collapsed
-    };
     private Grid? _root;
     private MapRuntimeBindingTarget? _recording;
     private MapInputModifiers _recordingModifiers;

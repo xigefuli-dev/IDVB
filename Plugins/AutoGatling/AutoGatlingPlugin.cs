@@ -100,11 +100,11 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         CreateDelaySetting(DragDelayKey, "拖动时长（毫秒）",
             "物品从背包格平滑拖动到快捷栏的基础时长。", 50),
         CreateDelaySetting(MinimumRandomDelayKey, "随机延迟下限（毫秒）",
-            "每次等待额外加入的随机延迟下限，不能低于 30 毫秒。", 30,
-            AutoGatlingOptions.MinimumRandomDelayMillisecondsAllowed),
+            "每次等待附加的随机延迟下限；默认安全下限为 30 毫秒。", 30,
+            AutoGatlingOptions.MinimumRandomDelayMillisecondsAllowed, 0),
         CreateDelaySetting(MaximumRandomDelayKey, "随机延迟上限（毫秒）",
-            "每次等待额外加入的随机延迟上限，不能低于 50 毫秒。", 50,
-            AutoGatlingOptions.MinimumRandomDelayUpperBoundMillisecondsAllowed)
+            "每次等待附加的随机延迟上限；默认安全下限为 50 毫秒。", 50,
+            AutoGatlingOptions.MinimumRandomDelayUpperBoundMillisecondsAllowed, 0)
     ];
 
     public override void OnStart()
@@ -274,12 +274,14 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         string displayName,
         string description,
         double defaultValue,
-        double minimum = 0) => new()
+        double minimum = 0,
+        double? minimumWhenUnsafe = null) => new()
     {
         Key = key,
         DisplayName = displayName,
         Description = description,
         Minimum = minimum,
+        MinimumWhenUnsafe = minimumWhenUnsafe,
         Maximum = AutoGatlingOptions.MaximumDelayMilliseconds,
         StepFrequency = 1,
         DefaultValue = defaultValue

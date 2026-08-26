@@ -11,6 +11,6 @@ public sealed record ConfigChangedMessage;
 public sealed record ResolutionChangedMessage(string? ActivePreset);
 
 /// <summary>
-/// 宿主检测到游戏权限高于进程、需要管理员重启（无载荷标记消息）。
+/// 宿主检测到当前进程未以管理员权限启动（无载荷标记消息）。
 /// </summary>
 public sealed record ElevationRequiredMessage;

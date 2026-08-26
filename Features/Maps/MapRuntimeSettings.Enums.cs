@@ -43,6 +43,7 @@ public enum MapRuntimeBindingTarget
     GameMapToggle,
     ControlPanelToggle,
     SwitchFloor,
+    TraditionalWindowSwitchFloor,
     SaveMapCache
 }
 /*

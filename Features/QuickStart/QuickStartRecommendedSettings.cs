@@ -14,7 +14,10 @@ public static class QuickStartRecommendedSettings
         var settings = MapRuntimeSettings.CreateDefault();
 
         // General
-        settings.IsEnabled = true;
+        // The recommended profile must not bypass the first-run setup flow.
+        // Users still need to finish bindings and add a map before enabling
+        // the runtime explicitly.
+        settings.IsEnabled = false;
         settings.FirstScanStrategy = FirstScanStrategy.SideEntrance;
         settings.BackgroundScanEnabled = true;
         settings.SelectedResolutionPreset = null;

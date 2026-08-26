@@ -68,6 +68,7 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapTagTemplateStore.cs" Link="Production\MapTagTemplateStore.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
     <Compile Include="..\Features\Maps\MapModels.Anchor.cs" Link="Production\MapModels.Anchor.cs" />
     <Compile Include="..\Features\Maps\MapEditorState.cs" Link="Production\MapEditorState.cs" />

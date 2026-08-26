@@ -33,7 +33,7 @@ namespace IDVBuff
     public partial class App : Application
     {
         private Window? window;
-        private bool elevationDialogOpen;
+        private bool startupElevationRequired;
         private bool shutdownInProgress;
         private bool shutdownComplete;
         private bool applicationExitRequested;
@@ -103,8 +103,8 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Creating the main window.");
-                var preferences = MainProgramPreferences.Load();
-                var startMinimized = preferences.StartMinimized;
+                var preferences = MainProgramPreferences.Load(); IsSafeMode = preferences.SafeMode;
+                PluginRandomDelayPolicy.AllowUnsafeMinimums = !IsSafeMode && preferences.AllowUnsafePluginRandomDelayMinimums; var startMinimized = preferences.StartMinimized;
                 var isIsolatedDevelopmentInstance = Environment.GetCommandLineArgs().Any(argument =>
                     string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
                 window = new Window
@@ -154,7 +154,8 @@ namespace IDVBuff
                 _updateShutdownServer = new UpdateShutdownServer(() =>
                     dispatcher.TryEnqueue(RequestApplicationExit));
                 _updateShutdownServer.Start();
-
+                if (await TryCompleteSafeModeLaunchAsync(startMinimized))
+                    return;
                 // ═══ 构建 DI 容器 ═══
                 var services = new ServiceCollection();
                 services.AddIdvbServices(dispatcher);
@@ -218,15 +219,26 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Map runtime initialized.");
-                if (!startMinimized && UpdateLifecycleState.WasRestartedAfterUpdate)
+                if (!startMinimized
+                    && !startupElevationRequired
+                    && UpdateLifecycleState.WasRestartedAfterUpdate)
                     await ShowUpdatedSuccessfullyAsync();
-                if (!startMinimized)
+                if (!startMinimized && !startupElevationRequired)
                     await ShowQuickStartAsync(session);
                 AutomaticUpdateLauncher.TryLaunch();
                 if (startMinimized)
                 {
                     HideMainWindow();
                     SetMainWindowCloaked(false);
+                }
+
+                if (startupElevationRequired)
+                {
+                    // A minimized launch has no visible owner for the dialog.
+                    // Show the main window only for this mandatory startup prompt.
+                    if (startMinimized)
+                        ShowMainWindow();
+                    await ShowStartupElevationRequiredAsync();
                 }
             }
             catch (Exception exception)
@@ -518,7 +530,6 @@ namespace IDVBuff
                     _updateShutdownServer = null;
                 }
 
-                // 先停插件、再拆桥、最后销毁 session：卸载期间宿主事件不触达半销毁的插件。
                 // TTM 持有插件设置页的 UI 实例，必须在插件停止前关闭摘除。
                 _teachingTipManager?.Close();
                 _teachingTipManager = null;
@@ -527,6 +538,7 @@ namespace IDVBuff
                 _pluginManager = null;
                 _hostEventBridge?.Dispose();
                 _hostEventBridge = null;
+                DisposeSafeModeTraditionalWindowInput();
 
                 if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is IAsyncDisposable ad)
                 {
@@ -719,7 +731,7 @@ namespace IDVBuff
             {
                 try
                 {
-                    await session.ApplyQuickStartRecommendedSettingsAsync();
+                    await ApplyQuickStartSelectionAsync(session);
                 }
                 catch (Exception exception)
                 {
@@ -739,18 +751,22 @@ namespace IDVBuff
             }
         }
 
-        private async void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)
+        private void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)
         {
-            if (elevationDialogOpen)
-                return;
+            // The integrity check runs during SessionOrchestrator initialization.
+            // Defer the mandatory dialog until the rest of OnLaunched has completed.
+            startupElevationRequired = true;
+            WriteStartupTrace("Startup requires administrator privileges.");
+        }
 
+        private async Task ShowStartupElevationRequiredAsync()
+        {
             var currentWindow = window;
-            if (currentWindow is null)
-                return;
-
-            elevationDialogOpen = true;
             try
             {
+                if (currentWindow is null)
+                    return;
+
                 FrameworkElement? root = null;
                 for (var attempt = 0; attempt < 10; attempt++)
                 {
@@ -759,41 +775,26 @@ namespace IDVBuff
                         break;
                     await Task.Delay(150);
                 }
-                if (root?.XamlRoot is null)
-                    return;
-                var dialog = new ContentDialog
-                {
-                    XamlRoot = root.XamlRoot,
-                    Title = "需要管理员权限",
-                    Content =
-                        "检测到 dwrg.exe 的权限高于 Identity Vision Bridge，因此游戏前台无法把键盘或鼠标绑定传递给当前进程。"
-                        + "是否现在请求管理员权限并重启 Identity Vision Bridge？当前设置会保留。",
-                    PrimaryButtonText = "管理员重启",
-                    CloseButtonText = "暂不",
-                    DefaultButton = ContentDialogButton.Primary
-                };
-                if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-                    return;
-                string? failureReason = null;
-                if (_serviceProvider?.GetService<Features.Maps.SessionOrchestrator>() is { } s
-                    && s.TryRestartElevated(out failureReason))
-                {
-                    RequestApplicationExit();
-                    return;
-                }
 
-                var failure = new ContentDialog
+                if (root?.XamlRoot is not null)
                 {
-                    XamlRoot = root.XamlRoot,
-                    Title = "未能管理员重启",
-                    Content = failureReason ?? "管理员重启失败。",
-                    CloseButtonText = "知道了"
-                };
-                await failure.ShowAsync();
+                    await new ContentDialog
+                    {
+                        XamlRoot = root.XamlRoot,
+                        Title = "需要管理员权限",
+                        Content = "Identity Vision Bridge 必须以管理员权限运行，请退出后重新以管理员权限打开。",
+                        CloseButtonText = "退出",
+                        DefaultButton = ContentDialogButton.Close
+                    }.ShowAsync();
+                }
+            }
+            catch (Exception exception)
+            {
+                WriteStartupTrace("Unable to show the administrator privilege prompt.", exception);
             }
             finally
             {
-                elevationDialogOpen = false;
+                RequestApplicationExit();
             }
         }
     }

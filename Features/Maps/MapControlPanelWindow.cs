@@ -26,6 +26,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
     private readonly Func<bool> _isAutomaticMapCacheEnabled;
     private readonly Func<bool, Task> _endMatch;
     private readonly Func<SurveyStatusSnapshot> _getSurveyStatus;
+    private readonly Func<bool> _isSurveyModeAllowed;
     private readonly Func<Task<MapMatchSnapshot>>? _activateSurveyMatch;
     private readonly Func<Task<MapVariantSelectionContext?>>? _getVariantContext;
     private readonly Func<Guid, Task>? _switchVariant;
@@ -108,6 +109,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         Func<bool> isAutomaticMapCacheEnabled,
         Func<bool, Task> endMatch,
         Func<SurveyStatusSnapshot> getSurveyStatus,
+        Func<bool> isSurveyModeAllowed,
         Func<string, Task>? beginSurveyMatch = null,
         Func<Task<MapMatchSnapshot>>? activateSurveyMatch = null,
         Func<Task<MapVariantSelectionContext?>>? getVariantContext = null,
@@ -122,6 +124,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _isAutomaticMapCacheEnabled = isAutomaticMapCacheEnabled;
         _endMatch = endMatch;
         _getSurveyStatus = getSurveyStatus;
+        _isSurveyModeAllowed = isSurveyModeAllowed;
         _activateSurveyMatch = activateSurveyMatch;
         _getVariantContext = getVariantContext;
         _switchVariant = switchVariant;
@@ -221,6 +224,8 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _classComboBox.IsEnabled = !snapshot.IsStarted;
         if (snapshot.IsStarted)
             SetSurveyToggle(snapshot.Mode == MapRunMode.Survey);
+        else if (!_isSurveyModeAllowed())
+            SetSurveyToggle(false);
         _surveyModeToggle.IsEnabled = CanChangeSurveyMode(snapshot);
         _beginButton.Visibility = snapshot.IsStarted
             ? Visibility.Collapsed
@@ -431,6 +436,12 @@ public sealed partial class MapControlPanelWindow : IDisposable
         {
             await _lastMapClassSaveTask;
             var startSurvey = _surveyModeToggle.IsOn;
+            if (startSurvey && !_isSurveyModeAllowed())
+            {
+                SetSurveyToggle(false);
+                _messageText.Text = "主设置未允许进入测绘模式，只能开始正常对局。";
+                return;
+            }
             if (startSurvey)
             {
                 // Survey activation captures immediately. The control panel is

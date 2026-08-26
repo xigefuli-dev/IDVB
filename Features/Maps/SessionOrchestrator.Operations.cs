@@ -331,9 +331,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         return false;
     }
 
-    public bool TryRestartElevated(out string failureReason) =>
-        GameProcessIntegrityService.TryRestartElevated(out failureReason);
-
     private void NotifyStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
 
     private void CheckIntegrityAndNotify()

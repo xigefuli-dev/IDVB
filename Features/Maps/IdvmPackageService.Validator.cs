@@ -44,8 +44,12 @@ public sealed partial class IdvmPackageService
             && parsedHeader.MinorVersion == 2
             && manifest.FormatVersion == "1.2"
             && manifest.MinimumReader == "1.2";
+        var isVersion13 = parsedHeader.MajorVersion == 1
+            && parsedHeader.MinorVersion == 3
+            && manifest.FormatVersion == "1.3"
+            && manifest.MinimumReader == "1.3";
         if (manifest.Format != "idvm"
-            || (!isVersion10 && !isVersion11 && !isVersion12)
+            || (!isVersion10 && !isVersion11 && !isVersion12 && !isVersion13)
             || manifest.PackageType != "class-set")
         {
             throw new InvalidDataException("不支持的 IDVM 格式或读取器版本。");
@@ -56,6 +60,8 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException("IDVM 1.1 包必须声明 variantGroups 能力。");
         if (isVersion12 && !manifest.Capabilities.FloorMarkerKeys)
             throw new InvalidDataException("IDVM 1.2 包必须声明 floorMarkerKeys 能力。");
+        if (isVersion13 && (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags))
+            throw new InvalidDataException("IDVM 1.3 包必须声明 floorMarkerKeys 和 mapTags 能力。");
         if (manifest.PackageId == Guid.Empty || manifest.PackageId != parsedHeader.PackageId)
             throw new InvalidDataException("header 与 manifest 的 packageId 不一致。");
         if (manifest.CreatedAt.ToUnixTimeMilliseconds() != parsedHeader.CreatedAtUnixMilliseconds)
@@ -85,7 +91,7 @@ public sealed partial class IdvmPackageService
         if (!actualFiles.SetEquals(declaredPaths))
             throw new InvalidDataException("manifest 文件清单与包内容不一致。");
 
-        ValidateManifestRelationships(manifest, isVersion12);
+        ValidateManifestRelationships(manifest, isVersion12 || isVersion13);
         return manifest;
     }
 
@@ -197,19 +203,25 @@ public sealed partial class IdvmPackageService
         MetadataDto metadata,
         GatesDto gates,
         AnchorsDto anchors,
-        bool requireFloorMarkerSchema)
+        bool requireFloorMarkerSchema,
+        bool requireTagSchema)
     {
-        if (metadata.Map is null || metadata.Floors is null || metadata.Recognition?.WholeImage is null
+        if (metadata.Map is null || metadata.Floors is null || metadata.Tags is null || metadata.Recognition?.WholeImage is null
             || gates.Gates is null || anchors.Floors is null)
             throw new InvalidDataException("地图数据文件缺少必需对象或数组。");
-        if (metadata.SchemaVersion is not (1 or 2) || gates.SchemaVersion != 1
+        if (metadata.SchemaVersion is not (1 or 2 or 3) || gates.SchemaVersion != 1
             || anchors.SchemaVersion is not (1 or 2 or 3 or 4))
             throw new InvalidDataException("不支持的数据 schemaVersion。");
-        if (requireFloorMarkerSchema && metadata.SchemaVersion != 2)
+        if (requireTagSchema && metadata.SchemaVersion != 3)
+            throw new InvalidDataException("IDVM 1.3 地图 metadata 必须使用 schemaVersion 3。");
+        if (requireFloorMarkerSchema && !requireTagSchema && metadata.SchemaVersion != 2)
         {
             throw new InvalidDataException(
                 "IDVM 1.2 地图 metadata 必须使用 schemaVersion 2。");
         }
+        if (!requireFloorMarkerSchema && metadata.SchemaVersion != 1)
+            throw new InvalidDataException("IDVM 1.0/1.1 地图 metadata 必须使用 schemaVersion 1。");
+        ValidateTags(metadata.Tags, requireTagSchema);
         if (metadata.Map.Id != map.MapId || metadata.Map.ClassId != map.ClassId
             || metadata.Map.CoordinateSystem != "normalized-top-left-y-down"
             || string.IsNullOrWhiteSpace(metadata.Map.Title))
@@ -466,6 +478,27 @@ public sealed partial class IdvmPackageService
                 markerKeys,
                 StringComparer.Ordinal))
             throw new InvalidDataException("楼层 markerKeys 必须小写、去重并稳定排序。");
+    }
+
+    private static void ValidateTags(IReadOnlyList<MetadataTagDto> tags, bool allowTags)
+    {
+        if (!allowTags && tags.Count != 0)
+            throw new InvalidDataException("旧版 IDVM metadata 不能声明地图标签。");
+        if (tags.Count > 256)
+            throw new InvalidDataException("地图标签数量超过限制。");
+        var groupIds = new HashSet<Guid>();
+        foreach (var tag in tags)
+        {
+            if (tag is null || tag.GroupId == Guid.Empty || !groupIds.Add(tag.GroupId)
+                || string.IsNullOrWhiteSpace(tag.GroupName) || tag.GroupName.Length > 128
+                || tag.GroupName.Any(char.IsControl)
+                || string.IsNullOrWhiteSpace(tag.Value) || tag.Value.Length > 256
+                || tag.Value.Any(char.IsControl)
+                || tag.GroupName != tag.GroupName.Trim() || tag.Value != tag.Value.Trim())
+            {
+                throw new InvalidDataException("地图标签包含无效或重复的数据。");
+            }
+        }
     }
 
     private static void ValidatePoint(PointDto? point, string name)

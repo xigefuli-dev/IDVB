@@ -67,6 +67,11 @@ public sealed partial class MapRuntimeSettings
     public MapInputBinding ControlPanelToggleBinding { get; set; } = new();
     public MapInputBinding ManualRecognitionBinding { get; set; } = new();
     public MapInputBinding SwitchFloorBinding { get; set; } = new();
+    public MapInputBinding TraditionalWindowSwitchFloorBinding { get; set; } = new()
+    {
+        Kind = MapInputBindingKind.Keyboard,
+        VirtualKey = (uint)Windows.System.VirtualKey.X
+    };
     public MapInputBinding SaveMapCacheBinding { get; set; } = new();
     public MapRecognitionTuning RecognitionTuning { get; set; } = new();
     public MapStructureRegistrationTuning StructureRegistrationTuning { get; set; } = new();
@@ -136,6 +141,11 @@ public sealed partial class MapRuntimeSettings
         ControlPanelToggleBinding = new MapInputBinding(),
         ManualRecognitionBinding = new MapInputBinding(),
         SwitchFloorBinding = new MapInputBinding(),
+        TraditionalWindowSwitchFloorBinding = new MapInputBinding
+        {
+            Kind = MapInputBindingKind.Keyboard,
+            VirtualKey = (uint)Windows.System.VirtualKey.X
+        },
         SaveMapCacheBinding = new MapInputBinding(),
         RecognitionTuning = new MapRecognitionTuning
         {
@@ -279,6 +289,12 @@ public sealed partial class MapRuntimeSettings
             ControlPanelToggleBinding?.Clone() ?? new MapInputBinding(),
         ManualRecognitionBinding = ManualRecognitionBinding?.Clone() ?? new MapInputBinding(),
         SwitchFloorBinding = SwitchFloorBinding?.Clone() ?? new MapInputBinding(),
+        TraditionalWindowSwitchFloorBinding = TraditionalWindowSwitchFloorBinding?.Clone()
+            ?? new MapInputBinding
+            {
+                Kind = MapInputBindingKind.Keyboard,
+                VirtualKey = (uint)Windows.System.VirtualKey.X
+            },
         SaveMapCacheBinding = SaveMapCacheBinding?.Clone() ?? new MapInputBinding(),
         AllowAutomaticMapCache = AllowAutomaticMapCache,
         RecognitionTuning = RecognitionTuning?.Clone() ?? new MapRecognitionTuning(),
@@ -381,6 +397,11 @@ public sealed partial class MapRuntimeSettings
             VirtualKey = (uint)Windows.System.VirtualKey.F4
         };
         SwitchFloorBinding ??= new MapInputBinding();
+        TraditionalWindowSwitchFloorBinding ??= new MapInputBinding
+        {
+            Kind = MapInputBindingKind.Keyboard,
+            VirtualKey = (uint)Windows.System.VirtualKey.X
+        };
         SaveMapCacheBinding ??= new MapInputBinding();
         RecognitionTuning ??= new MapRecognitionTuning();
         StructureRegistrationTuning ??= new MapStructureRegistrationTuning();
@@ -393,6 +414,7 @@ public sealed partial class MapRuntimeSettings
         NormalizeBinding(ControlPanelToggleBinding);
         NormalizeBinding(ManualRecognitionBinding);
         NormalizeBinding(SwitchFloorBinding);
+        NormalizeBinding(TraditionalWindowSwitchFloorBinding);
         NormalizeBinding(SaveMapCacheBinding);
         if (QuickScanBinding.IsConfigured
             && QuickScanBinding.Equals(OverlayToggleBinding))

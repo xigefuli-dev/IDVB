@@ -51,10 +51,44 @@ public sealed partial class SessionOrchestrator
 
     public async Task SetEnabledAsync(bool v)
     {
+        if (v && !TryValidateEnablePrerequisites(out var failureMessage))
+        {
+            _settings!.IsEnabled = false;
+            await SaveSettingsAsync();
+            ApplyBindings();
+            throw new InvalidOperationException(failureMessage);
+        }
         _settings!.IsEnabled = v;
         await SaveSettingsAsync();
         ApplyBindings();
     }
+
+    public bool TryValidateEnablePrerequisites(out string failureMessage)
+    {
+        var missing = new List<string>();
+        if (App.IsSafeMode)
+            missing.Add("关闭安全模式并重新启动 IDVB");
+        if (_settings is null || !HasRequiredInputBindings(_settings))
+            missing.Add("完成全部按键绑定");
+        if (_recognition.TotalMapCount < 1)
+            missing.Add("至少添加一张地图");
+
+        if (missing.Count == 0)
+        {
+            failureMessage = string.Empty;
+            return true;
+        }
+
+        failureMessage = "开启前必须先：" + string.Join("；", missing) + "。";
+        return false;
+    }
+
+    private static bool HasRequiredInputBindings(MapRuntimeSettings settings) =>
+        settings.GameMapToggleBinding.IsConfigured
+        && settings.ControlPanelToggleBinding.IsConfigured
+        && settings.QuickScanBinding.IsConfigured
+        && settings.SwitchFloorBinding.IsConfigured
+        && settings.SaveMapCacheBinding.IsConfigured;
 
     /// <summary>
     /// Applies the first-run recommended profile to the active runtime and
@@ -235,6 +269,8 @@ public sealed partial class SessionOrchestrator
         MapRuntimeBindingTarget.GameMapToggle => _settings!.GameMapToggleBinding,
         MapRuntimeBindingTarget.ControlPanelToggle => _settings!.ControlPanelToggleBinding,
         MapRuntimeBindingTarget.SwitchFloor => _settings!.SwitchFloorBinding,
+        MapRuntimeBindingTarget.TraditionalWindowSwitchFloor =>
+            _settings!.TraditionalWindowSwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _settings!.SaveMapCacheBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
@@ -249,6 +285,9 @@ public sealed partial class SessionOrchestrator
             case MapRuntimeBindingTarget.GameMapToggle: _settings!.GameMapToggleBinding = binding; break;
             case MapRuntimeBindingTarget.ControlPanelToggle: _settings!.ControlPanelToggleBinding = binding; break;
             case MapRuntimeBindingTarget.SwitchFloor: _settings!.SwitchFloorBinding = binding; break;
+            case MapRuntimeBindingTarget.TraditionalWindowSwitchFloor:
+                _settings!.TraditionalWindowSwitchFloorBinding = binding;
+                break;
             case MapRuntimeBindingTarget.SaveMapCache: _settings!.SaveMapCacheBinding = binding; break;
             default: throw new ArgumentOutOfRangeException(nameof(target), target, null);
         }

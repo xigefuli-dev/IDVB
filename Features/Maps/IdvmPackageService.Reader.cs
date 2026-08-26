@@ -82,7 +82,7 @@ public sealed partial class IdvmPackageService
         var minor = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2));
         if (!bytes.AsSpan(0, 4).SequenceEqual("IDVM"u8)
             || major != 1
-            || minor is not (0 or 1 or 2)
+            || minor is not (0 or 1 or 2 or 3)
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2)) != HeaderSize
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(10, 2)) != 0
             || bytes.AsSpan(68, 12).IndexOfAnyExcept((byte)0) >= 0)
@@ -216,7 +216,8 @@ public sealed partial class IdvmPackageService
                 metadata,
                 gatesDocument,
                 anchorsDocument,
-                manifest.FormatVersion == "1.2");
+                manifest.FormatVersion is "1.2" or "1.3",
+                manifest.FormatVersion == "1.3");
 
             var floorDefinitions = new List<FloorDefinition>();
             var floorPaths = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -346,6 +347,14 @@ public sealed partial class IdvmPackageService
                 FloorTwoPath = metadata.Floors.Count > 1 ? floorPaths[metadata.Floors[1].Key] : null,
                 Recognition = recognition,
                 PortableGates = gates,
+                Tags = metadata.Tags
+                    .Where(tag => tag.GroupId != Guid.Empty && !string.IsNullOrWhiteSpace(tag.Value))
+                    .GroupBy(tag => tag.GroupId)
+                    .ToDictionary(group => group.Key, group => group.First().Value.Trim()),
+                ImportedTagGroupNames = metadata.Tags
+                    .Where(tag => tag.GroupId != Guid.Empty && !string.IsNullOrWhiteSpace(tag.GroupName))
+                    .GroupBy(tag => tag.GroupId)
+                    .ToDictionary(group => group.Key, group => group.First().GroupName.Trim()),
                 SideEntranceFeaturePaths = sideEntranceFeaturePaths
             };
             draftsByClass[map.ClassId].Add(draft);
@@ -362,6 +371,34 @@ public sealed partial class IdvmPackageService
                     group.PaletteSlot,
                     group.MapIds.ToArray()))
                 .ToArray())).ToArray();
+    }
+
+    private async Task MergeImportedTagsAsync(
+        IReadOnlyList<MapImportClassDraft> classes)
+    {
+        var localGroups = (await _tagStore.LoadAsync()).ToList();
+        var changed = false;
+        foreach (var draft in classes.SelectMany(item => item.Maps))
+        {
+            foreach (var pair in draft.ImportedTagGroupNames)
+            {
+                var group = localGroups.FirstOrDefault(item => item.Id == pair.Key);
+                if (group is null)
+                {
+                    group = new MapTagGroup { Id = pair.Key, Name = pair.Value };
+                    localGroups.Add(group);
+                    changed = true;
+                }
+                if (draft.Tags.TryGetValue(pair.Key, out var value)
+                    && !group.Tags.Contains(value, StringComparer.OrdinalIgnoreCase))
+                {
+                    group.Tags.Add(value);
+                    changed = true;
+                }
+            }
+        }
+        if (changed)
+            await _tagStore.SaveAsync(localGroups);
     }
 
     // ── 导入 DTO 映射辅助方法 ──────────────────────────────────────────

@@ -252,9 +252,6 @@ public sealed partial class MapStatusPage : UserControl
             ? "正在显示（鼠标与键盘穿透）"
             : "当前隐藏";
         _permissionState.Text = _runtime.IntegrityStatus.Message;
-        _elevationButton.Visibility = _runtime.IntegrityStatus.RequiresElevation
-            ? Visibility.Visible
-            : Visibility.Collapsed;
         _calibrationState.Text = _runtime.Settings.IsMapViewportCalibrated
             ? $"已校准（基准 {_runtime.Settings.CalibrationClientWidth}×{_runtime.Settings.CalibrationClientHeight}）"
             : _runtime.Settings.MapViewportRegion?.IsValid is true

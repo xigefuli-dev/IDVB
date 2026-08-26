@@ -12,6 +12,7 @@
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
     <ProjectReference Include="..\Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
     <ProjectReference Include="..\Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
+    <ProjectReference Include="..\Plugins\NoRecoveryDelay\IDVBuff.NoRecoveryDelay.csproj" />
   </ItemGroup>
 
   <ItemGroup>

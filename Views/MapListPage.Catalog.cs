@@ -58,7 +58,8 @@ public sealed partial class MapListPage : UserControl
                 return;
             }
 
-            await App.Session.RefreshMapCacheAsync(savedMap.Id);
+            if (!App.IsSafeMode)
+                await App.Session.RefreshMapCacheAsync(savedMap.Id);
             _draft = null;
             _activeAnchorId = null;
             ResetBatchImport();
@@ -129,7 +130,8 @@ public sealed partial class MapListPage : UserControl
             plan = null; // ImportAsync owns disposal after this point.
             try
             {
-                await App.Session.RefreshMapCacheAsync();
+                if (!App.IsSafeMode)
+                    await App.Session.RefreshMapCacheAsync();
             }
             catch (Exception exception)
             {
@@ -470,9 +472,9 @@ public sealed partial class MapListPage : UserControl
             Background = new SolidColorBrush(color),
             Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
             FontSize = 14,
-            MinWidth = 130,
+            MinWidth = 108,
             MinHeight = 45,
-            Padding = new Thickness(25, 7, 25, 7),
+            Padding = new Thickness(20, 7, 20, 7),
             CornerRadius = new CornerRadius(8)
         };
         AttachHoverFeedback(button);

@@ -539,9 +539,6 @@ public sealed partial class MapStatusPage : UserControl
         _structureEdgeTolerance.ValueChanged += StructureTuning_ValueChanged;
         _structureTopCandidates.ValueChanged += StructureTuning_ValueChanged;
         _structureBudget.ValueChanged += StructureTuning_ValueChanged;
-        _elevationButton.Click += ElevationButton_Click;
-        content.Children.Add(_elevationButton);
-
         // Recognition settings are temporarily removed from the page while
         // their persisted models and TOML compatibility remain intact.
         var recognitionHeaderIndex =
@@ -560,7 +557,7 @@ public sealed partial class MapStatusPage : UserControl
             HorizontalAlignment = HorizontalAlignment.Left
         };
         diagnostics.Children.Add(CreateDiagnostic("图层", _overlayState));
-        diagnostics.Children.Add(CreateDiagnostic("游戏权限", _permissionState));
+        diagnostics.Children.Add(CreateDiagnostic("进程权限", _permissionState));
         diagnostics.Children.Add(CreateDiagnostic("地图区域", _calibrationState));
         diagnostics.Children.Add(CreateDiagnostic("楼层显示区", _floorCalibrationState));
         diagnostics.Children.Add(CreateDiagnostic("当前楼层", _floorState));

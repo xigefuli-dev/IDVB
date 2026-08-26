@@ -37,6 +37,7 @@
     <Project Path="Plugins\Samples\MatchNotifier\IDVB.Sample.MatchNotifier.csproj" />
     <Project Path="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
     <Project Path="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
+    <Project Path="Plugins\NoRecoveryDelay\IDVBuff.NoRecoveryDelay.csproj" />
     <Project Path="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
     <Project Path="IDVBuff.PluginContracts.Tests\IDVBuff.PluginContracts.Tests.csproj" />
     <Properties Name="Visual Studio">

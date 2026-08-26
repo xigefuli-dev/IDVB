@@ -408,15 +408,19 @@ public sealed partial class TeachingTipManager
         var rows = new StackPanel { Spacing = 16, MinWidth = TipMinWidth - 40,
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)) };
         var numericEditors = new List<(NumberBox Input, Action Commit)>();
-        Action endNumericEditing = () => { };
+        var settingRows = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
+        Action endNumericEditing = () => { }, refreshVisibility = () => RefreshSettingVisibility(provider, settingRows);
         foreach (var setting in provider.Settings)
         {
             try
             {
                 var row = BuildSettingRow(provider, pluginId, setting, numericEditors,
-                    () => endNumericEditing());
+                    () => endNumericEditing(), refreshVisibility);
                 if (row is not null)
+                {
                     rows.Children.Add(row);
+                    settingRows[setting.Key] = row;
+                }
             }
             catch (Exception exception)
             {
@@ -425,6 +429,7 @@ public sealed partial class TeachingTipManager
                     $"TTM 构建设置行失败 {setting.Key}: {exception}");
             }
         }
+        refreshVisibility();
         var scrollViewer = new ScrollViewer
         {
             Content = rows,
@@ -445,7 +450,8 @@ public sealed partial class TeachingTipManager
         string pluginId,
         IPluginSetting setting,
         ICollection<(NumberBox Input, Action Commit)> numericEditors,
-        Action endNumericEditing)
+        Action endNumericEditing,
+        Action refreshVisibility)
     {
         var row = new StackPanel { Spacing = 6 };
         row.Children.Add(new TextBlock
@@ -579,6 +585,7 @@ public sealed partial class TeachingTipManager
                             PersistSetting(provider, pluginId, setting.Key,
                                 JsonSerializer.SerializeToElement(
                                     choice.Options[control.SelectedIndex]));
+                            refreshVisibility();
                         }
                     };
                     row.Children.Add(control);

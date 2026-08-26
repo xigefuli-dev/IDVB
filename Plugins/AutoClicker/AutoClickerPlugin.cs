@@ -63,8 +63,9 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = RandomDelayLowerBoundKey,
             DisplayName = "随机延迟下限（毫秒）",
-            Description = "每段等待强制加入的随机延迟下限，不能低于 30 毫秒。",
-            Minimum = AutoClickerOptions.MinimumRandomDelayMilliseconds,
+            Description = "每段等待附加的随机延迟下限；默认安全下限为 30 毫秒。",
+            Minimum = PluginRandomDelayPolicy.GetMinimum(AutoClickerOptions.MinimumRandomDelayMilliseconds),
+            MinimumWhenUnsafe = 0,
             Maximum = AutoClickerOptions.MaximumRandomDelayMilliseconds,
             StepFrequency = 1,
             DefaultValue = AutoClickerOptions.MinimumRandomDelayMilliseconds
@@ -73,8 +74,9 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = RandomDelayUpperBoundKey,
             DisplayName = "随机延迟上限（毫秒）",
-            Description = "每段等待强制加入的随机延迟上限，不能低于 50 毫秒。",
-            Minimum = AutoClickerOptions.MinimumRandomDelayUpperBoundMilliseconds,
+            Description = "每段等待附加的随机延迟上限；默认安全下限为 50 毫秒。",
+            Minimum = PluginRandomDelayPolicy.GetMinimum(AutoClickerOptions.MinimumRandomDelayUpperBoundMilliseconds),
+            MinimumWhenUnsafe = 0,
             Maximum = AutoClickerOptions.MaximumRandomDelayMilliseconds,
             StepFrequency = 1,
             DefaultValue = AutoClickerOptions.DefaultMaximumRandomDelayMilliseconds

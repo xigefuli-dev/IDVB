@@ -33,22 +33,6 @@ public sealed partial class MapListPage : UserControl
             PlaceholderText = "例如：一楼、地下室",
             Height = 36
         };
-        var lowStructureToggle = new ToggleSwitch
-        {
-            Header = "低结构楼层",
-            OnContent = "开启",
-            OffContent = "关闭",
-            IsOn = existing is not null
-                && MapFloorMarkerRules.Has(
-                    existing.MarkerKeys,
-                    MapFloorMarkerRules.LowStructure)
-        };
-        var lowStructureDescription = new TextBlock
-        {
-            Text = "结构稀疏时使用独立的全尺度搜索通道。",
-            FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
-        };
 
         var panel = new StackPanel { Spacing = 12 };
         panel.Children.Add(new TextBlock
@@ -65,8 +49,6 @@ public sealed partial class MapListPage : UserControl
             Foreground = new SolidColorBrush(Color.FromArgb(255, 80, 80, 80))
         });
         panel.Children.Add(nameBox);
-        panel.Children.Add(lowStructureToggle);
-        panel.Children.Add(lowStructureDescription);
 
         var dialog = new ContentDialog
         {
@@ -114,16 +96,7 @@ public sealed partial class MapListPage : UserControl
         if (string.IsNullOrWhiteSpace(displayName))
             displayName = key;
 
-        var markerKeys = MapFloorMarkerRules.Normalize(existing?.MarkerKeys);
-        markerKeys = lowStructureToggle.IsOn
-            ? MapFloorMarkerRules.Normalize(markerKeys.Append(MapFloorMarkerRules.LowStructure))
-            : markerKeys
-                .Where(key => !string.Equals(
-                    key,
-                    MapFloorMarkerRules.LowStructure,
-                    StringComparison.Ordinal))
-                .ToArray();
-        return new FloorIdentity(key, displayName, markerKeys);
+        return new FloorIdentity(key, displayName, MapFloorMarkerRules.Normalize(existing?.MarkerKeys));
     }
 
     private async Task ShowImportAsync(MapDraft draft)
@@ -131,6 +104,8 @@ public sealed partial class MapListPage : UserControl
         CancelPendingImportClick();
         ResetImportFloorDragSession(animateReturn: false);
         _draft = draft;
+        if (draft.Id is null && draft.FloorPaths.Count == 0 && !IsBatchImport && !IsBatchOperation)
+            await OfferMapTemplateAsync(draft);
         _selectedImportFloorKey = null;
         _selectedImportFloorCard = null;
         _pendingImportFloors = draft.FloorPaths.Count > 0
@@ -160,8 +135,19 @@ public sealed partial class MapListPage : UserControl
                     ? previewPath
                     : draft.FloorPaths[floor.Key]
             }).ToList()
-            : [];
+            : draft.Floors.Select(floor => new ImportFloorEntry
+            {
+                OriginalFloorKey = floor.Key,
+                FloorKey = floor.Key,
+                DisplayName = floor.DisplayName,
+                MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList()
+            }).ToList();
         draft.Recognition.EnsureStandardAnchors();
+        var catalog = await _repository.GetCatalogSnapshotAsync();
+        var enabledTagGroups = (await new MapTagStore().LoadAsync(catalog.Maps, catalog.Classes))
+            .Where(group => group.IsEnabled
+                && MapTagAuthorizationRules.IsAuthorized(group, draft.Class, catalog.Maps))
+            .ToArray();
 
         var root = new Grid
         {
@@ -236,7 +222,7 @@ public sealed partial class MapListPage : UserControl
         var continueButton = CreateActionButton("确认", AccentBlue);
         continueButton.HorizontalAlignment = HorizontalAlignment.Center;
         continueButton.Width = 284;
-        continueButton.IsEnabled = _pendingImportFloors.Count > 0;
+        continueButton.IsEnabled = CanCommitImportFloors();
         continueButton.Click += (_, _) =>
         {
             PlayDetailTriggerFeedback(continueButton);
@@ -283,7 +269,10 @@ public sealed partial class MapListPage : UserControl
             cardsGrid.Children.Add(addCard);
             _importAddFloorCard = addCard;
 
-            floorScrollViewer.Content = cardsGrid;
+            var area = new StackPanel { Spacing = 28 };
+            area.Children.Add(cardsGrid);
+            area.Children.Add(CreateMapTagsEditor(draft, enabledTagGroups));
+            floorScrollViewer.Content = area;
             UpdateImportFloorGridLayout();
         }
 
@@ -291,6 +280,79 @@ public sealed partial class MapListPage : UserControl
         _workflowHost.Content = root;
         PlayWorkflowEnterAnimation();
         await Task.CompletedTask;
+    }
+
+    private bool CanCommitImportFloors() => _pendingImportFloors is { Count: > 0 }
+        && _pendingImportFloors.All(entry => !string.IsNullOrWhiteSpace(entry.ImagePath));
+
+    private async Task OfferMapTemplateAsync(MapDraft draft)
+    {
+        var combo = new ComboBox { PlaceholderText = "不使用模板", MinWidth = 300 };
+        combo.Items.Add(new ComboBoxItem { Content = "不使用模板", Tag = null });
+        var templates = MapTemplates.BuiltIn.Concat(await new MapTemplateStore().LoadAsync());
+        foreach (var availableTemplate in templates)
+            combo.Items.Add(new ComboBoxItem { Content = availableTemplate.Name, Tag = availableTemplate });
+        combo.SelectedIndex = 0;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot, Title = "选择地图模板", Content = combo,
+            PrimaryButtonText = "确认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary
+            || (combo.SelectedItem as ComboBoxItem)?.Tag is not MapTemplate template) return;
+        draft.Floors = template.Floors.Select((floor, index) => new FloorDefinition
+        {
+            Key = floor.Key, DisplayName = floor.DisplayName, SortOrder = index + 1
+        }).ToList();
+    }
+
+    private UIElement CreateMapTagsEditor(MapDraft draft, IReadOnlyList<MapTagGroup> groups)
+    {
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(new TextBlock { Text = "编辑标签", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        if (groups.Count == 0)
+        {
+            panel.Children.Add(new TextBlock { Text = "当前没有已启用的标签组。", Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush") });
+            return panel;
+        }
+        foreach (var group in groups)
+        {
+            var combo = new ComboBox { Header = group.Name, IsEditable = true, PlaceholderText = "可选", MinWidth = 280 };
+            foreach (var tag in group.Tags) combo.Items.Add(tag);
+            if (draft.Tags.TryGetValue(group.Id, out var selected))
+            {
+                var existing = group.Tags.FirstOrDefault(tag => string.Equals(tag, selected, StringComparison.OrdinalIgnoreCase));
+                if (existing is not null)
+                    combo.SelectedItem = existing;
+                else
+                    combo.Text = selected;
+            }
+            combo.SelectionChanged += (_, _) =>
+            {
+                if (combo.SelectedItem is string value)
+                    draft.Tags[group.Id] = value;
+            };
+            combo.LostFocus += async (_, _) =>
+            {
+                var value = combo.Text.Trim();
+                if (value.Length == 0) draft.Tags.Remove(group.Id);
+                else
+                {
+                    draft.Tags[group.Id] = value;
+                    if (!group.Tags.Contains(value, StringComparer.OrdinalIgnoreCase))
+                    {
+                        group.Tags.Add(value);
+                        var all = (await new MapTagStore().LoadAsync()).ToList();
+                        var stored = all.FirstOrDefault(item => item.Id == group.Id);
+                        if (stored is not null && !stored.Tags.Contains(value, StringComparer.OrdinalIgnoreCase)) stored.Tags.Add(value);
+                        var catalog = await _repository.GetCatalogSnapshotAsync();
+                        await new MapTagStore().SaveAsync(all, catalog.Maps, catalog.Classes);
+                    }
+                }
+            };
+            panel.Children.Add(combo);
+        }
+        return panel;
     }
 
     /// <summary>Transfers <see cref="_pendingImportFloors"/> into <see cref="_draft"/>.</summary>
@@ -453,7 +515,7 @@ public sealed partial class MapListPage : UserControl
                 _pendingImportFloors ??= [];
                 _pendingImportFloors.Add(entry);
                 _selectedImportFloorKey = entry.FloorKey;
-                confirmButton.IsEnabled = _pendingImportFloors.Count > 0;
+                confirmButton.IsEnabled = CanCommitImportFloors();
                 onChanged();
             }
             finally
@@ -498,7 +560,7 @@ public sealed partial class MapListPage : UserControl
                 _selectedImportFloorKey = null;
                 _selectedImportFloorCard = null;
             }
-            confirmButton.IsEnabled = _pendingImportFloors?.Count > 0;
+            confirmButton.IsEnabled = CanCommitImportFloors();
             onChanged();
         };
         deleteButton.PointerPressed += (_, e) => e.Handled = true;
@@ -545,12 +607,28 @@ public sealed partial class MapListPage : UserControl
             Margin = new Thickness(0, 10, 0, 0)
         };
 
+        var lowStructureToggle = new ToggleSwitch
+        {
+            Header = "低结构楼层",
+            IsOn = MapFloorMarkerRules.Has(entry.MarkerKeys, MapFloorMarkerRules.LowStructure),
+            Margin = new Thickness(10, 0, 10, 8)
+        };
+        lowStructureToggle.Toggled += (_, _) =>
+        {
+            entry.MarkerKeys = lowStructureToggle.IsOn
+                ? MapFloorMarkerRules.Normalize(entry.MarkerKeys.Append(MapFloorMarkerRules.LowStructure)).ToList()
+                : entry.MarkerKeys.Where(key => !string.Equals(key, MapFloorMarkerRules.LowStructure, StringComparison.Ordinal)).ToList();
+        };
+
         var content = new Grid { RowSpacing = 10 };
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         content.Children.Add(imageFrame);
         Grid.SetRow(nameLabel, 1);
         content.Children.Add(nameLabel);
+        Grid.SetRow(lowStructureToggle, 2);
+        content.Children.Add(lowStructureToggle);
 
         var card = new Border
         {
@@ -563,7 +641,11 @@ public sealed partial class MapListPage : UserControl
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Child = content,
         };
-        card.PointerPressed += (_, _) => SelectImportFloorCard(entry.FloorKey, card);
+        card.PointerPressed += (_, e) =>
+        {
+            if (!IsImportCardInteractiveSource(e.OriginalSource))
+                SelectImportFloorCard(entry.FloorKey, card);
+        };
         AttachImportFloorCardInteraction(card, entry, onChanged, confirmButton);
         _importFloorCards[entry] = card;
         return card;
@@ -604,6 +686,8 @@ public sealed partial class MapListPage : UserControl
         };
         card.PointerPressed += (_, e) =>
         {
+            if (IsImportCardInteractiveSource(e.OriginalSource))
+                return;
             isPressed = true;
             pressCanceled = false;
             isSecondTap = BeginImportFloorPointerPress(entry, onChanged);
@@ -654,7 +738,7 @@ public sealed partial class MapListPage : UserControl
 
             if (!wasDragging && !pressCanceled)
             {
-                if (isSecondTap)
+                if (string.IsNullOrWhiteSpace(entry.ImagePath) || isSecondTap)
                     _ = ReplaceImportFloorImageAsync(entry, onChanged, confirmButton);
                 else
                     QueueImportFloorClick(entry, onChanged, confirmButton);
@@ -679,6 +763,18 @@ public sealed partial class MapListPage : UserControl
             StopImportFloorHoldTimer();
             ResetImportFloorDragSession(animateReturn: _isDraggingImportFloor);
         };
+    }
+
+    private static bool IsImportCardInteractiveSource(object source)
+    {
+        var current = source as DependencyObject;
+        while (current is not null)
+        {
+            if (current is ToggleSwitch or Button)
+                return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     private bool BeginImportFloorPointerPress(ImportFloorEntry entry, Action onChanged)

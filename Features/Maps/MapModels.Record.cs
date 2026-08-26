@@ -268,6 +268,9 @@ public sealed class MapRecord
     /// <summary>Gate attributes not currently editable by the map editor.</summary>
     public List<MapGateDefinition> PortableGates { get; set; } = [];
 
+    /// <summary>Optional map labels keyed by the stable local tag-group ID.</summary>
+    public Dictionary<Guid, string> Tags { get; set; } = [];
+
     // Compatibility fields for map packages created before recognition profiles existed.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public NormalizedRectangle? MainEntrance { get; set; }
@@ -368,6 +371,7 @@ public sealed class MapRecord
         if (ContentVersion <= 0)
             ContentVersion = 1;
         PortableGates ??= [];
+        Tags ??= [];
     }
 
     public MapRecord Clone()
@@ -388,6 +392,7 @@ public sealed class MapRecord
             Title = Title,
             ContentVersion = ContentVersion,
             PortableGates = PortableGates.Select(gate => gate.Clone()).ToList(),
+            Tags = new Dictionary<Guid, string>(Tags),
             MainEntrance = MainEntrance?.Clone(),
             SideEntrance = SideEntrance?.Clone(),
             Class = Class,
@@ -454,6 +459,8 @@ public sealed class MapDraft
     public string? SourceVisualSha256 { get; set; }
     public string? SourceStructureSha256 { get; set; }
     public List<MapGateDefinition> PortableGates { get; set; } = [];
+    public Dictionary<Guid, string> Tags { get; set; } = [];
+    internal Dictionary<Guid, string> ImportedTagGroupNames { get; set; } = [];
     internal bool CreateAsImportedCopy { get; set; }
     internal Guid? SourcePackageMapId { get; set; }
     internal bool? RemoveBackgroundOverride { get; set; }

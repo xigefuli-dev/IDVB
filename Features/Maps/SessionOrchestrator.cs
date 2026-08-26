@@ -174,6 +174,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 saveAutomaticMapCache =>
                     EndMatchAsync(saveAutomaticMapCache),
                 () => _surveyCoordinator.Status,
+                () => Lifecycle.MainProgramPreferences.Load().AllowSurveyMode,
                 mapClass => BeginSurveyMatchAsync(mapClass),
                 ActivateSurveyMatchAsync,
                 GetCurrentVariantContextAsync,
@@ -316,6 +317,14 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     RecognitionConfigRules.AmbiguityMargin;
 
             await _recognition.RefreshCacheAsync();
+            if (_settings.IsEnabled
+                && !TryValidateEnablePrerequisites(out var prerequisiteFailure))
+            {
+                _settings.IsEnabled = false;
+                await SaveSettingsAsync();
+                System.Diagnostics.Debug.WriteLine(
+                    "Map runtime was forced off: " + prerequisiteFailure);
+            }
             await _mapFeatureCacheRepository.InitializeAsync();
             await InitializeAdaptiveScaleAsync();
             await _surveyCoordinator.InitializeAsync(_lifetimeCts.Token);
@@ -431,7 +440,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public int TotalMapCount => _recognition.TotalMapCount;
     public bool ArePlayerAssetsReady => false;
     public GameIntegrityStatus IntegrityStatus { get; private set; } =
-        new(false, false, false, false, "尚未检查。");
+        new(false, false, "尚未检查。");
 
     // ════════════════ Events ════════════════
 

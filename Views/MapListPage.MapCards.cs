@@ -33,6 +33,7 @@ public sealed partial class MapListPage : UserControl
         };
         _cardBorders[map.Id] = card;
         AttachCardInteractionFeedback(card);
+        AttachHoldPreview(card, map);
 
         var content = new Grid();
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -81,7 +82,31 @@ public sealed partial class MapListPage : UserControl
             SelectMap(map);
             await ImportMapAsync(map);
         };
+        if (App.IsSafeMode)
+        {
+            var flyout = new MenuFlyout();
+            var showNow = new MenuFlyoutItem { Text = "立刻展示" };
+            showNow.Click += async (_, _) => await ShowMapImmediatelyAsync(map);
+            flyout.Items.Add(showNow);
+            card.ContextFlyout = flyout;
+        }
         return card;
+    }
+
+    private async Task ShowMapImmediatelyAsync(MapRecord map)
+    {
+        var floor = MapFloorRules.GetOrderedFloors(map).FirstOrDefault();
+        if (floor is null)
+            return;
+        var path = _repository.GetFloorOverlayPath(map, floor.Key);
+        if (!File.Exists(path))
+            path = _repository.GetFloorRecognitionPath(map, floor.Key);
+        if (!File.Exists(path))
+        {
+            await ShowMessageAsync("无法展示地图", "没有找到该地图的楼层图片。");
+            return;
+        }
+        await DirectMapDisplayWindow.ShowAsync(map, _repository, floor.Key);
     }
 
     private Border CreatePreviewLayer(string path, Thickness margin)
@@ -254,7 +279,8 @@ public sealed partial class MapListPage : UserControl
         try
         {
             await _repository.DeleteAsync(map.Id);
-            await App.Session.RefreshMapCacheAsync(map.Id);
+            if (!App.IsSafeMode)
+                await App.Session.RefreshMapCacheAsync(map.Id);
             _selectedMapIds.Remove(map.Id);
             if (_lastClickedMapId == map.Id)
                 _lastClickedMapId = null;

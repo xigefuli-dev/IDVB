@@ -28,6 +28,12 @@ public sealed partial class MapControlPanelWindow
             Refresh(_snapshot);
             return;
         }
+        if (!_isSurveyModeAllowed())
+        {
+            SetSurveyToggle(false);
+            _messageText.Text = "主设置未允许进入测绘模式，只能开始正常对局。";
+            return;
+        }
         if (_snapshot.Mode == MapRunMode.Survey || !_surveyModeToggle.IsOn)
             return;
         if (_activateSurveyMatch is null)
@@ -58,8 +64,9 @@ public sealed partial class MapControlPanelWindow
     }
 
     private bool CanChangeSurveyMode(MapMatchSnapshot snapshot) =>
-        !snapshot.IsStarted
-        || (snapshot.Mode == MapRunMode.Normal && _activateSurveyMatch is not null);
+        _isSurveyModeAllowed()
+        && (!snapshot.IsStarted
+            || (snapshot.Mode == MapRunMode.Normal && _activateSurveyMatch is not null));
 
     private void SetSurveyToggle(bool isOn)
     {

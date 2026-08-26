@@ -67,6 +67,14 @@ internal sealed class ListModule : IAppModule
     public object CreateView() => new IDVBuff.Views.MapListPage();
 }
 
+internal sealed class TagsAndTemplatesModule : IAppModule
+{
+    public string Id => "tags-templates";
+    public string DisplayName => "标签与模板";
+    public string IconKey => nameof(Symbol.Tag);
+    public object CreateView() => new IDVBuff.Views.TagsAndTemplatesPage();
+}
+
 internal sealed class PluginsModule : IAppModule
 {
     public string Id => "plugins";

@@ -636,7 +636,9 @@ public sealed partial class MainPage : Page
         var animateMainContent = true;
         try
         {
-            var view = _catalog.GetRequired(moduleId).CreateView();
+            var view = App.IsSafeMode && IsSafeModeRestrictedModule(moduleId)
+                ? CreateSafeModeRestrictedView(moduleId)
+                : _catalog.GetRequired(moduleId).CreateView();
             ModuleContentHost.Content = view;
             ConfigureMainContentScrolling(view);
             if (view is MapStatusPage mapStatusPage)
@@ -669,6 +671,37 @@ public sealed partial class MainPage : Page
                 $"Module '{moduleId}' enter animation failed: {exception}");
             TryLogModuleFailure(moduleId, exception, "enter-animation");
         }
+    }
+
+    private static bool IsSafeModeRestrictedModule(string moduleId) => moduleId is
+        "map-status" or "plugins";
+
+    private static FrameworkElement CreateSafeModeRestrictedView(string moduleId)
+    {
+        if (moduleId == "map-status")
+            return new SafeModeMapStatusPage();
+
+        return new StackPanel
+        {
+            MaxWidth = 720,
+            Margin = new Thickness(42, 36, 42, 64),
+            Spacing = 12,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "安全模式已开启",
+                    FontSize = 30,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                },
+                new TextBlock
+                {
+                    Text = "此功能在安全模式下不可用。请先在主设置中关闭安全模式，然后重新启动 IDVB。",
+                    FontSize = 15,
+                    TextWrapping = TextWrapping.Wrap
+                }
+            }
+        };
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e) => NavigateTo("settings");

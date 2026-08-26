@@ -1,6 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI;
 using IDVBuff.Lifecycle;
+using IDVBuff.PluginContracts;
 
 namespace IDVBuff.Views;
 
@@ -38,11 +41,36 @@ public sealed class MainSettingsPage : Page
             Margin = new Thickness(0, 0, 0, 4)
         });
         content.Children.Add(CreateToggleCard(
-            "开机自动启动",
-            "登录 Windows 后以管理员权限自动启动 Identity Vision Bridge（启用时需确认一次 UAC）",
-            _preferences.StartWithWindows,
+            "安全模式",
+            "默认开启；不加载 CV、透明窗口或插件，也不允许以管理员权限运行。更改后重新启动 IDVB 生效",
+            _preferences.SafeMode,
             async value =>
             {
+                _preferences.SafeMode = value;
+                if (value)
+                {
+                    // Safe mode and the elevated logon task are mutually exclusive, but a
+                    // default/fresh safe-mode profile has no task to remove. Calling
+                    // schtasks /Delete in that state returns a failure exit code and turns a
+                    // successfully enabled safe mode into a misleading UAC-task error.
+                    if (_preferences.StartWithWindows)
+                        await ElevatedStartupTask.SetEnabledAsync(false);
+                    _preferences.StartWithWindows = false;
+                    var repository = new Features.Maps.MapRuntimeSettingsRepository();
+                    var settings = await repository.LoadAsync();
+                    settings.IsEnabled = false;
+                    await repository.SaveAsync(settings);
+                }
+                _preferences.Save();
+            }));
+        content.Children.Add(CreateToggleCard(
+            "开机自动启动",
+            "登录 Windows 后以管理员权限自动启动 Identity Vision Bridge（启用时需确认一次 UAC）",
+            !_preferences.SafeMode && _preferences.StartWithWindows,
+            async value =>
+            {
+                if (value && _preferences.SafeMode)
+                    throw new InvalidOperationException("安全模式下不能配置管理员权限启动。请先关闭安全模式并重新启动 IDVB。");
                 await ElevatedStartupTask.SetEnabledAsync(value);
                 _preferences.StartWithWindows = value;
                 _preferences.Save();
@@ -57,6 +85,28 @@ public sealed class MainSettingsPage : Page
             "最小化或关闭主窗口时让 IDVB 在通知区域继续运行",
             _preferences.MinimizeToTray,
             value => SavePreferenceAsync(() => _preferences.MinimizeToTray = value)));
+
+        content.Children.Add(new TextBlock
+        {
+            Text = "测绘",
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 12, 0, 4)
+        });
+        content.Children.Add(CreateToggleCard(
+            "允许进入测绘模式",
+            "启用后，对局控件才可以选择测绘模式；关闭时只能进入正常对局",
+            _preferences.AllowSurveyMode,
+            value => SavePreferenceAsync(() => _preferences.AllowSurveyMode = value)));
+
+        content.Children.Add(new TextBlock
+        {
+            Text = "插件",
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 12, 0, 4)
+        });
+        content.Children.Add(CreateRandomDelaySafetyCard());
 
         content.Children.Add(new TextBlock
         {
@@ -147,6 +197,133 @@ public sealed class MainSettingsPage : Page
 
     private void ApplyColorTheme() =>
         FluentTheme.ApplyColorTheme(_preferences.FollowSystemTheme, _preferences.UseDarkTheme);
+
+    private Border CreateRandomDelaySafetyCard()
+    {
+        var layout = new Grid { MinHeight = 86, Padding = new Thickness(26, 15, 24, 15) };
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var labels = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        labels.Children.Add(new TextBlock
+        {
+            Text = "允许低延迟随机化",
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        });
+        labels.Children.Add(new TextBlock
+        {
+            Text = "解除插件随机延迟的默认安全下限，允许将上下限设置为 0 毫秒",
+            FontSize = 14,
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            TextWrapping = TextWrapping.Wrap
+        });
+        layout.Children.Add(labels);
+
+        var toggle = new ToggleSwitch
+        {
+            IsOn = _preferences.AllowUnsafePluginRandomDelayMinimums,
+            OnContent = string.Empty,
+            OffContent = string.Empty,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var updating = false;
+        toggle.Toggled += async (_, _) =>
+        {
+            if (updating)
+                return;
+            toggle.IsEnabled = false;
+            try
+            {
+                if (toggle.IsOn)
+                {
+                    var confirmed = await ConfirmUnsafeRandomDelayAsync();
+                    if (!confirmed)
+                    {
+                        updating = true;
+                        toggle.IsOn = false;
+                        updating = false;
+                        return;
+                    }
+                }
+
+                _preferences.AllowUnsafePluginRandomDelayMinimums = toggle.IsOn;
+                _preferences.Save();
+                PluginRandomDelayPolicy.AllowUnsafeMinimums = toggle.IsOn;
+            }
+            catch (Exception exception)
+            {
+                updating = true;
+                toggle.IsOn = _preferences.AllowUnsafePluginRandomDelayMinimums;
+                updating = false;
+                await new ContentDialog
+                {
+                    XamlRoot = XamlRoot,
+                    Title = "设置未保存",
+                    Content = exception.Message,
+                    CloseButtonText = "知道了"
+                }.ShowAsync();
+            }
+            finally
+            {
+                toggle.IsEnabled = true;
+            }
+        };
+        Grid.SetColumn(toggle, 1);
+        layout.Children.Add(toggle);
+        return new Border
+        {
+            Background = FluentTheme.CardBrush(),
+            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Child = layout
+        };
+    }
+
+    private async Task<bool> ConfirmUnsafeRandomDelayAsync()
+    {
+        var destructiveStyle = new Style(typeof(Button));
+        destructiveStyle.Setters.Add(new Setter(Control.BackgroundProperty,
+            new SolidColorBrush(Colors.Firebrick)));
+        destructiveStyle.Setters.Add(new Setter(Control.ForegroundProperty,
+            new SolidColorBrush(Colors.White)));
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "降低随机延迟可能带来风险",
+            Content = new TextBlock
+            {
+                Text = "启用后，插件可将随机等待范围调至默认安全值以下。过低的操作间隔可能更容易触发异常行为检测，并带来账号处罚或封禁风险。请确认你已理解风险并谨慎设置。",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 14
+            },
+            PrimaryButtonText = "请等待 3 秒",
+            CloseButtonText = "取消",
+            IsPrimaryButtonEnabled = false,
+            PrimaryButtonStyle = destructiveStyle,
+            DefaultButton = ContentDialogButton.Close
+        };
+        using var countdownCancellation = new CancellationTokenSource();
+        dialog.Opened += async (_, _) =>
+        {
+            try
+            {
+                for (var seconds = 3; seconds > 0; seconds--)
+                {
+                    dialog.PrimaryButtonText = $"请等待 {seconds} 秒";
+                    await Task.Delay(TimeSpan.FromSeconds(1), countdownCancellation.Token);
+                }
+                dialog.PrimaryButtonText = "确认关闭限制";
+                dialog.IsPrimaryButtonEnabled = true;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        };
+        var result = await dialog.ShowAsync();
+        countdownCancellation.Cancel();
+        return result == ContentDialogResult.Primary;
+    }
 
     private Border CreateToggleCard(
         string title,

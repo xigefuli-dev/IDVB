@@ -12,7 +12,7 @@ public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Le
 /// </summary>
 public sealed partial class MapRepository
 {
-    private const int CurrentStorageSchemaVersion = 16;
+    private const int CurrentStorageSchemaVersion = 17;
     private const string FloorOneRecognitionFileName = "floor-1-recognition.png";
     private const string FloorTwoRecognitionFileName = "floor-2-recognition.png";
     private const string FloorOneOverlayFileName = "floor-1-overlay.png";
@@ -25,7 +25,8 @@ public sealed partial class MapRepository
     };
 
     private readonly string _rootDirectory;
-    private readonly SideEntranceFeaturePreprocessor _sideEntrancePreprocessor = new();
+    private readonly Lazy<SideEntranceFeaturePreprocessor> _sideEntrancePreprocessor =
+        new(() => new SideEntranceFeaturePreprocessor());
 
     public MapRepository(string? rootDirectory = null)
     {
@@ -114,6 +115,7 @@ public sealed partial class MapRepository
                 SourceVisualSha256 = record.SourceVisualSha256,
                 SourceStructureSha256 = record.SourceStructureSha256,
                 PortableGates = record.PortableGates.Select(gate => gate.Clone()).ToList(),
+                Tags = new Dictionary<Guid, string>(record.Tags),
                 Recognition = record.Recognition.Clone()
             };
         }
@@ -167,6 +169,9 @@ public sealed partial class MapRepository
             record.PortableGates = draft.PortableGates
                 .Select(gate => gate.Clone())
                 .ToList();
+            record.Tags = (draft.Tags ?? [])
+                .Where(pair => pair.Key != Guid.Empty && !string.IsNullOrWhiteSpace(pair.Value))
+                .ToDictionary(pair => pair.Key, pair => pair.Value.Trim());
             record.UpdatedAt = DateTimeOffset.UtcNow;
 
             // A draft can only be saved into an existing canonical class.

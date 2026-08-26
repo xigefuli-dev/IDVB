@@ -85,6 +85,9 @@ public sealed partial class MapListPage : UserControl
     private HashSet<Guid> _selectedMapIds = [];
     private Guid? _lastClickedMapId;
     private IReadOnlyList<MapRecord> _loadedMaps = [];
+    private IReadOnlyList<MapTagGroup> _filterGroups = [];
+    private readonly Dictionary<Guid, HashSet<string>> _selectedTagFilters = [];
+    private Border? _mapCardsSurface;
     private IReadOnlyList<MapVariantGroup> _variantGroups = [];
     private IReadOnlyList<SurveyProjectSummary> _surveyProjects = [];
     private IReadOnlyList<string> _classes = ["S1"];
@@ -232,7 +235,8 @@ public sealed partial class MapListPage : UserControl
             foreach (var map in _batchQueue)
                 await _repository.DeleteAsync(map.Id);
 
-            await App.Session.RefreshMapCacheAsync();
+            if (!App.IsSafeMode)
+                await App.Session.RefreshMapCacheAsync();
         }
         catch (Exception exception)
         {
@@ -271,7 +275,8 @@ public sealed partial class MapListPage : UserControl
     private async void MapListPage_Loaded(object sender, RoutedEventArgs e)
     {
         Loaded -= MapListPage_Loaded;
-        _ = RepairMapMetadataInBackgroundAsync();
+        if (!App.IsSafeMode)
+            _ = RepairMapMetadataInBackgroundAsync();
         await ShowListAsync();
     }
 
@@ -312,7 +317,12 @@ public sealed partial class MapListPage : UserControl
         _classProperties = snapshot.ClassProperties;
         _loadedMaps = snapshot.Maps;
         _variantGroups = snapshot.VariantGroups;
-        _surveyProjects = await App.Session.GetSurveyProjectsAsync();
+        _filterGroups = (await new MapTagStore().LoadAsync(snapshot.Maps, snapshot.Classes))
+            .Where(group => group.IsEnabled)
+            .ToArray();
+        _surveyProjects = App.IsSafeMode
+            ? []
+            : await App.Session.GetSurveyProjectsAsync();
         _previewImages.Clear();
         if (!_hasInitializedClassSelection)
         {
@@ -321,7 +331,7 @@ public sealed partial class MapListPage : UserControl
             // the local filter below must never update settings.json.
             _selectedClass = MapRuntimeSettingsRules.ResolveMapClass(
                 _classes,
-                App.Session.LastSelectedMapClass)
+                App.IsSafeMode ? null : App.Session.LastSelectedMapClass)
                 ?? _selectedClass;
             _hasInitializedClassSelection = true;
         }
@@ -492,6 +502,7 @@ public sealed partial class MapListPage : UserControl
             MinHeight = 459,
             Child = mapContent
         };
+        _mapCardsSurface = mapSurface;
         scrollContent.Children.Add(mapSurface);
 
         // ── Root: overlay layout (Grid children stack in z-order) ──
@@ -535,6 +546,7 @@ public sealed partial class MapListPage : UserControl
 
     private IReadOnlyList<MapRecord> GetVisibleMaps() => _loadedMaps
         .Where(map => string.Equals(map.Class, _selectedClass, StringComparison.OrdinalIgnoreCase))
+        .Where(MatchesSelectedTagFilters)
         .OrderBy(map => map.SequenceNumber)
         .ToArray();
 
@@ -559,6 +571,7 @@ public sealed partial class MapListPage : UserControl
             if (!string.Equals(_selectedClass, className, StringComparison.OrdinalIgnoreCase))
             {
                 _selectedClass = className;
+                _selectedTagFilters.Clear();
                 _selectedMapIds.Clear();
                 _lastClickedMapId = null;
                 ShowListFromLoadedSnapshot();
@@ -586,6 +599,7 @@ public sealed partial class MapListPage : UserControl
             Spacing = 8,
             Margin = new Thickness(8, 0, 0, 0)
         };
+        controls.Children.Add(CreateFilterButton());
         controls.Children.Add(picker);
         controls.Children.Add(rename);
         controls.Children.Add(add);
@@ -705,7 +719,8 @@ public sealed partial class MapListPage : UserControl
         try
         {
             await _repository.DeleteClassAsync(className);
-            await App.Session.RefreshMapCacheAsync();
+            if (!App.IsSafeMode)
+                await App.Session.RefreshMapCacheAsync();
             if (string.Equals(_selectedClass, className, StringComparison.OrdinalIgnoreCase))
                 _selectedClass = _classes.First(name => !string.Equals(name, className, StringComparison.OrdinalIgnoreCase));
             _selectedMapIds.Clear();

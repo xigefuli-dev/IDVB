@@ -1,3 +1,5 @@
+using IDVBuff.PluginContracts;
+
 namespace IDVBuff.Plugins.AutoGatling;
 
 /// <summary>自动加特林可由插件设置实时调整的操作时序。</summary>
@@ -40,10 +42,10 @@ public sealed class AutoGatlingOptions
         Math.Clamp(value, 0, MaximumDelayMilliseconds);
 
     public int CoerceRandomDelay(int value) =>
-        Math.Clamp(value, MinimumRandomDelayMillisecondsAllowed, MaximumDelayMilliseconds);
+        Math.Clamp(value, PluginRandomDelayPolicy.GetMinimum(MinimumRandomDelayMillisecondsAllowed), MaximumDelayMilliseconds);
 
     public int CoerceRandomDelayUpperBound(int value) =>
-        Math.Clamp(value, MinimumRandomDelayUpperBoundMillisecondsAllowed, MaximumDelayMilliseconds);
+        Math.Clamp(value, PluginRandomDelayPolicy.GetMinimum(MinimumRandomDelayUpperBoundMillisecondsAllowed), MaximumDelayMilliseconds);
 
     public (int Minimum, int Maximum) GetOrderedRandomDelayRange()
     {

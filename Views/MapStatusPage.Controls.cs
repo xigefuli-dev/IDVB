@@ -140,6 +140,13 @@ public sealed partial class MapStatusPage : UserControl
         {
             _status.Text = exception.Message;
             Refresh();
+            await new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "暂时无法开启",
+                Content = exception.Message,
+                CloseButtonText = "知道了"
+            }.ShowAsync();
         }
     }
 

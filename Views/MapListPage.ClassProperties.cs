@@ -55,7 +55,8 @@ public sealed partial class MapListPage : UserControl
             await _repository.SetClassRemoveBackgroundAsync(_selectedClass, toggle.IsOn);
             _classProperties = (await _repository.GetCatalogSnapshotAsync()).ClassProperties;
             _selectedMapIds.Clear();
-            await App.Session.RefreshMapCacheAsync();
+            if (!App.IsSafeMode)
+                await App.Session.RefreshMapCacheAsync();
             await ShowListAsync();
         }
         catch (Exception exception)

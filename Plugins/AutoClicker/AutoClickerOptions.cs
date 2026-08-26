@@ -1,3 +1,5 @@
+using IDVBuff.PluginContracts;
+
 namespace IDVBuff.Plugins.AutoClicker;
 
 /// <summary>
@@ -43,14 +45,14 @@ public sealed class AutoClickerOptions
     {
         get => _minimumRandomDelayMilliseconds;
         set => _minimumRandomDelayMilliseconds = Math.Clamp(
-            value, MinimumRandomDelayMilliseconds, MaximumRandomDelayMilliseconds);
+            value, PluginRandomDelayPolicy.GetMinimum(MinimumRandomDelayMilliseconds), MaximumRandomDelayMilliseconds);
     }
 
     public int RandomDelayUpperBoundMilliseconds
     {
         get => _maximumRandomDelayMilliseconds;
         set => _maximumRandomDelayMilliseconds = Math.Clamp(
-            value, MinimumRandomDelayUpperBoundMilliseconds, MaximumRandomDelayMilliseconds);
+            value, PluginRandomDelayPolicy.GetMinimum(MinimumRandomDelayUpperBoundMilliseconds), MaximumRandomDelayMilliseconds);
     }
 
     public (int Minimum, int Maximum) GetOrderedRandomDelayRange()

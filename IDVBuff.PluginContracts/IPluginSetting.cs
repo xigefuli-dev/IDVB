@@ -14,6 +14,12 @@ public interface IPluginSetting
 
     /// <summary>可选的说明文字（显示在控件下方）。</summary>
     string? Description { get; }
+
+    /// <summary>可选的条件显示来源设置键。</summary>
+    string? VisibleWhenKey { get; }
+
+    /// <summary>来源设置等于此值时显示；未指定来源键时始终显示。</summary>
+    string? VisibleWhenValue { get; }
 }
 
 /// <summary>开关设置项。</summary>
@@ -25,19 +31,38 @@ public sealed class PluginToggleSetting : IPluginSetting
 
     public string? Description { get; init; }
 
+    public string? VisibleWhenKey { get; init; }
+
+    public string? VisibleWhenValue { get; init; }
+
     public bool DefaultValue { get; init; }
 }
 
 /// <summary>滑条设置项。</summary>
 public sealed class PluginSliderSetting : IPluginSetting
 {
+    private double _minimum;
     public required string Key { get; init; }
 
     public required string DisplayName { get; init; }
 
     public string? Description { get; init; }
 
-    public double Minimum { get; init; }
+    public string? VisibleWhenKey { get; init; }
+
+    public string? VisibleWhenValue { get; init; }
+
+    public double Minimum
+    {
+        get => MinimumWhenUnsafe is { } unsafeMinimum
+            && PluginRandomDelayPolicy.AllowUnsafeMinimums
+                ? unsafeMinimum
+                : _minimum;
+        init => _minimum = value;
+    }
+
+    /// <summary>宿主允许低延迟设置时采用的可选最低值。</summary>
+    public double? MinimumWhenUnsafe { get; init; }
 
     public double Maximum { get; init; }
 
@@ -54,6 +79,10 @@ public sealed class PluginChoiceSetting : IPluginSetting
     public required string DisplayName { get; init; }
 
     public string? Description { get; init; }
+
+    public string? VisibleWhenKey { get; init; }
+
+    public string? VisibleWhenValue { get; init; }
 
     public required string[] Options { get; init; }
 
@@ -76,6 +105,10 @@ public sealed class PluginKeyBindingSetting : IPluginSetting
     public required string DisplayName { get; init; }
 
     public string? Description { get; init; }
+
+    public string? VisibleWhenKey { get; init; }
+
+    public string? VisibleWhenValue { get; init; }
 
     /// <summary>默认绑定的 PluginInputBinding.StorageValue。</summary>
     public required string DefaultValue { get; init; }

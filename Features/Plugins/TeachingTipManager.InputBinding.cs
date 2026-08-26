@@ -6,6 +6,24 @@ namespace IDVBuff.Features.Plugins;
 
 public sealed partial class TeachingTipManager
 {
+    private static void RefreshSettingVisibility(
+        IPluginSettingsProvider provider,
+        IReadOnlyDictionary<string, FrameworkElement> rows)
+    {
+        foreach (var setting in provider.Settings)
+        {
+            if (!rows.TryGetValue(setting.Key, out var row))
+                continue;
+            row.Visibility = string.IsNullOrWhiteSpace(setting.VisibleWhenKey)
+                || string.Equals(
+                    provider.GetSettingValue(setting.VisibleWhenKey) as string,
+                    setting.VisibleWhenValue,
+                    StringComparison.Ordinal)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+    }
+
     private static bool TryGetPluginModifier(
         Windows.System.VirtualKey key,
         out PluginInputModifiers modifier)

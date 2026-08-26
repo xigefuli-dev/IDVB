@@ -50,7 +50,7 @@ public sealed class QuickStartTests
         var recommended = QuickStartRecommendedSettings.CreateRecommendation1();
 
         Assert.Equal(MapRuntimeSettings.CurrentSchemaVersion, recommended.SchemaVersion);
-        Assert.True(recommended.IsEnabled);
+        Assert.False(recommended.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, recommended.FirstScanStrategy);
         Assert.True(recommended.BackgroundScanEnabled);
         Assert.Null(recommended.SelectedResolutionPreset);

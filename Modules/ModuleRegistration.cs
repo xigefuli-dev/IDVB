@@ -12,6 +12,7 @@ public static class ModuleRegistration
         catalog.Register(new SettingsModule());
         catalog.Register(new StatusModule());
         catalog.Register(new ListModule());
+        catalog.Register(new TagsAndTemplatesModule());
         catalog.Register(new PluginsModule());
         catalog.Register(new MainSettingsModule());
         catalog.Register(new HelpModule());
@@ -30,7 +31,8 @@ public static class ModuleRegistration
             children:
             [
                 new NavigationNode("配置", Microsoft.UI.Xaml.Controls.Symbol.View, "map-status"),
-                new NavigationNode("地图列表", Microsoft.UI.Xaml.Controls.Symbol.Bullets, "map-list")
+                new NavigationNode("地图列表", Microsoft.UI.Xaml.Controls.Symbol.Bullets, "map-list"),
+                new NavigationNode("标签与模板", Microsoft.UI.Xaml.Controls.Symbol.Tag, "tags-templates")
             ],
             isExpanded: false),
         new NavigationNode(

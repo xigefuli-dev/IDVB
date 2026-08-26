@@ -364,24 +364,4 @@ public sealed partial class MapStatusPage : UserControl
         }
     }
 
-    private async void ElevationButton_Click(object sender, RoutedEventArgs e)
-    {
-        var prompt = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "管理员重启",
-            Content = "将请求管理员权限启动新的 Identity Vision Bridge。新进程启动成功后才会关闭当前窗口。",
-            PrimaryButtonText = "继续",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
-        };
-        if (await prompt.ShowAsync() != ContentDialogResult.Primary)
-            return;
-        if (_runtime.TryRestartElevated(out var failureReason))
-        {
-            ((App)Application.Current).MainWindow.Close();
-            return;
-        }
-        _status.Text = failureReason;
-    }
 }

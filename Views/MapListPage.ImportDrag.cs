@@ -299,7 +299,7 @@ public sealed partial class MapListPage : UserControl
 
         entry.ImagePath = selectedPath;
         entry.PreviewImagePath = selectedPath;
-        confirmButton.IsEnabled = _pendingImportFloors.Count > 0;
+        confirmButton.IsEnabled = CanCommitImportFloors();
         onChanged();
     }
 

@@ -75,10 +75,12 @@ public sealed partial class IdvmPackageService
     };
 
     private readonly MapRepository _repository;
+    private readonly MapTagStore _tagStore;
 
-    public IdvmPackageService(MapRepository repository)
+    public IdvmPackageService(MapRepository repository, MapTagStore? tagStore = null)
     {
         _repository = repository;
+        _tagStore = tagStore ?? new MapTagStore();
     }
 
     public async Task ExportAsync(
@@ -124,14 +126,15 @@ public sealed partial class IdvmPackageService
             var manifest = new ManifestDto
             {
                 Format = "idvm",
-                FormatVersion = "1.2",
+                FormatVersion = "1.3",
                 PackageType = "class-set",
                 PackageId = packageId,
                 CreatedAt = createdAt,
-                MinimumReader = "1.2",
+                MinimumReader = "1.3",
                 Capabilities = new CapabilitiesDto
                 {
-                    FloorMarkerKeys = true
+                    FloorMarkerKeys = true,
+                    MapTags = true
                 }
             };
 
@@ -248,6 +251,7 @@ public sealed partial class IdvmPackageService
         try
         {
             var result = await _repository.ImportBatchAsync(plan.Classes, cancellationToken);
+            await MergeImportedTagsAsync(plan.Classes);
             return new IdvmImportResult(
                 plan.PackageId,
                 result.CreatedClasses,
@@ -343,6 +347,7 @@ public sealed partial class IdvmPackageService
         public bool ClassBackgroundRemoval { get; set; } = true;
         public bool VariantGroups { get; set; } = true;
         public bool FloorMarkerKeys { get; set; }
+        public bool MapTags { get; set; }
     }
 
     private sealed class MetadataDto
@@ -351,6 +356,14 @@ public sealed partial class IdvmPackageService
         public MetadataMapDto Map { get; set; } = new();
         public List<MetadataFloorDto> Floors { get; set; } = [];
         public RecognitionSettingsDto Recognition { get; set; } = new();
+        public List<MetadataTagDto> Tags { get; set; } = [];
+    }
+
+    private sealed class MetadataTagDto
+    {
+        public Guid GroupId { get; set; }
+        public string GroupName { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
     }
 
     private sealed class MetadataMapDto

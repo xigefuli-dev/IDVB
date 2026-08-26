@@ -127,7 +127,7 @@ public sealed class MapVariantRepositoryTests
     }
 
     [Fact]
-    public async Task Schema15MigrationCreatesVerifiedBackupBeforeSchema16Write()
+    public async Task Schema15MigrationCreatesVerifiedBackupBeforeCurrentSchemaWrite()
     {
         var root = CreateRoot();
         try
@@ -146,7 +146,7 @@ public sealed class MapVariantRepositoryTests
             var migrating = new MapRepository(mapRoot);
             Assert.Equal(2, (await migrating.GetMapsAsync()).Count);
             var migrated = JsonNode.Parse(await File.ReadAllTextAsync(catalogPath))!.AsObject();
-            Assert.Equal(16, migrated["StorageSchemaVersion"]!.GetValue<int>());
+            Assert.Equal(17, migrated["StorageSchemaVersion"]!.GetValue<int>());
             var backups = Directory.GetDirectories(migrating.VariantMigrationBackupRoot)
                 .Where(path => !path.EndsWith(".pending", StringComparison.Ordinal)).ToArray();
             Assert.Single(backups);

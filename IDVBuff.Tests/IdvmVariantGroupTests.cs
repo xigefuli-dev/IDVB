@@ -10,7 +10,7 @@ namespace IDVBuff.Tests;
 public sealed class IdvmVariantGroupTests
 {
     [Fact]
-    public async Task Version12RoundTripRemapsMapAndGroupIdsButPreservesOrderAndPalette()
+    public async Task Version13RoundTripRemapsMapAndGroupIdsButPreservesOrderAndPalette()
     {
         var root = CreateRoot();
         try
@@ -27,8 +27,8 @@ public sealed class IdvmVariantGroupTests
             using (var manifest = JsonDocument.Parse(
                        archive.GetEntry("manifest.json")!.Open()))
             {
-                Assert.Equal("1.2", manifest.RootElement.GetProperty("formatVersion").GetString());
-                Assert.Equal("1.2", manifest.RootElement.GetProperty("minimumReader").GetString());
+                Assert.Equal("1.3", manifest.RootElement.GetProperty("formatVersion").GetString());
+                Assert.Equal("1.3", manifest.RootElement.GetProperty("minimumReader").GetString());
                 Assert.Single(manifest.RootElement.GetProperty("variantGroups").EnumerateArray());
             }
 
@@ -90,9 +90,9 @@ public sealed class IdvmVariantGroupTests
                 IdvmExportScope.CurrentClass, "S1", package);
             RewriteManifest(package, manifest =>
             {
-                manifest["formatVersion"] = "1.0";
-                manifest["minimumReader"] = "1.0";
-                manifest.Remove("variantGroups");
+            manifest["formatVersion"] = "1.0";
+            manifest["minimumReader"] = "1.0";
+            manifest.Remove("variantGroups");
             }, version10: true);
 
             var target = new MapRepository(Path.Combine(root, "target"));
@@ -149,6 +149,30 @@ public sealed class IdvmVariantGroupTests
             var manifestPath = Path.Combine(staging, "manifest.json");
             var manifest = JsonNode.Parse(File.ReadAllText(manifestPath))!.AsObject();
             mutate(manifest);
+            if (version10)
+            {
+                foreach (var metadataPath in Directory.EnumerateFiles(
+                             staging, "metadata.json", SearchOption.AllDirectories))
+                {
+                    var metadata = JsonNode.Parse(File.ReadAllText(metadataPath))!.AsObject();
+                    metadata["schemaVersion"] = 1;
+                    metadata["tags"] = new JsonArray();
+                    File.WriteAllText(
+                        metadataPath,
+                        metadata.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                }
+
+                foreach (var fileNode in manifest["files"]!.AsArray())
+                {
+                    var relativePath = fileNode!["path"]!.GetValue<string>();
+                    var filePath = Path.Combine(
+                        staging, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                    var fileBytes = File.ReadAllBytes(filePath);
+                    fileNode["size"] = fileBytes.LongLength;
+                    fileNode["sha256"] = Convert.ToHexString(SHA256.HashData(fileBytes))
+                        .ToLowerInvariant();
+                }
+            }
             var manifestBytes = JsonSerializer.SerializeToUtf8Bytes(
                 manifest, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllBytes(manifestPath, manifestBytes);

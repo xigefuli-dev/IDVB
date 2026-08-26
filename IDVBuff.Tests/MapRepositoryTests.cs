@@ -605,7 +605,7 @@ public sealed class MapRepositoryTests
             Assert.True(repairedFloor["ImageFileLength"]!.GetValue<long>() > 0);
             Assert.True(repairedFloor["ImageLastWriteUtcTicks"]!.GetValue<long>() > 0);
             Assert.False(string.IsNullOrWhiteSpace(repairedFloor["ThumbnailFileName"]!.GetValue<string>()));
-            Assert.Equal(16, repaired["StorageSchemaVersion"]!.GetValue<int>());
+            Assert.Equal(17, repaired["StorageSchemaVersion"]!.GetValue<int>());
         }
         finally
         {

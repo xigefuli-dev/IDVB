@@ -38,6 +38,8 @@ public sealed partial class MapStructureRegistrar
         double baselineScale,
         double scaleSearchRadius)
     {
+        if (request.LowStructurePlan is { Scales.Count: > 0 } lowPlan)
+            return lowPlan.Scales;
         if (request.Channel == MapAlignmentChannel.LowStructure
             && request.ScaleSearchPolicy == MapScaleSearchPolicy.Search)
         {
@@ -46,7 +48,12 @@ public sealed partial class MapStructureRegistrar
                 tuning.LowStructureMaximumScale,
                 tuning.LowStructureScaleHypothesisCount,
                 tuning.MinimumUsableScale,
-                baselineScale);
+                baselineScale)
+                .Take(Math.Clamp(
+                    tuning.LowStructureMaximumScalesPerFrame,
+                    1,
+                    3))
+                .ToArray();
         }
 
         return MapStructureScaleSearch.BuildScaleHypotheses(

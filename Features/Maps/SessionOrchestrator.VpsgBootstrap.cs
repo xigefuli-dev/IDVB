@@ -17,6 +17,16 @@ public sealed partial class SessionOrchestrator
         MapStructureRegistrationTuning structureTuning,
         double identityPriorConfidence)
     {
+        if (MapAlignmentChannelRegistry.Resolve(
+                locked.Map,
+                floorKey).Channel == MapAlignmentChannel.LowStructure)
+        {
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                $"低结构楼层拒绝 VPSG · floor={floorKey}");
+            return null;
+        }
         var deadline = NoDoorAlignmentDeadline.Current;
         if (deadline is not null
             && !deadline.CanStartStage(

@@ -160,7 +160,10 @@ internal static class MapStructureCandidateCollector
         var suppressionRadius = Math.Max(
             tuning.MinimumSpanPixels,
             Math.Min(query.Bounds.Width, query.Bounds.Height) / StructureRegistrationRules.CollectCandidatesSuppressionDivisor);
-        for (var index = 0; index < tuning.TopCandidateCount; index++)
+        var candidateLimit = tuning.Channel == MapAlignmentChannel.LowStructure
+            ? Math.Min(tuning.TopCandidateCount, tuning.LowStructureTranslationTopK)
+            : tuning.TopCandidateCount;
+        for (var index = 0; index < candidateLimit; index++)
         {
             Cv2.MinMaxLoc(search, out var score, out _, out var location, out _);
             if (!double.IsFinite(score))
@@ -209,6 +212,115 @@ internal static class MapStructureCandidateCollector
         }
     }
 
+    internal static void CollectLowStructureCoarseCandidates(
+        QueryGeometry query,
+        MapStructureFeatures reference,
+        Mat referenceDistance,
+        MapStructureRegistrationRequest request,
+        double scale,
+        MapStructureRegistrationTuning tuning,
+        MapStructureRegistrar.ReciprocalScaleContext reciprocalScale,
+        List<MapStructureCandidate> output)
+    {
+        var matchingEdges = reciprocalScale.Edges ?? reference.Edges;
+        if (query.Bounds.Width <= 0
+            || query.Bounds.Height <= 0
+            || query.Bounds.Width >= matchingEdges.Width
+            || query.Bounds.Height >= matchingEdges.Height)
+            return;
+        using var queryEdges = new Mat(query.Edges, query.Bounds);
+        var downsample = Math.Max(1, tuning.FastCoarseDownsampleFactor);
+        var templateWidth = Math.Max(1, queryEdges.Width / downsample);
+        var templateHeight = Math.Max(1, queryEdges.Height / downsample);
+        var referenceWidth = Math.Max(1, referenceDistance.Width / downsample);
+        var referenceHeight = Math.Max(1, referenceDistance.Height / downsample);
+        if (templateWidth < tuning.FastCoarseMinimumTemplateDimension
+            || templateHeight < tuning.FastCoarseMinimumTemplateDimension
+            || templateWidth >= referenceWidth
+            || templateHeight >= referenceHeight)
+            return;
+
+        using var coarseTemplate = new Mat();
+        Cv2.Resize(
+            queryEdges,
+            coarseTemplate,
+            new Size(templateWidth, templateHeight),
+            interpolation: InterpolationFlags.Area);
+        using var coarseTemplateFloat = new Mat();
+        coarseTemplate.ConvertTo(
+            coarseTemplateFloat,
+            MatType.CV_32FC1,
+            1d / 255d);
+        using var coarseReferenceDistance = new Mat();
+        Cv2.Resize(
+            referenceDistance,
+            coarseReferenceDistance,
+            new Size(referenceWidth, referenceHeight),
+            interpolation: InterpolationFlags.Area);
+        using var scores = new Mat();
+        Cv2.MatchTemplate(
+            coarseReferenceDistance,
+            coarseTemplateFloat,
+            scores,
+            TemplateMatchModes.CCorr);
+        Cv2.Multiply(
+            scores,
+            1d / Math.Max(1, Cv2.CountNonZero(coarseTemplate)),
+            scores);
+
+        var coordinateScaleX = (double)referenceDistance.Width / referenceWidth;
+        var coordinateScaleY = (double)referenceDistance.Height / referenceHeight;
+        var suppression = Math.Max(2, tuning.FastCoarseNmsRadius);
+        var topK = Math.Min(tuning.LowStructureTranslationTopK, 2);
+        for (var index = 0; index < topK; index++)
+        {
+            Cv2.MinMaxLoc(scores, out var minimum, out _, out var location, out _);
+            if (!double.IsFinite(minimum))
+                break;
+            var x = Math.Clamp(
+                (int)Math.Round(location.X * coordinateScaleX),
+                0,
+                referenceDistance.Width - query.Bounds.Width);
+            var y = Math.Clamp(
+                (int)Math.Round(location.Y * coordinateScaleY),
+                0,
+                referenceDistance.Height - query.Bounds.Height);
+            if (output.Any(candidate =>
+                    Math.Abs(candidate.Scale - scale) < tuning.ScaleDuplicateTolerance
+                    && Math.Abs(candidate.ReferenceX - x) < tuning.CandidateDuplicateRadius
+                    && Math.Abs(candidate.ReferenceY - y) < tuning.CandidateDuplicateRadius))
+            {
+                Suppress(location);
+                continue;
+            }
+            output.Add(MapStructureEvaluator.Evaluate(
+                query,
+                reference,
+                referenceDistance,
+                request,
+                scale,
+                x,
+                y,
+                usedGlobalSearch: true,
+                tuning,
+                reciprocalScale));
+            Suppress(location);
+
+            void Suppress(Point peak)
+            {
+                var left = Math.Max(0, peak.X - suppression);
+                var top = Math.Max(0, peak.Y - suppression);
+                var right = Math.Min(scores.Width, peak.X + suppression + 1);
+                var bottom = Math.Min(scores.Height, peak.Y + suppression + 1);
+                Cv2.Rectangle(
+                    scores,
+                    new Rect(left, top, right - left, bottom - top),
+                    Scalar.All(double.PositiveInfinity),
+                    -1);
+            }
+        }
+    }
+
     internal static IReadOnlyList<MapStructureCandidate> DistinctCandidates(
         IReadOnlyList<MapStructureCandidate> candidates,
         MapStructureRegistrationTuning tuning,
@@ -241,7 +353,8 @@ internal static class MapStructureCandidateCollector
         IReadOnlyList<MapStructureCandidate> candidates,
         MapStructureRegistrationTuning tuning,
         MapOverlayTransform lockedTransform,
-        bool restrictedSearch)
+        bool restrictedSearch,
+        MapStructureRegistrationRequest? request = null)
     {
         var ordered = DistinctCandidates(candidates, tuning, lockedTransform)
             .OrderBy(candidate => candidate.CompositeCost)
@@ -258,7 +371,8 @@ internal static class MapStructureCandidateCollector
             .Where(candidate => MapStructureValidator.ValidateAbsolute(
                 candidate,
                 tuning,
-                restrictedSearch) == MapStructureRejectionReason.None)
+                restrictedSearch,
+                request) == MapStructureRejectionReason.None)
             .Take(tuning.TopCandidateCount)
             .ToArray();
         return (ordered, diagnostic, valid);

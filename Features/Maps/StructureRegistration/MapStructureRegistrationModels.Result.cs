@@ -10,8 +10,11 @@ public sealed record MapStructureCandidate
     public double OffsetX { get; init; }
     public double OffsetY { get; init; }
     public double ChamferPixels { get; init; }
+    public double ReverseChamferPixels { get; init; }
     public double EdgeCoverage { get; init; }
     public double OccupancyCoverage { get; init; }
+    public double ReferenceCoverage { get; init; }
+    public double ProjectionCorrelation { get; init; }
     public int ConsistentPartitions { get; init; }
     public bool UsedGlobalSearch { get; init; }
     public double CompositeCost { get; init; }
@@ -94,6 +97,11 @@ public sealed class MapStructureRegistrationResult
     public bool UsedFastStrategy { get; init; }
     public double FastCoarseSearchMilliseconds { get; init; }
     public int FastCoarseCandidateCount { get; init; }
+    public string LowStructureRoute { get; init; } = string.Empty;
+    public int LowStructureCompletedScaleCount { get; init; }
+    public int LowStructureTranslationCandidateCount { get; init; }
+    public string LowStructureBudgetTerminationReason { get; init; } = string.Empty;
+    public bool LowStructureVpsgEnabled { get; init; }
 
     public static MapStructureRegistrationResult Reject(
         MapStructureRejectionReason reason,
@@ -127,7 +135,12 @@ public sealed class MapStructureRegistrationResult
         double pyramidSearchMilliseconds = 0d,
         double localTemplateSearchMilliseconds = 0d,
         double globalTemplateSearchMilliseconds = 0d,
-        double candidateRankingMilliseconds = 0d) =>
+        double candidateRankingMilliseconds = 0d,
+        string? lowStructureRoute = null,
+        int lowStructureCompletedScaleCount = 0,
+            int lowStructureTranslationCandidateCount = 0,
+            string? lowStructureBudgetTerminationReason = null,
+        bool lowStructureVpsgEnabled = false) =>
         new()
         {
             RejectionReason = reason,
@@ -166,7 +179,12 @@ public sealed class MapStructureRegistrationResult
             PyramidSearchMilliseconds = pyramidSearchMilliseconds,
             LocalTemplateSearchMilliseconds = localTemplateSearchMilliseconds,
             GlobalTemplateSearchMilliseconds = globalTemplateSearchMilliseconds,
-            CandidateRankingMilliseconds = candidateRankingMilliseconds
+            CandidateRankingMilliseconds = candidateRankingMilliseconds,
+            LowStructureRoute = lowStructureRoute ?? string.Empty,
+            LowStructureCompletedScaleCount = lowStructureCompletedScaleCount,
+            LowStructureTranslationCandidateCount = lowStructureTranslationCandidateCount,
+            LowStructureBudgetTerminationReason = lowStructureBudgetTerminationReason ?? string.Empty,
+            LowStructureVpsgEnabled = lowStructureVpsgEnabled
         };
 }
 /*

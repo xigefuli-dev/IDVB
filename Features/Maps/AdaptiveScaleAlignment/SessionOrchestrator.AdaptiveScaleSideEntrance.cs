@@ -11,6 +11,32 @@ public sealed partial class SessionOrchestrator
         out MapAlignmentSession usedSeed)
     {
         usedSeed = templateSeed;
+        if (MapAlignmentChannelRegistry.Resolve(
+                candidate.Map,
+                candidate.FloorKey).Channel == MapAlignmentChannel.LowStructure)
+        {
+            // Low-structure floors have no door evidence. Keep this defensive
+            // boundary before adaptive calibration, cache, or VPSG can run.
+            var lowStructureTuning = structureTuning.Clone();
+            lowStructureTuning.Channel = MapAlignmentChannel.LowStructure;
+            lowStructureTuning.EnableFeatureVoting = false;
+            lowStructureTuning.LowStructureEnableFeatureScaleEstimate = false;
+            lowStructureTuning.Normalize();
+            usedSeed = templateSeed.WithUniformScale(
+                MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                    candidate.Map,
+                    candidate.FloorKey).ScaleX);
+            return _recognition.AlignFloorWithoutGates(
+                frame,
+                candidate.Map.Id,
+                candidate.FloorKey,
+                usedSeed.LockedTransform,
+                _settings!.OverlayAlignmentMode,
+                alignmentTuning,
+                lowStructureTuning,
+                identityPriorConfidence: candidate.MatchScore,
+                allowPrimaryFloor: true);
+        }
         var targetResolution = GetResolution(frame);
         var rejectionChain = new List<string>();
         var hasAdaptiveSeed = TryAlignWithAdaptiveCalibrationSeed(

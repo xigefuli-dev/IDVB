@@ -35,6 +35,7 @@ public sealed partial class SessionOrchestrator
         EndAdaptiveMapOpen("match lifecycle changed");
         CancelOrbTracking("match lifecycle changed");
         CancelMapOpenAlignment();
+        _lowStructureRecoveryCursor.Reset();
         try
         {
             _matchCancellation?.Cancel();
@@ -74,6 +75,7 @@ public sealed partial class SessionOrchestrator
     {
         lock (_mapOpenCancellationGate)
             _mapOpenCancellation?.Cancel();
+        _lowStructureRecoveryCursor.Reset();
     }
 
     private async Task DrainMatchOperationsAsync()
@@ -93,6 +95,7 @@ public sealed partial class SessionOrchestrator
     {
         // 再次快捷扫描是显式请求重新识别：作废尚未消费的后台扫描结果。
         ClearPendingBackgroundScan();
+        _lowStructureRecoveryCursor.Reset();
         EndAdaptiveMapOpen("map rescan requested");
         var previousMapId = _lastRecognition?.Map.Id
             ?? _pendingAlignmentIdentity?.Map.Id;
@@ -145,6 +148,7 @@ public sealed partial class SessionOrchestrator
     {
         // 对局结束：作废尚未消费的后台扫描结果，下一局重新开始。
         ClearPendingBackgroundScan();
+        _lowStructureRecoveryCursor.Reset();
         EndAdaptiveMapOpen("match transient state reset");
         _overlayStatus.Clear();
         _overlay.Clear();

@@ -10,7 +10,7 @@ using Microsoft.UI;
 namespace IDVBuff.Views;
 
 /// <summary>Product, licensing, privacy, and attribution information.</summary>
-public sealed class SettingsPage : Page
+public sealed partial class SettingsPage : Page
 {
     private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
     private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
@@ -488,29 +488,4 @@ public sealed class SettingsPage : Page
 
     private static string GetDisplayVersion()
         => $"v{BuildVersionInfo.ProductVersion}\n构建版本：{BuildVersionInfo.BuildVersion}";
-
-    private async void SpecificationCard_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: ValueTuple<string, string> details })
-            return;
-
-        await new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = details.Item1,
-            Content = new ScrollViewer
-            {
-                MaxHeight = 520,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = new TextBlock
-                {
-                    Text = details.Item2,
-                    TextWrapping = TextWrapping.Wrap,
-                    FontSize = 14
-                }
-            },
-            CloseButtonText = "知道了",
-            DefaultButton = ContentDialogButton.Close
-        }.ShowAsync();
-    }
 }

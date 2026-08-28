@@ -59,6 +59,20 @@ internal static class SessionResultBuilder
             StructureAttempted = diag.StructureAttempted,
             StructureAccepted = diag.StructureAccepted,
             SearchStage = diag.SearchStage.ToString(),
+            LowStructureRoute = diag.LowStructureRoute,
+            LowStructureReadinessDecision = diag.LowStructureReadinessDecision,
+            LowStructureCacheTrustLevel = diag.LowStructureCacheTrustLevel,
+            LowStructurePlannedScaleCount = diag.LowStructurePlannedScaleCount,
+            LowStructureCompletedScaleCount = diag.LowStructureCompletedScaleCount,
+            LowStructureRecoveryBatch = diag.LowStructureRecoveryBatch,
+            LowStructureRecoveryTotalScaleCount =
+                diag.LowStructureRecoveryTotalScaleCount,
+            LowStructureTranslationCandidateCount =
+                diag.LowStructureTranslationCandidateCount,
+            LowStructureBudgetTerminationReason =
+                diag.LowStructureBudgetTerminationReason,
+            LowStructureVpsgEnabled = diag.LowStructureVpsgEnabled,
+            VpsgActuallyEnabled = diag.VpsgActuallyEnabled,
             StructureBestScore = diag.StructureBestScore,
             StructureCandidateMargin = diag.StructureCandidateMargin
         };

@@ -240,6 +240,19 @@ internal static partial class MapCvAlignmentService
     {
         diagnostics.StructureCandidateCount =
             structure.Candidates.Count;
+        diagnostics.LowStructureRoute = structure.LowStructureRoute;
+        diagnostics.LowStructureCompletedScaleCount =
+            structure.LowStructureCompletedScaleCount;
+        diagnostics.LowStructurePlannedScaleCount =
+            structure.ScaleHypothesisCount;
+        diagnostics.LowStructureTranslationCandidateCount =
+            structure.LowStructureTranslationCandidateCount;
+        diagnostics.LowStructureBudgetTerminationReason =
+            structure.LowStructureBudgetTerminationReason;
+        diagnostics.LowStructureVpsgEnabled =
+            structure.LowStructureVpsgEnabled;
+        diagnostics.VpsgActuallyEnabled =
+            structure.LowStructureVpsgEnabled;
         diagnostics.ScaleHypothesisCount = structure.ScaleHypothesisCount;
         diagnostics.CoarseGlobalMilliseconds =
             structure.FastCoarseSearchMilliseconds;

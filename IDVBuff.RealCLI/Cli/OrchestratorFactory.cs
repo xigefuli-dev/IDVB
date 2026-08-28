@@ -23,6 +23,21 @@ internal static class OrchestratorFactory
         string? settingsRoot,
         out RecordingOverlayWindow overlay)
     {
+        return BuildOrchestrator(
+            dispatcher,
+            imagePath,
+            settingsRoot,
+            out overlay,
+            out _);
+    }
+
+    public static SessionOrchestrator BuildOrchestrator(
+        DispatcherQueue dispatcher,
+        string imagePath,
+        string? settingsRoot,
+        out RecordingOverlayWindow overlay,
+        out FileBasedCapture capture)
+    {
         var services = new ServiceCollection();
 
         // Step 1: 注册 ConfigProvider（使用与主应用相同的数据目录）
@@ -33,7 +48,7 @@ internal static class OrchestratorFactory
 
         // Step 2: 根据截图分辨率自动匹配专属 TOML 预设
         // ⚠️ 必须在 AddIdvbServices 之前执行，确保 ApplyConfig 读取正确的预设值
-        var capture = new FileBasedCapture(imagePath);
+        capture = new FileBasedCapture(imagePath);
         var imageBounds = capture.FullBounds;
         if (imageBounds.IsValid)
         {

@@ -83,8 +83,10 @@ public sealed class MapStructureResidentReferenceTests
             using var lease = cache.TryRentResident(borrowedId, updatedAt, "1f");
             Assert.NotNull(lease);
 
-            // 灌满 LRU（8 槽），把被租用的条目挤出去。
-            for (var i = 0; i < 10; i++)
+            // 灌满 LRU 并越过容量，把被租用的条目挤出去。
+            for (var i = 0;
+                i < MapStructureReferenceCache.MaxCacheSlots + 2;
+                i++)
             {
                 using (cache.GetOrCreate(
                     Guid.NewGuid(), updatedAt, image, null, "1f"))

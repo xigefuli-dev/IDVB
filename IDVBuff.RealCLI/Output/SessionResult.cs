@@ -61,6 +61,13 @@ public sealed class RealCliSessionResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RequestedCandidate { get; init; }
 
+    /// <summary>
+    /// 回放数据指定的用户可见楼层位置（1-based）。
+    /// 这是生产楼层切换的输入，不是对齐算法的楼层强制值。
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RequestedFloorPosition { get; init; }
+
     /// <summary>本次扫描的候选数量（无候选为 0）。</summary>
     public int CandidateCount { get; init; }
 
@@ -140,6 +147,18 @@ public sealed class RealCliDiagnosticsOutput
     public bool StructureAttempted { get; init; }
     public bool StructureAccepted { get; init; }
     public string SearchStage { get; init; } = "None";
+
+    public string LowStructureRoute { get; init; } = string.Empty;
+    public string LowStructureReadinessDecision { get; init; } = string.Empty;
+    public string LowStructureCacheTrustLevel { get; init; } = string.Empty;
+    public int LowStructurePlannedScaleCount { get; init; }
+    public int LowStructureCompletedScaleCount { get; init; }
+    public int LowStructureRecoveryBatch { get; init; }
+    public int LowStructureRecoveryTotalScaleCount { get; init; }
+    public int LowStructureTranslationCandidateCount { get; init; }
+    public string LowStructureBudgetTerminationReason { get; init; } = string.Empty;
+    public bool LowStructureVpsgEnabled { get; init; }
+    public bool VpsgActuallyEnabled { get; init; }
 
     // ── 质量指标 ──
 

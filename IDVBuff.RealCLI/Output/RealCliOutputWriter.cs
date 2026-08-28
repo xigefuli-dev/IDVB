@@ -43,4 +43,12 @@ public static class RealCliOutputWriter
         var json = JsonSerializer.Serialize(summary, JsonOptions);
         await File.WriteAllTextAsync(path, json);
     }
+
+    public static async Task WriteObjectAsync<T>(T value, string path)
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (dir is not null) Directory.CreateDirectory(dir);
+        var json = JsonSerializer.Serialize(value, JsonOptions);
+        await File.WriteAllTextAsync(path, json);
+    }
 }

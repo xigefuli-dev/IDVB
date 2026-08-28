@@ -211,6 +211,7 @@ internal sealed partial class AdaptiveScaleCoordinator
         RuntimeMapRecognition recognition,
         AdaptiveScaleInitialEvidence evidence) =>
         evidence.StructureValidated
+        && evidence.ScaleIndependentlyEstimated
         && recognition.Result.EvidenceKind == MapAlignmentEvidenceKind.Structure
         && !recognition.Result.ReusedLastTransform
         && !recognition.Result.SkippedStructureValidation
@@ -223,6 +224,7 @@ internal sealed partial class AdaptiveScaleCoordinator
         RuntimeMapRecognition recognition,
         AdaptiveScaleInitialEvidence evidence) =>
         evidence.StructureValidated
+        && evidence.ScaleIndependentlyEstimated
         && recognition.Result.EvidenceKind == MapAlignmentEvidenceKind.Structure
         && !recognition.Result.ReusedLastTransform
         && !recognition.Result.SkippedStructureValidation

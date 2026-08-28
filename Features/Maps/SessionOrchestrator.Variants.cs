@@ -92,6 +92,7 @@ public sealed partial class SessionOrchestrator
             var mapWasOpen = _gameMapToggleState.IsOpen;
             _matchSession.AdvanceOperationEpoch();
             CancelMatchOperations();
+            _lowStructureRecoveryCursor.Reset();
             await DrainMatchOperationsAsync();
             await DrainMapCacheWritesAsync();
             DiscardAutomaticMapCacheSamples("切换地图变体，丢弃旧地图尚未落盘的自动缓存样本");

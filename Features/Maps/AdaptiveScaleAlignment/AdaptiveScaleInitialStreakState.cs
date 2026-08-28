@@ -36,7 +36,8 @@ internal sealed class AdaptiveScaleInitialStreakState
         _key = key;
         _requiredCount = options.RequiredConsecutiveInitialResults;
         _clusterTolerance = options.InitialScaleClusterTolerance;
-        if (persisted?.InitialSamples is { Count: > 0 })
+        if (persisted is { ScaleEvidenceVersion: >= 1 }
+            && persisted.InitialSamples is { Count: > 0 })
         {
             _samples.AddRange(persisted.InitialSamples
                 .Where(IsValid)
@@ -53,12 +54,19 @@ internal sealed class AdaptiveScaleInitialStreakState
         double scale,
         double confidence,
         bool qualified,
-        DateTimeOffset observedAt)
+        DateTimeOffset observedAt,
+        bool preserveWhenUnqualified = false)
     {
         if (_lastCountedOpenId == openId)
             return Result(changed: false, counted: false, rebuilt: false, observedAt);
 
         _lastCountedOpenId = openId;
+        if (!qualified && preserveWhenUnqualified)
+            return Result(
+                changed: false,
+                counted: false,
+                rebuilt: false,
+                observedAt);
         if (!qualified || !double.IsFinite(scale) || scale <= 0d)
         {
             var changed = _samples.Count > 0;

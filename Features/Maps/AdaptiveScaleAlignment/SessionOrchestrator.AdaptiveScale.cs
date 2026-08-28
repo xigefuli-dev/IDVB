@@ -106,7 +106,11 @@ public sealed partial class SessionOrchestrator
                     || (diagnostics.StructureAccepted
                         && string.IsNullOrWhiteSpace(
                             diagnostics.StructureHardGateFailure))),
-            vpsg);
+            vpsg,
+            ScaleIndependentlyEstimated: diagnostics is null
+                || string.IsNullOrWhiteSpace(diagnostics.LowStructureRoute)
+                || LowStructureScaleEvidenceRules.IsIndependentScaleRoute(
+                    diagnostics.LowStructureRoute));
     }
 
     private MapFeatureCacheSource? ResolveLegacyScaleSource(

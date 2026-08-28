@@ -29,11 +29,11 @@
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
         <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
-        <IDVBProductVersion>1.5.1</IDVBProductVersion>
+        <IDVBProductVersion>1.5.2</IDVBProductVersion>
         <IDVBReleaseLine>b01.5</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
-        <AssemblyVersion>1.5.1.0</AssemblyVersion>
-        <FileVersion>1.5.1.0</FileVersion>
+        <AssemblyVersion>1.5.2.0</AssemblyVersion>
+        <FileVersion>1.5.2.0</FileVersion>
         <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>
@@ -90,6 +90,7 @@
         <ProjectReference Include="Plugins\NightVision\IDVBuff.NightVision.csproj" />
         <ProjectReference Include="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
         <ProjectReference Include="Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
+        <ProjectReference Include="Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
 
         <Content Include="Assets\SplashScreen.scale-200.png" />
         <Content Include="Assets\LockScreenLogo.scale-200.png" />
@@ -100,6 +101,7 @@
         <Content Include="Assets\Wide310x150Logo.scale-200.png" />
         <Content Include="Assets\Icons\*.ico" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Guide\*.png" />
         <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />

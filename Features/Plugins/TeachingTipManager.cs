@@ -138,7 +138,7 @@ public sealed partial class TeachingTipManager
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
             IsHitTestVisible = true
         };
-        dismissLayer.Tapped += (_, _) => { if (content.Tag is Action commit) commit(); BeginClose(); };
+        dismissLayer.Tapped += (_, _) => BeginClose();
 
         var tip = new TeachingTip
         {
@@ -185,6 +185,7 @@ public sealed partial class TeachingTipManager
     /// </summary>
     private void DetachTipInternal()
     {
+        CommitCurrentSettings();
         var tip = _tip;
         _tip = null;
         _currentPlugin = null;
@@ -234,6 +235,7 @@ public sealed partial class TeachingTipManager
     /// </summary>
     private void BeginClose()
     {
+        CommitCurrentSettings();
         var tip = _tip;
         if (tip is null || !CanClose())
             return;
@@ -267,6 +269,9 @@ public sealed partial class TeachingTipManager
 
     private void OnTipClosing(TeachingTip sender, TeachingTipClosingEventArgs args)
     {
+        // 内置关闭按钮不会经过 BeginClose；先提交当前编辑内容，再判断是否允许关闭。
+        if (ReferenceEquals(sender, _tip))
+            CommitCurrentSettings();
         // 入场动画未结束前禁止任何关闭——含内置 X 关闭按钮（CloseButton reason）。
         if (ReferenceEquals(sender, _tip) && !CanClose())
             args.Cancel = true;
@@ -276,6 +281,8 @@ public sealed partial class TeachingTipManager
     {
         if (!ReferenceEquals(sender, _tip))
             return;
+        // 作为所有关闭路径的最后一道兜底，确保 Closed 前最后一次输入已落盘。
+        CommitCurrentSettings();
         // 退场动画已结束：摘除树元素并清空状态。
         _tip = null;
         _currentPlugin = null;
@@ -340,6 +347,7 @@ public sealed partial class TeachingTipManager
                 out _)
                 ? binding.DefaultValue
                 : null,
+        PluginTextSetting text => text.Coerce(text.DefaultValue),
         _ => null
     };
 
@@ -384,6 +392,14 @@ public sealed partial class TeachingTipManager
                     return true;
                 }
                 break;
+            case PluginTextSetting textSetting:
+                if (stored.ValueKind == JsonValueKind.String
+                    && stored.GetString() is { } textValue)
+                {
+                    value = textSetting.Coerce(textValue);
+                    return true;
+                }
+                break;
         }
         value = null;
         return false;
@@ -402,12 +418,22 @@ public sealed partial class TeachingTipManager
         }
     }
 
+    private void CommitCurrentSettings()
+    {
+        if (_tip?.Content is FrameworkElement content
+            && content.Tag is Action commit)
+        {
+            commit();
+        }
+    }
+
     private FrameworkElement BuildSettingsContent(
         IPluginSettingsProvider provider, string pluginId)
     {
         var rows = new StackPanel { Spacing = 16, MinWidth = TipMinWidth - 40,
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)) };
         var numericEditors = new List<(NumberBox Input, Action Commit)>();
+        var textEditors = new List<Action>();
         var settingRows = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
         Action endNumericEditing = () => { }, refreshVisibility = () => RefreshSettingVisibility(provider, settingRows);
         foreach (var setting in provider.Settings)
@@ -415,6 +441,7 @@ public sealed partial class TeachingTipManager
             try
             {
                 var row = BuildSettingRow(provider, pluginId, setting, numericEditors,
+                    textEditors,
                     () => endNumericEditing(), refreshVisibility);
                 if (row is not null)
                 {
@@ -441,399 +468,8 @@ public sealed partial class TeachingTipManager
         };
         endNumericEditing = () =>
             scrollViewer.Focus(FocusState.Programmatic);
-        AttachNumericCommit(scrollViewer, numericEditors, endNumericEditing);
+        AttachNumericCommit(scrollViewer, numericEditors, textEditors, endNumericEditing);
         return scrollViewer;
-    }
-
-    private FrameworkElement? BuildSettingRow(
-        IPluginSettingsProvider provider,
-        string pluginId,
-        IPluginSetting setting,
-        ICollection<(NumberBox Input, Action Commit)> numericEditors,
-        Action endNumericEditing,
-        Action refreshVisibility)
-    {
-        var row = new StackPanel { Spacing = 6 };
-        row.Children.Add(new TextBlock
-        {
-            Text = setting.DisplayName,
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
-        });
-
-        switch (setting)
-        {
-            case PluginToggleSetting toggle:
-                {
-                    var initial = ReadProviderValue(provider, setting) as bool?
-                        ?? toggle.DefaultValue;
-                    var control = new ToggleSwitch
-                    {
-                        OnContent = "开",
-                        OffContent = "关",
-                        IsOn = initial
-                    };
-                    control.Toggled += (_, _) =>
-                        PersistSetting(provider, pluginId, setting.Key,
-                            JsonSerializer.SerializeToElement(control.IsOn));
-                    row.Children.Add(control);
-                    break;
-                }
-            case PluginSliderSetting slider:
-                {
-                    if (slider.Maximum < slider.Minimum
-                        || double.IsNaN(slider.Minimum) || double.IsNaN(slider.Maximum))
-                    {
-                        break;
-                    }
-                    var initial = ReadProviderValue(provider, setting) switch
-                    {
-                        double d => d,
-                        long l => (double)l,
-                        int i => (double)i,
-                        _ => slider.DefaultValue
-                    };
-                    initial = CoerceSlider(initial, slider);
-                    var valueInput = new NumberBox
-                    {
-                        Value = initial,
-                        Minimum = slider.Minimum,
-                        Maximum = slider.Maximum,
-                        SmallChange = slider.StepFrequency > 0 ? slider.StepFrequency : 1,
-                        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Hidden,
-                        Width = 88,
-                        VerticalAlignment = VerticalAlignment.Center,
-                    };
-                    var control = new Slider
-                    {
-                        Minimum = slider.Minimum,
-                        Maximum = slider.Maximum,
-                        StepFrequency = Math.Max(0, Math.Min(
-                            slider.StepFrequency, slider.Maximum - slider.Minimum)),
-                        SnapsTo = SliderSnapsTo.StepValues,
-                        Value = initial
-                    };
-                    var sliderRow = new Grid { ColumnSpacing = 12 };
-                    sliderRow.ColumnDefinitions.Add(new ColumnDefinition
-                    {
-                        Width = new GridLength(1, GridUnitType.Star)
-                    });
-                    sliderRow.ColumnDefinitions.Add(new ColumnDefinition
-                    {
-                        Width = GridLength.Auto
-                    });
-                    Grid.SetColumn(control, 0);
-                    Grid.SetColumn(valueInput, 1);
-                    sliderRow.Children.Add(control);
-                    sliderRow.Children.Add(valueInput);
-                    control.ValueChanged += (_, e) =>
-                    {
-                        var snapped = SnapSliderValue(e.NewValue, slider);
-                        valueInput.Value = snapped;
-                        PersistSetting(provider, pluginId, setting.Key,
-                            JsonSerializer.SerializeToElement(snapped));
-                    };
-                    void CommitNumberInput()
-                    {
-                        var requested = PluginNumericInput.TryGetValue(valueInput, out var typedValue)
-                            ? typedValue
-                            : double.IsFinite(valueInput.Value)
-                                ? valueInput.Value
-                            : control.Value;
-                        var snapped = SnapSliderValue(requested, slider);
-                        valueInput.Value = snapped;
-                        control.Value = snapped;
-                        PersistSetting(provider, pluginId, setting.Key,
-                            JsonSerializer.SerializeToElement(snapped));
-                    }
-                    valueInput.LostFocus += (_, _) => CommitNumberInput();
-                    numericEditors.Add((valueInput, CommitNumberInput));
-                    PluginNumericInput.Attach(valueInput, typedValue => PersistSetting(provider,
-                        pluginId, setting.Key, JsonSerializer.SerializeToElement(SnapSliderValue(typedValue, slider))), () =>
-                    {
-                        CommitNumberInput();
-                        endNumericEditing();
-                    }, endNumericEditing);
-                    row.Children.Add(sliderRow);
-                    break;
-                }
-            case PluginChoiceSetting choice:
-                {
-                    if (choice.Options.Length == 0)
-                        break;
-                    var raw = ReadProviderValue(provider, setting);
-                    var selectedIndex = raw is string s
-                        && Array.IndexOf(choice.Options, s) >= 0
-                            ? Array.IndexOf(choice.Options, s)
-                            : choice.DefaultIndex;
-                    selectedIndex = Math.Clamp(
-                        selectedIndex, 0, choice.Options.Length - 1);
-                    var control = new ComboBox
-                    {
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        MinWidth = 200
-                    };
-                    foreach (var option in choice.Options)
-                        control.Items.Add(option);
-                    control.SelectedIndex = selectedIndex;
-                    control.SelectionChanged += (_, _) =>
-                    {
-                        if (control.SelectedIndex >= 0
-                            && control.SelectedIndex < choice.Options.Length)
-                        {
-                            PersistSetting(provider, pluginId, setting.Key,
-                                JsonSerializer.SerializeToElement(
-                                    choice.Options[control.SelectedIndex]));
-                            refreshVisibility();
-                        }
-                    };
-                    row.Children.Add(control);
-                    break;
-                }
-            case PluginKeyBindingSetting binding:
-                row.Children.Add(BuildKeyBindingControl(
-                    provider,
-                    pluginId,
-                    binding));
-                break;
-            default:
-                row.Children.Add(new TextBlock
-                {
-                    Text = $"不支持的设置类型：{setting.GetType().Name}",
-                    FontSize = 12,
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
-                });
-                break;
-        }
-
-        if (!string.IsNullOrWhiteSpace(setting.Description))
-        {
-            row.Children.Add(new TextBlock
-            {
-                Text = setting.Description,
-                FontSize = 12,
-                Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
-                TextWrapping = TextWrapping.Wrap
-            });
-        }
-        return row;
-    }
-
-    private FrameworkElement BuildKeyBindingControl(
-        IPluginSettingsProvider provider,
-        string pluginId,
-        PluginKeyBindingSetting setting)
-    {
-        var current = ReadProviderValue(provider, setting) as string;
-        if (!PluginInputBinding.TryParse(
-                current,
-                setting.AllowedKinds,
-                out var binding))
-        {
-            PluginInputBinding.TryParse(
-                setting.DefaultValue,
-                setting.AllowedKinds,
-                out binding);
-        }
-
-        var recording = false;
-        var modifiers = PluginInputModifiers.None;
-        var hovered = false;
-        var ignoreNextClick = false;
-        var xButton1WasDown = false;
-        var xButton2WasDown = false;
-        var sideButtonPoller = _dispatcher.CreateTimer();
-        sideButtonPoller.Interval = TimeSpan.FromMilliseconds(15);
-        var host = new Grid
-        {
-            IsTabStop = true,
-            Background = new SolidColorBrush(
-                Windows.UI.Color.FromArgb(1, 0, 0, 0))
-        };
-        var button = new Button
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinWidth = 200
-        };
-        var bindingDescription = new TextBlock
-        {
-            FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
-            TextWrapping = TextWrapping.Wrap
-        };
-        host.Children.Add(button);
-        var control = new StackPanel { Spacing = 6 };
-        control.Children.Add(bindingDescription);
-        control.Children.Add(host);
-
-        void RefreshButton()
-        {
-            bindingDescription.Text = binding.IsConfigured
-                ? $"当前绑定：{binding.DisplayName}"
-                : "当前未绑定";
-            RefreshPluginBindingButtonAppearance(button, binding, recording, hovered);
-        }
-
-        button.PointerEntered += (_, _) =>
-        {
-            hovered = true;
-            RefreshButton();
-        };
-        button.PointerExited += (_, _) =>
-        {
-            hovered = false;
-            RefreshButton();
-        };
-
-        async Task SaveBinding(PluginInputBinding next)
-        {
-            sideButtonPoller.Stop();
-            recording = false;
-            modifiers = PluginInputModifiers.None;
-            binding = next;
-            PersistSetting(
-                provider,
-                pluginId,
-                setting.Key,
-                JsonSerializer.SerializeToElement(binding.StorageValue));
-            RefreshButton();
-            await Task.CompletedTask;
-        }
-
-        button.Click += (_, _) =>
-        {
-            if (ignoreNextClick)
-            {
-                ignoreNextClick = false;
-                return;
-            }
-            if (recording)
-                return;
-            if (binding.IsConfigured)
-            {
-                _ = SaveBinding(new PluginInputBinding());
-                return;
-            }
-
-            recording = true;
-            modifiers = PluginInputModifiers.None;
-            xButton1WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
-            xButton2WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
-            sideButtonPoller.Start();
-            RefreshButton();
-            host.Focus(FocusState.Programmatic);
-        };
-
-        sideButtonPoller.Tick += async (_, _) =>
-        {
-            if (!recording
-                || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
-            {
-                return;
-            }
-
-            var xButton1IsDown =
-                IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
-            var xButton2IsDown =
-                IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
-            if (xButton1IsDown && !xButton1WasDown)
-            {
-                await SaveBinding(
-                    PluginInputBinding.Mouse(PluginMouseButton.XButton1));
-                return;
-            }
-            if (xButton2IsDown && !xButton2WasDown)
-            {
-                await SaveBinding(
-                    PluginInputBinding.Mouse(PluginMouseButton.XButton2));
-                return;
-            }
-            xButton1WasDown = xButton1IsDown;
-            xButton2WasDown = xButton2IsDown;
-        };
-        host.Unloaded += (_, _) => sideButtonPoller.Stop();
-
-        host.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(async (_, args) =>
-        {
-            if (!recording)
-                return;
-            args.Handled = true;
-            if (TryGetPluginModifier(args.Key, out var modifier))
-            {
-                modifiers |= modifier;
-                return;
-            }
-
-            var next = PluginInputBinding.Keyboard(
-                (uint)args.Key,
-                ReadCurrentPluginModifiers(modifiers));
-            if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
-                await SaveBinding(next);
-        }), handledEventsToo: true);
-
-        host.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler(async (_, args) =>
-        {
-            if (!recording
-                || !TryGetPluginModifier(args.Key, out var modifier))
-            {
-                return;
-            }
-            args.Handled = true;
-            if ((modifiers & modifier) == 0)
-                return;
-            modifiers = PluginInputModifiers.None;
-            if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
-            {
-                await SaveBinding(PluginInputBinding.Keyboard(
-                    (uint)args.Key));
-            }
-        }), handledEventsToo: true);
-
-        host.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(async (_, args) =>
-        {
-            if (!recording
-                || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
-            {
-                return;
-            }
-
-            var properties = args.GetCurrentPoint(host).Properties;
-            if (!TryGetPluginMouseButton(properties, out var mouseButton))
-                return;
-            ignoreNextClick = mouseButton == PluginMouseButton.Left;
-            args.Handled = true;
-            await SaveBinding(PluginInputBinding.Mouse(mouseButton));
-        }), handledEventsToo: true);
-
-        RefreshButton();
-        return control;
-    }
-
-    /// <summary>
-    /// 将控件新值同时写回插件内存态与存储层。任一失败只记日志，不影响 UI。
-    /// </summary>
-    private void PersistSetting(
-        IPluginSettingsProvider provider, string pluginId, string key, JsonElement element)
-    {
-        var clr = element.ValueKind switch
-        {
-            JsonValueKind.True or JsonValueKind.False => (object?)element.GetBoolean(),
-            JsonValueKind.Number => element.TryGetDouble(out var d) ? (object?)d : null,
-            JsonValueKind.String => element.GetString(),
-            _ => null
-        };
-        if (clr is not null)
-            SafeSetProviderValue(provider, key, clr);
-        try
-        {
-            _store.SetSetting(pluginId, key, element);
-        }
-        catch (Exception exception)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"TTM 持久化设置失败 {pluginId}/{key}: {exception}");
-        }
     }
 
 }

@@ -4,6 +4,7 @@ namespace IDVBuff.Features.Maps;
 
 internal sealed class QueryGeometry : IDisposable
 {
+    private Mat? _edgeDistanceMap;
     public QueryGeometry(
         double scale,
         Mat structure,
@@ -28,6 +29,25 @@ internal sealed class QueryGeometry : IDisposable
     public int EdgeCount => EdgePoints.Length;
     public Mat? VisibleMask { get; }
 
+    internal Mat GetOrCreateEdgeDistanceMap()
+    {
+        if (_edgeDistanceMap is not null)
+            return _edgeDistanceMap;
+        using var croppedEdges = new Mat(Edges, Bounds);
+        using var inverse = new Mat();
+        Cv2.BitwiseNot(croppedEdges, inverse);
+        _edgeDistanceMap = new Mat();
+        // Reverse distance is a soft ranking diagnostic. Mask3 is sufficient
+        // and avoids repeating the expensive precise transform for every
+        // translation candidate at the same scale.
+        Cv2.DistanceTransform(
+            inverse,
+            _edgeDistanceMap,
+            DistanceTypes.L2,
+            DistanceTransformMasks.Mask3);
+        return _edgeDistanceMap;
+    }
+
     public QueryGeometry CloneForDebug() => new(
         Scale,
         Structure.Clone(),
@@ -41,6 +61,7 @@ internal sealed class QueryGeometry : IDisposable
         Structure.Dispose();
         Edges.Dispose();
         VisibleMask?.Dispose();
+        _edgeDistanceMap?.Dispose();
     }
 }
 /*

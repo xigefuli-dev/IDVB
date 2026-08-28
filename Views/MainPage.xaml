@@ -219,5 +219,10 @@
                   IsHitTestVisible="False"
                   Canvas.ZIndex="20" />
         </Grid>
+
+        <!-- Kept as the final child so a guide can cover the complete page. -->
+        <Grid x:Name="EmphasisGuideHost"
+              Grid.RowSpan="2"
+              Canvas.ZIndex="100" />
     </Grid>
 </Page>

@@ -18,6 +18,7 @@ public sealed partial class MapStructureRegistrar
     internal sealed class ReciprocalScaleContext
     {
         public double ReferenceScale { get; init; } = 1d;
+        public Mat? Edges { get; init; }
         public Mat? StructureMask { get; init; }
         public static readonly ReciprocalScaleContext None = new();
     }

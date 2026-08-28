@@ -95,7 +95,7 @@ public class MapStructureReferenceCachePerformanceTests
     [Fact]
     public void Cache_ShouldSupportMultipleMaps()
     {
-        // 验证缓存支持多地图多楼层（8 槽容量）
+        // 验证缓存支持多地图多楼层。
         var preprocessor = new MapStructurePreprocessor();
         using var cache = new MapStructureReferenceCache(
             preprocessor,
@@ -147,7 +147,7 @@ public class MapStructureReferenceCachePerformanceTests
             }
         }
 
-        _output.WriteLine("\n✓ 测试通过：8 槽缓存支持多地图多楼层");
+        _output.WriteLine("\n✓ 测试通过：缓存支持多地图多楼层");
     }
 
     [Fact]
@@ -162,10 +162,12 @@ public class MapStructureReferenceCachePerformanceTests
         var updatedAt = DateTimeOffset.UtcNow;
         using var testImage = new Mat(800, 1000, MatType.CV_8UC3, Scalar.All(128));
 
-        _output.WriteLine("=== 填满缓存（8 槽）===");
+        _output.WriteLine($"=== 填满缓存（{MapStructureReferenceCache.MaxCacheSlots} 槽）===");
 
-        // 创建 8 个不同的缓存条目（填满缓存）
-        var maps = Enumerable.Range(0, 8).Select(_ => Guid.NewGuid()).ToArray();
+        // 创建不同的缓存条目并填满缓存。
+        var maps = Enumerable.Range(0, MapStructureReferenceCache.MaxCacheSlots)
+            .Select(_ => Guid.NewGuid())
+            .ToArray();
         foreach (var mapId in maps)
         {
             using var f = cache.GetOrCreate(mapId, updatedAt, testImage, floor: "1f");
@@ -173,19 +175,20 @@ public class MapStructureReferenceCachePerformanceTests
         }
         var afterFill = cache.GetStatisticsForDiagnostics();
         Assert.Equal(0, afterFill.Hits);
-        Assert.Equal(8, afterFill.Misses);
+        Assert.Equal(MapStructureReferenceCache.MaxCacheSlots, afterFill.Misses);
 
-        _output.WriteLine("\n=== 访问第 9 个条目，触发 LRU 驱逐 ===");
+        _output.WriteLine("\n=== 访问容量外的新条目，触发 LRU 驱逐 ===");
 
-        // 添加第 9 个条目，应该驱逐最旧的（maps[0]）
-        var map9 = Guid.NewGuid();
-        using (var f = cache.GetOrCreate(map9, updatedAt, testImage, floor: "1f"))
+        // 添加容量外的新条目，应该驱逐最旧的（maps[0]）。
+        var overflowMap = Guid.NewGuid();
+        using (var f = cache.GetOrCreate(
+                   overflowMap, updatedAt, testImage, floor: "1f"))
         {
-            _output.WriteLine($"已加载地图 {map9:N} 一楼（第 9 个）");
+            _output.WriteLine($"已加载地图 {overflowMap:N} 一楼（容量外）");
         }
         var afterNinth = cache.GetStatisticsForDiagnostics();
         Assert.Equal(0, afterNinth.Hits);
-        Assert.Equal(9, afterNinth.Misses);
+        Assert.Equal(MapStructureReferenceCache.MaxCacheSlots + 1, afterNinth.Misses);
 
         _output.WriteLine("\n=== 重新访问前 8 个条目 ===");
 
@@ -196,7 +199,9 @@ public class MapStructureReferenceCachePerformanceTests
         {
             var afterResidentAccess = cache.GetStatisticsForDiagnostics();
             Assert.Equal(1, afterResidentAccess.Hits);
-            Assert.Equal(9, afterResidentAccess.Misses);
+            Assert.Equal(
+                MapStructureReferenceCache.MaxCacheSlots + 1,
+                afterResidentAccess.Misses);
             _output.WriteLine("地图 1: 内存缓存命中");
         }
 
@@ -204,7 +209,9 @@ public class MapStructureReferenceCachePerformanceTests
         {
             var afterEvictedAccess = cache.GetStatisticsForDiagnostics();
             Assert.Equal(1, afterEvictedAccess.Hits);
-            Assert.Equal(10, afterEvictedAccess.Misses);
+            Assert.Equal(
+                MapStructureReferenceCache.MaxCacheSlots + 2,
+                afterEvictedAccess.Misses);
             _output.WriteLine("地图 0: 已被驱逐，重新加载");
         }
 

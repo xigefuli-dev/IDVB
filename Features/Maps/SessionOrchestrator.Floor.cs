@@ -183,6 +183,7 @@ public sealed partial class SessionOrchestrator
         CancelOrbTracking("floor changed");
         SuspendActiveAdaptiveFloor("floor changed");
         var nextFloorKey = decision.ToFloorKey!;
+        _lowStructureRecoveryCursor.Reset();
         _currentFloorKey = nextFloorKey;
         if (retargetsPendingVariant)
         {

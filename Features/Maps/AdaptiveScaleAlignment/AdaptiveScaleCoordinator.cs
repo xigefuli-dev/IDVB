@@ -69,7 +69,9 @@ internal sealed partial class AdaptiveScaleCoordinator
                 scale,
                 recognition.Result.LocalizationConfidence,
                 strongInitial,
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                preserveWhenUnqualified: evidence.StructureValidated
+                    && !evidence.ScaleIndependentlyEstimated);
             if (streakResult.Changed)
                 QueueInitialStreakWrite(streakResult.Snapshot);
 
@@ -109,6 +111,8 @@ internal sealed partial class AdaptiveScaleCoordinator
             details["highQualityCount"] = streak.Count;
             details["requiredHighQualityCount"] = _options.RequiredConsecutiveInitialResults;
             details["highQualityCounted"] = streakResult.Counted;
+            details["scaleIndependentlyEstimated"] =
+                evidence.ScaleIndependentlyEstimated;
             details["highQualityClusterRebuilt"] = streakResult.Rebuilt;
             details["reliabilityReason"] = reason.ToString();
             details["legacySource"] = legacySource?.ToString();

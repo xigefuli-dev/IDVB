@@ -79,17 +79,20 @@ internal static class MapOpenCommand
         }
     }
 
-    private static async Task<RealCliSessionResult> RunMapOpenAsync(
+    internal static async Task<RealCliSessionResult> RunMapOpenScenarioAsync(
         SessionOrchestrator orchestrator,
         RecordingOverlayWindow overlay,
         string imagePath,
-        int? candidate)
+        int? candidate,
+        string? reopenImagePath = null,
+        FileBasedCapture? capture = null,
+        int? floorPosition = null)
     {
         var sw = Stopwatch.StartNew();
         try
         {
             await orchestrator.InitializeAsync();
-            await orchestrator.BeginMatchAsync(PlayerSlot.Player1, "S0 厄运之女 · 困难");
+            await orchestrator.BeginMatchAsync("S0 厄运之女 · 困难");
 
             // 强制候选选择（--candidate）只在后台扫描关闭时生效；
             // 临时会话级关闭，不污染用户 settings。
@@ -110,7 +113,7 @@ internal static class MapOpenCommand
             {
                 return BuildCandidateRangeFailure(
                     orchestrator, overlay, imagePath, candidate,
-                    ex.Message, sw.Elapsed.TotalMilliseconds);
+                    floorPosition, ex.Message, sw.Elapsed.TotalMilliseconds);
             }
             scanLock.Stop();
 
@@ -120,12 +123,33 @@ internal static class MapOpenCommand
             {
                 return BuildLockFailure(
                     orchestrator, overlay, imagePath, lockStatus, candidate,
-                    candidateChoices, scanLock.Elapsed.TotalMilliseconds,
+                    floorPosition, candidateChoices,
+                    scanLock.Elapsed.TotalMilliseconds,
+                    sw.Elapsed.TotalMilliseconds);
+            }
+
+            // floorPosition is replay input describing the floor the player
+            // selected. It goes through the same state transition as the UI;
+            // expected output is deliberately never used to steer alignment.
+            if (floorPosition is { } requestedFloorPosition
+                && !orchestrator.SelectFloorPosition(requestedFloorPosition))
+            {
+                return BuildFloorSelectionFailure(
+                    orchestrator,
+                    overlay,
+                    imagePath,
+                    lockStatus,
+                    candidate,
+                    requestedFloorPosition,
+                    candidateChoices,
+                    scanLock.Elapsed.TotalMilliseconds,
                     sw.Elapsed.TotalMilliseconds);
             }
 
             // ── 阶段②：关图 → 重开（同步外部游戏地图状态）──
             orchestrator.SynchronizeExternalGameMapState(false);
+            if (!string.IsNullOrWhiteSpace(reopenImagePath))
+                capture?.SetImagePath(reopenImagePath);
             orchestrator.SynchronizeExternalGameMapState(true);
 
             // ── 阶段③：仅对齐（不扫描识别）──
@@ -141,7 +165,8 @@ internal static class MapOpenCommand
 
             var result = BuildAlignmentResult(
                 orchestrator, overlay, imagePath, lockStatus, candidate,
-                candidateChoices, scanLock.Elapsed.TotalMilliseconds,
+                floorPosition, candidateChoices,
+                scanLock.Elapsed.TotalMilliseconds,
                 alignment.Elapsed.TotalMilliseconds, timings,
                 alignmentSucceeded, sw.Elapsed.TotalMilliseconds, null);
             await orchestrator.EndMatchAsync();
@@ -156,7 +181,9 @@ internal static class MapOpenCommand
                 Succeeded = false,
                 StatusMessage = $"Fatal 异常：{ex.Message}",
                 FatalError = ex.ToString(),
-                TotalWallMs = sw.Elapsed.TotalMilliseconds
+                TotalWallMs = sw.Elapsed.TotalMilliseconds,
+                RequestedCandidate = candidate,
+                RequestedFloorPosition = floorPosition
             };
         }
         finally
@@ -164,6 +191,18 @@ internal static class MapOpenCommand
             await orchestrator.DisposeAsync();
         }
     }
+
+    private static Task<RealCliSessionResult> RunMapOpenAsync(
+        SessionOrchestrator orchestrator,
+        RecordingOverlayWindow overlay,
+        string imagePath,
+        int? candidate) =>
+        RunMapOpenScenarioAsync(
+            orchestrator,
+            overlay,
+            imagePath,
+            candidate,
+            floorPosition: null);
 
     private static LockState ClassifyLock(SessionOrchestrator orchestrator)
     {
@@ -191,6 +230,7 @@ internal static class MapOpenCommand
         string imagePath,
         LockState lockStatus,
         int? candidate,
+        int? floorPosition,
         List<RealCliCandidateChoiceOutput>? candidateChoices,
         double scanLockMs,
         double alignmentMs,
@@ -222,6 +262,7 @@ internal static class MapOpenCommand
         LockStatus = ToName(lockStatus),
         AlignmentSucceeded = alignmentSucceeded,
         RequestedCandidate = candidate,
+        RequestedFloorPosition = floorPosition,
         CandidateCount = candidateChoices?.Count ?? 0,
         CandidateChoices = candidateChoices
     };
@@ -231,6 +272,7 @@ internal static class MapOpenCommand
         RecordingOverlayWindow overlay,
         string imagePath,
         int? candidate,
+        int? floorPosition,
         string message,
         double totalMs)
     {
@@ -250,6 +292,7 @@ internal static class MapOpenCommand
             LockStatus = "NoLock",
             AlignmentSucceeded = false,
             RequestedCandidate = candidate,
+            RequestedFloorPosition = floorPosition,
             CandidateCount = choices?.Count ?? 0,
             CandidateChoices = choices
         };
@@ -261,6 +304,7 @@ internal static class MapOpenCommand
         string imagePath,
         LockState lockStatus,
         int? candidate,
+        int? floorPosition,
         List<RealCliCandidateChoiceOutput>? candidateChoices,
         double scanLockMs,
         double totalMs)
@@ -288,6 +332,45 @@ internal static class MapOpenCommand
             LockStatus = ToName(lockStatus),
             AlignmentSucceeded = false,
             RequestedCandidate = candidate,
+            RequestedFloorPosition = floorPosition,
+            CandidateCount = candidateChoices?.Count ?? 0,
+            CandidateChoices = candidateChoices
+        };
+    }
+
+    private static RealCliSessionResult BuildFloorSelectionFailure(
+        SessionOrchestrator orchestrator,
+        RecordingOverlayWindow overlay,
+        string imagePath,
+        LockState lockStatus,
+        int? candidate,
+        int floorPosition,
+        List<RealCliCandidateChoiceOutput>? candidateChoices,
+        double scanLockMs,
+        double totalMs)
+    {
+        var status = orchestrator.StatusMessage
+            ?? $"无法切换到楼层位置 {floorPosition}。";
+        return new RealCliSessionResult
+        {
+            ImagePath = imagePath,
+            Succeeded = false,
+            StatusMessage = status,
+            FailureReason = status,
+            BackgroundScanStatus = orchestrator.BackgroundScanStatus.ToString(),
+            IsBackgroundScanCompleted = orchestrator.IsBackgroundScanCompleted,
+            OverlayEvents = overlay.Events.ToList(),
+            Recognition = SessionResultBuilder.BuildRecognition(orchestrator),
+            Diagnostics = SessionResultBuilder.BuildDiagnostics(orchestrator),
+            AlignmentSession = SessionResultBuilder.BuildAlignmentSession(orchestrator),
+            LogEntries = SessionResultBuilder.BuildLogEntries(orchestrator),
+            TotalWallMs = totalMs,
+            ScanLockWallMs = scanLockMs,
+            AlignmentWallMs = 0,
+            LockStatus = ToName(lockStatus),
+            AlignmentSucceeded = false,
+            RequestedCandidate = candidate,
+            RequestedFloorPosition = floorPosition,
             CandidateCount = candidateChoices?.Count ?? 0,
             CandidateChoices = candidateChoices
         };

@@ -47,6 +47,11 @@ public sealed class MapStructureRegistrationRequest
     public MapStructureFeatures? PreparedReference { get; init; }
     public MapStructureFeatures? PreparedLive { get; init; }
     /// <summary>
+    /// Low-structure callers provide an explicit bounded plan. Standard
+    /// registration leaves this null and keeps its established policy.
+    /// </summary>
+    internal LowStructureAlignmentPlan? LowStructurePlan { get; init; }
+    /// <summary>
     /// 侧门扫描先验置信度。当前生产调用点一律传入 0：先验只用于会话层的
     /// 身份门控（<c>MapAlignmentSession.SideEntranceScanPriorConfidence</c>），
     /// 不再提升结构配准置信度，位置须由结构证据独立支撑。保留该字段与

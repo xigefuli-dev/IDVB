@@ -39,6 +39,7 @@
     <Project Path="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
     <Project Path="Plugins\NoRecoveryDelay\IDVBuff.NoRecoveryDelay.csproj" />
     <Project Path="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
+    <Project Path="Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
     <Project Path="IDVBuff.PluginContracts.Tests\IDVBuff.PluginContracts.Tests.csproj" />
     <Properties Name="Visual Studio">
         <!-- Support is provisionally available on Visual Studio 17.10 and later versions. -->

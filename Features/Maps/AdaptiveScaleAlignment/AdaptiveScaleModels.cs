@@ -99,7 +99,8 @@ internal sealed record AdaptiveScaleInitialEvidence(
     long FrameId,
     double RequiredCandidateMargin,
     bool StructureValidated,
-    AdaptiveVpsgEvidence? Vpsg = null);
+    AdaptiveVpsgEvidence? Vpsg = null,
+    bool ScaleIndependentlyEstimated = true);
 
 internal sealed record AdaptiveScaleConsensus(
     double Scale,

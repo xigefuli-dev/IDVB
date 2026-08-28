@@ -178,7 +178,8 @@ public sealed class AdaptiveScaleStoreTests
             var entry = store.TryGet(key);
             Assert.NotNull(entry);
             Assert.Equal(expectedTrusted ? 5 : 0, entry!.DistinctOpenCount);
-            Assert.Equal(expectedTrusted, AdaptiveScaleStore.IsTrusted(entry));
+            Assert.False(AdaptiveScaleStore.IsTrusted(entry));
+            Assert.Equal(0, entry.ScaleEvidenceVersion);
             Assert.Equal(2, JsonDocument.Parse(await File.ReadAllTextAsync(path))
                 .RootElement.GetProperty("SchemaVersion").GetInt32());
         }

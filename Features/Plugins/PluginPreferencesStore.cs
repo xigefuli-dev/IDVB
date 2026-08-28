@@ -163,6 +163,7 @@ public sealed class PluginPreferencesStore
                         out _)
                             ? binding.DefaultValue
                             : null,
+                PluginTextSetting text => text.Coerce(text.DefaultValue),
                 _ => null
             };
             if (TryGetSetting(pluginId, setting.Key, out var stored)
@@ -214,6 +215,11 @@ public sealed class PluginPreferencesStore
                         binding.AllowedKinds,
                         out _):
                 value = bindingText;
+                return true;
+            case PluginTextSetting text
+                when stored.ValueKind == JsonValueKind.String
+                    && stored.GetString() is { } textValue:
+                value = text.Coerce(textValue);
                 return true;
             default:
                 value = null;

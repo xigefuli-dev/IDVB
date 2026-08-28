@@ -261,9 +261,10 @@ internal static class MapOpenAlignmentRouteRules
 
     internal static bool ShouldPrioritizeStructureValidation(
         SelectedAlignmentRoute route,
-        bool hasAlignmentDeadline) =>
+        bool hasAlignmentDeadline,
+        bool hasCurrentScanGateEvidence = false) =>
         route == SelectedAlignmentRoute.SideEntrance
-        && hasAlignmentDeadline;
+        && (hasAlignmentDeadline || hasCurrentScanGateEvidence);
 
     internal static int ResolveNoDoorAlignmentBudgetMilliseconds(
         int configuredMilliseconds) =>

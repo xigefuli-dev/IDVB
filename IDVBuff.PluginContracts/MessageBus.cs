@@ -15,7 +15,7 @@ public interface IMessageBus
 /// <summary>
 /// 线程安全的通用实现。单个处理器抛异常被隔离，不影响其他处理器。
 /// </summary>
-[Obsolete("Legacy synchronous bus retained for built-in plugin compatibility only.")]
+// Retained as a supported compatibility contract for compiled-in built-in plugins.
 public sealed class MessageBus : IMessageBus
 {
     private readonly object _gate = new();

@@ -54,7 +54,7 @@ public sealed class QuickStartTests
         Assert.Equal(FirstScanStrategy.SideEntrance, recommended.FirstScanStrategy);
         Assert.True(recommended.BackgroundScanEnabled);
         Assert.Null(recommended.SelectedResolutionPreset);
-        Assert.True(recommended.AllowAutomaticMapCache);
+        Assert.False(recommended.AllowAutomaticMapCache);
         Assert.True(recommended.CollectLogs);
         Assert.True(recommended.CollectAlignmentResearchData);
         Assert.True(recommended.ShowOverlayStatus);

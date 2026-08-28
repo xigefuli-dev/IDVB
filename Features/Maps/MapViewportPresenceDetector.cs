@@ -5,7 +5,19 @@ namespace IDVBuff.Features.Maps;
 public sealed record MapViewportColorSignature(
     IReadOnlyList<double> Histogram,
     double BlueGrayFraction,
-    double MeanValue);
+    double MeanValue,
+    MapViewportStructureSignature? Structure = null);
+
+public sealed record MapViewportStructureSignature(
+    double EdgeDensity,
+    double BoundsLeft,
+    double BoundsTop,
+    double BoundsWidth,
+    double BoundsHeight,
+    IReadOnlyList<double> HorizontalProjection,
+    IReadOnlyList<double> VerticalProjection,
+    double MajorComponentSpanX,
+    double MajorComponentSpanY);
 
 public sealed record MapViewportPresenceResult(
     bool IsPresent,
@@ -40,7 +52,7 @@ public static class MapViewportPresenceDetector
     {
         ArgumentNullException.ThrowIfNull(viewport);
         if (viewport.Empty())
-            return new MapViewportColorSignature([], 0d, 0d);
+            return new MapViewportColorSignature([], 0d, 0d, null);
 
         using var bgr = new Mat();
         switch (viewport.Channels())
@@ -64,6 +76,10 @@ public static class MapViewportPresenceDetector
             interpolation: InterpolationFlags.Area);
         using var hsv = new Mat();
         Cv2.CvtColor(resized, hsv, ColorConversionCodes.BGR2HSV);
+        using var gray = new Mat();
+        Cv2.CvtColor(resized, gray, ColorConversionCodes.BGR2GRAY);
+        using var edges = new Mat();
+        Cv2.Canny(gray, edges, 45d, 135d);
 
         var histogram = new double[HueBins * SaturationBins];
         var blueGrayPixels = 0;
@@ -98,7 +114,8 @@ public static class MapViewportPresenceDetector
         return new MapViewportColorSignature(
             histogram,
             pixelCount > 0 ? blueGrayPixels / (double)pixelCount : 0d,
-            pixelCount > 0 ? valueSum / pixelCount : 0d);
+            pixelCount > 0 ? valueSum / pixelCount : 0d,
+            CreateStructureSignature(edges));
     }
 
     public static MapViewportPresenceResult Evaluate(
@@ -139,7 +156,10 @@ public static class MapViewportPresenceDetector
     public static MapViewportPresenceResult EvaluateReady(
         MapViewportColorSignature candidate,
         MapViewportColorSignature? reference = null,
-        MapViewportColorSignature? previousFrame = null) =>
+        MapViewportColorSignature? previousFrame = null,
+        bool requireStructure = false,
+        int requiredStableStructureFrames = 3,
+        int observedStableStructureFrames = 0) =>
         EvaluateCore(
             candidate,
             reference,
@@ -147,7 +167,20 @@ public static class MapViewportPresenceDetector
             MinimumReadyReferenceSimilarity,
             MinimumReadyBlueGrayFraction,
             brightnessTolerance: MaximumReadyBrightnessDelta,
-            requireBlueGrayBrightnessStability: true);
+            requireBlueGrayBrightnessStability: true,
+            requireStructure,
+            requiredStableStructureFrames,
+            observedStableStructureFrames);
+
+    public static bool IsStructureConsistent(
+        MapViewportStructureSignature? first,
+        MapViewportStructureSignature? second,
+        double minimumSimilarity = 0.90d)
+    {
+        if (first is null || second is null)
+            return false;
+        return StructureSimilarity(first, second) >= minimumSimilarity;
+    }
 
     private static MapViewportPresenceResult EvaluateCore(
         MapViewportColorSignature candidate,
@@ -156,8 +189,29 @@ public static class MapViewportPresenceDetector
         double referenceThreshold,
         double blueGrayThreshold,
         double brightnessTolerance,
-        bool requireBlueGrayBrightnessStability)
+        bool requireBlueGrayBrightnessStability,
+        bool requireStructure = false,
+        int requiredStableStructureFrames = 3,
+        int observedStableStructureFrames = 0)
     {
+        var structureReady = true;
+        if (requireStructure)
+        {
+            var candidateStructure = candidate.Structure;
+            if (reference?.Structure is { } referenceStructure)
+            {
+                structureReady = candidateStructure is not null
+                    && StructureSimilarity(
+                        candidateStructure,
+                        referenceStructure) >= 0.78d;
+            }
+            else
+            {
+                structureReady = candidateStructure is not null
+                    && observedStableStructureFrames
+                        >= Math.Max(2, requiredStableStructureFrames);
+            }
+        }
         if (reference is not null
             && reference.Histogram.Count == candidate.Histogram.Count
             && reference.Histogram.Count > 0)
@@ -169,8 +223,9 @@ public static class MapViewportPresenceDetector
                 Math.Abs(candidate.MeanValue - reference.MeanValue) / 255d;
             return new MapViewportPresenceResult(
                 similarity >= referenceThreshold
-                    && brightnessDelta <= brightnessTolerance,
-                "reference-hsv",
+                    && brightnessDelta <= brightnessTolerance
+                    && structureReady,
+                structureReady ? "reference-hsv" : "DeferredNotReady",
                 similarity,
                 candidate.BlueGrayFraction);
         }
@@ -185,10 +240,132 @@ public static class MapViewportPresenceDetector
         }
 
         return new MapViewportPresenceResult(
-            blueGrayReady,
-            "blue-gray-fallback",
+            blueGrayReady && structureReady,
+            blueGrayReady && structureReady
+                ? "blue-gray-fallback"
+                : structureReady ? "blue-gray-fallback" : "DeferredNotReady",
             candidate.BlueGrayFraction,
             candidate.BlueGrayFraction);
+    }
+
+    private static MapViewportStructureSignature CreateStructureSignature(
+        Mat edges)
+    {
+        var width = Math.Max(1, edges.Width);
+        var height = Math.Max(1, edges.Height);
+        var edgeCount = Cv2.CountNonZero(edges);
+        var bounds = edgeCount == 0 ? new Rect() : Cv2.BoundingRect(edges);
+        var horizontal = new double[16];
+        var vertical = new double[10];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            if (edges.At<byte>(y, x) == 0)
+                continue;
+            horizontal[Math.Min(
+                horizontal.Length - 1,
+                x * horizontal.Length / width)]++;
+            vertical[Math.Min(
+                vertical.Length - 1,
+                y * vertical.Length / height)]++;
+        }
+        Normalize(horizontal);
+        Normalize(vertical);
+
+        var majorSpanX = bounds.Width;
+        var majorSpanY = bounds.Height;
+        using var labels = new Mat();
+        using var stats = new Mat();
+        using var centroids = new Mat();
+        var componentCount = Cv2.ConnectedComponentsWithStats(
+            edges,
+            labels,
+            stats,
+            centroids,
+            PixelConnectivity.Connectivity8);
+        var majorArea = 0;
+        for (var label = 1; label < componentCount; label++)
+        {
+            var area = stats.At<int>(
+                label,
+                (int)ConnectedComponentsTypes.Area);
+            if (area <= majorArea)
+                continue;
+            majorArea = area;
+            majorSpanX = stats.At<int>(
+                label,
+                (int)ConnectedComponentsTypes.Width);
+            majorSpanY = stats.At<int>(
+                label,
+                (int)ConnectedComponentsTypes.Height);
+        }
+
+        return new MapViewportStructureSignature(
+            edgeCount / (double)(width * height),
+            bounds.X / (double)width,
+            bounds.Y / (double)height,
+            bounds.Width / (double)width,
+            bounds.Height / (double)height,
+            horizontal,
+            vertical,
+            majorSpanX / (double)width,
+            majorSpanY / (double)height);
+
+        static void Normalize(double[] values)
+        {
+            var maximum = values.Max();
+            if (maximum <= 0d)
+                return;
+            for (var index = 0; index < values.Length; index++)
+                values[index] /= maximum;
+        }
+    }
+
+    private static double StructureSimilarity(
+        MapViewportStructureSignature first,
+        MapViewportStructureSignature second)
+    {
+        var bbox = 1d - (
+            Math.Abs(first.BoundsLeft - second.BoundsLeft)
+            + Math.Abs(first.BoundsTop - second.BoundsTop)
+            + Math.Abs(first.BoundsWidth - second.BoundsWidth)
+            + Math.Abs(first.BoundsHeight - second.BoundsHeight)) / 4d;
+        var span = 1d - (
+            Math.Abs(first.MajorComponentSpanX - second.MajorComponentSpanX)
+            + Math.Abs(first.MajorComponentSpanY - second.MajorComponentSpanY)) / 2d;
+        var density = 1d - Math.Abs(first.EdgeDensity - second.EdgeDensity)
+            / Math.Max(0.01d, Math.Max(first.EdgeDensity, second.EdgeDensity));
+        return Math.Clamp(
+            (Math.Clamp(bbox, 0d, 1d) * 0.35d)
+            + (ProjectionSimilarity(
+                first.HorizontalProjection,
+                second.HorizontalProjection) * 0.20d)
+            + (ProjectionSimilarity(
+                first.VerticalProjection,
+                second.VerticalProjection) * 0.20d)
+            + (Math.Clamp(span, 0d, 1d) * 0.15d)
+            + (Math.Clamp(density, 0d, 1d) * 0.10d),
+            0d,
+            1d);
+    }
+
+    private static double ProjectionSimilarity(
+        IReadOnlyList<double> first,
+        IReadOnlyList<double> second)
+    {
+        if (first.Count == 0 || first.Count != second.Count)
+            return 0d;
+        var dot = 0d;
+        var firstNorm = 0d;
+        var secondNorm = 0d;
+        for (var index = 0; index < first.Count; index++)
+        {
+            dot += first[index] * second[index];
+            firstNorm += first[index] * first[index];
+            secondNorm += second[index] * second[index];
+        }
+        var denominator = Math.Sqrt(firstNorm * secondNorm);
+        return denominator > 1e-12d ? Math.Clamp(dot / denominator, 0d, 1d) : 0d;
     }
 
     private static double CosineSimilarity(

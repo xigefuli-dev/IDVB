@@ -15,10 +15,17 @@ namespace IDVBuff.RealCLI.Stubs;
 /// </summary>
 public sealed class FileBasedCapture : IGameWindowCapture
 {
-    private readonly string _imagePath;
+    private string _imagePath;
 
     public FileBasedCapture(string imagePath)
     {
+        _imagePath = imagePath;
+    }
+
+    public void SetImagePath(string imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath))
+            throw new ArgumentException("截图路径不能为空。", nameof(imagePath));
         _imagePath = imagePath;
     }
 
@@ -103,12 +110,23 @@ public sealed class FileBasedCapture : IGameWindowCapture
                 return TryCaptureClient(out frame, out failureReason);
 
             // 使用 new Mat() + CopyTo 替代 Clone()，确保深拷贝
-            var viewportBounds = new MapScreenRect(0, 0, right - left, bottom - top);
+            // Keep the same client-relative screen coordinates as the real
+            // capture service. Resetting X/Y to zero changes the reported
+            // overlay offsets even when the matched pixels are identical.
+            var viewportBounds = new MapScreenRect(
+                left,
+                top,
+                right - left,
+                bottom - top);
             var cropped = new Mat(fullBgr, new Rect(left, top, right - left, bottom - top));
             var independent = new Mat();
             cropped.CopyTo(independent);
 
-            frame = new CapturedGameFrame(independent, FullBounds, viewportBounds, new IntPtr(1));
+            frame = new CapturedGameFrame(
+                independent,
+                FullBounds,
+                viewportBounds,
+                new IntPtr(1));
             failureReason = string.Empty;
             return true;
         }

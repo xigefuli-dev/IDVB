@@ -141,19 +141,22 @@ public sealed class MapOpenAlignmentRouteTests
     }
 
     [Theory]
-    [InlineData(1, true, true)]
-    [InlineData(1, false, false)]
-    [InlineData(0, true, false)]
-    public void DeadlinePrioritizesStructureOnlyForSideEntranceRoute(
+    [InlineData(1, true, false, true)]
+    [InlineData(1, false, false, false)]
+    [InlineData(1, false, true, true)]
+    [InlineData(0, true, true, false)]
+    public void DeadlineOrCurrentScanEvidencePrioritizesSideStructure(
         int routeValue,
         bool hasAlignmentDeadline,
+        bool hasCurrentScanGateEvidence,
         bool expected)
     {
         Assert.Equal(
             expected,
             MapOpenAlignmentRouteRules.ShouldPrioritizeStructureValidation(
                 (SelectedAlignmentRoute)routeValue,
-                hasAlignmentDeadline));
+                hasAlignmentDeadline,
+                hasCurrentScanGateEvidence));
     }
 
     [Fact]

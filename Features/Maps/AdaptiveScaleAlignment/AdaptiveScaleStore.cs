@@ -4,6 +4,7 @@ namespace IDVBuff.Features.Maps.AdaptiveScaleAlignment;
 
 internal sealed record AdaptiveScaleStoreEntry
 {
+    public int ScaleEvidenceVersion { get; init; }
     public AdaptiveScaleKey Key { get; init; }
     public double CalibrationScale { get; init; }
     public double Confidence { get; init; }
@@ -101,6 +102,7 @@ internal sealed class AdaptiveScaleStore
                 snapshot = new(_entries);
             var entry = new AdaptiveScaleStoreEntry
             {
+                ScaleEvidenceVersion = 1,
                 Key = streak.Key,
                 CalibrationScale = streak.MedianScale,
                 Confidence = streak.MinimumConfidence,
@@ -156,6 +158,7 @@ internal sealed class AdaptiveScaleStore
     public static bool IsTrusted(AdaptiveScaleStoreEntry? entry)
     {
         if (entry is null
+            || entry.ScaleEvidenceVersion < 1
             || entry.DistinctOpenCount < 5
             || entry.InitialSamples is not { Count: >= 5 }
             || !double.IsFinite(entry.Confidence)

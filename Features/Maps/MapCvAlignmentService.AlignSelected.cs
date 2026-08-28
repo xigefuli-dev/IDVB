@@ -64,7 +64,17 @@ internal static partial class MapCvAlignmentService
         var resolvedChannel = MapAlignmentChannelRegistry.Resolve(
             fingerprint.Map,
             fingerprint.FloorKey);
-        if (structureTuning.Channel != resolvedChannel.Channel)
+        if (structureTuning.Channel != resolvedChannel.Channel
+            && resolvedChannel.Channel == MapAlignmentChannel.LowStructure)
+        {
+            // The floor marker is authoritative: a stale caller tuning must
+            // not turn a no-door floor into the standard gate/VPSG route.
+            structureTuning.Channel = MapAlignmentChannel.LowStructure;
+            structureTuning.EnableFeatureVoting = false;
+            structureTuning.LowStructureEnableFeatureScaleEstimate = false;
+            structureTuning.Normalize();
+        }
+        else if (structureTuning.Channel != resolvedChannel.Channel)
         {
             diagnostics.AlignmentChannel = structureTuning.Channel ==
                 MapAlignmentChannel.LowStructure
@@ -98,6 +108,36 @@ internal static partial class MapCvAlignmentService
                 ? session
                 : null;
 
+        // Low-structure floors have no gate evidence. This is a defensive
+        // boundary guard for generic callers: even if they request Default or
+        // SideEntrance, the floor is aligned only by the structure route.
+        if (resolvedChannel.Channel == MapAlignmentChannel.LowStructure)
+        {
+            var lowStructureSeed = compatibleSession?.LockedTransform
+                ?? MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                    fingerprint.Map,
+                    fingerprint.FloorKey);
+            return AlignStructureOnly(
+                service,
+                frame,
+                selectedMapId,
+                fingerprint.FloorKey,
+                lowStructureSeed,
+                alignmentMode,
+                tuning,
+                structureTuning,
+                playerPrior,
+                predictedViewportOrigin,
+                liveIgnoreRegions,
+                candidateHistory,
+                isTracking: false,
+                useProjectedBoundaryMask: false,
+                allowPrimaryFloor: true,
+                scaleSearchPolicy: MapScaleSearchPolicy.Search,
+                identityPriorConfidence: 0d,
+                restrictTranslationToSeed: false);
+        }
+
         // A side-entrance identity is a match-level invariant. Protect the
         // lower-level generic API as well as the orchestrator so an accidental
         // AlignSelected call cannot reinterpret two detected glyphs as a
@@ -125,10 +165,15 @@ internal static partial class MapCvAlignmentService
 
         var hasAlignmentDeadline =
             MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is not null;
+        var reuseCurrentScanGateEvidence =
+            route == SelectedAlignmentRoute.SideEntrance
+            && searchCtx?.UseInitialHighPrecisionRecovery == true
+            && compatibleSession?.LockedGateEvidence.Count == 1;
         var prioritizeStructureValidation =
             MapOpenAlignmentRouteRules.ShouldPrioritizeStructureValidation(
                 route,
-                hasAlignmentDeadline)
+                hasAlignmentDeadline,
+                reuseCurrentScanGateEvidence)
             // 兜底已锁定身份：无门楼层不需要门检测。双门 RankGeometry 只用于
             // 身份选择，此处会话已匹配当前地图；实测本场景门检测 290 次从未
             // 找到双门、仅 14 次找到单个门且还要过身份确认门槛，白白付出
@@ -158,6 +203,16 @@ internal static partial class MapCvAlignmentService
             {
                 Mode = GateSearchMode.FullSearch,
             };
+        var currentScanGates = reuseCurrentScanGateEvidence
+            ? compatibleSession!.LockedGateEvidence
+                .Select(evidence => new GateDetection
+                {
+                    Score = evidence.Score,
+                    Scale = evidence.TemplateScale,
+                    ScreenBounds = evidence.ScreenBounds
+                })
+                .ToArray()
+            : [];
 
         GateDetectionResult gateResult;
         using (var gateDetection = MapOperationTraceAmbient.StartChild(
@@ -166,8 +221,16 @@ internal static partial class MapCvAlignmentService
                    mapId: selectedMapId.ToString("D"),
                    floorKey: fingerprint.FloorKey))
         {
-            gateResult = prioritizeStructureValidation
+            gateResult = reuseCurrentScanGateEvidence
                 ? new GateDetectionResult
+                {
+                    Gates = currentScanGates,
+                    RawCandidates = currentScanGates,
+                    SearchModeUsed = gateContext.Mode,
+                    StopReason = GateSearchStopReason.Completed,
+                }
+                : prioritizeStructureValidation
+                    ? new GateDetectionResult
                 {
                     SearchModeUsed = gateContext.Mode,
                     StopReason = GateSearchStopReason.Completed,
@@ -182,7 +245,9 @@ internal static partial class MapCvAlignmentService
             {
                 gateDetection.Complete(
                     MapOperationSpanStatus.Skipped,
-                    "identity-locked-structure-priority");
+                    reuseCurrentScanGateEvidence
+                        ? "current-scan-gate-evidence-reused"
+                        : "identity-locked-structure-priority");
             }
         }
         var gates = gateResult.Gates;
@@ -209,6 +274,21 @@ internal static partial class MapCvAlignmentService
         diagnostics.GateDetectionMilliseconds = prioritizeStructureValidation
             ? 0d
             : stopwatch.Elapsed.TotalMilliseconds;
+        if (reuseCurrentScanGateEvidence)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.GateDetection,
+                MapLogLevel.Info,
+                $"复用本次侧门扫描门证据，跳过重复门检测 · floor={fingerprint.FloorKey}",
+                elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
+                details: new()
+                {
+                    ["mapId"] = selectedMapId,
+                    ["floor"] = fingerprint.FloorKey,
+                    ["gateCount"] = gateResult.Gates.Count,
+                    ["searchMode"] = gateContext.Mode.ToString(),
+                });
+        }
 
         // ── LockedScale safety net ───────────────────────────────────────────────
         if (!prioritizeStructureValidation

@@ -8,15 +8,16 @@ namespace IDVBuff.Features.Maps;
 /// Non-authoritative derived cache. It never writes into MapRepository or
 /// changes maps.json.
 /// </summary>
-public sealed class MapStructureReferenceCache : IDisposable
+public sealed partial class MapStructureReferenceCache : IDisposable
 {
     private readonly string _rootDirectory;
     private readonly MapStructurePreprocessor _preprocessor;
     private readonly object _memoryGate = new();
 
-    // 8-slot LRU cache: 支持多地图多楼层同时缓存
-    // 典型场景: 2 地图 × 4 楼层 = 8 槽，避免频繁磁盘 I/O
-    private const int MaxCacheSlots = 8;
+    // A complete same-class scan historically verifies 9-13 candidates. Eight
+    // slots therefore guaranteed disk churn between scans. Keep the cache
+    // bounded, but large enough for the observed complete verification set.
+    internal const int MaxCacheSlots = 16;
     private readonly LinkedList<CacheKey> _lruList = new();
     private readonly Dictionary<CacheKey, (MapStructureFeatures Features, LinkedListNode<CacheKey> Node)> _memoryCache = new();
     // 借出中的条目计数，以及淘汰时仍被借用、需延后释放的条目。
@@ -471,37 +472,6 @@ public sealed class MapStructureReferenceCache : IDisposable
         int AlgorithmVersion,
         string Floor,
         string GenerationFingerprint);
-
-    private sealed class KeyPointDocument
-    {
-        public float X { get; set; }
-        public float Y { get; set; }
-        public float Size { get; set; }
-        public float Angle { get; set; }
-        public float Response { get; set; }
-        public int Octave { get; set; }
-        public int ClassId { get; set; }
-
-        public static KeyPointDocument From(KeyPoint point) => new()
-        {
-            X = point.Pt.X,
-            Y = point.Pt.Y,
-            Size = point.Size,
-            Angle = point.Angle,
-            Response = point.Response,
-            Octave = point.Octave,
-            ClassId = point.ClassId
-        };
-
-        public KeyPoint ToKeyPoint() => new(
-            X,
-            Y,
-            Size,
-            Angle,
-            Response,
-            Octave,
-            ClassId);
-    }
 }
 /*
  * 文件职责：MapStructureReferenceCache。

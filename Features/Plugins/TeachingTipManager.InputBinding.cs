@@ -150,12 +150,15 @@ public sealed partial class TeachingTipManager
     private static void AttachNumericCommit(
         FrameworkElement content,
         IEnumerable<(Microsoft.UI.Xaml.Controls.NumberBox Input, Action Commit)> editors,
+        IEnumerable<Action> textEditors,
         Action endEditing)
     {
         content.Tag = new Action(() =>
         {
             foreach (var editor in editors)
                 editor.Commit();
+            foreach (var editor in textEditors)
+                editor();
             endEditing();
         });
     }

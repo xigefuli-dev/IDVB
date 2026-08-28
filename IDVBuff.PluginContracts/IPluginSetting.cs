@@ -117,3 +117,47 @@ public sealed class PluginKeyBindingSetting : IPluginSetting
     public PluginInputBindingKinds AllowedKinds { get; init; } =
         PluginInputBindingKinds.All;
 }
+
+/// <summary>单行或多行文本设置项。</summary>
+public sealed class PluginTextSetting : IPluginSetting
+{
+    public required string Key { get; init; }
+
+    public required string DisplayName { get; init; }
+
+    public string? Description { get; init; }
+
+    public string? VisibleWhenKey { get; init; }
+
+    public string? VisibleWhenValue { get; init; }
+
+    public string DefaultValue { get; init; } = string.Empty;
+
+    public bool Multiline { get; init; }
+
+    public int MaxLength { get; init; } = 4096;
+
+    /// <summary>可选的最大行数；0 表示不限制。</summary>
+    public int MaxLineCount { get; init; }
+
+    public string? PlaceholderText { get; init; }
+
+    public string Coerce(string? value)
+    {
+        var result = value ?? DefaultValue;
+        var maxLength = Math.Max(0, MaxLength);
+        if (result.Length > maxLength)
+            result = result[..maxLength];
+
+        if (MaxLineCount <= 0)
+            return result;
+
+        return string.Join(
+            Environment.NewLine,
+            result
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n', StringSplitOptions.None)
+                .Take(MaxLineCount));
+    }
+}

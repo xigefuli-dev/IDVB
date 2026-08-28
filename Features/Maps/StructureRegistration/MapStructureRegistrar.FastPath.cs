@@ -10,6 +10,11 @@ public sealed partial class MapStructureRegistrar
     {
         const bool canUseFast = true;
 
+        // Low structure has an explicit bounded plan. Do not let the generic
+        // fast/legacy fallback chain reintroduce an unbounded scale sweep.
+        if (request.Channel == MapAlignmentChannel.LowStructure)
+            return RegisterLegacy(request);
+
         if (tuning.FastAlignmentShadowMode && canUseFast)
         {
             var legacyResult = RegisterLegacy(request);

@@ -26,8 +26,10 @@ internal static class MapStructureEvaluator
         MapStructureRegistrar.ReciprocalScaleContext reciprocalScale,
         Mat? matchingDistance = null,
         Mat? matchingStructure = null,
+        Mat? matchingEdges = null,
         int matchingOriginX = 0,
-        int matchingOriginY = 0)
+        int matchingOriginY = 0,
+        double? projectionCorrelation = null)
     {
         // 当参考图被降采样以匹配低分辨率截帧时，将匹配坐标
         // 映射回原始参考图坐标，保证输出 transform 正确。
@@ -50,6 +52,9 @@ internal static class MapStructureEvaluator
         var structureForPatch = matchingStructure
             ?? reciprocalScale.StructureMask
             ?? reference.StructureMask;
+        var edgesForPatch = matchingEdges
+            ?? reciprocalScale.Edges
+            ?? reference.Edges;
         using var referenceStructurePatch = new Mat(
             structureForPatch,
             new Rect(
@@ -64,6 +69,47 @@ internal static class MapStructureEvaluator
             Cv2.Mean(distancePatch, queryEdges).Val0,
             scale,
             request.Channel);
+        using var visibleMaskPatch = query.VisibleMask is not null
+            && !query.VisibleMask.Empty()
+            ? new Mat(query.VisibleMask, query.Bounds)
+            : null;
+        using var visibleReferenceStructure = new Mat();
+        if (visibleMaskPatch is not null)
+            Cv2.BitwiseAnd(
+                referenceStructurePatch,
+                visibleMaskPatch,
+                visibleReferenceStructure);
+        else
+            referenceStructurePatch.CopyTo(visibleReferenceStructure);
+
+        var reverseChamfer = chamfer;
+        using var visibleReferenceEdges = new Mat();
+        if (request.Channel == MapAlignmentChannel.LowStructure)
+        {
+            using var referenceEdgesPatch = new Mat(
+                edgesForPatch,
+                new Rect(referenceX, referenceY,
+                    query.Bounds.Width, query.Bounds.Height));
+            if (visibleMaskPatch is not null)
+                Cv2.BitwiseAnd(
+                    referenceEdgesPatch,
+                    visibleMaskPatch,
+                    visibleReferenceEdges);
+            else
+                referenceEdgesPatch.CopyTo(visibleReferenceEdges);
+            if (Cv2.CountNonZero(visibleReferenceEdges) == 0)
+            {
+                reverseChamfer = double.PositiveInfinity;
+            }
+            else
+            {
+                var queryDistance = query.GetOrCreateEdgeDistanceMap();
+                reverseChamfer = ResolveChamferPixels(
+                    Cv2.Mean(queryDistance, visibleReferenceEdges).Val0,
+                    scale,
+                    request.Channel);
+            }
+        }
         using var withinTolerance = new Mat();
         using var coveredEdges = new Mat();
         Cv2.Compare(
@@ -80,7 +126,7 @@ internal static class MapStructureEvaluator
 
         using var occupancyOverlap = new Mat();
         Cv2.BitwiseAnd(
-            referenceStructurePatch,
+            visibleReferenceStructure,
             queryStructure,
             occupancyOverlap);
         var queryStructureCount = Cv2.CountNonZero(queryStructure);
@@ -96,10 +142,19 @@ internal static class MapStructureEvaluator
         // in the denominator. Whole-canvas coverage couples the score to file
         // dimensions and systematically favors undersized queries.
         var visibleReferenceStructureCount = Cv2.CountNonZero(
-            referenceStructurePatch);
+            visibleReferenceStructure);
         var referenceCoverage = visibleReferenceStructureCount > 0
             ? overlapCount / (double)visibleReferenceStructureCount
             : 0d;
+        var projection = projectionCorrelation ?? (request.Channel ==
+            MapAlignmentChannel.LowStructure
+                ? MapStructureProjectionScorer.Score(
+                    queryEdges,
+                    visibleReferenceEdges,
+                    0,
+                    0,
+                    tuning.LowStructureTranslationTopK)
+                : 1d);
 
         var partitionCounts = new int[4];
         var partitionCovered = new int[4];
@@ -164,9 +219,25 @@ internal static class MapStructureEvaluator
                 && partitionCovered[index] / (double)partitionCounts[index]
                     >= minimumPartitionCoverage);
         var composite = (chamfer * chamferWeight)
+            + (isLowStructure
+                ? Math.Min(
+                    reverseChamfer,
+                    tuning.MaximumChamferPixels * 4d)
+                    * 0.10d
+                : 0d)
             + ((1d - edgeCoverage) * edgeCoverageWeight)
             + ((1d - occupancyCoverage) * occupancyCoverageWeight)
             + ((1d - referenceCoverage) * referenceCoverageWeight)
+            // Projection is a deliberately lossy one-dimensional summary.
+            // Keep it as a ranking hint, never as the fact that vetoes an
+            // otherwise strong bidirectional two-dimensional match.
+            + (isLowStructure
+                ? Math.Max(
+                    0d,
+                    tuning.LowStructureMinimumProjectionCorrelation
+                        - projection)
+                    * tuning.PartitionPenaltyWeight
+                : 0d)
             + (Math.Max(
                 0,
                 tuning.MinimumConsistentPartitions - consistentPartitions)
@@ -245,8 +316,11 @@ internal static class MapStructureEvaluator
             OffsetX = offsetX,
             OffsetY = offsetY,
             ChamferPixels = chamfer,
+            ReverseChamferPixels = reverseChamfer,
             EdgeCoverage = edgeCoverage,
             OccupancyCoverage = occupancyCoverage,
+            ReferenceCoverage = referenceCoverage,
+            ProjectionCorrelation = projection,
             ConsistentPartitions = consistentPartitions,
             UsedGlobalSearch = usedGlobalSearch,
             CompositeCost = composite,

@@ -70,7 +70,8 @@ internal static partial class MapCvAlignmentService
         var requiresContentScaleBootstrap =
             tuning.Channel == MapAlignmentChannel.LowStructure
             && scaleSearchPolicy == MapScaleSearchPolicy.Search
-            && !isTracking;
+            && !isTracking
+            && tuning.LowStructureEnableFeatureScaleEstimate;
         if ((!tuning.EnableFeatureVoting && !requiresContentScaleBootstrap)
             || scaleSearchPolicy == MapScaleSearchPolicy.Fixed
             || isTracking)
@@ -79,6 +80,82 @@ internal static partial class MapCvAlignmentService
         }
 
         return MapStructurePreprocessingProfile.EdgesAndFeatures;
+    }
+
+    internal static bool HasLowStructureScaleBasinSupport(
+        MapStructureRegistrationResult result,
+        MapStructureRegistrationTuning tuning)
+    {
+        if (!result.Accepted || result.Transform is null)
+            return false;
+        var selectedScale = result.Transform.ScaleX;
+        return result.Candidates.Any(candidate =>
+            Math.Abs(candidate.Scale - selectedScale)
+                > tuning.ScaleDuplicateTolerance
+            && Math.Abs(candidate.Scale - selectedScale)
+                / Math.Max(candidate.Scale, selectedScale)
+                <= tuning.MaximumScaleChangeRatio
+            && MapStructureValidator.ValidateAbsolute(candidate, tuning)
+                == MapStructureRejectionReason.None);
+    }
+
+    internal static bool HasLowStructureScaleIntegrity(
+        MapStructureRegistrationResult result,
+        MapScreenRect viewport,
+        MapStructureRegistrationTuning tuning)
+    {
+        if (!result.Accepted
+            || result.Transform is null
+            || result.ReferenceWidth <= 0
+            || result.ReferenceHeight <= 0
+            || viewport.Width <= 0d
+            || viewport.Height <= 0d)
+        {
+            return false;
+        }
+
+        // The overlay represents the complete reference floor. A transform
+        // that makes either reference dimension more than twice the native
+        // map viewport is the oversized-overlay failure mode this gate must
+        // block, independently of how well one local room can be nested.
+        const double maximumProjectedDimensionRatio = 2d;
+        var projectedWidth = result.ReferenceWidth
+            * Math.Abs(result.Transform.ScaleX);
+        var projectedHeight = result.ReferenceHeight
+            * Math.Abs(result.Transform.ScaleY);
+        if (projectedWidth > viewport.Width * maximumProjectedDimensionRatio
+            || projectedHeight > viewport.Height * maximumProjectedDimensionRatio)
+        {
+            return false;
+        }
+
+        if (HasLowStructureScaleBasinSupport(result, tuning))
+            return true;
+
+        // Coarse hypotheses are roughly 10-12% apart. A sharply defined
+        // variant can therefore have no second absolute pass even though the
+        // selected transform has strong bidirectional projection evidence.
+        // Do not require a deliberately wrong neighbouring scale to pass.
+        var selectedScale = result.Transform.ScaleX;
+        var selected = result.Candidates
+            .Where(candidate =>
+                Math.Abs(candidate.Scale - selectedScale)
+                    <= tuning.ScaleDuplicateTolerance)
+            .OrderBy(candidate => candidate.CompositeCost)
+            .FirstOrDefault();
+        if (selected is null
+            || MapStructureValidator.ValidateAbsolute(selected, tuning)
+                != MapStructureRejectionReason.None)
+        {
+            return false;
+        }
+
+        var minimumProjectionCorrelation = Math.Max(
+            0.55d,
+            tuning.LowStructureMinimumProjectionCorrelation * 0.70d);
+        return selected.ReferenceCoverage
+                >= tuning.LowStructureMinimumReferenceCoverage
+            && selected.ProjectionCorrelation >= minimumProjectionCorrelation;
     }
 
     private static MapVpsgScaleEstimate? TryEstimateLowStructureContentScale(
@@ -94,6 +171,7 @@ internal static partial class MapCvAlignmentService
         ref MapOverlayTransform scaleSeed)
     {
         if (structureTuning.Channel != MapAlignmentChannel.LowStructure
+            || !structureTuning.LowStructureEnableFeatureScaleEstimate
             || scaleSearchPolicy != MapScaleSearchPolicy.Search
             || isTracking)
         {

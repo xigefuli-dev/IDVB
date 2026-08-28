@@ -17,6 +17,28 @@ public sealed partial class SessionOrchestrator
     {
         repairCacheKey = null;
 
+        // A low-structure floor has no gate evidence by definition. Keep this
+        // guard at the route boundary as well as in the normal caller branch,
+        // so a future route-selection change cannot send it through VPSG or a
+        // side/double-gate fallback.
+        if (MapAlignmentChannelRegistry.Resolve(
+                locked.Map,
+                targetFloorKey).Channel == MapAlignmentChannel.LowStructure)
+        {
+            return AlignExactManualFloor(
+                frame,
+                locked,
+                targetFloorKey,
+                MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                    locked.Map,
+                    targetFloorKey),
+                alignmentMode,
+                tuning,
+                structureTuning,
+                alignmentSession.SideEntranceScanPriorConfidence,
+                out repairCacheKey);
+        }
+
         MapRecognitionAttempt VpsgThenFallback(bool tryDirectSideFeature)
         {
             // 无会话、无缓存时的 scale bootstrap：VPSG 用 AKAZE 描述符几何

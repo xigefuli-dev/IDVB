@@ -38,16 +38,23 @@
     <!-- MapGlobalInputService 使用 PluginHostMessages.InputInjectionMarkers 区分
          宿主生成的注入输入；RealCLI 链接 Features/Maps 源码，必须能解析该命名空间。 -->
     <ProjectReference Include="..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+    <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
   </ItemGroup>
 
   <!-- 链接主项目源码：Features 全部（纯 Win32 窗口，无 XAML）+ 根目录必要文件 -->
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
     <Compile Include="..\ServiceCollectionExtensions.cs" Link="Production\ServiceCollectionExtensions.cs" />
     <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\Cli\RealCliCandidateSelector.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\Features\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\Maps\**\*.cs" Link="Production\Features\Maps\%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- ServiceCollectionExtensions registers the screenshot capability even
+         in headless mode; link only its dependency instead of pulling the
+         WinUI-facing plugin pages into the real replay host. -->
+    <Compile Include="..\Features\Plugins\PluginScreenshotService.cs" Link="Production\Features\Plugins\PluginScreenshotService.cs" />
+    <Compile Include="..\Features\Plugins\PluginGameWindowService.cs" Link="Production\Features\Plugins\PluginGameWindowService.cs" />
     <Compile Include="..\Features\Windows\WindowCaptureProtectionService.cs" Link="Production\Features\Windows\WindowCaptureProtectionService.cs" />
   </ItemGroup>
 

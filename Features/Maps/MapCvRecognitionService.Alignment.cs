@@ -24,6 +24,47 @@ public sealed partial class MapCvRecognitionService
         double nativeScaleChangeRatio = MapSessionRules.NativeScaleChangeRatio,
         string? mapClass = null)
     {
+        var selectedMap = TryGetMap(selectedMapId);
+        if (selectedMap is not null
+            && MapFloorRules.GetFloorProfile(selectedMap, session.FloorKey)
+                is not null
+            && MapAlignmentChannelRegistry.Resolve(
+                selectedMap,
+                session.FloorKey).Channel == MapAlignmentChannel.LowStructure)
+        {
+            // A direct caller may still carry a side-entrance session from a
+            // different route. The exact floor marker is authoritative:
+            // low-structure floors have no doors, so do not even construct a
+            // side-door search context before entering structure alignment.
+            var lowStructureTuning = structureTuning?.Clone()
+                ?? MapAlignmentChannelRegistry.CreateLowStructure();
+            lowStructureTuning.Channel = MapAlignmentChannel.LowStructure;
+            lowStructureTuning.EnableFeatureVoting = false;
+            lowStructureTuning.LowStructureEnableFeatureScaleEstimate = false;
+            lowStructureTuning.Normalize();
+            return MapCvAlignmentService.AlignStructureOnly(
+                this,
+                frame,
+                selectedMapId,
+                session.FloorKey,
+                MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                    selectedMap,
+                    session.FloorKey),
+                alignmentMode,
+                tuning,
+                lowStructureTuning,
+                playerPrior,
+                predictedViewportOrigin,
+                liveIgnoreRegions,
+                candidateHistory,
+                isTracking: false,
+                useProjectedBoundaryMask: false,
+                allowPrimaryFloor: true,
+                scaleSearchPolicy: MapScaleSearchPolicy.Search,
+                identityPriorConfidence: session.LastConfidence,
+                restrictTranslationToSeed: false);
+        }
+
         // The selected-map confirmation path already supplies a warm-search
         // context.  Re-open alignment used to omit it, which silently changed
         // every later side-entrance alignment into a FullSearch.  Reconstruct
@@ -129,6 +170,45 @@ public sealed partial class MapCvRecognitionService
             identityPriorConfidence,
             restrictTranslationToSeed: true);
 
+    internal MapRecognitionAttempt AlignFloorWithoutGates(
+        CapturedGameFrame frame,
+        Guid selectedMapId,
+        string floorKey,
+        MapOverlayTransform scaleSeed,
+        MapOverlayAlignmentMode alignmentMode,
+        MapRecognitionTuning tuning,
+        MapStructureRegistrationTuning? structureTuning,
+        MapReferencePoint? playerPrior,
+        MapViewportOrigin? predictedViewportOrigin,
+        IReadOnlyList<NormalizedRectangle>? liveIgnoreRegions,
+        IReadOnlyList<MapSimilarityTransform>? candidateHistory,
+        bool isTracking,
+        bool useProjectedBoundaryMask,
+        MapScaleSearchPolicy scaleSearchPolicy,
+        double identityPriorConfidence,
+        bool allowPrimaryFloor,
+        LowStructureAlignmentPlan lowStructurePlan) =>
+        MapCvAlignmentService.AlignStructureOnly(
+            this,
+            frame,
+            selectedMapId,
+            floorKey,
+            scaleSeed,
+            alignmentMode,
+            tuning,
+            structureTuning,
+            playerPrior,
+            predictedViewportOrigin,
+            liveIgnoreRegions,
+            candidateHistory,
+            isTracking,
+            useProjectedBoundaryMask,
+            allowPrimaryFloor,
+            scaleSearchPolicy,
+            identityPriorConfidence,
+            restrictTranslationToSeed: true,
+            lowStructurePlan);
+
     public MapRecognitionAttempt AlignWithCachedScale(
         CapturedGameFrame frame,
         Guid selectedMapId,
@@ -158,6 +238,38 @@ public sealed partial class MapCvRecognitionService
             scaleSearchPolicy: MapScaleSearchPolicy.Fixed,
             identityPriorConfidence,
             restrictTranslationToSeed);
+
+    internal MapRecognitionAttempt AlignWithCachedScale(
+        CapturedGameFrame frame,
+        Guid selectedMapId,
+        string floorKey,
+        MapOverlayTransform scaleSeed,
+        MapOverlayAlignmentMode alignmentMode,
+        MapRecognitionTuning tuning,
+        MapStructureRegistrationTuning? structureTuning,
+        double identityPriorConfidence,
+        bool restrictTranslationToSeed,
+        LowStructureAlignmentPlan lowStructurePlan) =>
+        MapCvAlignmentService.AlignStructureOnly(
+            this,
+            frame,
+            selectedMapId,
+            floorKey,
+            scaleSeed,
+            alignmentMode,
+            tuning,
+            structureTuning,
+            playerPrior: null,
+            predictedViewportOrigin: null,
+            liveIgnoreRegions: null,
+            candidateHistory: null,
+            isTracking: false,
+            useProjectedBoundaryMask: false,
+            allowPrimaryFloor: true,
+            scaleSearchPolicy: MapScaleSearchPolicy.Fixed,
+            identityPriorConfidence,
+            restrictTranslationToSeed,
+            lowStructurePlan);
 
     /// <summary>
     /// Thin wrapper that reuses AlignSelected for confirmation frames.
@@ -300,133 +412,6 @@ public sealed partial class MapCvRecognitionService
                 : winner.Result.Confidence < tuning.MinimumConfidence
                     ? $"最高置信度 {winner.Result.Confidence:P0} 低于阈值 {tuning.MinimumConfidence:P0}，请选择正确地图。"
                     : "前几名地图过于接近，请选择正确地图。"
-        };
-    }
-
-    /// <summary>
-    /// Solves the user's manually marked gate pair against one explicitly
-    /// selected map. This is used when the chooser selection came from the
-    /// catalog tail rather than the recognition candidate set.
-    /// </summary>
-    public RuntimeMapRecognition? RecognizeManualSelectedMap(
-        Guid selectedMapId,
-        MapScreenRect viewportBounds,
-        MapScreenRect mainGateBounds,
-        MapScreenRect sideGateBounds,
-        MapOverlayAlignmentMode alignmentMode,
-        MapRecognitionTuning tuning,
-        out string failureReason)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning);
-        alignmentMode = MapOverlayAlignmentMode.Uniform;
-        var fingerprint = _fingerprints.FirstOrDefault(item =>
-            item.Map.Id == selectedMapId
-            && string.Equals(
-                item.FloorKey,
-                MapFloorRules.GetPrimaryFloorKey(item.Map),
-                StringComparison.Ordinal));
-        if (fingerprint is null)
-        {
-            failureReason = "所选地图缺少可用的一楼双门识别配置。";
-            return null;
-        }
-        if (!viewportBounds.IsValid
-            || !mainGateBounds.IsValid
-            || !sideGateBounds.IsValid)
-        {
-            failureReason = "手动框选的地图区域或门矩形无效。";
-            return null;
-        }
-
-        var ranked = MapCvRecognitionScript.RankGeometry(
-            [fingerprint],
-            [
-                new GateDetection
-                {
-                    Score = 1d,
-                    ScreenBounds = mainGateBounds
-                },
-                new GateDetection
-                {
-                    Score = 1d,
-                    ScreenBounds = sideGateBounds
-                }
-            ],
-            viewportBounds,
-            double.PositiveInfinity,
-            testSwappedAssignments: false);
-        var selected = ranked.FirstOrDefault();
-        if (selected is null)
-        {
-            failureReason = "所选地图无法与手动框选的双门建立几何关系。";
-            return null;
-        }
-
-        if (!MapCvRecognitionBuilders.TryBuildRecognition(
-                selected,
-                alignmentMode,
-                tuning,
-                double.PositiveInfinity,
-                usedConfirmation: false,
-                MapRecognitionSource.ManualGateSelection,
-                wasForcedBestResult: false,
-                out var recognition,
-                out failureReason))
-        {
-            return null;
-        }
-
-        return recognition;
-    }
-
-    internal IReadOnlyList<MapGeometryFingerprint> FilterFingerprints(string? mapClass)
-    {
-        if (string.IsNullOrWhiteSpace(mapClass))
-            return _fingerprints;
-
-        return _fingerprints
-            .Where(fingerprint => string.Equals(
-                fingerprint.Map.Class,
-                mapClass,
-                StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-    }
-
-    public static RuntimeMapRecognition ConfirmChoice(MapRecognitionChoice choice)
-    {
-        var original = choice.Recognition;
-        var result = original.Result;
-        return new RuntimeMapRecognition
-        {
-            Map = original.Map,
-            FloorImagePath = original.FloorImagePath,
-            Result = new MapRecognitionResult
-            {
-                MapId = result.MapId,
-                Floor = result.Floor,
-                OrientationDegrees = 0,
-                Confidence = result.Confidence,
-                IdentityConfidence = result.IdentityConfidence,
-                LocalizationConfidence = result.LocalizationConfidence,
-                Source = MapRecognitionSource.UserConfirmed,
-                HasAllRequiredAnchorEvidence = result.HasAllRequiredAnchorEvidence,
-                GeometryMargin = result.GeometryMargin,
-                UsedLocalConfirmation = result.UsedLocalConfirmation,
-                OverlayTransform = result.OverlayTransform,
-                AnchorMatches = result.AnchorMatches,
-                EvidenceKind = result.EvidenceKind,
-                StructureDisposition = result.StructureDisposition,
-                SkippedStructureValidation =
-                    result.SkippedStructureValidation,
-                WasForcedBestResult = result.WasForcedBestResult,
-                ReusedLastTransform = result.ReusedLastTransform,
-                UsedCachedScale = result.UsedCachedScale,
-                StructureBestScore = result.StructureBestScore,
-                StructureSecondScore = result.StructureSecondScore,
-                StructureCandidateMargin = result.StructureCandidateMargin,
-                StructureRejectionReason = result.StructureRejectionReason
-            }
         };
     }
 

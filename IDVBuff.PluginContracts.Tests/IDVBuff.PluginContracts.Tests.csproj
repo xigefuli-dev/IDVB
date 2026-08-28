@@ -13,6 +13,7 @@
     <ProjectReference Include="..\Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
     <ProjectReference Include="..\Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
     <ProjectReference Include="..\Plugins\NoRecoveryDelay\IDVBuff.NoRecoveryDelay.csproj" />
+    <ProjectReference Include="..\Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
   </ItemGroup>
 
   <ItemGroup>

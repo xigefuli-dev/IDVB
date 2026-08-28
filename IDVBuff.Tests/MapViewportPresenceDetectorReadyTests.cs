@@ -137,6 +137,51 @@ public sealed class MapViewportPresenceDetectorReadyTests
         Assert.Equal("reference-hsv", animationResult.Mode);
     }
 
+    [Fact]
+    public void EvaluateReadyDefersLowStructureUntilThreeStableFrames()
+    {
+        using var map = CreateStructuredFrame();
+        var signature = MapViewportPresenceDetector.CreateSignature(map);
+
+        var beforeStable = MapViewportPresenceDetector.EvaluateReady(
+            signature,
+            previousFrame: signature,
+            requireStructure: true,
+            requiredStableStructureFrames: 3,
+            observedStableStructureFrames: 2);
+        var stable = MapViewportPresenceDetector.EvaluateReady(
+            signature,
+            previousFrame: signature,
+            requireStructure: true,
+            requiredStableStructureFrames: 3,
+            observedStableStructureFrames: 3);
+
+        Assert.False(beforeStable.IsPresent);
+        Assert.Equal("DeferredNotReady", beforeStable.Mode);
+        Assert.True(stable.IsPresent);
+    }
+
+    [Fact]
+    public void EvaluateReadyDefersPartialStructureAgainstReference()
+    {
+        using var referenceFrame = CreateStructuredFrame();
+        using var partialFrame = CreateHsvFrame(new Scalar(108, 100, 50));
+        Cv2.Rectangle(
+            partialFrame,
+            new Rect(148, 92, 18, 14),
+            new Scalar(255, 255, 255),
+            2);
+        var reference = MapViewportPresenceDetector.CreateSignature(referenceFrame);
+        var partial = MapViewportPresenceDetector.CreateSignature(partialFrame);
+        var result = MapViewportPresenceDetector.EvaluateReady(
+            partial,
+            reference,
+            requireStructure: true);
+
+        Assert.False(result.IsPresent);
+        Assert.Equal("DeferredNotReady", result.Mode);
+    }
+
     private static Mat CreateHsvFrame(Scalar hsvColor)
     {
         using var hsv = new Mat(
@@ -162,5 +207,23 @@ public sealed class MapViewportPresenceDetectorReadyTests
         var bgr = new Mat();
         Cv2.CvtColor(hsv, bgr, ColorConversionCodes.HSV2BGR);
         return bgr;
+    }
+
+    private static Mat CreateStructuredFrame()
+    {
+        var map = CreateHsvFrame(new Scalar(108, 100, 50));
+        Cv2.Line(map, new Point(25, 30), new Point(295, 30),
+            new Scalar(255, 255, 255), 2);
+        Cv2.Line(map, new Point(25, 100), new Point(295, 100),
+            new Scalar(255, 255, 255), 2);
+        Cv2.Line(map, new Point(25, 170), new Point(295, 170),
+            new Scalar(255, 255, 255), 2);
+        Cv2.Line(map, new Point(60, 30), new Point(60, 170),
+            new Scalar(255, 255, 255), 2);
+        Cv2.Line(map, new Point(160, 30), new Point(160, 170),
+            new Scalar(255, 255, 255), 2);
+        Cv2.Line(map, new Point(260, 30), new Point(260, 170),
+            new Scalar(255, 255, 255), 2);
+        return map;
     }
 }

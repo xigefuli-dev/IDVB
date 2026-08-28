@@ -47,9 +47,9 @@ public static class MapAlignmentChannelRegistry
         {
             SchemaVersion = MapStructureRegistrationTuning.CurrentSchemaVersion,
             Channel = MapAlignmentChannel.LowStructure,
-            // Low-structure work is bounded by its fixed hypothesis set. Do
-            // not turn a performance target into a partial-result deadline.
-            EnforceTimeBudget = false,
+            EnforceTimeBudget = true,
+            StructureFallbackBudgetMilliseconds = Math.Clamp(
+                config.ColdPathBudgetMilliseconds, 50, 700),
             MaximumChamferPixels =
                 MapStructureRegistrationTuning.LockedMaximumChamferPixels,
             RestrictedSearchMaximumChamferPixels =
@@ -86,11 +86,26 @@ public static class MapAlignmentChannelRegistry
             CandidateDuplicateRadius = config.CandidateDuplicateRadius,
             RefinementWorsenTolerance = config.RefinementWorsenTolerance,
             DisableScaleEarlyTermination = true,
-            EnableFeatureVoting = config.EnableFeatureScaleEstimate,
+            EnableFeatureVoting = false,
+            LowStructureEnableFeatureScaleEstimate =
+                config.EnableFeatureScaleEstimate,
+            // The low-structure hard gates compare both directions. The
+            // reverse direction is only meaningful inside the part of the
+            // live viewport that is actually visible, so this channel must
+            // always prepare that mask. It is consumed by the evaluator; the
+            // separate visible-aware search remains disabled to keep the
+            // bounded low-cost search path intact.
+            EnableVisibleMask = true,
+            EnableVisibleAwareShadow = false,
+            EnableVisibleAwareInjection = false,
+            EnableVisibleAwareEarlyExit = false,
             EnableFastAlignment = false,
             FastFallbackToLegacy = false,
             FastCoarseDownsampleFactor = config.FastCoarseDownsampleFactor,
-            FastCoarseTopK = config.FastCoarseTopK,
+            FastCoarseTopK = Math.Clamp(
+                Math.Min(config.TranslationTopK, config.FastCoarseTopK),
+                1,
+                2),
             FastCoarseNmsRadius = config.FastCoarseNmsRadius,
             FastCoarseMaxDimension = config.FastCoarseMaxDimension,
             FastCoarseMinimumTemplateDimension =
@@ -98,12 +113,39 @@ public static class MapAlignmentChannelRegistry
             MinimumUsableScale = config.MinimumUsableScale,
             Generation = new MapStructureGenerationTuning
             {
+                CannyLowThreshold = config.CannyLowThreshold,
+                CannyHighThreshold = config.CannyHighThreshold,
+                StructureCloseKernelSize = config.StructureCloseKernelSize,
                 StructureOpenKernelSize = config.StructureOpenKernelSize,
+                LiveGradientSupportRadiusPixels =
+                    config.LiveGradientSupportRadiusPixels,
                 MinimumEdgeComponentAreaPixels =
                     config.MinimumEdgeComponentAreaPixels,
                 EdgeClosingIterations = config.EdgeClosingIterations
             }
         };
+        tuning.LowStructureWarmPathBudgetMilliseconds = Math.Clamp(
+            config.WarmPathBudgetMilliseconds, 50, 300);
+        tuning.LowStructureColdPathBudgetMilliseconds = Math.Clamp(
+            config.ColdPathBudgetMilliseconds, 50, 700);
+        tuning.LowStructureEndToEndBudgetMilliseconds = Math.Clamp(
+            config.EndToEndBudgetMilliseconds, 100, 1200);
+        tuning.LowStructureMaximumScalesPerFrame = Math.Clamp(
+            config.MaximumScalesPerFrame, 1, 3);
+        tuning.LowStructureTranslationTopK = Math.Clamp(
+            Math.Min(config.TranslationTopK, config.FastCoarseTopK),
+            1,
+            2);
+        tuning.LowStructureReadinessFrameCount = Math.Clamp(
+            config.ReadinessFrameCount, 2, 5);
+        tuning.LowStructureScaleConsistencyTolerance = Math.Clamp(
+            config.ScaleConsistencyTolerance, 0.001d, 0.05d);
+        tuning.LowStructureCacheConfirmationCount = Math.Clamp(
+            config.CacheConfirmationCount, 2, 8);
+        tuning.LowStructureMinimumReferenceCoverage = Math.Clamp(
+            config.MinimumReferenceCoverage, 0.1d, 0.98d);
+        tuning.LowStructureMinimumProjectionCorrelation = Math.Clamp(
+            config.MinimumProjectionCorrelation, 0.1d, 0.99d);
         tuning.Normalize();
         return tuning;
     }

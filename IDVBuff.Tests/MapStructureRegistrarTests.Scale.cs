@@ -211,7 +211,7 @@ public sealed partial class MapStructureRegistrarTests
     }
 
     [Fact]
-    public void ColdLowStructureSearchAcceptsScaleFarFromNeutralSeed()
+    public void IncrementalLowStructureRecoveryBatchAcceptsScaleFarFromNeutralSeed()
     {
         using var reference = BuildReference();
         var crop = new Rect(82, 58, 300, 236);
@@ -239,6 +239,10 @@ public sealed partial class MapStructureRegistrarTests
                 MinimumEdgePixels = 40,
                 MinimumSpanPixels = 16
             });
+        var recoveryPlan = LowStructureAlignmentPlan.IncrementalRecovery(
+            [plantedScale, 0.72d, 1.38d],
+            batch: 1,
+            LowStructureAlignmentPlan.CreateConfig(tuning));
         var registrar = new MapStructureRegistrar(new MapStructurePreprocessor());
 
         var result = registrar.Register(new MapStructureRegistrationRequest
@@ -253,6 +257,7 @@ public sealed partial class MapStructureRegistrarTests
             Tuning = tuning,
             Channel = MapAlignmentChannel.LowStructure,
             ScaleSearchPolicy = MapScaleSearchPolicy.Search,
+            LowStructurePlan = recoveryPlan,
             ForceBestCandidate = false
         });
 
@@ -262,13 +267,58 @@ public sealed partial class MapStructureRegistrarTests
             + $"candidates={result.Candidates.Count}; edges={result.QueryEdgePixels}; "
             + $"bounds={result.QueryBoundsWidth}x{result.QueryBoundsHeight}; "
             + $"oversized={result.OversizedHypothesisCount}; "
-            + $"searchMs={result.SearchMilliseconds:F1}");
+            + $"searchMs={result.SearchMilliseconds:F1}; "
+            + CandidateMetrics(result));
         Assert.NotNull(result.Transform);
         Assert.NotEqual(
             MapStructureRejectionReason.ScaleChangeTooLarge,
             result.RejectionReason);
+        Assert.Equal(3, result.ScaleHypothesisCount);
         Assert.InRange(result.Transform.ScaleX, 0.42d, 0.48d);
         Assert.InRange(result.SearchMilliseconds, 0d, 500d);
+    }
+
+    [Fact]
+    public void SparseLowStructureScaleSelectorUsesLocalFitInsteadOfExploredBounds()
+    {
+        using var referenceImage = BuildReference();
+        var crop = new Rect(25, 20, 255, 210);
+        using var source = new Mat(referenceImage, crop);
+        const double plantedScale = 0.56d;
+        using var liveImage = new Mat();
+        Cv2.Resize(
+            source,
+            liveImage,
+            new Size(
+                (int)Math.Round(source.Width * plantedScale),
+                (int)Math.Round(source.Height * plantedScale)),
+            interpolation: InterpolationFlags.Nearest);
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new IDVBuff.Core.Models.LowStructureConfig
+            {
+                MinimumEdgePixels = 20,
+                MinimumSpanPixels = 12
+            });
+        var preprocessor = new MapStructurePreprocessor();
+        using var reference = preprocessor.ProcessReference(
+            referenceImage,
+            null,
+            tuning.Generation);
+        using var live = preprocessor.ProcessLiveRoi(
+            liveImage,
+            null,
+            null,
+            generateVisibleMask: true,
+            profile: MapStructurePreprocessingProfile.EdgesOnly,
+            generationTuning: tuning.Generation);
+
+        var ranked = MapStructureLowScaleSelector.Rank(live, reference, tuning);
+
+        Assert.NotEmpty(ranked);
+        Assert.InRange(ranked[0], plantedScale - 0.08d, plantedScale + 0.08d);
+        var exploredWidthRatio = liveImage.Width / (double)referenceImage.Width;
+        Assert.True(Math.Abs(ranked[0] - plantedScale)
+            < Math.Abs(exploredWidthRatio - plantedScale));
     }
 
     [Fact]
@@ -326,11 +376,22 @@ public sealed partial class MapStructureRegistrarTests
         Assert.True(
             result.Accepted,
             $"{result.FailureReason}; rejection={result.RejectionReason}; "
-            + $"best={result.BestScore:F3}; candidates={result.Candidates.Count}");
+            + $"best={result.BestScore:F3}; candidates={result.Candidates.Count}; "
+            + CandidateMetrics(result));
         Assert.Equal(1, result.ScaleHypothesisCount);
         Assert.NotNull(result.Transform);
         Assert.Equal(plantedScale, result.Transform!.ScaleX, 8);
     }
+
+    private static string CandidateMetrics(MapStructureRegistrationResult result) =>
+        string.Join(
+            " | ",
+            result.Candidates.Select((candidate, index) =>
+                $"#{index}:scale={candidate.Scale:F6},xy={candidate.ReferenceX},{candidate.ReferenceY},"
+                + $"ch={candidate.ChamferPixels:F3},rch={candidate.ReverseChamferPixels:F3},"
+                + $"edge={candidate.EdgeCoverage:F3},occ={candidate.OccupancyCoverage:F3},"
+                + $"ref={candidate.ReferenceCoverage:F3},proj={candidate.ProjectionCorrelation:F3},"
+                + $"cost={candidate.CompositeCost:F3}"));
 
     [Fact]
     public void ForcedBestCandidateAcceptsAmbiguousRepeatedRooms()
@@ -404,129 +465,5 @@ public sealed partial class MapStructureRegistrarTests
         Assert.Equal(
             MapStructureRejectionReason.InsufficientStructure,
             result.RejectionReason);
-    }
-
-    [Fact]
-    public void DerivedCacheDoesNotWriteIntoMapDirectory()
-    {
-        var root = Path.Combine(
-            Path.GetTempPath(),
-            $"idvbuff-structure-cache-{Guid.NewGuid():N}");
-        var mapDirectory = Path.Combine(root, "maps", "map-one");
-        var cacheDirectory = Path.Combine(root, "cache");
-        Directory.CreateDirectory(mapDirectory);
-        var sentinel = Path.Combine(mapDirectory, "maps.json");
-        File.WriteAllText(sentinel, "sentinel");
-        using var reference = BuildReference();
-        try
-        {
-            var cache = new MapStructureReferenceCache(
-                new MapStructurePreprocessor(),
-                cacheDirectory);
-            using var first = cache.GetOrCreate(
-                Guid.NewGuid(),
-                DateTimeOffset.UtcNow,
-                reference);
-
-            Assert.Equal("sentinel", File.ReadAllText(sentinel));
-            Assert.Single(Directory.GetFiles(mapDirectory));
-            Assert.NotEmpty(Directory.GetFiles(cacheDirectory, "*", SearchOption.AllDirectories));
-        }
-        finally
-        {
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
-        }
-    }
-
-    private static MapStructureRegistrationTuning TestTuning() => new()
-    {
-        MinimumEdgePixels = 50,
-        MinimumSpanPixels = 18,
-        MinimumConsistentPartitions = 2,
-        TopCandidateCount = 6,
-        MaximumChamferPixels = 3.5d,
-        MinimumEdgeCoverage = 0.50d,
-        MinimumOccupancyCoverage = 0.35d,
-        MinimumCandidateMargin = 0.025d,
-        ScaleSearchRadius = 0.02d,
-        ScaleSearchStep = 0.01d,
-        EnableFastAlignment = false,
-        FeatureRatioThreshold = 0.78d
-    };
-
-    private static MapOverlayTransform Locked(
-        Mat reference,
-        double offsetX = 0d,
-        double offsetY = 0d) =>
-        new()
-        {
-            ScaleX = 1d,
-            ScaleY = 1d,
-            OffsetX = offsetX,
-            OffsetY = offsetY,
-            ReferenceWidth = reference.Width,
-            ReferenceHeight = reference.Height,
-            AlignmentMode = MapOverlayAlignmentMode.Uniform
-        };
-
-    // ═══════════════════════════════════════════════════════════════
-    // P2-1: ProcessCachedReference ownership
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void ProcessCachedReference_DisposeDoesNotInvalidateCache()
-    {
-        // P2-1: The caller owns their clone. Disposing it must not
-        // affect the internal cached instance or subsequent lookups.
-        var preprocessor = new MapStructurePreprocessor();
-        using var reference = BuildReference();
-        var referencePath = $"cache-test-{Guid.NewGuid():N}";
-
-        // First call — generates and caches.
-        var first = preprocessor.ProcessCachedReference(
-            reference, referencePath, out _, out var cacheHit1);
-        Assert.NotNull(first);
-        Assert.False(cacheHit1);
-
-        // Dispose the returned object.
-        first.Dispose();
-
-        // Second call — must hit cache and return a valid, independent clone.
-        var second = preprocessor.ProcessCachedReference(
-            reference, referencePath, out _, out var cacheHit2);
-        Assert.NotNull(second);
-        Assert.True(cacheHit2, "Second call must hit cache after first Dispose");
-
-        // The second instance must not be the same object as the first
-        // (would indicate shared mutable state).
-        Assert.NotSame(first, second);
-
-        // Dispose the second — cache must remain valid for a third lookup.
-        second.Dispose();
-
-        var third = preprocessor.ProcessCachedReference(
-            reference, referencePath, out _, out var cacheHit3);
-        Assert.NotNull(third);
-        Assert.True(cacheHit3, "Third call must still hit cache after second Dispose");
-        Assert.NotSame(second, third);
-
-        third.Dispose();
-        MapStructurePreprocessor.ClearReferenceCache();
-    }
-
-    [Fact]
-    public void LiveAndReferenceStructureDescriptorsUseCompatibleAkazeLayout()
-    {
-        var preprocessor = new MapStructurePreprocessor();
-        using var source = BuildReference();
-        using var reference = preprocessor.ProcessReference(source, null);
-        using var live = preprocessor.ProcessLiveRoi(source);
-
-        Assert.False(reference.Descriptors.Empty());
-        Assert.False(live.Descriptors.Empty());
-        Assert.Equal(reference.Descriptors.Type(), live.Descriptors.Type());
-        Assert.Equal(reference.Descriptors.Cols, live.Descriptors.Cols);
-        Assert.Equal(61, reference.Descriptors.Cols);
     }
 }

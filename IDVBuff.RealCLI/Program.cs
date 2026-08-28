@@ -40,6 +40,7 @@ return command switch
     "run" => await RunSingleAsync(args[1..], dispatcher),
     "batch" => await RunBatchAsync(args[1..], dispatcher),
     "mapopen" => await MapOpenCommand.RunAsync(args[1..], dispatcher),
+    "mapopen-replay" => await MapOpenReplayCommand.RunAsync(args[1..], dispatcher),
     "survey" => await SurveyReplayCommand.RunAsync(args[1..]),
     _ => UnknownCommand(command)
 };
@@ -229,7 +230,7 @@ static async Task<RealCliSessionResult> RunRecognitionAsync(
         await orchestrator.InitializeAsync();
         // Real CLI 也遵循产品生命周期：扫描必须发生在进入对局之后。
         // S1 是 MapMatchSession 的兼容默认分组；截图仍由 CLI 的文件捕获器提供。
-        await orchestrator.BeginMatchAsync(PlayerSlot.Player1, "S0 厄运之女 · 困难");
+    await orchestrator.BeginMatchAsync("S0 厄运之女 · 困难");
 
         // 🔥 这就是真实的 IDVB 识别管线
         // SessionOrchestrator.RunQuickScanAsync() 内部调用：
@@ -345,7 +346,7 @@ static string[] ResolveGlob(string pattern)
 static int UnknownCommand(string command)
 {
     Console.Error.WriteLine($"未知命令：{command}");
-    Console.Error.WriteLine("可用命令：run | batch | mapopen | survey");
+    Console.Error.WriteLine("可用命令：run | batch | mapopen | mapopen-replay | survey");
     return 1;
 }
 
@@ -358,6 +359,7 @@ static void PrintUsage()
           IDVB.RealCLI.exe run --image <path> [--out <path>] [--settings <path>]
           IDVB.RealCLI.exe batch --files <glob> [--parallel N] [--out <path>]
           IDVB.RealCLI.exe mapopen --image <path> [--candidate N] [--out <path>] [--settings <path>]
+          IDVB.RealCLI.exe mapopen-replay --manifest <path> [--out <path>] [--settings <path>]
 
         run 命令：
           --image, -i <path>    输入截图路径（必需）
@@ -376,6 +378,11 @@ static void PrintUsage()
           --candidate, -c N     强制选择第 N 个候选（1-based，可选）
           --out, -o <path>      输出 JSON 路径（可选，默认 stdout）
           --settings, -s <path> 自定义 settings.json 目录（可选）
+
+        mapopen-replay 命令（manifest 驱动的多案例完整 SessionOrchestrator E2E）：
+          --manifest, -m <path> manifest 路径（必需，图片路径可相对 manifest）
+          --out, -o <path>      输出 JSON 路径（可选，默认 stdout）
+          --settings, -s <path> 覆盖 manifest 中的 settingsRoot（可选）
 
         示例：
           IDVB.RealCLI.exe run --image screenshot.png

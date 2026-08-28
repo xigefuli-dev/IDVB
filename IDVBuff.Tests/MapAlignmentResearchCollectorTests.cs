@@ -262,14 +262,14 @@ public sealed class MapAlignmentResearchCollectorTests
     }
 
     [Fact]
-    public void CacheReferenceImage_SavesReferenceAndDerivedImages()
+    public async Task CacheReferenceImage_SavesReferenceAndDerivedImages()
     {
         var root = TemporaryRoot();
         try
         {
             var collector = new MapAlignmentResearchCollector(
                 new MapStructurePreprocessor(), root);
-            collector.SetEnabledAsync(true).GetAwaiter().GetResult();
+            await collector.SetEnabledAsync(true);
 
             // 创建一张小型合成参考图
             var refPath = Path.Combine(root, "test-ref.png");
@@ -284,7 +284,7 @@ public sealed class MapAlignmentResearchCollectorTests
             var mapId = Guid.NewGuid();
             collector.CacheReferenceImage(refPath, mapId, "1f");
 
-            collector.SetEnabledAsync(false).GetAwaiter().GetResult();
+            await collector.SetEnabledAsync(false);
 
             var sessionsDir = Path.Combine(root, "sessions");
             var session = Assert.Single(Directory.GetDirectories(sessionsDir));

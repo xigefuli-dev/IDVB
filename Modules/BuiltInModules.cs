@@ -45,10 +45,7 @@ internal sealed class HelpModule : IAppModule
     public string Id => "help";
     public string DisplayName => "帮助";
     public string IconKey => nameof(Symbol.Help);
-    public object CreateView() => ModuleViewFactory.Create(
-        "帮助",
-        "Identity Vision Bridge 帮助与使用说明将在这里提供。",
-        "即将推出");
+    public object CreateView() => new IDVBuff.Views.HelpPage();
 }
 
 internal sealed class StatusModule : IAppModule

@@ -19,5 +19,6 @@ public static class PluginRegistration
         host.Register(new IDVBuff.Plugins.NightVision.NightVisionPlugin());
         host.Register(new IDVBuff.Plugins.DynamicMiniMapZoom.DynamicMiniMapZoomPlugin());
         host.Register(new IDVBuff.Plugins.LiveMode.LiveModePlugin());
+        host.Register(new IDVBuff.Plugins.CustomPhrases.CustomPhrasePlugin());
     }
 }

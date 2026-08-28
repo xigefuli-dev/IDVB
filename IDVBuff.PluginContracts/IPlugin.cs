@@ -4,7 +4,8 @@ namespace IDVBuff.PluginContracts;
 /// 插件生命周期契约。OnLoad 恰好一次；OnEnable/OnDisable 可多次；
 /// OnTick 由宿主定时驱动；OnStart/OnDisable 标定消息订阅窗口。
 /// </summary>
-[Obsolete("Legacy built-in compatibility contract. Third-party developers must use IIdvbPlugin from IdentityVisionBridge.PluginSdk.")]
+// Retained as a supported compatibility contract for compiled-in built-in plugins.
+// Third-party plugins should implement IIdvbPlugin from IdentityVisionBridge.PluginSdk.
 public interface IPlugin
 {
     string Id { get; }

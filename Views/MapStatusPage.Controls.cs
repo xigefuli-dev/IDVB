@@ -55,6 +55,7 @@ public sealed partial class MapStatusPage : UserControl
                 (int)Math.Round(frame.ClientBounds.Width),
                 (int)Math.Round(frame.ClientBounds.Height),
                 DwrGameWindowCaptureService.GetWindowDpi(frame.WindowHandle));
+            MapViewportCalibrationCompletedCount++;
         }
         Refresh();
     }
@@ -483,67 +484,6 @@ public sealed partial class MapStatusPage : UserControl
             _status.Text = exception.Message;
             Refresh();
         }
-    }
-
-    private async Task<bool> ConfirmDataCleanupAsync(string title, string content)
-    {
-        var prompt = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = title,
-            Content = content + "\n\n是否继续关闭并清理？",
-            PrimaryButtonText = "关闭并清理",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
-        };
-        return await prompt.ShowAsync() == ContentDialogResult.Primary;
-    }
-
-    private void RestoreToggle(ToggleSwitch toggle)
-    {
-        _refreshing = true;
-        try
-        {
-            toggle.IsOn = true;
-        }
-        finally
-        {
-            _refreshing = false;
-        }
-    }
-
-    private async void FirstScanStrategy_Toggled(object sender, RoutedEventArgs e)
-    {
-        if (_refreshing)
-            return;
-        try
-        {
-            var strategy = _firstScanStrategyToggle.IsOn
-                ? FirstScanStrategy.SideEntrance
-                : FirstScanStrategy.DoubleGate;
-            await _runtime.SetFirstScanStrategyAsync(strategy);
-        }
-        catch (Exception exception)
-        {
-            _status.Text = exception.Message;
-        }
-        Refresh();
-    }
-
-    private async void BackgroundScan_Toggled(object sender, RoutedEventArgs e)
-    {
-        if (_refreshing)
-            return;
-        try
-        {
-            await _runtime.SetBackgroundScanEnabledAsync(
-                _backgroundScanToggle.IsOn);
-        }
-        catch (Exception exception)
-        {
-            _status.Text = exception.Message;
-        }
-        Refresh();
     }
 
 }

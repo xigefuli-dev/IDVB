@@ -35,8 +35,6 @@ public sealed class SideEntranceScanConfig
     public double MaximumGateSpatialResidualPixels { get; set; } = 42d;
     /// <summary>落在缩放搜索上下边界附近的结果不能直接成为可靠候选。</summary>
     public double ScaleBoundaryTolerance { get; set; } = 0.02d;
-    /// <summary>最多对多少条高质量检索线索运行高成本结构复核。</summary>
-    public int MaximumStructureVerificationCandidates { get; set; } = 8;
     /// <summary>候选窗口最多展示多少条待验证线索。</summary>
     public int MaximumReferenceCandidates { get; set; } = 5;
     /// <summary>允许的最小缩放（识别图 → 实时帧）。</summary>
@@ -78,8 +76,6 @@ internal static class SideEntranceScanRules
         Math.Max(1d, _config.MaximumGateSpatialResidualPixels);
     public static double ScaleBoundaryTolerance =>
         Math.Clamp(_config.ScaleBoundaryTolerance, 0d, 0.25d);
-    public static int MaximumStructureVerificationCandidates =>
-        Math.Max(1, _config.MaximumStructureVerificationCandidates);
     public static int MaximumReferenceCandidates =>
         Math.Max(1, _config.MaximumReferenceCandidates);
     public static double MinimumScale => _config.MinimumScale;

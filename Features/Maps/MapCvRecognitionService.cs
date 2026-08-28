@@ -489,37 +489,6 @@ public sealed partial class MapCvRecognitionService : IDisposable
         };
     }
 
-    public MapRecognitionAttempt AlignSelected(
-        CapturedGameFrame frame,
-        Guid selectedMapId,
-        MapAlignmentSession? session,
-        MapOverlayAlignmentMode alignmentMode,
-        MapRecognitionTuning tuning,
-        MapStructureRegistrationTuning? structureTuning = null,
-        MapReferencePoint? playerPrior = null,
-        MapViewportOrigin? predictedViewportOrigin = null,
-        IReadOnlyList<NormalizedRectangle>? liveIgnoreRegions = null,
-        IReadOnlyList<MapSimilarityTransform>? candidateHistory = null,
-        AlignmentSearchContext? alignmentSearchContext = null,
-        double nativeScaleChangeRatio = MapSessionRules.NativeScaleChangeRatio,
-        string? mapClass = null) =>
-        MapCvAlignmentService.AlignSelectedCore(
-            this,
-            frame,
-            selectedMapId,
-            session,
-            alignmentMode,
-            tuning,
-            structureTuning,
-            playerPrior,
-            predictedViewportOrigin,
-            liveIgnoreRegions,
-            candidateHistory,
-            alignmentSearchContext,
-            nativeScaleChangeRatio,
-            mapClass,
-            SelectedAlignmentRoute.Default);
-
 }
 /*
  * 文件职责：MapCvRecognitionService。

@@ -22,7 +22,7 @@ public sealed record MapAlignmentResearchSearchStage(
 
 public sealed record MapAlignmentResearchAttempt
 {
-    public int SchemaVersion { get; init; } = 1;
+    public int SchemaVersion { get; init; } = 2;
     public Guid AttemptId { get; init; } = Guid.NewGuid();
     public DateTimeOffset ObservedAt { get; init; } = DateTimeOffset.UtcNow;
     /// <summary>Map-open session 版本号，用于关联同一对局的多次对齐。</summary>
@@ -51,6 +51,20 @@ public sealed record MapAlignmentResearchAttempt
     public double? FinalValidatedScale { get; init; }
     public string ScaleSeedRejectionReason { get; init; } = string.Empty;
     public IReadOnlyList<MapAlignmentResearchSearchStage> SearchStages { get; init; } = [];
+    public string AlignmentRoute { get; init; } = string.Empty;
+    public string ReadinessDecision { get; init; } = string.Empty;
+    public string LowStructureCacheTrustLevel { get; init; } = string.Empty;
+    public int LowStructurePlannedScaleCount { get; init; }
+    public int LowStructureCompletedScaleCount { get; init; }
+    public int LowStructureRecoveryBatch { get; init; }
+    public int LowStructureRecoveryTotalScaleCount { get; init; }
+    public int LowStructureTranslationCandidateCount { get; init; }
+    public string LowStructureBudgetTerminationReason { get; init; } = string.Empty;
+    public bool LowStructureVpsgEnabled { get; init; }
+    public bool VpsgActuallyEnabled { get; init; }
+    public double StructureSearchMilliseconds { get; init; }
+    public double StructureRefineMilliseconds { get; init; }
+    public double TotalAlignmentMilliseconds { get; init; }
     public int QueryEdgePixels { get; init; }
     public int QueryBoundsWidth { get; init; }
     public int QueryBoundsHeight { get; init; }

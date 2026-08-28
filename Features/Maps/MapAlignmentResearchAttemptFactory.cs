@@ -100,8 +100,37 @@ public static class MapAlignmentResearchAttemptFactory
                 .Select(radius => new MapAlignmentResearchSearchStage(
                     radius,
                     structure?.ScaleHypothesisCount ?? 0,
-                    UsedGlobalTranslationSearch: true))
+                    UsedGlobalTranslationSearch: structure?.LowStructureRoute
+                        is nameof(LowStructureAlignmentRoute.ShapeSeed)
+                        or nameof(LowStructureAlignmentRoute.SparseCoarseSeed)
+                        or nameof(LowStructureAlignmentRoute.IncrementalRecovery)
+                        ? structure.LowStructureTranslationCandidateCount > 0
+                        : true))
                 .ToArray(),
+            AlignmentRoute = attempt.Diagnostics.LowStructureRoute,
+            ReadinessDecision = attempt.Diagnostics.LowStructureReadinessDecision,
+            LowStructureCacheTrustLevel =
+                attempt.Diagnostics.LowStructureCacheTrustLevel,
+            LowStructurePlannedScaleCount =
+                attempt.Diagnostics.LowStructurePlannedScaleCount,
+            LowStructureCompletedScaleCount =
+                attempt.Diagnostics.LowStructureCompletedScaleCount,
+            LowStructureRecoveryBatch =
+                attempt.Diagnostics.LowStructureRecoveryBatch,
+            LowStructureRecoveryTotalScaleCount =
+                attempt.Diagnostics.LowStructureRecoveryTotalScaleCount,
+            LowStructureTranslationCandidateCount =
+                attempt.Diagnostics.LowStructureTranslationCandidateCount,
+            LowStructureBudgetTerminationReason =
+                attempt.Diagnostics.LowStructureBudgetTerminationReason,
+            LowStructureVpsgEnabled =
+                attempt.Diagnostics.LowStructureVpsgEnabled,
+            VpsgActuallyEnabled = attempt.Diagnostics.VpsgActuallyEnabled,
+            StructureSearchMilliseconds =
+                attempt.Diagnostics.StructureSearchMilliseconds,
+            StructureRefineMilliseconds =
+                attempt.Diagnostics.StructureRefineMilliseconds,
+            TotalAlignmentMilliseconds = attempt.Diagnostics.TotalMilliseconds,
             QueryEdgePixels = structure?.QueryEdgePixels ?? 0,
             QueryBoundsWidth = structure?.QueryBoundsWidth ?? 0,
             QueryBoundsHeight = structure?.QueryBoundsHeight ?? 0,

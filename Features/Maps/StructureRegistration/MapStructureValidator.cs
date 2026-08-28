@@ -2,14 +2,15 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-internal static class MapStructureValidator
+internal static partial class MapStructureValidator
 {
     internal static MapStructureRejectionReason Validate(
         MapStructureCandidate best,
         double margin,
         double requiredMargin,
         MapStructureRegistrationTuning tuning,
-        bool restrictedSearch = false)
+        bool restrictedSearch = false,
+        MapStructureRegistrationRequest? request = null)
     {
         if (!best.IsWithinValidBounds)
             return MapStructureRejectionReason.OutsideValidBounds;
@@ -23,9 +24,20 @@ internal static class MapStructureValidator
                 tuning.MaximumChamferPixels,
                 tuning.RestrictedSearchMaximumChamferPixels)
             : tuning.MaximumChamferPixels;
-        if (best.ChamferPixels > chamferLimit
-            || best.EdgeCoverage < tuning.MinimumEdgeCoverage
-            || best.OccupancyCoverage < tuning.MinimumOccupancyCoverage)
+        var missesReferenceCoverage = isLowStructure
+            && best.ReferenceCoverage
+                < tuning.LowStructureMinimumReferenceCoverage;
+        var missesEdgeFit = best.ChamferPixels > chamferLimit
+            || best.EdgeCoverage < tuning.MinimumEdgeCoverage;
+        if ((missesEdgeFit
+                && !MeetsEdgeDegradedSilhouetteEvidence(best, tuning))
+            || best.OccupancyCoverage < tuning.MinimumOccupancyCoverage
+            || (missesReferenceCoverage
+                && !MeetsTrustedCorridorEvidence(
+                    best,
+                    tuning,
+                    request,
+                    chamferLimit)))
         {
             return MapStructureRejectionReason.WeakAbsoluteScore;
         }
@@ -39,8 +51,115 @@ internal static class MapStructureValidator
     internal static MapStructureRejectionReason ValidateAbsolute(
         MapStructureCandidate candidate,
         MapStructureRegistrationTuning tuning,
-        bool restrictedSearch = false) =>
-        Validate(candidate, 1d, 0d, tuning, restrictedSearch);
+        bool restrictedSearch = false,
+        MapStructureRegistrationRequest? request = null) =>
+        Validate(candidate, 1d, 0d, tuning, restrictedSearch, request);
+
+    /// <summary>
+    /// A corridor-heavy observation can cover slightly less of the reference
+    /// wall mask while still matching nearly every live edge.  Only a steady
+    /// fixed-scale request backed by several reliable same-scale transforms
+    /// may use this narrow exception.  Cold alignment and scale search retain
+    /// the ordinary reference-coverage gate.
+    /// </summary>
+    internal static bool MeetsTrustedCorridorEvidence(
+        MapStructureCandidate candidate,
+        MapStructureRegistrationTuning tuning,
+        MapStructureRegistrationRequest? request,
+        double? maximumChamferPixels = null)
+    {
+        if (request is null
+            || request.Channel != MapAlignmentChannel.LowStructure
+            || request.ScaleSearchPolicy != MapScaleSearchPolicy.Fixed
+            || candidate.ReferenceCoverage
+                >= tuning.LowStructureMinimumReferenceCoverage
+            || !double.IsFinite(request.LockedTransform.ScaleX)
+            || request.LockedTransform.ScaleX <= 0d
+            || Math.Abs((candidate.Scale / request.LockedTransform.ScaleX) - 1d)
+                > StructureRegistrationRules.ScaleAgreementTolerance)
+        {
+            return false;
+        }
+
+        const int minimumReliableHistoryCount = 3;
+        var reliableScaleHistoryCount = request.CandidateHistory.Count(transform =>
+            transform?.IsValid is true
+            && Math.Abs((transform.Scale / candidate.Scale) - 1d)
+                <= StructureRegistrationRules.ScaleAgreementTolerance);
+        if (reliableScaleHistoryCount < minimumReliableHistoryCount)
+            return false;
+
+        // Keep the oversized-overlay protection local to this exception too.
+        // A trustworthy steady transform normally carries the complete
+        // reference dimensions; when present, neither projected dimension may
+        // exceed twice the native map viewport.
+        const double maximumProjectedDimensionRatio = 2d;
+        if ((request.LockedTransform.ReferenceWidth > 0
+                && request.LockedTransform.ReferenceWidth * candidate.Scale
+                    > request.ViewportBounds.Width
+                        * maximumProjectedDimensionRatio)
+            || (request.LockedTransform.ReferenceHeight > 0
+                && request.LockedTransform.ReferenceHeight * candidate.Scale
+                    > request.ViewportBounds.Height
+                        * maximumProjectedDimensionRatio))
+        {
+            return false;
+        }
+
+        var chamferLimit = maximumChamferPixels
+            ?? tuning.MaximumChamferPixels;
+        var minimumReferenceCoverage = Math.Max(
+            0.44d,
+            tuning.LowStructureMinimumReferenceCoverage - 0.06d);
+        var minimumProjectionCorrelation = Math.Max(
+            0.60d,
+            tuning.LowStructureMinimumProjectionCorrelation * 0.80d);
+        return candidate.ReferenceCoverage >= minimumReferenceCoverage
+            && candidate.ChamferPixels <= chamferLimit * 0.75d
+            && candidate.EdgeCoverage
+                >= Math.Max(0.70d, tuning.MinimumEdgeCoverage + 0.20d)
+            && candidate.OccupancyCoverage
+                >= Math.Max(0.75d, tuning.MinimumOccupancyCoverage + 0.50d)
+            && candidate.ProjectionCorrelation >= minimumProjectionCorrelation
+            && candidate.ConsistentPartitions
+                >= Math.Max(3, tuning.MinimumConsistentPartitions + 2);
+    }
+
+    /// <summary>
+    /// Fog and room decorations can fragment the live wall edges even when
+    /// the filled structural silhouette has a clear bidirectional match.
+    /// Admit only that narrow low-structure case: both silhouette directions,
+    /// projection, partition support and a still-bounded edge fit must agree.
+    /// This is not a general relaxation of the edge thresholds.
+    /// </summary>
+    internal static bool MeetsEdgeDegradedSilhouetteEvidence(
+        MapStructureCandidate candidate,
+        MapStructureRegistrationTuning tuning)
+    {
+        if (tuning.Channel != MapAlignmentChannel.LowStructure)
+            return false;
+
+        var minimumEdgeCoverage = Math.Max(
+            0.35d,
+            tuning.MinimumEdgeCoverage * 0.70d);
+        var minimumOccupancyCoverage = Math.Max(
+            0.78d,
+            tuning.MinimumOccupancyCoverage + 0.50d);
+        var minimumReferenceCoverage = Math.Max(
+            0.70d,
+            tuning.LowStructureMinimumReferenceCoverage + 0.20d);
+        var minimumProjectionCorrelation = Math.Max(
+            0.60d,
+            tuning.LowStructureMinimumProjectionCorrelation * 0.80d);
+        return candidate.ChamferPixels
+                <= tuning.MaximumChamferPixels * 1.40d
+            && candidate.EdgeCoverage >= minimumEdgeCoverage
+            && candidate.OccupancyCoverage >= minimumOccupancyCoverage
+            && candidate.ReferenceCoverage >= minimumReferenceCoverage
+            && candidate.ProjectionCorrelation >= minimumProjectionCorrelation
+            && candidate.ConsistentPartitions
+                >= tuning.MinimumConsistentPartitions;
+    }
 
     internal static MapStructureRejectionReason ValidateFastConfidence(
         MapStructureConfidenceBreakdown confidence,
@@ -254,7 +373,12 @@ internal static class MapStructureValidator
         int visibleAwareRefinedCandidates = 0,
         bool usedFastStrategy = false,
         double fastCoarseSearchMs = 0d,
-        int fastCoarseCandidateCount = 0)
+        int fastCoarseCandidateCount = 0,
+        string? lowStructureRoute = null,
+        int lowStructureCompletedScaleCount = 0,
+        int lowStructureTranslationCandidateCount = 0,
+        string? lowStructureBudgetTerminationReason = null,
+        bool lowStructureVpsgEnabled = false)
     {
         var failureReason = rejectionReason == MapStructureRejectionReason.None
             ? string.Empty
@@ -323,7 +447,14 @@ internal static class MapStructureValidator
             VisibleAwareRefinedCandidateCount = visibleAwareRefinedCandidates,
             UsedFastStrategy = usedFastStrategy,
             FastCoarseSearchMilliseconds = fastCoarseSearchMs,
-            FastCoarseCandidateCount = fastCoarseCandidateCount
+            FastCoarseCandidateCount = fastCoarseCandidateCount,
+            LowStructureRoute = lowStructureRoute ?? string.Empty,
+            LowStructureCompletedScaleCount = lowStructureCompletedScaleCount,
+            LowStructureTranslationCandidateCount =
+                lowStructureTranslationCandidateCount,
+            LowStructureBudgetTerminationReason =
+                lowStructureBudgetTerminationReason ?? string.Empty,
+            LowStructureVpsgEnabled = lowStructureVpsgEnabled
         };
     }
 
@@ -346,81 +477,9 @@ internal static class MapStructureValidator
         Rect? QueryBounds = null,
         int ScaleHypothesisCount = 0,
         int OversizedHypothesisCount = 0,
-        bool UsedRestrictedSearch = false,
-        double VisibleMaskMs = 0d);
-
-    internal static MapStructureRegistrationResult BuildLegacyResult(
-        MapStructureRejectionReason rejectionReason,
-        LegacyDiagnostics d,
-        MapStructureCandidate[]? candidates = null,
-        bool accepted = false,
-        MapOverlayTransform? transform = null,
-        double confidence = 0d,
-        MapStructureConfidenceBreakdown? confidenceBreakdown = null,
-        double bestScore = 0d,
-        double secondScore = 0d,
-        double candidateMargin = 0d,
-        bool wasForcedBestCandidate = false,
-        double featureConsensus = 0d,
-        bool eccConverged = false,
-        double eccCorrelation = 0d)
-    {
-        return BuildResult(rejectionReason,
-            candidates: candidates,
-            preprocessMs: d.PreprocessMs,
-            searchMs: d.SearchMs,
-            refineMs: d.RefineMs,
-            queryConstructionMs: d.Ctx.QueryConstructionMs,
-            historyCandidateMs: d.Ctx.HistoryCandidateMs,
-            featureVotingMs: d.Ctx.FeatureVotingMs,
-            pyramidSearchMs: d.Ctx.PyramidSearchMs,
-            localTemplateSearchMs: d.Ctx.LocalTemplateSearchMs,
-            globalTemplateSearchMs: d.Ctx.GlobalTemplateSearchMs,
-            candidateRankingMs: d.CandidateRankingMs,
-            debugDirectory: d.DebugDirectory,
-            lockedScale: d.LockedScale,
-            referenceWidth: d.ReferenceWidth,
-            referenceHeight: d.ReferenceHeight,
-            queryEdgePixels: d.QueryEdgePixels,
-            queryBounds: d.QueryBounds,
-            scaleHypothesisCount: d.ScaleHypothesisCount,
-            oversizedHypothesisCount: d.OversizedHypothesisCount,
-            usedRestrictedSearch: d.UsedRestrictedSearch,
-            accepted: accepted,
-            transform: transform,
-            confidence: confidence,
-            confidenceBreakdown: confidenceBreakdown,
-            bestScore: bestScore,
-            secondScore: secondScore,
-            candidateMargin: candidateMargin,
-            wasForcedBestCandidate: wasForcedBestCandidate,
-            featureMatchCount: d.Ctx.FeatureMatchCount,
-            featureInlierCount: d.Ctx.FeatureInlierCount,
-            featureConsensus: featureConsensus,
-            eccConverged: eccConverged,
-            eccCorrelation: eccCorrelation,
-            visibleMaskMs: d.VisibleMaskMs,
-            visibleFraction: d.Ctx.VisibleAwareVisibleFraction ?? 0d,
-            visibleStructurePixels: d.Ctx.VisibleAwareStructurePixels ?? 0,
-            visibleEdgePixels: d.Ctx.VisibleAwareEdgePixels ?? 0,
-            visibleAwareSearchMs: d.Ctx.VisibleAwareTotalMs,
-            visibleAwareCandidateCount: d.Ctx.VisibleAwareCandidateCount,
-            visibleAwareTopCost: d.Ctx.VisibleAwareBestCost,
-            visibleAwareTopMargin: d.Ctx.VisibleAwareTopMargin,
-            visibleAwareEarlyAccepted: d.Ctx.VisibleAwareEarlyAccepted,
-            visibleAwareFallbackReason: d.Ctx.VisibleAwareFallbackReason,
-            visibleAwareRequestedBackend: d.Ctx.VisibleAwareSession?.RequestedBackend ?? "",
-            visibleAwareActualBackend: d.Ctx.VisibleAwareSession?.ActualBackend ?? "",
-            visibleAwareUMatFallbackReason: d.Ctx.VisibleAwareSession?.FallbackReason,
-            visibleAwareCoarseMs: d.Ctx.VisibleAwareCoarseMs,
-            visibleAwareRefineMs: d.Ctx.VisibleAwareRefineMs,
-            visibleAwareUploadMs: d.Ctx.VisibleAwareSession?.UploadMilliseconds ?? 0d,
-            visibleAwareDownloadMs: d.Ctx.VisibleAwareSession?.DownloadMilliseconds ?? 0d,
-            visibleAwareCompletedScales: d.Ctx.VisibleAwareCompletedScales,
-            visibleAwareBudgetSkippedScales: d.Ctx.VisibleAwareBudgetSkippedScales,
-            visibleAwareCoarsePeaks: d.Ctx.VisibleAwareCoarsePeaks,
-            visibleAwareRefinedCandidates: d.Ctx.VisibleAwareRefinedCandidates);
-    }
+            bool UsedRestrictedSearch = false,
+            double VisibleMaskMs = 0d,
+            LowStructureAlignmentPlan? LowStructurePlan = null);
 }
 /*
  * 文件职责：MapStructureValidator。

@@ -63,6 +63,31 @@ public sealed class AdaptiveScaleInitialStreakTests
     }
 
     [Fact]
+    public void CachedFixedScaleNeitherVotesNorClearsIndependentSearchEvidence()
+    {
+        var coordinator = Coordinator();
+        using var frame = Frame();
+        var map = Map();
+        Vote(coordinator, frame, map, 1, 1.0);
+        var second = Vote(coordinator, frame, map, 2, 1.001);
+
+        var cachedFixed = coordinator.EvaluateInitial(
+            Recognition(map, "1f", 1.001),
+            frame,
+            MapFeatureCacheSource.Recovery,
+            new AdaptiveScaleInitialEvidence(
+                3,
+                0.04,
+                StructureValidated: true,
+                ScaleIndependentlyEstimated: false),
+            openId: 3);
+
+        Assert.Equal(2, second.ConsecutiveHighQualityCount);
+        Assert.Equal(2, cachedFixed.ConsecutiveHighQualityCount);
+        Assert.Equal(AdaptiveScaleReliability.Provisional, cachedFixed.Reliability);
+    }
+
+    [Fact]
     public void LowQualityResultResetsAndScaleOutsideClusterRebuilds()
     {
         var coordinator = Coordinator();

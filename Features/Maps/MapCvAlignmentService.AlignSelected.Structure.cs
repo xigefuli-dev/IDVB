@@ -46,13 +46,25 @@ internal static partial class MapCvAlignmentService
             ?? fingerprint.Map.Recognition.FirstFloor;
 
         stopwatch.Restart();
-        using var preparedReference = service.StructureCache.GetOrCreate(
+        using var residentReferenceLease = service.StructureCache.TryRentResident(
             fingerprint.Map.Id,
             fingerprint.Map.UpdatedAt,
-            reference,
-            primaryProfile.WholeImageIgnoreRegions,
             fingerprint.FloorKey,
             structureTuning.Generation);
+        MapStructureFeatures? ownedPreparedReference = null;
+        if (residentReferenceLease is null)
+        {
+            ownedPreparedReference = service.StructureCache.GetOrCreate(
+                fingerprint.Map.Id,
+                fingerprint.Map.UpdatedAt,
+                reference,
+                primaryProfile.WholeImageIgnoreRegions,
+                fingerprint.FloorKey,
+                structureTuning.Generation);
+        }
+        using var ownedPreparedReferenceScope = ownedPreparedReference;
+        var preparedReference = residentReferenceLease?.Features
+            ?? ownedPreparedReference!;
         stopwatch.Stop();
         diagnostics.CacheMilliseconds += stopwatch.Elapsed.TotalMilliseconds;
         diagnostics.ReferenceCacheMilliseconds +=

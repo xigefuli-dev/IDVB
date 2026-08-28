@@ -1,4 +1,5 @@
 using IDVBuff.Pipeline;
+using System.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
 
@@ -46,114 +47,15 @@ public sealed partial class SessionOrchestrator
             locked.Map,
             floorKey);
         if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure)
-        {
-            var match = _matchSession.Snapshot;
-            if (TryGetManualFloorScaleLock(
-                    match,
-                    frame,
-                    locked.Map,
-                    floorKey,
-                    out var manuallyLockedScale))
-            {
-                var manuallyLockedSeed = MapFeatureCacheRules.CreateScaleSeed(
-                    locked.Map,
-                    floorKey,
-                    manuallyLockedScale);
-                _logCollector.Append(
-                    MapLogCategory.StructureRegistration,
-                    MapLogLevel.Info,
-                    $"低结构玩家锁定尺度仅执行全局平移对齐 · floor={floorKey}",
-                    details: new()
-                    {
-                        ["floor"] = floorKey,
-                        ["channel"] = alignmentChannel.DiagnosticLabel,
-                        ["scale"] = manuallyLockedScale,
-                        ["scaleSearchPolicy"] = nameof(MapScaleSearchPolicy.Fixed),
-                        ["translationSearch"] = "unrestricted",
-                        ["scaleSource"] = "manual-match-lock"
-                    });
-                return _recognition.AlignWithCachedScale(
-                    frame,
-                    locked.Map.Id,
-                    floorKey,
-                    manuallyLockedSeed,
-                    alignmentMode,
-                    tuning,
-                    structureTuning,
-                    identityPriorConfidence,
-                    restrictTranslationToSeed: false);
-            }
-
-            // Low-structure floors do not borrow VPSG, another floor's
-            // transform, or standard-channel mutable state. A trusted
-            // same-floor cache contributes one scale hypothesis to the single
-            // unbiased search; it never starts a separate registration pass.
-            var lowSeed = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
-                locked.Map,
-                floorKey);
-            var lowResolution = GetResolution(frame);
-            var lowCacheKey = lowResolution.IsSupported
-                ? CreateAlignmentCacheKey(
-                    locked.Map,
-                    floorKey,
-                    lowResolution,
-                    structureTuning)
-                : null;
-            var usedTrustedLowScale = false;
-            if (lowCacheKey is not null
-                && _mapFeatureCacheRepository.TryGet(
-                    lowCacheKey,
-                    out var lowCacheEntry)
-                && lowCacheEntry is not null)
-            {
-                if (MapFeatureCacheRules.IsCacheEntryTrusted(lowCacheEntry))
-                {
-                    lowSeed = MapFeatureCacheRules.CreateScaleSeed(
-                        locked.Map,
-                        floorKey,
-                        lowCacheEntry.Scale.UniformScale);
-                    usedTrustedLowScale = true;
-                    _logCollector.Append(
-                        MapLogCategory.StructureRegistration,
-                        MapLogLevel.Info,
-                        $"低结构同楼层缓存尺度并入单次搜索 · floor={floorKey}",
-                        details: new()
-                        {
-                            ["floor"] = floorKey,
-                            ["channel"] = MapAlignmentChannelRegistry
-                                .LowStructure.DiagnosticLabel,
-                            ["configFingerprint"] =
-                                structureTuning.CacheFingerprint,
-                            ["scale"] = lowCacheEntry.Scale.UniformScale,
-                            ["cacheDecision"] = "trusted-seed-merged"
-                        });
-                }
-                else
-                {
-                    repairCacheKey = lowCacheKey;
-                    MarkMapCacheForRepair(lowCacheKey);
-                }
-            }
-            var lowAttempt = _recognition.AlignFloorWithoutGates(
+            return AlignLowStructureFloor(
                 frame,
-                locked.Map.Id,
+                locked,
                 floorKey,
-                lowSeed,
                 alignmentMode,
                 tuning,
                 structureTuning,
-                identityPriorConfidence: identityPriorConfidence,
-                scaleSearchPolicy: MapScaleSearchPolicy.Search,
-                allowPrimaryFloor: true);
-            if (usedTrustedLowScale
-                && !IsAdaptiveInitialScaleUsable(lowAttempt, structureTuning)
-                && lowCacheKey is not null)
-            {
-                repairCacheKey = lowCacheKey;
-                MarkMapCacheForRepair(lowCacheKey);
-            }
-            return lowAttempt;
-        }
+                identityPriorConfidence,
+                out repairCacheKey);
         // 缓存信任门控：fixed/兜底连续失败达阈值后，本轮已无可用缓存证据，
         // 跳过 VPSG 把预算直接给宽半径全局恢复。
         var skipVpsgForDistrustedCache = false;
@@ -449,140 +351,6 @@ public sealed partial class SessionOrchestrator
                 ["featureVotingEnabled"] = recoveryTuning.EnableFeatureVoting
             });
         return recovery;
-    }
-
-    /// <summary>
-    /// cached-fixed-scale 单假设验证失败后的极小半径 Search 兜底。在缓存 scale
-    /// 附近 ±3% 做诚实的结构搜索，救小漂移；成功/失败作为信任降级的验证证据。
-    /// </summary>
-    private MapRecognitionAttempt TryAlignWithCachedScaleRepairSearch(
-        CapturedGameFrame frame,
-        RuntimeMapRecognition locked,
-        string floorKey,
-        double cachedScale,
-        MapOverlayAlignmentMode alignmentMode,
-        MapRecognitionTuning tuning,
-        MapStructureRegistrationTuning structureTuning,
-        double identityPriorConfidence)
-    {
-        if (!TryCreateNoDoorStageTuning(
-                structureTuning,
-                out var repairTuning,
-                maximumStageMilliseconds:
-                    MapOpenAlignmentRouteRules
-                        .CachedScaleRepairSearchBudgetMilliseconds))
-        {
-            return CreateNoDoorBudgetFailure("cached-scale-repair-search");
-        }
-        MapOpenAlignmentRouteRules.ApplyCachedScaleRepairSearchPolicy(
-            repairTuning);
-        var repairSeed = MapFeatureCacheRules.CreateScaleSeed(
-            locked.Map,
-            floorKey,
-            cachedScale);
-        var repairSearch = _recognition.AlignFloorWithoutGates(
-            frame,
-            locked.Map.Id,
-            floorKey,
-            repairSeed,
-            alignmentMode,
-            tuning,
-            repairTuning,
-            candidateHistory: null,
-            isTracking: false,
-            scaleSearchPolicy: MapScaleSearchPolicy.Search,
-            identityPriorConfidence: identityPriorConfidence);
-        LogNoDoorStage(
-            "cached-scale-repair-search",
-            repairSearch.Recognition is not null,
-            repairSearch,
-            repairSearch.Diagnostics.TotalMilliseconds,
-            new Dictionary<string, object?>
-            {
-                ["cachedScale"] = cachedScale,
-                ["scaleRadius"] =
-                    MapOpenAlignmentRouteRules.CachedScaleRepairSearchRadius,
-                ["searchPolicy"] = nameof(MapScaleSearchPolicy.Search)
-            });
-        return repairSearch;
-    }
-
-    private async Task<(
-        RuntimeMapRecognition? Recognition,
-        string? FailureReason,
-        MapScanDiagnostics? Diagnostics,
-        MapFeatureCacheKey? RepairCacheKey,
-        MapRecognitionAttempt? Attempt)> AlignQuickScanManualFloorAsync(
-            CapturedGameFrame frame,
-            RuntimeMapRecognition identityLock,
-            CancellationToken cancellationToken)
-    {
-        if (_currentFloorKey is not { } manualFloorKey
-            || string.Equals(
-                manualFloorKey,
-                identityLock.Result.Floor,
-                StringComparison.Ordinal)
-            || MapFloorRules.GetFloorProfile(
-                identityLock.Map,
-                manualFloorKey) is null)
-        {
-            return (identityLock, null, null, null, null);
-        }
-
-        var scaleSeed = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
-            identityLock.Map,
-            manualFloorKey);
-        var recognitionTuning = CreateInitialAlignmentRecognitionTuning();
-        var structureTuning = CreateStructureTuningForFloor(
-            identityLock.Map,
-            manualFloorKey,
-            CreateInitialAlignmentStructureTuning());
-        MapFeatureCacheKey? repairCacheKey = null;
-        var floorDispatch = MapOperationTraceAmbient.StartChild(
-            "floor_dispatch_wait",
-            MapOperationWaitKind.Queue,
-            mapId: identityLock.Map.Id.ToString("D"),
-            floorKey: manualFloorKey);
-        var attempt = await Task.Run(() =>
-        {
-            floorDispatch.Complete();
-            using var floorWorker = MapOperationTraceAmbient.StartChild(
-                "floor_worker_execution",
-                MapOperationWaitKind.Compute,
-                mapId: identityLock.Map.Id.ToString("D"),
-                floorKey: manualFloorKey);
-            return AlignExactManualFloor(
-                frame,
-                identityLock,
-                manualFloorKey,
-                scaleSeed,
-                _settings!.OverlayAlignmentMode,
-                recognitionTuning,
-                structureTuning,
-                0d,
-                out repairCacheKey);
-        }, cancellationToken);
-        floorDispatch.Complete();
-        if (attempt.Recognition is not null)
-        {
-            return (
-                attempt.Recognition,
-                null,
-                attempt.Diagnostics,
-                repairCacheKey,
-                attempt);
-        }
-
-        var floorLabel = MapFloorRules.GetFloorDisplayName(
-            identityLock.Map,
-            manualFloorKey);
-        return (
-            null,
-            $"地图已锁定，但按当前手动楼层 {floorLabel} 对齐失败："
-                + attempt.FailureReason,
-            attempt.Diagnostics,
-            repairCacheKey,
-            attempt);
     }
 
 }

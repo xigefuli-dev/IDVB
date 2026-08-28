@@ -199,6 +199,10 @@ public sealed class MapFeatureCacheRepository
         {
             DirectlyTrusted = wasLegacyManual
                 || validations.Any(validation => validation.DirectlyTrusted),
+            LowStructureTrustLevel = validations
+                .Select(validation => validation.LowStructureTrustLevel)
+                .OrderByDescending(level => level)
+                .FirstOrDefault(),
             SuccessfulValidationCount = validations.Sum(validation =>
                 validation.SuccessfulValidationCount),
             FailedValidationCount = validations.Sum(validation =>

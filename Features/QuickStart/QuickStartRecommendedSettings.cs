@@ -21,7 +21,7 @@ public static class QuickStartRecommendedSettings
         settings.FirstScanStrategy = FirstScanStrategy.SideEntrance;
         settings.BackgroundScanEnabled = true;
         settings.SelectedResolutionPreset = null;
-        settings.AllowAutomaticMapCache = true;
+        settings.AllowAutomaticMapCache = false;
         settings.CollectLogs = true;
         settings.CollectAlignmentResearchData = true;
         settings.ShowOverlayStatus = true;

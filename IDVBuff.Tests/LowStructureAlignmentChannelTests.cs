@@ -65,22 +65,33 @@ public sealed class LowStructureAlignmentChannelTests
         Assert.Equal(12d, low.DistanceClipPixels);
         Assert.Equal(90, low.MinimumEdgePixels);
         Assert.Equal(0.01d, low.ScaleSearchStep);
-        Assert.Equal(0.30d, low.MinimumEdgeCoverage);
+        Assert.Equal(0.50d, low.MinimumEdgeCoverage);
         Assert.Equal(0.25d, low.MinimumOccupancyCoverage);
         Assert.Equal(1, low.MinimumConsistentPartitions);
-        Assert.False(low.EnforceTimeBudget);
-        Assert.Equal(5, low.FastCoarseTopK);
+        Assert.True(low.EnforceTimeBudget);
+        Assert.Equal(2, low.FastCoarseTopK);
+        Assert.False(low.LowStructureEnableFeatureScaleEstimate);
+        Assert.True(low.EnableVisibleMask);
+        Assert.False(low.EnableVisibleAwareShadow);
+        Assert.False(low.EnableVisibleAwareInjection);
+        Assert.False(low.EnableVisibleAwareEarlyExit);
+        Assert.Equal(18d, low.Generation.CannyLowThreshold);
+        Assert.Equal(65d, low.Generation.CannyHighThreshold);
+        Assert.Equal(3, low.Generation.StructureCloseKernelSize);
+        Assert.Equal(1, low.Generation.StructureOpenKernelSize);
+        Assert.Equal(1, low.Generation.EdgeClosingIterations);
+        Assert.Equal(1, low.Generation.MinimumEdgeComponentAreaPixels);
         Assert.NotEqual(standard.CacheFingerprint, low.CacheFingerprint);
     }
 
     [Fact]
-    public void DefaultLowStructureSearchExtractsDescriptorsForContentScaleBootstrap()
+    public void DefaultLowStructureSearchSkipsUnusedDescriptors()
     {
         var tuning = MapAlignmentChannelRegistry.CreateLowStructure();
 
         Assert.False(tuning.EnableFeatureVoting);
         Assert.Equal(
-            MapStructurePreprocessingProfile.EdgesAndFeatures,
+            MapStructurePreprocessingProfile.EdgesOnly,
             MapCvAlignmentService.ResolveLiveStructurePreprocessingProfile(
                 MapScaleSearchPolicy.Search,
                 isTracking: false,
@@ -96,6 +107,14 @@ public sealed class LowStructureAlignmentChannelTests
             MapCvAlignmentService.ResolveLiveStructurePreprocessingProfile(
                 MapScaleSearchPolicy.Search,
                 isTracking: true,
+                tuning));
+
+        tuning.LowStructureEnableFeatureScaleEstimate = true;
+        Assert.Equal(
+            MapStructurePreprocessingProfile.EdgesAndFeatures,
+            MapCvAlignmentService.ResolveLiveStructurePreprocessingProfile(
+                MapScaleSearchPolicy.Search,
+                isTracking: false,
                 tuning));
     }
 
@@ -236,8 +255,11 @@ public sealed class LowStructureAlignmentChannelTests
             Scale = 0.46d,
             CompositeCost = 0.20d,
             ChamferPixels = 2.0d,
+            ReverseChamferPixels = 2.0d,
             EdgeCoverage = 0.80d,
             OccupancyCoverage = 0.75d,
+            ReferenceCoverage = 0.80d,
+            ProjectionCorrelation = 0.80d,
             ConsistentPartitions = 3
         };
         var candidates = invalidCandidates.Append(valid).ToArray();

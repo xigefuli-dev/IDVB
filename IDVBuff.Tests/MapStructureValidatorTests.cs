@@ -139,8 +139,11 @@ public sealed class MapStructureValidatorTests
         var candidate = new MapStructureCandidate
         {
             ChamferPixels = 2.36d,
-            EdgeCoverage = 0.334d,
+            ReverseChamferPixels = 2.36d,
+            EdgeCoverage = 0.534d,
             OccupancyCoverage = 0.863d,
+            ReferenceCoverage = 0.60d,
+            ProjectionCorrelation = 0.80d,
             ConsistentPartitions = 1,
             CompositeCost = 12.194d
         };

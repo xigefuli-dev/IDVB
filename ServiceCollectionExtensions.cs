@@ -98,6 +98,7 @@ public static class ServiceCollectionExtensions
         // ════════════════════════════════════════════════════════════
         services.AddSingleton<IGameWindowCapture, GameWindowCaptureAdapter>();
         services.AddSingleton<IPluginScreenshotService, PluginScreenshotService>();
+        services.AddSingleton<IPluginGameWindowService, PluginGameWindowService>();
         services.AddSingleton<IGlobalInput>(_ =>
             new GlobalInputAdapter(dispatcher));
 

@@ -207,10 +207,28 @@ public sealed class LowStructureConfig
 {
     public double MinimumScale { get; init; } = 0.40;
     public double MaximumScale { get; init; } = 1.60;
+    /// <summary>同楼层缓存固定尺度验证的单次预算。</summary>
+    public int WarmPathBudgetMilliseconds { get; init; } = 300;
+    /// <summary>形状提案或恢复批次的单帧预算。</summary>
+    public int ColdPathBudgetMilliseconds { get; init; } = 700;
+    /// <summary>就绪后的低结构端到端对齐目标。</summary>
+    public int EndToEndBudgetMilliseconds { get; init; } = 1200;
+    /// <summary>恢复时一张完整帧最多处理的未搜索尺度数。</summary>
+    public int MaximumScalesPerFrame { get; init; } = 3;
+    /// <summary>每个尺度最多保留的全局平移候选数。</summary>
+    public int TranslationTopK { get; init; } = 2;
+    /// <summary>没有结构参考签名时需要连续稳定的完整帧数。</summary>
+    public int ReadinessFrameCount { get; init; } = 3;
+    /// <summary>宽高尺度票被视为一致的相对误差。</summary>
+    public double ScaleConsistencyTolerance { get; init; } = 0.015;
+    /// <summary>低结构缓存升级为 Trusted 所需的不同完整帧成功次数。</summary>
+    public int CacheConfirmationCount { get; init; } = 2;
     public int ScaleHypothesisCount { get; init; } = 13;
     public double MaximumChamferPixels { get; init; } = 3.0;
-    public double MinimumEdgeCoverage { get; init; } = 0.30;
+    public double MinimumEdgeCoverage { get; init; } = 0.50;
     public double MinimumOccupancyCoverage { get; init; } = 0.25;
+    public double MinimumReferenceCoverage { get; init; } = 0.50;
+    public double MinimumProjectionCorrelation { get; init; } = 0.75;
     public double MinimumCandidateMargin { get; init; } = 0.08;
     public int MinimumConsistentPartitions { get; init; } = 1;
     public int TopCandidateCount { get; init; } = 3;
@@ -244,8 +262,12 @@ public sealed class LowStructureConfig
     public int FastCoarseMinimumTemplateDimension { get; init; } = 12;
     public double MinimumUsableScale { get; init; } = 0.05;
     public int StructureOpenKernelSize { get; init; } = 1;
+    public int StructureCloseKernelSize { get; init; } = 3;
+    public double CannyLowThreshold { get; init; } = 18.0;
+    public double CannyHighThreshold { get; init; } = 65.0;
+    public int LiveGradientSupportRadiusPixels { get; init; } = 6;
     public int MinimumEdgeComponentAreaPixels { get; init; } = 1;
-    public int EdgeClosingIterations { get; init; } = 0;
+    public int EdgeClosingIterations { get; init; } = 1;
     public bool EnableFeatureScaleEstimate { get; init; }
 }
 

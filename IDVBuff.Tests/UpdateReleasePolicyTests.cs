@@ -88,7 +88,7 @@ public sealed class UpdateReleasePolicyTests
     public void UpdateChannelFlyoutAvoidsTheCrashingTeachingTipPopupPath()
     {
         var settings = Read("Views", "SettingsPage.cs");
-        var mainPage = Read("Views", "MainPage.xaml.cs");
+        var mainPage = Read("Views", "MainPage.xaml.Part1.cs");
 
         Assert.Contains("var channelFlyout = new Flyout", settings);
         Assert.Contains("titleButton.Flyout = AppDataPaths.IsTestBuild ? null : channelFlyout", settings);

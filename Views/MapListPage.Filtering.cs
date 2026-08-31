@@ -31,7 +31,7 @@ public sealed partial class MapListPage
         {
             content.Children.Add(new TextBlock
             {
-                Text = "当前 Class 没有可用标签组",
+                Text = "当前地图类没有可用标签组",
                 TextWrapping = TextWrapping.Wrap
             });
         }

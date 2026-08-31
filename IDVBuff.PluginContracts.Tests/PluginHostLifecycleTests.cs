@@ -52,6 +52,31 @@ public class PluginHostLifecycleTests
     }
 
     [Fact]
+    public void MatchActivationGate_PreservesPrimaryEnablementAndStopsRuntime()
+    {
+        var factory = new FakeContextFactory();
+        var host = CreateHost(factory);
+        var plugin = new RecordingPlugin("a");
+        host.SetActivationAllowed(false);
+        host.Register(plugin);
+
+        host.Start();
+
+        Assert.True(host.IsEnabled("a"));
+        Assert.False(host.IsActive("a"));
+        Assert.Empty(plugin.Calls);
+
+        host.SetActivationAllowed(true);
+        Assert.True(host.IsActive("a"));
+        Assert.Equal(["load", "enable", "start"], plugin.Calls);
+
+        host.SetActivationAllowed(false);
+        Assert.True(host.IsEnabled("a"));
+        Assert.False(host.IsActive("a"));
+        Assert.Equal(["load", "enable", "start", "disable"], plugin.Calls);
+    }
+
+    [Fact]
     public void StopAndStart_PreservesTheCurrentDesiredState()
     {
         var factory = new FakeContextFactory();

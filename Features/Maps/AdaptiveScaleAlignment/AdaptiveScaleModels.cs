@@ -100,7 +100,9 @@ internal sealed record AdaptiveScaleInitialEvidence(
     double RequiredCandidateMargin,
     bool StructureValidated,
     AdaptiveVpsgEvidence? Vpsg = null,
-    bool ScaleIndependentlyEstimated = true);
+    bool ScaleIndependentlyEstimated = true,
+    double? ScaleClusterTolerance = null,
+    double ScaleResolutionRatio = 0d);
 
 internal sealed record AdaptiveScaleConsensus(
     double Scale,
@@ -122,7 +124,9 @@ internal sealed record AdaptiveAlignmentDecision(
     string Status,
     int ConsecutiveHighQualityCount,
     int RequiredHighQualityCount,
-    AdaptiveScaleReliabilityReason ReliabilityReason);
+    AdaptiveScaleReliabilityReason ReliabilityReason,
+    double InitialScaleRelativeMad,
+    bool InitialScaleClusterRebuilt);
 
 internal sealed record AdaptiveOrbDecision(
     MapOverlayTransform Transform,

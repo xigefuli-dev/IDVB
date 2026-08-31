@@ -103,6 +103,9 @@
         <Content Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Guide\*.png" />
         <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="release\trust\idvb-update-2026-01.pem"
+                 Link="MapTrust\idvb-update-2026-01.pem"
+                 CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Update="Assets\player_01.png" CopyToOutputDirectory="PreserveNewest" />
@@ -174,6 +177,7 @@
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
         <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+        <PackageReference Include="TorchSharp-cpu" Version="0.107.0" />
         <PackageReference Include="Velopack" Version="1.2.0" />
 
         <Manifest Include="$(ApplicationManifest)" />

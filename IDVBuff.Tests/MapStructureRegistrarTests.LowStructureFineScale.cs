@@ -7,6 +7,83 @@ namespace IDVBuff.Tests;
 public sealed partial class MapStructureRegistrarTests
 {
     [Fact]
+    public void LocalAlignmentResearchB1fSamplesStartInExpectedBasins()
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IDVB",
+            "AlignmentResearch",
+            "sessions",
+            "2026-08-29_045917--d7f4c879");
+        if (!Directory.Exists(root))
+            return;
+
+        AssertResearchBasin(
+            root,
+            "1fefccc8",
+            "1fefccc837cd490d8f757d86e5e4c274",
+            0.57d,
+            0.08d);
+        AssertResearchBasin(
+            root,
+            "104df586",
+            "104df586a2b04687ba059b1615e469dc",
+            0.44d,
+            0.08d);
+    }
+
+    private static void AssertResearchBasin(
+        string researchRoot,
+        string researchMapDirectory,
+        string mapDirectory,
+        double expectedScale,
+        double tolerance)
+    {
+        var sampleDirectory = Directory.GetDirectories(
+                Path.Combine(researchRoot, researchMapDirectory, "b1f"),
+                "*-ok-high-*")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .First();
+        var livePath = Path.Combine(sampleDirectory, "viewport.png");
+        var referencePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IDVB",
+            "Maps",
+            mapDirectory,
+            "floor-b1f-recognition.png");
+        using var liveImage = Cv2.ImRead(livePath, ImreadModes.Unchanged);
+        using var referenceImage = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
+        Assert.False(liveImage.Empty());
+        Assert.False(referenceImage.Empty());
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new LowStructureConfig { MinimumEdgePixels = 20, MinimumSpanPixels = 12 });
+        var preprocessor = new MapStructurePreprocessor();
+        using var reference = preprocessor.ProcessReference(
+            referenceImage,
+            null,
+            tuning.Generation);
+        using var live = preprocessor.ProcessLiveRoi(
+            liveImage,
+            null,
+            null,
+            generateVisibleMask: true,
+            profile: MapStructurePreprocessingProfile.EdgesOnly,
+            generationTuning: tuning.Generation);
+
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var selection = MapStructureLowScaleSelector.Analyze(live, reference, tuning);
+        timer.Stop();
+
+        Assert.NotEmpty(selection.Scales);
+        Assert.InRange(
+            Math.Abs(selection.Scales[0] - expectedScale),
+            0d,
+            tolerance);
+        Assert.False(selection.Scales.Take(3).All(scale => scale >= 1.36d));
+        Assert.InRange(timer.Elapsed.TotalMilliseconds, 0d, 800d);
+    }
+
+    [Fact]
     public void FineScaleGridFillsTheSparseCoarseBasinAtHalfPercentSteps()
     {
         var coarse = MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
@@ -31,6 +108,33 @@ public sealed partial class MapStructureRegistrarTests
         Assert.All(
             fine.Zip(fine.Skip(1)),
             pair => Assert.True(Math.Log(pair.Second / pair.First) <= 0.00501d));
+    }
+
+    [Fact]
+    public void AmbiguousSelectorSpendsExactBudgetAcrossThreeBasins()
+    {
+        var selected = MapStructureLowScaleSelector.SelectExactCandidates(
+            0.57d,
+            [0.568d, 0.57d, 0.572d],
+            [0.57d, 1.36d, 1.70d, 0.64d],
+            ambiguous: true);
+
+        Assert.Equal(3, selected.Count);
+        Assert.Equal([0.57d, 1.36d, 1.70d], selected);
+        Assert.Equal(3, selected.Distinct().Count());
+    }
+
+    [Fact]
+    public void ConfidentSelectorSpendsExactBudgetOnlyOnFineNeighbours()
+    {
+        var selected = MapStructureLowScaleSelector.SelectExactCandidates(
+            0.57d,
+            [0.568d, 0.57d, 0.572d],
+            [0.57d, 1.36d, 1.70d],
+            ambiguous: false);
+
+        Assert.Equal([0.57d, 0.568d, 0.572d], selected);
+        Assert.Equal(3, selected.Count);
     }
 
     [Theory]
@@ -163,10 +267,12 @@ public sealed partial class MapStructureRegistrarTests
             $"{result.FailureReason}; planted={plantedScale:F4}; "
             + CandidateMetrics(result));
         Assert.NotNull(result.Transform);
-        Assert.InRange(
-            Math.Abs((result.Transform.ScaleX / plantedScale) - 1d),
-            0d,
-            0.015d);
+        var relativeScaleError = Math.Abs(
+            (result.Transform.ScaleX / plantedScale) - 1d);
+        Assert.True(
+            relativeScaleError <= 0.015d,
+            $"scaleError={relativeScaleError:F6}; selected={result.Transform.ScaleX:F9}; "
+            + $"ranked={string.Join(",", rankedScales.Select(scale => scale.ToString("F9")))}");
         Assert.InRange(result.SearchMilliseconds, 0d, 700d);
     }
 }

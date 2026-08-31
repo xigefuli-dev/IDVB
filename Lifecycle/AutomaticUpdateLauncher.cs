@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
+using Velopack.Locators;
 
 namespace IDVBuff.Lifecycle;
 
@@ -18,6 +19,9 @@ internal static class AutomaticUpdateLauncher
     {
         try
         {
+            if (!SupportsApplicationUpdates())
+                return;
+
             var updaterPath = Path.Combine(AppContext.BaseDirectory, "Updater", "IDVB.Updater.exe");
             if (!File.Exists(updaterPath))
                 return;
@@ -59,6 +63,20 @@ internal static class AutomaticUpdateLauncher
                 "Unable to start the background update check.",
                 exception);
         }
+    }
+
+    private static bool SupportsApplicationUpdates()
+    {
+        if (VelopackLocator.Current.CurrentlyInstalledVersion is not null)
+            return true;
+
+        // The former Inno installation is intentionally allowed to open the
+        // migration updater. A loose build directory is neither an installed
+        // version nor a migration source and must never be labelled "旧版安装".
+        return Directory.EnumerateFiles(
+            AppContext.BaseDirectory,
+            "unins*.exe",
+            SearchOption.TopDirectoryOnly).Any();
     }
 
     private sealed record UpdateCheckState(DateTimeOffset LastAttemptUtc, string? Channel);

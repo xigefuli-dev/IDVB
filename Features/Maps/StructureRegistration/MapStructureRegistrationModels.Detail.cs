@@ -8,8 +8,11 @@ public sealed record MapStructureConfidenceBreakdown
 {
     public double ChamferPixels { get; init; }
     public double ChamferQuality { get; init; }
+    public double ReverseChamferPixels { get; init; }
     public double EdgeCoverage { get; init; }
     public double OccupancyCoverage { get; init; }
+    public double ReferenceCoverage { get; init; }
+    public double ProjectionCorrelation { get; init; }
     public int ConsistentPartitions { get; init; }
     public double PartitionQuality { get; init; }
     public double StructureQuality { get; init; }
@@ -142,25 +145,37 @@ public static class MapStructureConfidenceCalculator
 
         if (isLowStructure)
         {
-            // Candidate separation is intrinsically compressed on long,
-            // repetitive sparse corridors. Use it as supporting evidence,
-            // rather than letting the standard 25% weight dominate the final
-            // score. This formula is intentionally channel-local.
-            var rawGeometricConfidence = Math.Clamp(
-                (structureQuality * 0.65d)
-                + (evidenceConfidence * 0.25d)
-                + (boundsAndPrior * 0.10d),
+            // A guide map and the native in-game map do not share equivalent
+            // filled pixels. Occupancy remains an absolute rejection gate, but
+            // must not be treated as localization confidence. Score the
+            // transform from geometric evidence that is meaningful across the
+            // two renderings: live-edge fit, covered reference silhouette,
+            // Chamfer residual, spatial partitions, uniqueness and prior.
+            var referenceCoverage = Math.Clamp(best.ReferenceCoverage, 0d, 1d);
+            var lowStructureGeometry = Math.Clamp(
+                ((best.EdgeCoverage * 0.30d)
+                    + (referenceCoverage * 0.30d)
+                    + (chamferQuality * 0.10d)
+                    + (partitionQuality * 0.15d)) / 0.85d,
                 0d,
                 1d);
-            var rawLockConfidence = Math.Clamp(
-                (structureQuality * 0.60d)
-                + (evidenceConfidence * 0.25d)
-                + (boundsAndPrior * 0.10d)
-                + (candidateMargin * 0.05d),
+            evidenceConfidence = Math.Clamp(
+                (best.EdgeCoverage * 0.40d)
+                + (referenceCoverage * 0.40d)
+                + (partitionQuality * 0.20d),
                 0d,
                 1d);
-            geometricLockConfidence = rawGeometricConfidence;
-            lockConfidence = rawLockConfidence;
+            structureQuality = lowStructureGeometry;
+            geometricLockConfidence = lowStructureGeometry;
+            lockConfidence = Math.Clamp(
+                (best.EdgeCoverage * 0.30d)
+                + (referenceCoverage * 0.30d)
+                + (chamferQuality * 0.10d)
+                + (partitionQuality * 0.15d)
+                + (candidateMargin * 0.10d)
+                + (boundsAndPrior * 0.05d),
+                0d,
+                1d);
             runtimeEffectiveWeight = 1d;
         }
 
@@ -191,8 +206,11 @@ public static class MapStructureConfidenceCalculator
         {
             ChamferPixels = best.ChamferPixels,
             ChamferQuality = chamferQuality,
+            ReverseChamferPixels = best.ReverseChamferPixels,
             EdgeCoverage = best.EdgeCoverage,
             OccupancyCoverage = best.OccupancyCoverage,
+            ReferenceCoverage = best.ReferenceCoverage,
+            ProjectionCorrelation = best.ProjectionCorrelation,
             ConsistentPartitions = best.ConsistentPartitions,
             PartitionQuality = partitionQuality,
             StructureQuality = structureQuality,

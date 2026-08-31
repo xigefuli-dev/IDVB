@@ -428,14 +428,14 @@ public sealed partial class MapListPage : UserControl
         }
         EndModernContinuousLine();
         _modernToolState.ActiveFloorKey = _activeFloorKey;
-        if (!_modernToolState.Select(tool))
-        {
-            SetModernStatus("门特征只能在首个楼层标记。", true);
-            return;
-        }
+        _modernToolState.Select(tool);
         CancelModernInteraction(restoreGeometry: true);
         _modernSelection = null;
-        SetModernStatus(tool == MapEditorTool.Gate ? "请先拖动标记大门。" : ModernToolHint(tool));
+        SetModernStatus(tool == MapEditorTool.Gate
+            ? _modernToolState.UsesPrimaryGatePair
+                ? "请先拖动标记正门。"
+                : "请拖动标记次要门特征。"
+            : ModernToolHint(tool));
         RefreshModernToolVisuals();
         RenderModernEditor();
         RefreshModernLayerList();

@@ -79,10 +79,17 @@ public interface IMapRepository
     /// </summary>
     Task RenameClassAsync(string oldName, string newName);
 
-    /// <summary>Rebuilds a Class and commits its background-removal property atomically.</summary>
-    Task<IReadOnlyList<Guid>> SetClassRemoveBackgroundAsync(
+    /// <summary>Rebuilds a Class and commits its background-removal settings atomically.</summary>
+    Task<IReadOnlyList<Guid>> SetClassBackgroundRemovalAsync(
         string className,
         bool enabled,
+        int intensity,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Sets the case-insensitive floor identity used to scan a Class.</summary>
+    Task SetClassScanFloorAsync(
+        string className,
+        string? floorKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>

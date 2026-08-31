@@ -244,7 +244,7 @@ public sealed partial class IdvmPackageService
             {
                 throw new InvalidDataException($"地图 {map.MapId} 的楼层 metadata 无效。");
             }
-            ValidateMarkerKeys(floor.MarkerKeys, metadata.SchemaVersion == 2);
+            ValidateMarkerKeys(floor.MarkerKeys, requireFloorMarkerSchema);
             ValidateRectangle(floor.RecognitionRegion, allowNull: true, "recognitionRegion");
             ValidateRectangle(floor.ValidMapBounds, allowNull: false, "validMapBounds");
             if (!string.IsNullOrWhiteSpace(floor.RecognitionImage))

@@ -121,6 +121,7 @@ public sealed class SignedWebUpdateSource : IUpdateSource, IDisposable
         IEnumerable<VelopackAsset> assets,
         string? expectedVersion)
     {
+        var targetFullPackages = 0;
         foreach (var asset in assets)
         {
             if (!string.Equals(asset.PackageId, UpdateProtocol.PackageId, StringComparison.Ordinal))
@@ -133,9 +134,15 @@ public sealed class SignedWebUpdateSource : IUpdateSource, IDisposable
             }
             if (asset.Size <= 0 || string.IsNullOrWhiteSpace(asset.SHA256))
                 throw new UpdateTrustException("The update feed contains incomplete asset integrity metadata.");
-            if (!string.IsNullOrWhiteSpace(expectedVersion)
-                && !string.Equals(asset.Version.ToString(), expectedVersion, StringComparison.Ordinal))
-                throw new UpdateTrustException("The update feed asset version does not match the signed payload.");
+            var isTargetVersion = string.IsNullOrWhiteSpace(expectedVersion)
+                || string.Equals(asset.Version.ToString(), expectedVersion, StringComparison.Ordinal);
+            var assetType = asset.Type.ToString();
+            if (!isTargetVersion && !string.Equals(assetType, "Full", StringComparison.Ordinal))
+                throw new UpdateTrustException("The update feed contains a delta package outside the signed target version.");
+            if (isTargetVersion && string.Equals(assetType, "Full", StringComparison.Ordinal))
+                targetFullPackages++;
         }
+        if (!string.IsNullOrWhiteSpace(expectedVersion) && targetFullPackages != 1)
+            throw new UpdateTrustException("The update feed must contain exactly one full package for the signed target version.");
     }
 }

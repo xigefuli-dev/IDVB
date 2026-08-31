@@ -195,21 +195,24 @@ public static class MapViewportPresenceDetector
         int observedStableStructureFrames = 0)
     {
         var structureReady = true;
+        var stableStructureReady = false;
         if (requireStructure)
         {
             var candidateStructure = candidate.Structure;
+            stableStructureReady = candidateStructure is not null
+                && observedStableStructureFrames
+                    >= Math.Max(2, requiredStableStructureFrames);
             if (reference?.Structure is { } referenceStructure)
             {
                 structureReady = candidateStructure is not null
                     && StructureSimilarity(
                         candidateStructure,
-                        referenceStructure) >= 0.78d;
+                        referenceStructure) >= 0.78d
+                    || stableStructureReady;
             }
             else
             {
-                structureReady = candidateStructure is not null
-                    && observedStableStructureFrames
-                        >= Math.Max(2, requiredStableStructureFrames);
+                structureReady = stableStructureReady;
             }
         }
         if (reference is not null
@@ -221,11 +224,20 @@ public static class MapViewportPresenceDetector
                 candidate.Histogram);
             var brightnessDelta =
                 Math.Abs(candidate.MeanValue - reference.MeanValue) / 255d;
+            var referenceReady = similarity >= referenceThreshold
+                && brightnessDelta <= brightnessTolerance
+                && structureReady;
+            var stableFallbackReady = requireStructure
+                && stableStructureReady
+                && candidate.BlueGrayFraction >= blueGrayThreshold
+                && previousFrame is not null
+                && Math.Abs(candidate.MeanValue - previousFrame.MeanValue) / 255d
+                    <= brightnessTolerance;
             return new MapViewportPresenceResult(
-                similarity >= referenceThreshold
-                    && brightnessDelta <= brightnessTolerance
-                    && structureReady,
-                structureReady ? "reference-hsv" : "DeferredNotReady",
+                referenceReady || stableFallbackReady,
+                stableFallbackReady && !referenceReady
+                    ? "stable-structure-fallback"
+                    : structureReady ? "reference-hsv" : "DeferredNotReady",
                 similarity,
                 candidate.BlueGrayFraction);
         }
@@ -321,7 +333,7 @@ public static class MapViewportPresenceDetector
         }
     }
 
-    private static double StructureSimilarity(
+    internal static double StructureSimilarity(
         MapViewportStructureSignature first,
         MapViewportStructureSignature second)
     {

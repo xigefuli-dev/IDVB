@@ -93,12 +93,7 @@ public sealed partial class IdvmPackageService
             throw new ArgumentException("导出目标不能为空。", nameof(destination));
 
         var snapshot = await _repository.GetCatalogSnapshotAsync();
-        var selectedMaps = scope == IdvmExportScope.CurrentClass
-            ? snapshot.Maps.Where(map => string.Equals(
-                map.Class,
-                className,
-                StringComparison.OrdinalIgnoreCase)).ToArray()
-            : snapshot.Maps.ToArray();
+        var selectedMaps = SelectMaps(snapshot.Maps, scope, className);
         if (selectedMaps.Length == 0)
             throw new InvalidOperationException("所选范围没有可导出的地图。");
 
@@ -153,7 +148,10 @@ public sealed partial class IdvmPackageService
                     Properties = new ManifestClassPropertiesDto
                     {
                         RemoveBackground = snapshot.ClassProperties.TryGetValue(classLabel, out var properties)
-                            && properties.RemoveBackground
+                            && properties.RemoveBackground,
+                        ScanFloorKey = snapshot.ClassProperties.TryGetValue(classLabel, out properties)
+                            ? MapScanFloorRules.NormalizeFloorIdentity(properties.ScanFloorKey)
+                            : null
                     }
                 });
                 foreach (var map in maps)
@@ -299,6 +297,7 @@ public sealed partial class IdvmPackageService
     private sealed class ManifestClassPropertiesDto
     {
         public bool RemoveBackground { get; set; }
+        public string? ScanFloorKey { get; set; }
     }
 
     private sealed class ManifestVariantGroupDto

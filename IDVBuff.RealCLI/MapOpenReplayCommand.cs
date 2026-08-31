@@ -1,4 +1,5 @@
 using System.Text.Json;
+using IDVBuff.Features.Maps;
 using IDVBuff.RealCLI.Cli;
 using IDVBuff.RealCLI.Output;
 using IDVBuff.RealCLI.Stubs;
@@ -10,11 +11,14 @@ internal static class MapOpenReplayCommand
 {
     public static async Task<int> RunAsync(
         string[] args,
-        DispatcherQueue dispatcher)
+        DispatcherQueue dispatcher,
+        bool readOnlyModelReplay = false)
     {
         string? manifestPath = null;
         string? outputPath = null;
         string? settingsOverride = null;
+        string? repositoryOverride = null;
+        string? decisionModeOverride = null;
         for (var i = 0; i < args.Length; i++)
         {
             switch (args[i].ToLowerInvariant())
@@ -28,6 +32,10 @@ internal static class MapOpenReplayCommand
                 case "--settings":
                 case "-s":
                     settingsOverride = args[++i]; break;
+                case "--repository":
+                    repositoryOverride = args[++i]; break;
+                case "--mode":
+                    decisionModeOverride = args[++i]; break;
             }
         }
 
@@ -52,7 +60,7 @@ internal static class MapOpenReplayCommand
                 Console.Error.WriteLine("错误：manifest 必须包含至少一个 cases 项。");
                 return 1;
             }
-            if (manifest.SchemaVersion is < 1 or > 1)
+            if (manifest.SchemaVersion is < 1 or > 2)
             {
                 Console.Error.WriteLine(
                     $"错误：不支持的 mapopen-replay schemaVersion={manifest.SchemaVersion}。");
@@ -108,7 +116,22 @@ internal static class MapOpenReplayCommand
                     scanImage,
                     settingsRoot,
                     out var overlay,
-                    out var capture);
+                    out var capture,
+                    repositoryOverride
+                        ?? ResolveOptionalPath(root, manifest.ModelRepository));
+                var candidateMapIdText = replayCase.CandidateMapId
+                    ?? manifest.CandidateMapId;
+                Guid? candidateMapId = string.IsNullOrWhiteSpace(candidateMapIdText)
+                    ? null
+                    : Guid.Parse(candidateMapIdText);
+                var decisionMode = Enum.TryParse<MapCandidateDecisionMode>(
+                    decisionModeOverride
+                        ?? replayCase.DecisionMode
+                        ?? manifest.DecisionMode,
+                    ignoreCase: true,
+                    out var parsedMode)
+                        ? parsedMode
+                        : MapCandidateDecisionMode.Traditional;
                 var result = await MapOpenCommand.RunMapOpenScenarioAsync(
                     orchestrator,
                     overlay,
@@ -116,7 +139,13 @@ internal static class MapOpenReplayCommand
                     replayCase.Candidate ?? manifest.Candidate,
                     reopenImage,
                     capture,
-                    floorPosition);
+                    floorPosition,
+                    candidateMapId,
+                    decisionMode,
+                    continuousLearning: !readOnlyModelReplay
+                        && candidateMapId.HasValue,
+                    replayCase.ForceCandidateSelection
+                        ?? manifest.ForceCandidateSelection);
                 cases.Add(new MapOpenReplayCaseResult
                 {
                     Name = replayCase.Name,
@@ -182,6 +211,24 @@ internal static class MapOpenReplayCommand
             && !string.Equals(expected.Floor, result.Recognition.Floor,
                 StringComparison.OrdinalIgnoreCase))
             return false;
+        if (!string.IsNullOrWhiteSpace(expected.Source)
+            && !string.Equals(expected.Source,
+                result.Recognition.RecognitionSource,
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrWhiteSpace(expected.ModelStatus)
+            && !string.Equals(expected.ModelStatus,
+                result.ModelStatus?.IsQualified is true
+                    ? "Qualified"
+                    : result.ModelStatus?.IsAvailable is true
+                        ? "Experimental"
+                        : "Unavailable",
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (expected.FallbackOccurred.HasValue
+            && expected.FallbackOccurred.Value
+                != (result.ModelFallbackEvents.Count > 0))
+            return false;
         var transform = result.Recognition.Transform;
         if (transform is null)
             return false;
@@ -203,6 +250,10 @@ internal sealed class MapOpenReplayManifest
     public string? SettingsRoot { get; init; }
     public int? Candidate { get; init; }
     public int? FloorPosition { get; init; }
+    public string? DecisionMode { get; init; }
+    public string? ModelRepository { get; init; }
+    public bool? ForceCandidateSelection { get; init; }
+    public string? CandidateMapId { get; init; }
     public List<MapOpenReplayCase> Cases { get; init; } = [];
 }
 
@@ -213,6 +264,9 @@ internal sealed class MapOpenReplayCase
     public string? ReopenImage { get; init; }
     public int? Candidate { get; init; }
     public int? FloorPosition { get; init; }
+    public string? DecisionMode { get; init; }
+    public bool? ForceCandidateSelection { get; init; }
+    public string? CandidateMapId { get; init; }
     public MapOpenReplayExpectation? Expected { get; init; }
 }
 
@@ -223,6 +277,9 @@ internal sealed class MapOpenReplayExpectation
     public double? Scale { get; init; }
     public double? OffsetX { get; init; }
     public double? OffsetY { get; init; }
+    public string? Source { get; init; }
+    public string? ModelStatus { get; init; }
+    public bool? FallbackOccurred { get; init; }
     public double ScaleTolerance { get; init; } = 0.015d;
     public double OffsetTolerancePixels { get; init; } = 8d;
 }

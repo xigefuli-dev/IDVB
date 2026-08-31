@@ -20,7 +20,8 @@ public sealed partial class SessionOrchestrator
         CancellationToken cancellationToken,
         bool nativeChoicesPrepared = false,
         IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>? preloadedChoicePreviews = null,
-        MapManualCandidateWindow.CandidateLivePreviewAssets? preloadedLivePreview = null)
+        MapManualCandidateWindow.CandidateLivePreviewAssets? preloadedLivePreview = null,
+        MapLearningScoreResult? precomputedLearningResult = null)
     {
         var scopedCandidates = candidates
             .Where(candidate => string.Equals(
@@ -28,11 +29,33 @@ public sealed partial class SessionOrchestrator
                 mapClass,
                 StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        var orderedCandidates = scopedCandidates
-            .OrderBy(candidate => candidate.IsReferenceOnly)
-            .ThenBy(candidate => candidate.PreferredOrder)
-            .ThenByDescending(candidate => candidate.RawConfidence)
-            .ToArray();
+        var orderedCandidates = precomputedLearningResult is null
+            ? scopedCandidates
+                .OrderBy(candidate => candidate.IsReferenceOnly)
+                .ThenBy(candidate => candidate.PreferredOrder)
+                .ThenByDescending(candidate => candidate.RawConfidence)
+                .ToArray()
+            : scopedCandidates;
+        if (_settings?.CandidateDecisionMode
+                is MapCandidateDecisionMode.Fusion
+                    or MapCandidateDecisionMode.ModelOnly
+            && !nativeChoicesPrepared)
+        {
+            orderedCandidates = (await BuildNativeCandidateChoicesAsync(
+                orderedCandidates,
+                mapClass)).ToArray();
+            nativeChoicesPrepared = true;
+            preloadedChoicePreviews = null;
+        }
+
+        var learningResult = precomputedLearningResult
+            ?? await _learningEngine.ScoreAsync(
+                frame.Image,
+                orderedCandidates,
+                _settings?.CandidateDecisionMode
+                    ?? MapCandidateDecisionMode.Traditional,
+                cancellationToken);
+        orderedCandidates = learningResult.Choices.ToArray();
         // 预加载缓存以原候选顺序生成；候选窗口沿用排序后的顺序时同步重排，
         // 避免卡片标题与预览图错位。
         var orderedPreviews = ReorderChoicePreviews(
@@ -40,6 +63,18 @@ public sealed partial class SessionOrchestrator
             orderedCandidates,
             preloadedChoicePreviews);
         _lastCandidateChoices = orderedCandidates;
+        RememberMapLearningContext(frame, orderedCandidates, mapClass);
+        if (CanAcceptModelTopOne(learningResult, orderedCandidates))
+        {
+            var recognition = MapCvRecognitionService.ConfirmChoice(
+                orderedCandidates[0]);
+            _statusMessage =
+                $"空间模型高置信度建议：{recognition.Map.DisplayName}"
+                + $" · {orderedCandidates[0].ModelMatchedFloorKey.ToUpperInvariant()}；"
+                + "等待严格结构对齐。";
+            LockSelectedMapIdentity(recognition, frame, userConfirmed: false);
+            return new CandidateSelectionResolution(recognition, false);
+        }
         if (_activeCandidateSelector is not null)
         {
             return await SelectCandidateWithOverrideAsync(
@@ -107,10 +142,15 @@ public sealed partial class SessionOrchestrator
             }
 
             var recognition = MapCvRecognitionService.ConfirmChoice(displayChoices[index]);
+            await RecordHumanMapSelectionAsync(
+                frame,
+                displayChoices,
+                recognition.Map.Id,
+                cancellationToken);
             _statusMessage = displayChoices[index].IsReferenceOnly
                 ? $"正在严格复核参考线索：{recognition.Map.DisplayName}……"
                 : $"用户选择了可靠候选：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
-            LockUserSelectedMapIdentity(recognition, frame);
+            LockSelectedMapIdentity(recognition, frame, userConfirmed: true);
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
@@ -194,9 +234,14 @@ public sealed partial class SessionOrchestrator
         }
 
         var recognition = MapCvRecognitionService.ConfirmChoice(candidates[index]);
+        await RecordHumanMapSelectionAsync(
+            frame,
+            candidates,
+            recognition.Map.Id,
+            cancellationToken);
         _statusMessage =
             $"候选地图接口已选择：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
-        LockUserSelectedMapIdentity(recognition, frame);
+        LockSelectedMapIdentity(recognition, frame, userConfirmed: true);
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
@@ -212,13 +257,36 @@ public sealed partial class SessionOrchestrator
         return new CandidateSelectionResolution(recognition, false);
     }
 
-    private void LockUserSelectedMapIdentity(
+    private bool CanAcceptModelTopOne(
+        MapLearningScoreResult result,
+        IReadOnlyList<MapRecognitionChoice> choices)
+    {
+        if (_settings?.RecognitionTuning.ForceCandidateSelection is not false
+            || _settings.CandidateDecisionMode
+                == MapCandidateDecisionMode.Traditional
+            || !result.ModelAvailable
+            || !result.ModelQualified
+            || choices.Count == 0
+            || choices[0].ModelProbability is not { } top
+            || top < 0.85d)
+        {
+            return false;
+        }
+
+        var second = choices.Skip(1)
+            .Select(choice => choice.ModelProbability)
+            .FirstOrDefault(value => value.HasValue);
+        return !second.HasValue || top - second.Value >= 0.15d;
+    }
+
+    private void LockSelectedMapIdentity(
         RuntimeMapRecognition selected,
-        CapturedGameFrame frame)
+        CapturedGameFrame frame,
+        bool userConfirmed)
     {
         var floorKey = selected.Result.Floor;
         if (MapFloorRules.GetFloorProfile(selected.Map, floorKey) is null)
-            floorKey = MapFloorRules.GetPrimaryFloorKey(selected.Map);
+            floorKey = MapScanFloorRules.ResolveScanFloorKey(selected.Map);
 
         var identityLock = new RuntimeMapRecognition
         {
@@ -233,7 +301,9 @@ public sealed partial class SessionOrchestrator
                 Confidence = selected.Result.Confidence,
                 IdentityConfidence = 1d,
                 LocalizationConfidence = 0d,
-                Source = MapRecognitionSource.UserConfirmed
+                Source = userConfirmed
+                    ? MapRecognitionSource.UserConfirmed
+                    : MapRecognitionSource.Automatic
             }
         };
 
@@ -256,7 +326,7 @@ public sealed partial class SessionOrchestrator
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
-            $"用户选择后已立即锁定地图身份 · map={identityLock.Map.DisplayName} "
+            $"{(userConfirmed ? "用户选择" : "合格模型建议")}后已立即锁定地图身份 · map={identityLock.Map.DisplayName} "
             + $"· floor={floorKey}",
             details: new()
             {

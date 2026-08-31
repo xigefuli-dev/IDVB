@@ -137,6 +137,62 @@ internal sealed partial class AdaptiveScaleCoordinator
             });
     }
 
+    public async Task<int> ResetMapFloorForPlayerAsync(
+        Guid mapId,
+        DateTimeOffset mapUpdatedAt,
+        string floorKey)
+    {
+        var normalizedFloor = AdaptiveScaleKey.NormalizeFloor(floorKey);
+        var updatedAtTicks = mapUpdatedAt.UtcTicks;
+        lock (_stateGate)
+        {
+            foreach (var key in _initialStreaks.Keys.Where(Matches).ToArray())
+                _initialStreaks.Remove(key);
+            foreach (var key in _controllers.Keys.Where(Matches).ToArray())
+                _controllers.Remove(key);
+            if (_activeKey is { } active && Matches(active))
+            {
+                _activeKey = null;
+                _activeOpenId = 0;
+            }
+        }
+
+        Task<int> resetTask;
+        lock (_pendingWrites)
+        {
+            resetTask = ResetMapFloorAfterAsync(
+                _streakWriteTail,
+                mapId,
+                updatedAtTicks,
+                normalizedFloor);
+            _streakWriteTail = resetTask;
+            _pendingWrites.Add(resetTask);
+        }
+        try
+        {
+            var removed = await resetTask.ConfigureAwait(false);
+            _log?.Invoke(
+                "adaptive scale baseline reset by player",
+                new Dictionary<string, object?>
+                {
+                    ["mapId"] = mapId,
+                    ["floor"] = normalizedFloor,
+                    ["removedEntries"] = removed
+                });
+            return removed;
+        }
+        finally
+        {
+            lock (_pendingWrites)
+                _pendingWrites.Remove(resetTask);
+        }
+
+        bool Matches(AdaptiveScaleKey key) =>
+            key.MapId == mapId
+            && key.MapUpdatedAtTicks == updatedAtTicks
+            && key.FloorKey == normalizedFloor;
+    }
+
     private async Task ResetForScaleRecoveryAfterAsync(
         Task predecessor,
         AdaptiveScaleKey key)
@@ -150,6 +206,26 @@ internal sealed partial class AdaptiveScaleCoordinator
             // A previous persistence failure must not preserve a stale scale.
         }
         await _store.ResetAsync(key).ConfigureAwait(false);
+    }
+
+    private async Task<int> ResetMapFloorAfterAsync(
+        Task predecessor,
+        Guid mapId,
+        long mapUpdatedAtTicks,
+        string floorKey)
+    {
+        try
+        {
+            await predecessor.ConfigureAwait(false);
+        }
+        catch
+        {
+            // A stale write failure must not keep a player-rejected lock.
+        }
+        return await _store.ResetMapFloorAsync(
+            mapId,
+            mapUpdatedAtTicks,
+            floorKey).ConfigureAwait(false);
     }
 
     private AdaptiveScaleController GetController(AdaptiveScaleKey key)
@@ -258,7 +334,9 @@ internal sealed partial class AdaptiveScaleCoordinator
             "Disabled",
             0,
             0,
-            AdaptiveScaleReliabilityReason.Disabled);
+            AdaptiveScaleReliabilityReason.Disabled,
+            0d,
+            false);
 
     private static double UniformScale(MapOverlayTransform transform) =>
         (transform.ScaleX + transform.ScaleY) / 2d;

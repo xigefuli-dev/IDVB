@@ -70,14 +70,22 @@ public sealed partial class SessionOrchestrator
         // 省去开图动画帧的稳定等待。后续结构 / 缓存验证兜底错误帧不提交。
         if (relaxForLockedMap)
         {
+            var structureFallbackFrameCount = lowStructureReadiness
+                ? lowStructureReadinessFrameCount
+                : 2;
             return await CaptureReadyViewportForLockedMapAsync(
                 operation,
                 viewport,
                 interval,
                 cancellationToken,
                 shouldContinue,
-                lowStructureReadiness,
-                lowStructureReadinessFrameCount);
+                // Standard floors retain the established reference/blue-gray
+                // readiness path. Requiring structure here can wait forever
+                // before the aligner is entered when the saved reference is
+                // stale or unavailable. Only the explicitly low-structure
+                // channel needs consecutive structural readiness evidence.
+                requireStructureReadiness: lowStructureReadiness,
+                structureFallbackFrameCount);
         }
 
         var requiredFrames = Math.Max(2, sessionTuning.StableFrameCount);

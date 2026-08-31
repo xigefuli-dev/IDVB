@@ -33,6 +33,8 @@ public sealed partial class MapVpsgScaleEstimator
     public const double MaximumResidualPixels = 3d;
     public const double MaximumRotationDegrees = 2d;
     public const double MaximumRelativeMad = 0.015d;
+    private const double MinimumLiveSpanPixels = 32d;
+    private const double MinimumScaleNormalizedLiveSpan = 80d;
     private const double RatioThreshold = 0.85d;
     private const double LogScaleBinRatio = 1.005d;
     private const double ClusterScaleTolerance = 0.015d;
@@ -130,7 +132,12 @@ public sealed partial class MapVpsgScaleEstimator
             || Math.Abs(fit.RotationDegrees) > MaximumRotationDegrees
             || fit.Residual > MaximumResidualPixels
             || referenceSpan < 120d
-            || liveSpan < 80d
+            // A fixed 80px live-span gate contradicts the estimator's own
+            // 0.30-1.70 scale domain: a valid 148px reference span becomes
+            // only 75px at scale 0.508. Keep a small absolute pixel floor,
+            // then judge spatial coverage in scale-normalized coordinates.
+            || liveSpan < MinimumLiveSpanPixels
+            || liveSpan / fit.Scale < MinimumScaleNormalizedLiveSpan
             || relativeMad > MaximumRelativeMad)
         {
             rejectionReason =

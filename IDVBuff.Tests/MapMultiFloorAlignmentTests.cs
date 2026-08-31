@@ -212,6 +212,7 @@ public sealed partial class MapMultiFloorAlignmentTests
             ChamferPixels = 2.85d,
             EdgeCoverage = 0.53d,
             OccupancyCoverage = 0.85d,
+            ReferenceCoverage = 0.80d,
             ConsistentPartitions = 2,
             IsWithinValidBounds = true,
             PriorAgreement = 1d
@@ -234,8 +235,8 @@ public sealed partial class MapMultiFloorAlignmentTests
             lowTuning);
 
         Assert.InRange(standard.LockConfidence, 0.51d, 0.52d);
-        Assert.Equal(0.6278416666666667d, low.LockConfidence, 12);
-        Assert.Equal(0.6436166666666667d, low.GeometricLockConfidence, 12);
+        Assert.Equal(0.554d, low.LockConfidence, 12);
+        Assert.Equal(0.5635294117647058d, low.GeometricLockConfidence, 12);
         Assert.Equal(low.LockConfidence, low.FinalScore, 12);
         Assert.Equal(1d, low.EffectiveWeight);
     }
@@ -255,6 +256,7 @@ public sealed partial class MapMultiFloorAlignmentTests
             {
                 EdgeCoverage = 1d,
                 OccupancyCoverage = 1d,
+                ReferenceCoverage = 1d,
                 ConsistentPartitions = 4,
                 IsWithinValidBounds = true,
                 PriorAgreement = 1d

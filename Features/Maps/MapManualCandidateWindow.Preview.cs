@@ -104,7 +104,7 @@ public sealed partial class MapManualCandidateWindow
             Height = new GridLength(1, GridUnitType.Star)
         });
         var original = CreatePreviewFrame(originalSource, "识别区域");
-        var detail = CreatePreviewFrame(detailSource, "侧门实时放大 · 120%");
+        var detail = CreatePreviewFrame(detailSource, "扫描门特征实时放大 · 120%");
         Grid.SetRow(original, 0);
         Grid.SetRow(detail, 1);
         panel.Children.Add(original);
@@ -178,6 +178,31 @@ public sealed partial class MapManualCandidateWindow
         Grid.SetRow(image, 0);
         grid.Children.Add(image);
 
+        var floorKey = choice.Recognition.Result.Floor;
+        if (!MapScanFloorRules.IsPrimaryFloor(choice.Recognition.Map, floorKey))
+        {
+            var floorName = MapCandidatePresentationRules.ResolveFloorDisplayName(
+                choice.Recognition.Map,
+                floorKey);
+            var badge = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(220, 63, 38, 105)),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(10),
+                Padding = new Thickness(8, 4, 8, 4),
+                CornerRadius = new CornerRadius(5),
+                Child = new TextBlock
+                {
+                    Text = $"{floorName} · 次要门局部预览",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromArgb(255, 240, 230, 255))
+                }
+            };
+            Grid.SetRow(badge, 0);
+            grid.Children.Add(badge);
+        }
+
         var overlay = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(200, 8, 12, 18)),
@@ -202,6 +227,31 @@ public sealed partial class MapManualCandidateWindow
                 ? Color.FromArgb(255, 244, 190, 90)
                 : Color.FromArgb(255, 150, 225, 170))
         });
+        if (choice.TraditionalScore is { } traditional)
+        {
+            details.Children.Add(CreateEvidenceText(
+                $"传统算法 {ToConfidenceText(traditional)} · {traditional:P0}"));
+        }
+        if (choice.ModelProbability is { } model)
+        {
+            details.Children.Add(CreateEvidenceText(
+                $"空间匹配 {ToConfidenceText(model)} · {model:P0}"
+                + (string.IsNullOrWhiteSpace(choice.ModelVersion)
+                    ? string.Empty
+                    : $" · {choice.ModelVersion}")
+                + (choice.ModelMatchedCenterX is { } x
+                    && choice.ModelMatchedCenterY is { } y
+                    ? $" · {choice.ModelMatchedFloorKey.ToUpperInvariant()}"
+                        + $" ({x:P0}, {y:P0})"
+                    : string.Empty)));
+        }
+        else if (!string.IsNullOrWhiteSpace(choice.ModelFailureReason))
+        {
+            details.Children.Add(CreateEvidenceText(
+                $"空间匹配失败 · {choice.ModelFailureReason}"));
+        }
+        if (choice.FusionScore is { } fusion)
+            details.Children.Add(CreateEvidenceText($"融合排序 · {fusion:P0}"));
         overlay.Child = details;
         Grid.SetRow(overlay, 1);
         grid.Children.Add(overlay);
@@ -216,23 +266,24 @@ public sealed partial class MapManualCandidateWindow
         var map = choice.Recognition.Map;
         var previewPath = repository.GetFloorOverlayPath(
             map,
-            MapFloorRules.GetPrimaryFloorKey(map));
+            choice.Recognition.Result.Floor);
         if (!File.Exists(previewPath))
             return null;
 
-        var sideCenter = MapCandidatePresentationRules
-            .ResolveMapSideEntranceCenter(map);
-        if (sideCenter is { } center)
+        var previewPlan = MapCandidatePresentationRules.ResolveMapPreviewPlan(
+            map,
+            choice.Recognition.Result.Floor);
+        if (previewPlan is { } plan)
         {
             using var source = Cv2.ImRead(previewPath, ImreadModes.Unchanged);
             if (!source.Empty())
             {
                 using var positioned = CreatePositionedPreview(
                     source,
-                    center,
-                    MapCandidatePresentationRules.MapPreviewZoom,
-                    targetX: 0.5d,
-                    targetY: MapCandidatePresentationRules.MapSideEntranceTargetY);
+                    plan.Center,
+                    plan.Zoom,
+                    plan.TargetX,
+                    plan.TargetY);
                 return await MapManualRecognitionWindow.CreateBitmapAsync(positioned);
             }
         }
@@ -314,5 +365,21 @@ public sealed partial class MapManualCandidateWindow
             Scalar.Black);
         return output;
     }
+
+    private static TextBlock CreateEvidenceText(string text) => new()
+    {
+        Text = text,
+        FontSize = 12,
+        Foreground = new SolidColorBrush(
+            Color.FromArgb(255, 177, 190, 207)),
+        TextWrapping = TextWrapping.Wrap
+    };
+
+    private static string ToConfidenceText(double score) => score switch
+    {
+        >= 0.85d => "高",
+        >= 0.60d => "中",
+        _ => "低"
+    };
 
 }

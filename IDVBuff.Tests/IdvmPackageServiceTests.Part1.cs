@@ -10,6 +10,36 @@ public sealed partial class IdvmPackageServiceTests
 {
 
     [Fact]
+    public async Task Version13FloorMarkersRoundTrip()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            var draft = CreateDraft(root, "markers.png", "S1", "Markers");
+            draft.Floors[0].MarkerKeys = [MapFloorMarkerRules.LowStructure];
+            await source.SaveAsync(draft);
+            var package = Path.Combine(root, "markers.idvm");
+            await new IdvmPackageService(source).ExportAsync(
+                IdvmExportScope.AllClasses,
+                null,
+                package);
+
+            var target = new IdvmPackageService(
+                new MapRepository(Path.Combine(root, "target")));
+            var result = await target.ImportAsync(await target.InspectAsync(package));
+
+            Assert.Equal(
+                [MapFloorMarkerRules.LowStructure],
+                Assert.Single(result.ImportedMaps).Floors[0].MarkerKeys);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task Version12RequiresExplicitFloorMarkerCapability()
     {
         var root = CreateRoot();

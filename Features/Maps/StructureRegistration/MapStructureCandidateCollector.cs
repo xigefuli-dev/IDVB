@@ -367,14 +367,28 @@ internal static class MapStructureCandidateCollector
         var diagnostic = ordered
             .Take(tuning.TopCandidateCount)
             .ToArray();
-        var valid = ordered
-            .Where(candidate => MapStructureValidator.ValidateAbsolute(
-                candidate,
+        // If the raw optimum of a neutral cold scale search lies at the
+        // sampled boundary, the whole scale estimate is censored. Selecting
+        // the next interior candidate would merely turn 1.70 into 1.60 and
+        // still seed the session from an unclosed search curve.
+        var rawBestRejection = ordered.Length == 0
+            ? MapStructureRejectionReason.NoCandidate
+            : MapStructureValidator.ValidateAbsolute(
+                ordered[0],
                 tuning,
                 restrictedSearch,
-                request) == MapStructureRejectionReason.None)
-            .Take(tuning.TopCandidateCount)
-            .ToArray();
+                request);
+        var valid = rawBestRejection
+                == MapStructureRejectionReason.ScaleSearchBoundary
+            ? []
+            : ordered
+                .Where(candidate => MapStructureValidator.ValidateAbsolute(
+                    candidate,
+                    tuning,
+                    restrictedSearch,
+                    request) == MapStructureRejectionReason.None)
+                .Take(tuning.TopCandidateCount)
+                .ToArray();
         return (ordered, diagnostic, valid);
     }
 }

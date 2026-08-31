@@ -56,7 +56,8 @@ public sealed class QuickStartTests
         Assert.Null(recommended.SelectedResolutionPreset);
         Assert.False(recommended.AllowAutomaticMapCache);
         Assert.True(recommended.CollectLogs);
-        Assert.True(recommended.CollectAlignmentResearchData);
+        Assert.False(recommended.CollectAlignmentResearchData);
+        Assert.False(recommended.ContinuousMapLearningEnabled);
         Assert.True(recommended.ShowOverlayStatus);
         Assert.True(recommended.AllowMapExtendBeyondBounds);
         Assert.True(recommended.PersistentMiniMapEnabled);

@@ -220,12 +220,17 @@ public sealed partial class MapRepository
         string destinationPath,
         FloorRecognitionProfile profile,
         string? overlayPath,
-        bool removeBackground = false)
+        bool removeBackground = false,
+        int backgroundRemovalIntensity = MapBackgroundProcessor.DefaultBackgroundRemovalIntensity)
     {
         using var source = Cv2.ImRead(sourcePath, ImreadModes.Unchanged);
         if (source.Empty())
             throw new InvalidOperationException("无法读取地图原图以生成识别区域。");
-        using var processed = MapBackgroundProcessor.Process(source, profile, removeBackground);
+        using var processed = MapBackgroundProcessor.Process(
+            source,
+            profile,
+            removeBackground,
+            backgroundRemovalIntensity);
         var needsIndependentRecognition = removeBackground
             || profile.BackgroundLayers.Count > 0
             || !UsesWholeSourceImage(profile);

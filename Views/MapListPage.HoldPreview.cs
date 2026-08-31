@@ -75,10 +75,10 @@ public sealed partial class MapListPage
 
     private void ShowHoldPreview(MapRecord map)
     {
-        var floor = MapFloorRules.GetOrderedFloors(map).FirstOrDefault();
-        if (floor is null)
+        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+        if (MapFloorRules.GetFloorProfile(map, floorKey) is null)
             return;
-        var path = _repository.GetFloorRecognitionPath(map, floor.Key);
+        var path = _repository.GetFloorRecognitionPath(map, floorKey);
         if (!File.Exists(path) || XamlRoot is null)
             return;
 

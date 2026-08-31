@@ -36,7 +36,8 @@ internal static class OrchestratorFactory
         string imagePath,
         string? settingsRoot,
         out RecordingOverlayWindow overlay,
-        out FileBasedCapture capture)
+        out FileBasedCapture capture,
+        string? modelRepository = null)
     {
         var services = new ServiceCollection();
 
@@ -94,7 +95,8 @@ internal static class OrchestratorFactory
                 sp.GetRequiredService<MapAlignmentResearchCollector>(),
                 sp.GetRequiredService<IDVBuff.Survey.Contracts.ISurveyCoordinator>(),
                 sp.GetRequiredService<IDVBuff.Survey.Contracts.SurveyCaptureTuning>(),
-                headless: true));
+                headless: true,
+                learningEngine: new MapCandidateLearningEngine(modelRepository)));
         services.AddSingleton<ISessionOrchestrator>(sp =>
             sp.GetRequiredService<SessionOrchestrator>());
 

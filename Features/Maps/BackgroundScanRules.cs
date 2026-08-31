@@ -87,7 +87,7 @@ internal static class BackgroundScanRules
         Func<MapRecord, string, string> overlayPathResolver)
     {
         if (MapFloorRules.GetFloorProfile(map, floorKey) is null)
-            floorKey = MapFloorRules.GetPrimaryFloorKey(map);
+            floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
         return new RuntimeMapRecognition
         {
             Map = map,
@@ -127,7 +127,7 @@ internal static class BackgroundScanRules
                 continue;
             var floorKey =
                 MapFloorRules.GetFloorProfile(map, candidate.FloorKey) is null
-                    ? MapFloorRules.GetPrimaryFloorKey(map)
+                    ? MapScanFloorRules.ResolveScanFloorKey(map)
                     : candidate.FloorKey;
             choices.Add(new MapRecognitionChoice
             {

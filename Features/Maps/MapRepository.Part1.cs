@@ -61,7 +61,8 @@ public sealed partial class MapRepository
             return new MapCatalogSnapshot(
                 catalog.Classes.ToArray(),
                 catalog.Maps.OrderBy(record => record.SequenceNumber)
-                    .Select(record => record.Clone()).ToArray())
+                    .Select(record => CloneWithClassProperties(catalog, record))
+                    .ToArray())
             {
                 ClassProperties = catalog.ClassProperties.ToDictionary(
                     pair => pair.Key,

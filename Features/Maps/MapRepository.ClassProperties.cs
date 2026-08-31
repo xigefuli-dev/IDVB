@@ -2,13 +2,78 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapRepository
 {
+    private static MapRecord CloneWithClassProperties(
+        MapCatalogDocument catalog,
+        MapRecord record)
+    {
+        var clone = record.Clone();
+        clone.ClassProperties = GetClassProperties(catalog, record.Class);
+        return clone;
+    }
+
+    public async Task SetClassScanFloorAsync(
+        string className,
+        string? floorKey,
+        CancellationToken cancellationToken = default)
+    {
+        var canonicalName = NormalizeClassName(className)
+            ?? throw new InvalidOperationException("Class 名称不能为空。");
+        var normalizedFloor = MapScanFloorRules.NormalizeFloorIdentity(floorKey);
+        await Gate.WaitAsync(cancellationToken);
+        try
+        {
+            var catalog = await ReadCatalogAsync();
+            var actualName = catalog.Classes.SingleOrDefault(candidate =>
+                string.Equals(candidate, canonicalName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException("找不到要修改的 Class。");
+            var maps = catalog.Maps
+                .Where(map => string.Equals(map.Class, actualName, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            foreach (var map in maps)
+            {
+                map.NormalizeRecognition();
+                map.ClassProperties = GetClassProperties(catalog, actualName);
+            }
+
+            if (normalizedFloor is not null)
+            {
+                var option = MapScanFloorRules.BuildOptions(maps)
+                    .FirstOrDefault(candidate => string.Equals(
+                        candidate.FloorIdentity,
+                        normalizedFloor,
+                        StringComparison.Ordinal));
+                if (option is null)
+                    throw new InvalidOperationException($"地图类中不存在楼层 ID“{floorKey}”。");
+                if (!option.IsEligible)
+                    throw new InvalidOperationException($"楼层“{option.DisplayName}”不能用于扫描：{option.FailureReason}");
+            }
+
+            var properties = GetClassProperties(catalog, actualName);
+            if (string.Equals(
+                    MapScanFloorRules.NormalizeFloorIdentity(properties.ScanFloorKey),
+                    normalizedFloor,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+            properties.ScanFloorKey = normalizedFloor;
+            catalog.ClassProperties[actualName] = properties;
+            await WriteCatalogAsync(catalog);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     /// <summary>
     /// Rebuilds every map in a Class before committing the Class property.
     /// The returned IDs are the maps whose derived resources were rebuilt.
     /// </summary>
-    public async Task<IReadOnlyList<Guid>> SetClassRemoveBackgroundAsync(
+    public async Task<IReadOnlyList<Guid>> SetClassBackgroundRemovalAsync(
         string className,
         bool enabled,
+        int intensity,
         CancellationToken cancellationToken = default)
     {
         var canonicalName = NormalizeClassName(className)
@@ -26,7 +91,9 @@ public sealed partial class MapRepository
                 throw new InvalidOperationException("找不到要修改的 Class。");
             canonicalName = actualName;
             var currentProperties = GetClassProperties(catalog, canonicalName);
-            if (currentProperties.RemoveBackground == enabled)
+            var normalizedIntensity = MapBackgroundProcessor.ClampBackgroundRemovalIntensity(intensity);
+            if (currentProperties.RemoveBackground == enabled
+                && currentProperties.BackgroundRemovalIntensity == normalizedIntensity)
                 return Array.Empty<Guid>();
             var maps = catalog.Maps
                 .Where(map => string.Equals(map.Class, canonicalName, StringComparison.OrdinalIgnoreCase))
@@ -54,6 +121,7 @@ public sealed partial class MapRepository
                     var draft = await CreateDraftCoreAsync(map.Id, gateAlreadyHeld: true)
                         ?? throw new InvalidOperationException($"地图 {map.DisplayName} 已不存在。");
                     draft.RemoveBackgroundOverride = enabled;
+                    draft.BackgroundRemovalIntensityOverride = normalizedIntensity;
                     await SaveCoreAsync(
                         draft,
                         gateAlreadyHeld: true);
@@ -62,6 +130,7 @@ public sealed partial class MapRepository
                 var updatedCatalog = await ReadCatalogAsync();
                 var properties = GetClassProperties(updatedCatalog, canonicalName);
                 properties.RemoveBackground = enabled;
+                properties.BackgroundRemovalIntensity = normalizedIntensity;
                 updatedCatalog.ClassProperties[canonicalName] = properties;
                 await WriteCatalogAsync(updatedCatalog);
 

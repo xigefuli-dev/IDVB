@@ -55,7 +55,8 @@ internal sealed class AdaptiveScaleInitialStreakState
         double confidence,
         bool qualified,
         DateTimeOffset observedAt,
-        bool preserveWhenUnqualified = false)
+        bool preserveWhenUnqualified = false,
+        double? clusterTolerance = null)
     {
         if (_lastCountedOpenId == openId)
             return Result(changed: false, counted: false, rebuilt: false, observedAt);
@@ -80,9 +81,12 @@ internal sealed class AdaptiveScaleInitialStreakState
             .TakeLast(_requiredCount)
             .ToArray();
         var candidateMedian = Median(candidateScales);
+        var effectiveTolerance = clusterTolerance is { } requested
+            ? Math.Clamp(requested, _clusterTolerance, 0.02d)
+            : _clusterTolerance;
         var rebuilt = _samples.Count > 0
             && candidateScales.Any(item =>
-                RelativeDifference(item, candidateMedian) > _clusterTolerance);
+                RelativeDifference(item, candidateMedian) > effectiveTolerance);
         if (rebuilt)
             _samples.Clear();
         _samples.Add(sample);

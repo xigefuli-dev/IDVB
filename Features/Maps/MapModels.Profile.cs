@@ -323,8 +323,8 @@ public sealed partial class MapRecognitionProfile
         }
         else if (compatibilityFloor == MapFloor.Second)
         {
-            EnsureAnchor(profile, "second-floor-primary", "二楼主锚点", RecognitionAnchorRole.Optional, isBuiltIn: true);
-            ConfigureBuiltInAnchor(profile, "second-floor-primary", "二楼主锚点", RecognitionAnchorRole.Optional);
+            EnsureAnchor(profile, "second-floor-primary", "次要门特征", RecognitionAnchorRole.Optional, isBuiltIn: true);
+            ConfigureBuiltInAnchor(profile, "second-floor-primary", "次要门特征", RecognitionAnchorRole.Optional);
         }
     }
 

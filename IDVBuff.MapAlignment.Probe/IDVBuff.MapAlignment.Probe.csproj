@@ -41,10 +41,12 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapModels.Provenance.cs" Link="Production\MapModels.Provenance.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.Part*.cs" />
     <Compile Include="..\Features\Maps\MapModels.Anchor.cs" Link="Production\MapModels.Anchor.cs" />
     <Compile Include="..\Features\Maps\MapModels.Catalog.cs" Link="Production\MapModels.Catalog.cs" />
+    <Compile Include="..\Features\Maps\MapScanFloorRules.cs" Link="Production\MapScanFloorRules.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionCoordinates.cs" Link="Production\MapRecognitionCoordinates.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentConfidence.cs" Link="Production\MapAlignmentConfidence.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionScript.cs" Link="Production\MapCvRecognitionScript.cs" />
@@ -75,6 +77,7 @@
     <Compile Include="..\Features\Maps\MapRepository.Part*.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Subscriptions.cs" Link="Production\MapRepository.Subscriptions.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Assets.cs" Link="Production\MapRepository.Assets.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Assets.Part*.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Variants.cs" Link="Production\MapRepository.Variants.cs" />

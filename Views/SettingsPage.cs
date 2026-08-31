@@ -36,7 +36,7 @@ public sealed partial class SettingsPage : Page
         informationGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         informationGrid.Children.Add(CreateInfoCard(
             "作者与维护者",
-            "@xigefuli",
+            "xigefuli",
             "作者与维护者",
             Symbol.Contact,
             "◉  GitHub  ·  xigefuli-dev/IDVB"));
@@ -84,16 +84,18 @@ public sealed partial class SettingsPage : Page
             + "项目公开不代表作者授权任何第三方游戏素材，也不代表游戏厂商认可或关联本项目。"));
         specifications.Children.Add(CreateSpecificationCard(
             "隐私与本地数据",
-            "本地处理",
-            "当前版本没有遥测或上传逻辑；识别在本机完成，设置、地图、日志与研究数据保存在本地。",
+            "本地处理 · 自愿贡献",
+            "识别默认在本机完成；只有用户开启“帮助我们改进模型”后，IDVB 才会每天最多上传一次脱敏训练包。",
             Symbol.Permissions,
             "隐私与数据说明",
             "IDVB 会在功能开启时读取用户指定进程的窗口画面，用于本机地图识别与叠加显示。\n\n"
             + "• 设置、导入地图、识别缓存和日志存放在本机应用数据目录\n"
             + "• 常规识别不会把游戏截图写入磁盘\n"
             + "• 日志收集由用户控制，不会自动上传\n"
-            + "• 只有显式开启“对齐研究数据”后，才可能保存视口截图与分析结果；默认保留 30 天，总量上限 2 GB\n"
-            + "• 当前版本未实现账号系统、遥测、云同步或网络上传\n\n"
+            + "• “帮助我们改进模型”默认关闭；开启后会同时启用持续学习与研究算法数据采集\n"
+            + "• 训练包只包含与地图识别、对齐和模型训练相关的脱敏样本及必要标签，不包含无关屏幕内容、个人文件、账号信息或普通日志\n"
+            + "• 客户端每天最多尝试上传一次；上传前会校验包结构、文件哈希、样本引用和脱敏图像范围\n"
+            + "• 可随时在“主设置 - 隐私”关闭；IDVB 目前不提供账号系统、通用遥测或云同步\n\n"
             + $"本地数据目录：{AppDataPaths.RootDirectory}\n卸载程序可让用户选择是否保留这些数据。分享日志或 IDVM 前请自行检查并移除敏感或无权传播的内容。"));
         specifications.Children.Add(CreateSpecificationCard(
             "第三方与免责声明",

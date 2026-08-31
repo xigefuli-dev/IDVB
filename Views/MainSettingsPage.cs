@@ -110,6 +110,41 @@ public sealed class MainSettingsPage : Page
 
         content.Children.Add(new TextBlock
         {
+            Text = "隐私",
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 12, 0, 4)
+        });
+        content.Children.Add(CreateToggleCard(
+            "帮助我们改进模型",
+            "开启后仅收集与地图识别、对齐和模型训练相关的脱敏数据，并每天最多上传一次训练包；可随时关闭",
+            _preferences.HelpImproveModels,
+            async value =>
+            {
+                await ModelImprovementPreferences.ApplyDataCollectionAsync(
+                    value,
+                    App.CurrentSession);
+                _preferences.HelpImproveModels = value;
+                _preferences.Save();
+                if (value)
+                    _ = ModelImprovementUploadService.TryUploadDailyAsync(_preferences);
+            }));
+
+        content.Children.Add(new TextBlock
+        {
+            Text = "开发者",
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 12, 0, 4)
+        });
+        content.Children.Add(CreateToggleCard(
+            "开发者模式",
+            "开启后，重新进入配置页面可使用“地图选择与自我训练”等高级菜单",
+            _preferences.DeveloperMode,
+            value => SavePreferenceAsync(() => _preferences.DeveloperMode = value)));
+
+        content.Children.Add(new TextBlock
+        {
             Text = "个性化",
             FontSize = 18,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,

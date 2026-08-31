@@ -1,10 +1,12 @@
 using IDVBuff.Features.Maps;
+using IDVBuff.Features.Accounts;
 using IDVBuff.Modules;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System.Collections.ObjectModel;
 using System.Numerics;
 using Windows.UI;
@@ -52,16 +54,20 @@ public sealed partial class MainPage : Page
         RootSurface.Background = FluentTheme.WindowBrush();
         foreach (var entry in NavigationEntry.CreateRoots(_navigationNodes))
             NavigationItems.Add(entry);
-        HelpNavigationItem = CreateFooterNavigationEntry("帮助", Symbol.Help, "help");
+        TutorialNavigationItem = CreateFooterNavigationEntry("教程", Symbol.Help, "help");
         MainSettingsNavigationItem = CreateFooterNavigationEntry("主设置", Symbol.Setting, "main-settings");
+        AccountNavigationItem = CreateFooterNavigationEntry("账户", Symbol.Contact, "account");
+        AccountSession.Changed += AccountSession_Changed;
+        UpdateAccountNavigation();
         _navigationCompactPreference = _layoutMemory.NavigationCompact;
         ApplyInitialNavigationCompactPreference();
         Loaded += MainPage_Loaded;
     }
 
     public ObservableCollection<NavigationEntry> NavigationItems { get; } = [];
-    public NavigationEntry HelpNavigationItem { get; }
+    public NavigationEntry TutorialNavigationItem { get; }
     public NavigationEntry MainSettingsNavigationItem { get; }
+    public NavigationEntry AccountNavigationItem { get; }
 
     private static NavigationEntry CreateFooterNavigationEntry(string name, Symbol icon, string moduleId) =>
         new(new NavigationNode(name, icon, moduleId), parent: null);
@@ -71,7 +77,7 @@ public sealed partial class MainPage : Page
         NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
     }
 
-    private void Navigation_ParentClick(object sender, RoutedEventArgs e)
+    private async void Navigation_ParentClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button button
             || button.Tag is not NavigationEntry entry)
@@ -80,6 +86,37 @@ public sealed partial class MainPage : Page
         }
 
         PlayDetailTriggerFeedback(button);
+
+        if (entry.ModuleId == "account")
+        {
+            if (AccountSession.Identity is not null)
+            {
+                var logout = new MenuFlyoutItem
+                {
+                    Text = "退出登录",
+                    Icon = new SymbolIcon(Symbol.LeaveChat),
+                    Foreground = FluentTheme.Brush("SystemFillColorCriticalBrush")
+                };
+                logout.Click += async (_, _) => await AccountSession.LogoutAsync();
+                new MenuFlyout { Items = { logout } }.ShowAt(button);
+            }
+            else
+            {
+                try { _ = await AccountSession.LoginAsync(); }
+                catch (OperationCanceledException) { }
+                catch (Exception exception)
+                {
+                    await new ContentDialog
+                    {
+                        XamlRoot = XamlRoot,
+                        Title = "账户登录失败",
+                        Content = exception.Message,
+                        CloseButtonText = "确定"
+                    }.ShowAsync();
+                }
+            }
+            return;
+        }
 
         if (entry.ModuleId is { } moduleId)
         {

@@ -46,13 +46,39 @@ public sealed record MapVariantGroupChangeResult(
 public sealed class MapClassProperties
 {
     public bool RemoveBackground { get; set; }
+    /// <summary>
+    /// Local-only RGB tolerance used for automatic background removal. This is
+    /// intentionally not part of the portable IDVM package contract.
+    /// </summary>
+    public int BackgroundRemovalIntensity { get; set; } = MapBackgroundProcessor.DefaultBackgroundRemovalIntensity;
+    /// <summary>
+    /// Case-insensitive floor identity used for Class-wide map scanning.
+    /// Null keeps the compatibility behavior where every map uses its own
+    /// default primary floor.
+    /// </summary>
+    public string? ScanFloorKey { get; set; }
 
-    public MapClassProperties Clone() => new() { RemoveBackground = RemoveBackground };
+    public MapClassProperties Clone() => new()
+    {
+        RemoveBackground = RemoveBackground,
+        BackgroundRemovalIntensity = MapBackgroundProcessor.ClampBackgroundRemovalIntensity(
+            BackgroundRemovalIntensity),
+        ScanFloorKey = MapScanFloorRules.NormalizeFloorIdentity(ScanFloorKey)
+    };
 
     public override bool Equals(object? obj) => obj is MapClassProperties other
-        && other.RemoveBackground == RemoveBackground;
+        && other.RemoveBackground == RemoveBackground
+        && MapBackgroundProcessor.ClampBackgroundRemovalIntensity(other.BackgroundRemovalIntensity)
+            == MapBackgroundProcessor.ClampBackgroundRemovalIntensity(BackgroundRemovalIntensity)
+        && string.Equals(
+            MapScanFloorRules.NormalizeFloorIdentity(other.ScanFloorKey),
+            MapScanFloorRules.NormalizeFloorIdentity(ScanFloorKey),
+            StringComparison.Ordinal);
 
-    public override int GetHashCode() => RemoveBackground.GetHashCode();
+    public override int GetHashCode() => HashCode.Combine(
+        RemoveBackground,
+        MapBackgroundProcessor.ClampBackgroundRemovalIntensity(BackgroundRemovalIntensity),
+        MapScanFloorRules.NormalizeFloorIdentity(ScanFloorKey));
 }
 
 public sealed record MapCatalogSnapshot(

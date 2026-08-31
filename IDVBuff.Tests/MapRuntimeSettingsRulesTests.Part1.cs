@@ -5,6 +5,43 @@ namespace IDVBuff.Tests;
 public sealed partial class MapRuntimeSettingsRulesTests
 {
 
+    [Theory]
+    [InlineData(0xC0u, "`")]
+    [InlineData(0x60u, "小键盘 0")]
+    [InlineData(0xBAu, ";")]
+    [InlineData(0xA6u, "浏览器后退")]
+    public void MapInputBinding_UsesReadableNamesForNonAlphanumericKeys(
+        uint virtualKey,
+        string expectedName)
+    {
+        var binding = new MapInputBinding
+        {
+            Kind = MapInputBindingKind.Keyboard,
+            VirtualKey = virtualKey
+        };
+
+        Assert.Equal(expectedName, binding.DisplayName);
+        Assert.DoesNotContain("VK", binding.DisplayName,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MapInputBinding_DisplaysAndClonesOrdinaryKeyCombinations()
+    {
+        var binding = new MapInputBinding
+        {
+            Kind = MapInputBindingKind.Keyboard,
+            VirtualKey = 0x72,
+            CompanionVirtualKeys = [0x51]
+        };
+
+        var clone = binding.Clone();
+
+        Assert.Equal("Q + F3", binding.DisplayName);
+        Assert.Equal(binding, clone);
+        Assert.Equal([0x51u], clone.CompanionVirtualKeys);
+    }
+
     [Fact]
     public void ControlPanelBindingRoundTripsWithCurrentSchema()
     {
@@ -180,7 +217,7 @@ public sealed partial class MapRuntimeSettingsRulesTests
             var path = Path.Combine(root, "settings.json");
             var json = """
             {
-              "SchemaVersion": 14,
+              "SchemaVersion": 16,
               "OverlayAlignmentMode": 1,
               "ShowOverlayStatus": true
             }

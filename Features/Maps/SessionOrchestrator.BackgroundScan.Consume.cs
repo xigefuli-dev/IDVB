@@ -29,10 +29,23 @@ public sealed partial class SessionOrchestrator
         CancelOrbTracking("background scan consume started");
         await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;
-        if (!await _scanGate.WaitAsync(0))
+        try
         {
-            _statusMessage = "已有识别正在进行，请稍候。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
+            // This open event owns the latest map operation. The predecessor
+            // has already been cancelled above; wait for its cleanup instead
+            // of losing the background-result consumption in the release gap.
+            await _scanGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            CompleteMapOpenCancellationScope(mapOpenCancellation);
+            return;
+        }
+        if (!IsCurrentMatchOperation(operationMatch)
+            || !_gameMapToggleState.IsCurrent(toggle))
+        {
+            _scanGate.Release();
             CompleteMapOpenCancellationScope(mapOpenCancellation);
             return;
         }
@@ -152,6 +165,18 @@ public sealed partial class SessionOrchestrator
             CandidateSelectionResolution resolution;
             try
             {
+                _logCollector.Append(
+                    MapLogCategory.Session,
+                    MapLogLevel.Info,
+                    "开图事件正在显示已冻结的候选结果。",
+                    details: new()
+                    {
+                        ["candidateCount"] = _pendingBackgroundChoices.Count,
+                        ["modelVersion"] =
+                            _pendingBackgroundLearningResult?.ModelVersion
+                                ?? string.Empty,
+                        ["modelScoringOnOpen"] = false
+                    });
                 resolution = await ResolveCandidateSelectionAsync(
                     candidateFrame,
                     _pendingBackgroundChoices,
@@ -160,7 +185,8 @@ public sealed partial class SessionOrchestrator
                     cancellationToken,
                     _pendingBackgroundChoicesAreDisplayReady,
                     _pendingBackgroundChoicePreviews,
-                    _pendingBackgroundLivePreview);
+                    _pendingBackgroundLivePreview,
+                    _pendingBackgroundLearningResult);
             }
             finally
             {
@@ -251,6 +277,7 @@ public sealed partial class SessionOrchestrator
                 sideEntranceSeed,
                 targetFloorKey);
         _pendingAlignmentIdentity = locked;
+        _currentFloorKey = targetFloorKey;
         _mapLease.Bind(_matchSession.Snapshot, locked.Map.Id);
         _pendingAlignmentSeed = validatedStructureScaleSeed
             ?? sideEntranceSeed

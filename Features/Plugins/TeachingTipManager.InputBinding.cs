@@ -39,22 +39,20 @@ public sealed partial class TeachingTipManager
         return modifier != PluginInputModifiers.None;
     }
 
-    private static PluginInputModifiers ReadCurrentPluginModifiers(
-        PluginInputModifiers observed)
+    private static PluginInputBinding CreatePluginKeyboardBinding(
+        uint virtualKey,
+        IEnumerable<uint> heldKeys)
     {
-        var modifiers = observed;
-        if (IsCurrentKeyDown(Windows.System.VirtualKey.Control))
-            modifiers |= PluginInputModifiers.Control;
-        if (IsCurrentKeyDown(Windows.System.VirtualKey.Menu))
-            modifiers |= PluginInputModifiers.Alt;
-        if (IsCurrentKeyDown(Windows.System.VirtualKey.Shift))
-            modifiers |= PluginInputModifiers.Shift;
-        if (IsCurrentKeyDown(Windows.System.VirtualKey.LeftWindows)
-            || IsCurrentKeyDown(Windows.System.VirtualKey.RightWindows))
+        var modifiers = PluginInputModifiers.None;
+        var companions = new List<uint>();
+        foreach (var heldKey in heldKeys)
         {
-            modifiers |= PluginInputModifiers.Windows;
+            if (TryGetPluginModifier((Windows.System.VirtualKey)heldKey, out var modifier))
+                modifiers |= modifier;
+            else
+                companions.Add(heldKey);
         }
-        return modifiers;
+        return PluginInputBinding.Keyboard(virtualKey, modifiers, companions);
     }
 
     private static bool IsCurrentKeyDown(Windows.System.VirtualKey key) =>

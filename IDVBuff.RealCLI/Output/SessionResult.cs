@@ -75,11 +75,35 @@ public sealed class RealCliSessionResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<RealCliCandidateChoiceOutput>? CandidateChoices { get; init; }
 
+    public RealCliModelStatusOutput? ModelStatus { get; init; }
+    public List<string> ModelFallbackEvents { get; init; } = [];
+
     /// <summary>日志条目摘要。</summary>
     public List<RealCliLogEntrySummary> LogEntries { get; init; } = new();
 
     /// <summary>Fatal 异常（如果发生）。</summary>
     public string? FatalError { get; init; }
+}
+
+public sealed class RealCliModelStatusOutput
+{
+    public bool IsAvailable { get; init; }
+    public bool IsQualified { get; init; }
+    public string CurrentVersion { get; init; } = string.Empty;
+    public string LastKnownGoodVersion { get; init; } = string.Empty;
+    public string LastFailureReason { get; init; } = string.Empty;
+    public string PromotionBlockReason { get; init; } = string.Empty;
+    public long HumanSelectionCount { get; init; }
+    public long LegacyHumanSelectionCount { get; init; }
+    public long MigratedLegacyHumanSelectionCount { get; init; }
+    public int DistinctMapCount { get; init; }
+    public int ValidationMatchCount { get; init; }
+    public double ValidationAccuracy { get; init; }
+    public double TraditionalValidationAccuracy { get; init; }
+    public int TrustedSpatialValidationCount { get; init; }
+    public double SpatialValidationAccuracy { get; init; }
+    public double SpatialMeanError { get; init; }
+    public string LastRollbackReason { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -201,6 +225,17 @@ public sealed class RealCliCandidateChoiceOutput
     public bool IsReferenceOnly { get; init; }
     public string EvidenceLabel { get; init; } = string.Empty;
     public int PreferredOrder { get; init; }
+    public double? TraditionalScore { get; init; }
+    public double? ModelProbability { get; init; }
+    public double? FusionScore { get; init; }
+    public string ModelMatchedFloorKey { get; init; } = string.Empty;
+    public double? ModelMatchedCenterX { get; init; }
+    public double? ModelMatchedCenterY { get; init; }
+    public double? ModelMatchedExtent { get; init; }
+    public string EvidenceSources { get; init; } = string.Empty;
+    public string ModelVersion { get; init; } = string.Empty;
+    public string ModelFailureReason { get; init; } = string.Empty;
+    public double ModelInferenceMilliseconds { get; init; }
 }
 
 /// <summary>

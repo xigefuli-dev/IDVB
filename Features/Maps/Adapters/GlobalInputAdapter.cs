@@ -18,6 +18,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
         _input.ControlPanelToggleInvoked += (_, args) => ControlPanelToggleInvoked?.Invoke(this, args);
         _input.SwitchFloorInvoked += (_, args) => SwitchFloorInvoked?.Invoke(this, args);
         _input.SaveMapCacheInvoked += (_, args) => SaveMapCacheInvoked?.Invoke(this, args);
+        _input.RestMapDisplayInvoked += (_, args) => RestMapDisplayInvoked?.Invoke(this, args);
         _input.AltInvoked += (_, args) => AltInvoked?.Invoke(this, args);
         _input.MouseWheelScrolled += (_, args) => MouseWheelScrolled?.Invoke(this, args);
         _input.PluginInputInvoked += (_, args) => PluginInputInvoked?.Invoke(this, args);
@@ -30,13 +31,15 @@ public sealed class GlobalInputAdapter : IGlobalInput
     public event EventHandler<object>? ControlPanelToggleInvoked;
     public event EventHandler<object>? SwitchFloorInvoked;
     public event EventHandler<object>? SaveMapCacheInvoked;
+    public event EventHandler<object>? RestMapDisplayInvoked;
     public event EventHandler<object>? AltInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
     public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
 
     public void ApplyBindings(object quickScan, object overlayToggle,
         object manualRecognition, object gameMapToggle,
-        object controlPanelToggle, object switchFloor, object saveMapCache) =>
+        object controlPanelToggle, object switchFloor, object saveMapCache,
+        object restMapDisplay) =>
         _input.ApplyBindings(
             (MapInputBinding)quickScan,
             (MapInputBinding)overlayToggle,
@@ -44,7 +47,8 @@ public sealed class GlobalInputAdapter : IGlobalInput
             (MapInputBinding)gameMapToggle,
             (MapInputBinding)controlPanelToggle,
             (MapInputBinding)switchFloor,
-            (MapInputBinding)saveMapCache);
+            (MapInputBinding)saveMapCache,
+            (MapInputBinding)restMapDisplay);
 
     public void ClearBindings() => _input.ClearBindings();
 
@@ -77,6 +81,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
             Kind = (MapInputBindingKind)ReadInt(type, binding, "Kind"),
             VirtualKey = (uint)ReadInt(type, binding, "VirtualKey"),
             Modifiers = (MapInputModifiers)ReadInt(type, binding, "Modifiers"),
+            CompanionVirtualKeys = ReadUIntList(type, binding, "CompanionVirtualKeys"),
             MouseButton = (MapMouseButton)ReadInt(type, binding, "MouseButton")
         };
     }
@@ -90,6 +95,14 @@ public sealed class GlobalInputAdapter : IGlobalInput
             ?? throw new ArgumentException(
                 $"Plugin input binding property '{propertyName}' is null.", nameof(instance));
         return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static List<uint> ReadUIntList(Type type, object instance, string propertyName)
+    {
+        var value = type.GetProperty(propertyName)?.GetValue(instance);
+        return value is System.Collections.IEnumerable values
+            ? values.Cast<object>().Select(Convert.ToUInt32).ToList()
+            : [];
     }
 }
 /*

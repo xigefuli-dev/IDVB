@@ -104,13 +104,15 @@ public sealed partial class MapRepository
             // binding without changing legacy recognition dimensions until
             // the normal derived-asset repair pass runs.
             var assetProfile = profile.Clone();
-            var removeBackground = GetClassPropertiesForMigration(record.Class).RemoveBackground;
+            var classProperties = GetClassPropertiesForMigration(record.Class);
+            var removeBackground = classProperties.RemoveBackground;
             CreateRecognitionAssets(
                 sourcePath,
                 recognitionPath,
                 assetProfile,
                 overlayPath,
-                removeBackground);
+                removeBackground,
+                classProperties.BackgroundRemovalIntensity);
             await PopulateDerivedImageMetadataAsync(
                 floor,
                 sourcePath,

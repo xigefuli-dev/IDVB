@@ -14,7 +14,11 @@ public sealed class UpdateReleasePolicyTests
         Assert.DoesNotContain("r2 object delete", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Stable packaging is blocked", script);
         Assert.Contains("ecdsa-feed-sha256-assets", script);
-        Assert.Contains("Stable feed must contain exactly one full package", script);
+        Assert.Contains("Restore-DeltaBasePackage", script);
+        Assert.Contains("Restored signed delta base package", script);
+        Assert.Contains("Stable feed must contain exactly one target-version full package", script);
+        Assert.Contains("vpk did not produce a target-version delta package", script);
+        Assert.Contains("overwrite an immutable release asset", script);
         Assert.Contains("--signParams", script);
         Assert.Contains("feed-envelope.json", script);
         Assert.Contains("signed pointer", script, StringComparison.OrdinalIgnoreCase);
@@ -156,6 +160,24 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("--background", launcher);
         Assert.Contains("--from-main-pid", launcher);
         Assert.Contains("UpdateChannelPolicy.Resolve()", launcher);
+        Assert.Contains("VelopackLocator.Current.CurrentlyInstalledVersion", launcher);
+        Assert.Contains("unins*.exe", launcher);
+    }
+
+    [Fact]
+    public void InstalledUpdatesPreferSignedDeltaPackagesAndExplainFallbacks()
+    {
+        var source = Read("UpdateCore", "SignedWebUpdateSource.cs");
+        var coordinator = Read("Updater", "UpdaterCoordinator.cs");
+        var window = Read("Updater", "UpdaterWindow.cs");
+
+        Assert.Contains("delta package outside the signed target version", source);
+        Assert.Contains("exactly one full package for the signed target version", source);
+        Assert.Contains("DeltasToTarget.Length", coordinator);
+        Assert.Contains("仅传输变更内容", window);
+        Assert.Contains("自动安全回退到完整包", window);
+        Assert.Contains("差分更新", Read("release", "UPDATE_PROCESS.md"));
+        Assert.Contains("历史基准 full 包没有被列为待覆盖对象", Read("release", "UPDATE_PROCESS.md"));
     }
 
     [Fact]

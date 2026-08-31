@@ -86,12 +86,25 @@ internal static class MapOpenCommand
         int? candidate,
         string? reopenImagePath = null,
         FileBasedCapture? capture = null,
-        int? floorPosition = null)
+        int? floorPosition = null,
+        Guid? candidateMapId = null,
+        MapCandidateDecisionMode decisionMode = MapCandidateDecisionMode.Traditional,
+        bool continuousLearning = false,
+        bool? forceCandidateSelection = null)
     {
         var sw = Stopwatch.StartNew();
         try
         {
             await orchestrator.InitializeAsync();
+            orchestrator.SetMapLearningOptionsForSession(
+                decisionMode,
+                continuousLearning);
+            if (forceCandidateSelection.HasValue)
+            {
+                var tuning = orchestrator.Settings.RecognitionTuning.Clone();
+                tuning.ForceCandidateSelection = forceCandidateSelection.Value;
+                await orchestrator.SetRecognitionTuningAsync(tuning);
+            }
             await orchestrator.BeginMatchAsync("S0 厄运之女 · 困难");
 
             // 强制候选选择（--candidate）只在后台扫描关闭时生效；
@@ -104,9 +117,9 @@ internal static class MapOpenCommand
             var scanLock = Stopwatch.StartNew();
             try
             {
-                var selector = candidate is null
+                var selector = candidate is null && candidateMapId is null
                     ? null
-                    : new RealCliCandidateSelector(candidate);
+                    : new RealCliCandidateSelector(candidate, candidateMapId);
                 await orchestrator.RunQuickScanAsync(selector);
             }
             catch (ArgumentOutOfRangeException ex)
@@ -264,7 +277,12 @@ internal static class MapOpenCommand
         RequestedCandidate = candidate,
         RequestedFloorPosition = floorPosition,
         CandidateCount = candidateChoices?.Count ?? 0,
-        CandidateChoices = candidateChoices
+        CandidateChoices = candidateChoices,
+        ModelStatus = SessionResultBuilder.BuildModelStatus(orchestrator),
+        ModelFallbackEvents = string.IsNullOrWhiteSpace(
+            orchestrator.MapLearningStatus.LastRollbackReason)
+                ? []
+                : [orchestrator.MapLearningStatus.LastRollbackReason]
     };
 
     private static RealCliSessionResult BuildCandidateRangeFailure(
@@ -294,7 +312,8 @@ internal static class MapOpenCommand
             RequestedCandidate = candidate,
             RequestedFloorPosition = floorPosition,
             CandidateCount = choices?.Count ?? 0,
-            CandidateChoices = choices
+            CandidateChoices = choices,
+            ModelStatus = SessionResultBuilder.BuildModelStatus(orchestrator)
         };
     }
 
@@ -334,7 +353,8 @@ internal static class MapOpenCommand
             RequestedCandidate = candidate,
             RequestedFloorPosition = floorPosition,
             CandidateCount = candidateChoices?.Count ?? 0,
-            CandidateChoices = candidateChoices
+            CandidateChoices = candidateChoices,
+            ModelStatus = SessionResultBuilder.BuildModelStatus(orchestrator)
         };
     }
 
@@ -372,7 +392,8 @@ internal static class MapOpenCommand
             RequestedCandidate = candidate,
             RequestedFloorPosition = floorPosition,
             CandidateCount = candidateChoices?.Count ?? 0,
-            CandidateChoices = candidateChoices
+            CandidateChoices = candidateChoices,
+            ModelStatus = SessionResultBuilder.BuildModelStatus(orchestrator)
         };
     }
 }

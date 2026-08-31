@@ -18,15 +18,16 @@ public sealed partial class SessionOrchestrator
         int interval,
         CancellationToken cancellationToken,
         Func<bool>? shouldContinue,
-        bool lowStructureReadiness,
-        int lowStructureReadinessFrameCount)
+        bool requireStructureReadiness,
+        int structureFallbackFrameCount)
     {
         var sessionTuning = _settings!.SessionTuning;
-        // 就绪等待没有 requiredFrames 概念：超时只保留硬性兜底。
-        // Readiness is not a performance timeout. Keep polling until the
-        // caller cancels because the match ended or a newer operation took
-        // ownership; a late game frame must still be aligned honestly.
-        var timeout = double.PositiveInfinity;
+        // Readiness must remain bounded. A stale floor reference or a map that
+        // was closed before settling must not keep the input handler alive
+        // until another toggle happens to cancel it.
+        var timeout = Math.Max(
+            sessionTuning.OpeningTimeoutMilliseconds,
+            interval * 4d);
         var stopwatch = Stopwatch.StartNew();
         CapturedGameFrame? lastFrame = null;
         var attempts = 0;
@@ -93,39 +94,54 @@ public sealed partial class SessionOrchestrator
                         signatureSpan?.Complete();
                     }
                     signatureTimer.Stop();
+                    var presenceReference =
+                        GetCurrentMapViewportPresenceReference();
+                    double? referenceStructureSimilarity = null;
+                    double? consecutiveStructureSimilarity = null;
                     lastPresence = MapViewportPresenceDetector.EvaluateReady(
                         signature,
-                        GetCurrentMapViewportPresenceReference(),
+                        presenceReference,
                         previousSignature,
-                        requireStructure: lowStructureReadiness,
+                        requireStructure: requireStructureReadiness,
                         requiredStableStructureFrames:
-                            lowStructureReadiness
-                                ? Math.Clamp(lowStructureReadinessFrameCount, 2, 5)
-                                : 3,
+                            Math.Clamp(structureFallbackFrameCount, 2, 5),
                         observedStableStructureFrames: stableStructureFrames);
-                    if (lowStructureReadiness)
+                    if (requireStructureReadiness)
                     {
-                        var referenceStructure =
-                            GetCurrentMapViewportPresenceReference()?.Structure;
-                        var structureIsConsistent = referenceStructure is not null
-                            ? MapViewportPresenceDetector.IsStructureConsistent(
-                                signature.Structure,
-                                referenceStructure,
-                                minimumSimilarity: 0.78d)
-                            : MapViewportPresenceDetector.IsStructureConsistent(
-                                signature.Structure,
-                                previousSignature?.Structure,
-                                minimumSimilarity: 0.90d);
+                        // This counter measures whether the opening animation
+                        // has settled, so compare consecutive live frames. The
+                        // saved reference belongs to an earlier alignment and
+                        // may legitimately have a different translation; using
+                        // it here permanently pins the counter at one after the
+                        // map recenters.
+                        if (signature.Structure is { } currentStructure
+                            && presenceReference?.Structure is { } referenceStructure)
+                        {
+                            referenceStructureSimilarity =
+                                MapViewportPresenceDetector.StructureSimilarity(
+                                    currentStructure,
+                                    referenceStructure);
+                        }
+                        if (signature.Structure is { } liveStructure
+                            && previousSignature?.Structure is { } previousStructure)
+                        {
+                            consecutiveStructureSimilarity =
+                                MapViewportPresenceDetector.StructureSimilarity(
+                                    liveStructure,
+                                    previousStructure);
+                        }
+                        var structureIsConsistent =
+                            consecutiveStructureSimilarity >= 0.90d;
                         stableStructureFrames = structureIsConsistent
                             ? stableStructureFrames + 1
                             : 1;
                         lastPresence = MapViewportPresenceDetector.EvaluateReady(
                             signature,
-                            GetCurrentMapViewportPresenceReference(),
+                            presenceReference,
                             previousSignature,
                             requireStructure: true,
                             requiredStableStructureFrames:
-                                Math.Clamp(lowStructureReadinessFrameCount, 2, 5),
+                                Math.Clamp(structureFallbackFrameCount, 2, 5),
                             observedStableStructureFrames: stableStructureFrames);
                     }
                     previousSignature = signature;
@@ -154,6 +170,11 @@ public sealed partial class SessionOrchestrator
                                 ["captureMs"] = captureMilliseconds,
                                 ["signatureMs"] = signatureMilliseconds,
                                 ["pollIntervalMs"] = interval,
+                                ["referenceStructureSimilarity"] =
+                                    referenceStructureSimilarity,
+                                ["consecutiveStructureSimilarity"] =
+                                    consecutiveStructureSimilarity,
+                                ["stableStructureFrames"] = stableStructureFrames,
                                 ["perAttemptMs"] = attempts > 0
                                     ? stopwatch.Elapsed.TotalMilliseconds / attempts
                                     : 0d
@@ -187,7 +208,12 @@ public sealed partial class SessionOrchestrator
                             ["attempts"] = attempts,
                             ["captureMs"] = captureTimer.Elapsed.TotalMilliseconds,
                             ["signatureMs"] = signatureMilliseconds,
-                            ["mapPresenceScore"] = lastPresence.Score
+                            ["mapPresenceScore"] = lastPresence.Score,
+                            ["referenceStructureSimilarity"] =
+                                referenceStructureSimilarity,
+                            ["consecutiveStructureSimilarity"] =
+                                consecutiveStructureSimilarity,
+                            ["stableStructureFrames"] = stableStructureFrames
                         });
                 }
                 else if (frameObj is IDisposable disposable)

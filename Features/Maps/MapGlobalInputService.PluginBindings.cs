@@ -88,10 +88,35 @@ public sealed partial class MapGlobalInputService
         {
             MapInputBindingKind.Keyboard =>
                 IsKeyDown(binding.VirtualKey)
-                && AreRequiredModifiersDown(binding.Modifiers),
+                && IsKeyboardBindingActive(binding),
             MapInputBindingKind.Mouse => IsMouseButtonDown(binding.MouseButton),
             _ => false
         };
+    }
+
+    private IReadOnlySet<PluginInputBindingState> SnapshotPressedPluginBindings()
+    {
+        lock (_keyboardStateLock)
+        {
+            var pressed = new HashSet<PluginInputBindingState>();
+            foreach (var (pluginId, bindings) in _pluginBindings)
+            {
+                foreach (var (bindingKey, binding) in bindings)
+                {
+                    var isPressed = binding.Kind switch
+                    {
+                        MapInputBindingKind.Keyboard =>
+                            IsKeyDown(binding.VirtualKey)
+                            && IsKeyboardBindingActive(binding),
+                        MapInputBindingKind.Mouse => IsMouseButtonDown(binding.MouseButton),
+                        _ => false
+                    };
+                    if (isPressed)
+                        pressed.Add(new PluginInputBindingState(pluginId, bindingKey));
+                }
+            }
+            return pressed;
+        }
     }
 
     private void RestartMonitoringIfNeeded()
@@ -119,7 +144,8 @@ public sealed partial class MapGlobalInputService
                 _gameMapToggle,
                 _controlPanelToggle,
                 _switchFloor,
-                _saveMapCache
+                _saveMapCache,
+                _restMapDisplay
             }.Any(binding => binding.IsConfigured)
             || _pluginBindings.Values.Any(bindings =>
                 bindings.Values.Any(binding => binding.IsConfigured));

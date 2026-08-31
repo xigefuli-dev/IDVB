@@ -14,7 +14,7 @@ public sealed partial class SessionOrchestrator
     {
         var floorKey = locked.Result.Floor;
         if (MapFloorRules.GetFloorProfile(locked.Map, floorKey) is null)
-            floorKey = MapFloorRules.GetPrimaryFloorKey(locked.Map);
+            floorKey = MapScanFloorRules.ResolveScanFloorKey(locked.Map);
         return floorKey;
     }
 

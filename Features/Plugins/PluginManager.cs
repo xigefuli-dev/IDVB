@@ -38,6 +38,14 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
 
     public bool IsEnabled(string id) => _host.IsEnabled(id);
 
+    public bool IsActive(string id) => _host.IsActive(id);
+
+    /// <summary>
+    /// Controls the match-scoped activation gate. It never alters the primary
+    /// enablement switches persisted by <see cref="PluginPreferencesStore"/>.
+    /// </summary>
+    public void SetMatchActivation(bool active) => _host.SetActivationAllowed(active);
+
     public void Register(IPlugin plugin) =>
         _host.Register(plugin, _preferences.IsEnabled(plugin.Id));
 

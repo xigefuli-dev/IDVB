@@ -141,8 +141,48 @@ internal static class SessionResultBuilder
                 RawConfidence = choice.RawConfidence,
                 IsReferenceOnly = choice.IsReferenceOnly,
                 EvidenceLabel = choice.EvidenceLabel,
-                PreferredOrder = choice.PreferredOrder
+                PreferredOrder = choice.PreferredOrder,
+                TraditionalScore = choice.TraditionalScore,
+                ModelProbability = choice.ModelProbability,
+                FusionScore = choice.FusionScore,
+                ModelMatchedFloorKey = choice.ModelMatchedFloorKey,
+                ModelMatchedCenterX = choice.ModelMatchedCenterX,
+                ModelMatchedCenterY = choice.ModelMatchedCenterY,
+                ModelMatchedExtent = choice.ModelMatchedExtent,
+                EvidenceSources = choice.EvidenceSources.ToString(),
+                ModelVersion = choice.ModelVersion,
+                ModelFailureReason = choice.ModelFailureReason,
+                ModelInferenceMilliseconds = choice.ModelInferenceMilliseconds
             })
             .ToList();
+    }
+
+    public static RealCliModelStatusOutput BuildModelStatus(
+        SessionOrchestrator orchestrator)
+    {
+        var status = orchestrator.MapLearningStatus;
+        return new RealCliModelStatusOutput
+        {
+            IsAvailable = status.IsAvailable,
+            IsQualified = status.IsQualified,
+            CurrentVersion = status.CurrentVersion,
+            LastKnownGoodVersion = status.LastKnownGoodVersion,
+            LastFailureReason = status.LastFailureReason,
+            PromotionBlockReason = status.PromotionBlockReason,
+            HumanSelectionCount = status.HumanSelectionCount,
+            LegacyHumanSelectionCount = status.LegacyHumanSelectionCount,
+            MigratedLegacyHumanSelectionCount =
+                status.MigratedLegacyHumanSelectionCount,
+            DistinctMapCount = status.DistinctMapCount,
+            ValidationMatchCount = status.ValidationMatchCount,
+            ValidationAccuracy = status.ValidationAccuracy,
+            TraditionalValidationAccuracy =
+                status.TraditionalValidationAccuracy,
+            TrustedSpatialValidationCount =
+                status.TrustedSpatialValidationCount,
+            SpatialValidationAccuracy = status.SpatialValidationAccuracy,
+            SpatialMeanError = status.SpatialMeanError,
+            LastRollbackReason = status.LastRollbackReason
+        };
     }
 }

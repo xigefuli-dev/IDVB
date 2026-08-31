@@ -111,6 +111,66 @@ public sealed class AdaptiveScaleInitialStreakTests
     }
 
     [Fact]
+    public void FiveQuantizedLowStructureResultsLockAtMedian()
+    {
+        var coordinator = Coordinator();
+        using var frame = Frame();
+        var map = Map();
+        var scales = new[]
+        {
+            0.641543769d,
+            0.644725177d,
+            0.641543769d,
+            0.644725177d,
+            0.641543769d
+        };
+        AdaptiveAlignmentDecision? result = null;
+        for (var index = 0; index < scales.Length; index++)
+        {
+            result = coordinator.EvaluateInitial(
+                Recognition(map, "b1f", scales[index]),
+                frame,
+                null,
+                new AdaptiveScaleInitialEvidence(
+                    index + 1,
+                    0.04d,
+                    StructureValidated: true,
+                    ScaleClusterTolerance: 0.006d,
+                    ScaleResolutionRatio: 0.00493d),
+                index + 1);
+        }
+
+        Assert.Equal(AdaptiveScaleReliability.Reliable, result!.Reliability);
+        Assert.Equal(5, result.ConsecutiveHighQualityCount);
+        Assert.Equal(0.641543769d, result.RecognitionToRender.Result.OverlayTransform!.ScaleX, 8);
+    }
+
+    [Fact]
+    public void WrongLowStructureBasinRebuildsEvidence()
+    {
+        var options = new AdaptiveScaleOptions();
+        var key = AdaptiveScaleKey.Create(
+            Map(),
+            "b1f",
+            new MapScreenRect(0, 0, 1920, 1080),
+            new MapScreenRect(303, 25, 1314, 1055));
+        var streak = new AdaptiveScaleInitialStreakState(key, options);
+        streak.Observe(1, 0.57d, 0.9d, true, DateTimeOffset.UtcNow, clusterTolerance: 0.006d);
+
+        var rebuilt = streak.Observe(
+            2,
+            1.36d,
+            0.9d,
+            true,
+            DateTimeOffset.UtcNow,
+            clusterTolerance: 0.006d);
+
+        Assert.True(rebuilt.Rebuilt);
+        Assert.Single(rebuilt.Snapshot.Samples);
+        Assert.Equal(1.36d, rebuilt.Snapshot.MedianScale, 8);
+    }
+
+    [Fact]
     public void FloorsUseIndependentStreaks()
     {
         var coordinator = Coordinator();

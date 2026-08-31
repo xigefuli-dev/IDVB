@@ -18,7 +18,8 @@ public enum MapStructureRejectionReason
     PlayerPriorMismatch,
     NativeScaleChanged,
     AnchorTransformConflict,
-    TimeBudgetExceeded
+    TimeBudgetExceeded,
+    ScaleSearchBoundary
 }
 
 public enum MapStructureEvidenceDisposition
@@ -49,6 +50,7 @@ public static class MapStructureRejectionReasonExtensions
         MapStructureRejectionReason.PlayerPriorMismatch => "候选与玩家位置先验明显冲突",
         MapStructureRejectionReason.NativeScaleChanged => "原生地图缩放与固定标定不一致",
         MapStructureRejectionReason.AnchorTransformConflict => "结构精修与锚点变换明显冲突",
+        MapStructureRejectionReason.ScaleSearchBoundary => "尺度候选位于全尺度搜索边界，无法形成闭合估计",
         MapStructureRejectionReason.TimeBudgetExceeded => "结构配准超过时间预算",
         _ => string.Empty
     };
@@ -69,6 +71,7 @@ public static class MapStructureRejectionReasonExtensions
                     or MapStructureRejectionReason.AmbiguousCandidates
                     or MapStructureRejectionReason.InconsistentStructure
                     or MapStructureRejectionReason.RefinementFailed
+                    or MapStructureRejectionReason.ScaleSearchBoundary
                     or MapStructureRejectionReason.TimeBudgetExceeded =>
                     MapStructureEvidenceDisposition.Inconclusive,
                 MapStructureRejectionReason.ScaleChangeTooLarge

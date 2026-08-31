@@ -30,21 +30,7 @@ public sealed partial class SessionOrchestrator
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
         {
-            CancelMapOpenAlignment();
-            EndAdaptiveMapOpen("game map closed");
-            CancelOrbTracking("game map closed");
-            MapOverlayPresentationBatch.Apply(_overlay, () =>
-            {
-                _overlayStatus.Clear();
-                _overlay.ClearMap();
-                RefreshMiniMapForCurrentFloor();
-                try { _overlay.Show(); } catch { }
-            });
-            if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
-            {
-                await HandleSurveyMapClosedAsync();
-                StateChanged?.Invoke(this, EventArgs.Empty);
-            }
+            await EndMapDisplayAsync("game map closed");
             return;
         }
 
@@ -62,6 +48,44 @@ public sealed partial class SessionOrchestrator
             await ConsumeBackgroundScanAsync(toggle);
         else
             await RunMapOpenAlignmentAsync(toggle);
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Forces the runtime into the closed-map state and rejects alignment
+    /// evidence for the current floor. Map identity remains locked so the next
+    /// open independently realigns the same map instead of rescanning it.
+    /// </summary>
+    private async Task RestMapDisplayAsync()
+    {
+        if (_disposed || !_settings!.IsEnabled || !_matchSession.Snapshot.IsStarted)
+            return;
+
+        var identity = _pendingAlignmentIdentity ?? _lastRecognition;
+        var floorKey = identity is null
+            ? null
+            : _currentFloorKey ?? identity.Result.Floor
+                ?? MapFloorRules.GetPrimaryFloorKey(identity.Map);
+        _gameMapToggleState.SetOpenForExternalController(false);
+        await EndMapDisplayAsync("manual REST requested");
+        if (identity is not null && !string.IsNullOrWhiteSpace(floorKey))
+            await ResetLockedMapAlignmentEvidenceAsync(identity, floorKey);
+    }
+
+    private async Task EndMapDisplayAsync(string reason)
+    {
+        CancelMapOpenAlignment();
+        EndAdaptiveMapOpen(reason);
+        CancelOrbTracking(reason);
+        MapOverlayPresentationBatch.Apply(_overlay, () =>
+        {
+            _overlayStatus.Clear();
+            _overlay.ClearMap();
+            RefreshMiniMapForCurrentFloor();
+            try { _overlay.Show(); } catch { }
+        });
+        if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
+            await HandleSurveyMapClosedAsync();
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -114,9 +138,12 @@ public sealed partial class SessionOrchestrator
 
     private static MapGeometryFingerprint? BuildFingerprint(MapRecord map)
     {
-        var profile = map.Recognition.FirstFloor;
-        var main = profile.FindAnchor("main-entrance");
-        var side = profile.FindAnchor("side-entrance");
+        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+        var profile = MapFloorRules.GetFloorProfile(map, floorKey)
+            ?? map.Recognition.FirstFloor;
+        var anchors = MapScanFloorRules.GetGeometryAnchors(map, floorKey);
+        var main = anchors?.Main;
+        var side = anchors?.Side;
         if (main?.Bounds?.IsValid is not true
             || side?.Bounds?.IsValid is not true
             || profile.RecognitionPixelWidth <= 0
@@ -128,6 +155,7 @@ public sealed partial class SessionOrchestrator
         return new MapGeometryFingerprint
         {
             Map = map,
+            FloorKey = floorKey,
             MainPoint = new MapNormalizedPoint(
                 main.Bounds.X + main.Bounds.Width / 2d,
                 main.Bounds.Y + main.Bounds.Height / 2d),

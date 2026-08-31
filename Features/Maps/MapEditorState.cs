@@ -162,13 +162,13 @@ public sealed class MapEditorToolState
     public string FirstFloorKey { get; set; } = "1f";
     public string ActiveFloorKey { get; set; } = "1f";
     public NormalizedRectangle? PendingMainGate { get; private set; }
+    public bool UsesPrimaryGatePair => string.Equals(
+        ActiveFloorKey,
+        FirstFloorKey,
+        StringComparison.OrdinalIgnoreCase);
 
     public bool Select(MapEditorTool tool)
     {
-        if (tool == MapEditorTool.Gate
-            && !string.Equals(ActiveFloorKey, FirstFloorKey, StringComparison.OrdinalIgnoreCase))
-            return false;
-
         ActiveTool = tool;
         PendingMainGate = null;
         return true;

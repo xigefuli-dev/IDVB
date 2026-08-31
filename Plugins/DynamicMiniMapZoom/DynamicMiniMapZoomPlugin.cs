@@ -12,6 +12,7 @@ namespace IDVBuff.Plugins.DynamicMiniMapZoom;
 public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateChangedMessage>, IPluginSettingsProvider
 {
     private const string BindingKey = "wheel-modifier-binding";
+    private const string SensitivityKey = "wheel-sensitivity-percent";
     private IGlobalInput? _input;
     private IPluginInputService? _pluginInput;
     private IOverlayWindow? _overlay;
@@ -20,6 +21,7 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
     private bool _matchStarted;
     private string? _matchId;
     private PluginInputBinding _binding = PluginInputBinding.Keyboard(0x14);
+    private double _sensitivityPercent = DynamicMiniMapZoomPolicy.DefaultSensitivityPercent;
 
     public override string Id => "dynamic-minimap-zoom";
     public override string DisplayName => "动态小地图缩放";
@@ -42,6 +44,16 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
 
     public IReadOnlyList<IPluginSetting> Settings { get; } =
     [
+        new PluginSliderSetting
+        {
+            Key = SensitivityKey,
+            DisplayName = "缩放灵敏度（%）",
+            Description = "每个滚轮刻度的缩放幅度；50% 为默认，数值越高缩放越快。",
+            Minimum = DynamicMiniMapZoomPolicy.MinimumSensitivityPercent,
+            Maximum = DynamicMiniMapZoomPolicy.MaximumSensitivityPercent,
+            StepFrequency = 5d,
+            DefaultValue = DynamicMiniMapZoomPolicy.DefaultSensitivityPercent
+        },
         new PluginKeyBindingSetting
         {
             Key = BindingKey,
@@ -81,11 +93,24 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
         _session = null;
     }
 
-    public object? GetSettingValue(string key) =>
-        key == BindingKey ? _binding.StorageValue : null;
+    public object? GetSettingValue(string key) => key switch
+    {
+        SensitivityKey => _sensitivityPercent,
+        BindingKey => _binding.StorageValue,
+        _ => null
+    };
 
     public void SetSettingValue(string key, object? value)
     {
+        if (key == SensitivityKey && TryReadDouble(value, out var sensitivityPercent))
+        {
+            _sensitivityPercent = Math.Clamp(
+                sensitivityPercent,
+                DynamicMiniMapZoomPolicy.MinimumSensitivityPercent,
+                DynamicMiniMapZoomPolicy.MaximumSensitivityPercent);
+            return;
+        }
+
         if (key != BindingKey
             || value is not string text
             || !PluginInputBinding.TryParse(text, out var binding))
@@ -121,7 +146,7 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
     {
         if (!_enabled
             || !_matchStarted
-            || _pluginInput?.IsBindingPressed(Context.PluginId, BindingKey) != true
+            || !args.IsPluginBindingPressed(Context.PluginId, BindingKey)
             || args.Delta == 0)
             return;
 
@@ -130,7 +155,8 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
 
         var nextScale = DynamicMiniMapZoomPolicy.Apply(
             currentScale,
-            args.Delta);
+            args.Delta,
+            _sensitivityPercent);
         if (Math.Abs(nextScale - currentScale) <= 0.000001d)
             return;
 
@@ -146,5 +172,18 @@ public sealed class DynamicMiniMapZoomPlugin : PluginBase, IHandle<MatchStateCha
 
         _matchStarted = false;
         _matchId = null;
+    }
+
+    private static bool TryReadDouble(object? value, out double result)
+    {
+        result = value switch
+        {
+            double doubleValue => doubleValue,
+            float floatValue => floatValue,
+            int intValue => intValue,
+            long longValue => longValue,
+            _ => double.NaN
+        };
+        return double.IsFinite(result);
     }
 }

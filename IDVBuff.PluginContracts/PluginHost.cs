@@ -10,6 +10,10 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
     private readonly List<Registration> _registrations = new();
     private readonly Dictionary<string, Registration> _byId = new(StringComparer.OrdinalIgnoreCase);
     private bool _started;
+    // The desktop host keeps this closed until the user explicitly activates
+    // plugins for a started match. The default preserves the standalone host
+    // contract used by non-desktop hosts and tests.
+    private bool _activationAllowed = true;
 
     public PluginHost(IMessageBus bus, IPluginContextFactory contextFactory)
     {
@@ -42,7 +46,51 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
     public bool IsEnabled(string id)
     {
         ArgumentNullException.ThrowIfNull(id);
-        return _byId.TryGetValue(id, out var registration) && registration.Enabled;
+        return _byId.TryGetValue(id, out var registration) && registration.DesiredEnabled;
+    }
+
+    /// <summary>Whether a plugin is currently receiving lifecycle callbacks.</summary>
+    public bool IsActive(string id) =>
+        _byId.TryGetValue(id, out var registration) && registration.Enabled;
+
+    /// <summary>
+    /// Opens or closes runtime activation without changing the user's saved
+    /// per-plugin enablement choices.
+    /// </summary>
+    public void SetActivationAllowed(bool allowed)
+    {
+        if (_activationAllowed == allowed)
+            return;
+
+        if (!allowed)
+        {
+            foreach (var registration in _registrations)
+                DisableRegistration(registration);
+            _activationAllowed = false;
+            return;
+        }
+
+        _activationAllowed = true;
+        var activated = new List<Registration>();
+        try
+        {
+            if (_started)
+            {
+                foreach (var registration in _registrations.Where(static item => item.DesiredEnabled))
+                {
+                    InitializeRegistration(registration);
+                    EnableRegistration(registration);
+                    activated.Add(registration);
+                }
+            }
+        }
+        catch
+        {
+            foreach (var registration in activated.AsEnumerable().Reverse())
+                DisableRegistration(registration);
+            _activationAllowed = false;
+            throw;
+        }
     }
 
     public void Register(IPlugin plugin) => Register(plugin, initiallyEnabled: true);
@@ -79,23 +127,19 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
 
         try
         {
-            // 先加载所有插件；启用阶段可被页面重复调用。
-            foreach (var registration in _registrations)
+            // Before entering a match, do not even create plugin contexts.
+            // Some legacy setting setters start local hooks once Context exists,
+            // so merely deferring StartAsync does not enforce the match gate.
+            if (_activationAllowed)
             {
-                registration.Context = _contextFactory.Create(registration.Plugin);
-                registration.SdkContext = new LegacyPluginV2Context(registration.Plugin, registration.Context);
-                registration.Adapter = new LegacyPluginV2CompatibilityAdapter(
-                    registration.Plugin,
-                    () => Subscribe(registration),
-                    () => Unsubscribe(registration));
-                registration.Adapter.InitializeAsync(registration.SdkContext, CancellationToken.None)
-                    .AsTask().GetAwaiter().GetResult();
-            }
+                foreach (var registration in _registrations)
+                    InitializeRegistration(registration);
 
-            foreach (var registration in _registrations)
-            {
-                if (registration.DesiredEnabled)
-                    EnableRegistration(registration);
+                foreach (var registration in _registrations)
+                {
+                    if (registration.DesiredEnabled)
+                        EnableRegistration(registration);
+                }
             }
         }
         catch
@@ -124,12 +168,16 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             throw new InvalidOperationException("插件宿主尚未启动。");
         if (!_byId.TryGetValue(id, out var registration))
             throw new KeyNotFoundException($"未注册的插件 Id：{id}");
-        if (registration.Enabled == enabled)
+        if (registration.DesiredEnabled == enabled)
             return;
 
         if (enabled)
         {
-            EnableRegistration(registration);
+            if (_activationAllowed)
+            {
+                InitializeRegistration(registration);
+                EnableRegistration(registration);
+            }
             registration.DesiredEnabled = true;
         }
         else
@@ -193,6 +241,23 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             registration.Enabled = false;
             throw;
         }
+    }
+
+    private void InitializeRegistration(Registration registration)
+    {
+        if (registration.Adapter is not null)
+            return;
+
+        registration.Context = _contextFactory.Create(registration.Plugin);
+        registration.SdkContext = new LegacyPluginV2Context(
+            registration.Plugin,
+            registration.Context);
+        registration.Adapter = new LegacyPluginV2CompatibilityAdapter(
+            registration.Plugin,
+            () => Subscribe(registration),
+            () => Unsubscribe(registration));
+        registration.Adapter.InitializeAsync(registration.SdkContext, CancellationToken.None)
+            .AsTask().GetAwaiter().GetResult();
     }
 
     private void DisableRegistration(Registration registration)

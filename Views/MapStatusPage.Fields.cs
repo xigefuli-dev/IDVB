@@ -28,7 +28,7 @@ public sealed partial class MapStatusPage : UserControl
     {
         Header = "首次扫描策略",
         OffContent = "双门对齐",
-        OnContent = "侧门扫描（默认）"
+        OnContent = "门特征扫描（默认）"
     };
     private readonly ToggleSwitch _backgroundScanToggle = new()
     {
@@ -61,12 +61,6 @@ public sealed partial class MapStatusPage : UserControl
         Header = "收集日志",
         OffContent = "已关闭",
         OnContent = "正在收集"
-    };
-    private readonly ToggleSwitch _collectResearchToggle = new()
-    {
-        Header = "算法研究数据采集",
-        OffContent = "已关闭",
-        OnContent = "正在采集"
     };
     private readonly ToggleSwitch _allowExtendToggle = new()
     {
@@ -375,6 +369,12 @@ public sealed partial class MapStatusPage : UserControl
         Header = "强制进入候选界面",
         OffContent = "算法确定时自动用最高分地图",
         OnContent = "无论如何都弹出候选供玩家选择"
+    };
+    // Kept as a collapsed compatibility anchor for the generated layout. The
+    // user-facing control is merged into the developer learning panel.
+    private readonly ToggleSwitch _collectResearchToggle = new()
+    {
+        Visibility = Visibility.Collapsed
     };
     private readonly ToggleSwitch _playerDecidesScaleToggle = new()
     {

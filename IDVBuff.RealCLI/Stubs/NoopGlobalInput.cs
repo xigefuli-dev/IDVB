@@ -19,6 +19,7 @@ public sealed class NoopGlobalInput : IGlobalInput
     public event EventHandler<object>? ControlPanelToggleInvoked;
     public event EventHandler<object>? SwitchFloorInvoked;
     public event EventHandler<object>? SaveMapCacheInvoked;
+    public event EventHandler<object>? RestMapDisplayInvoked;
     public event EventHandler<object>? AltInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
     public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
@@ -31,7 +32,8 @@ public sealed class NoopGlobalInput : IGlobalInput
         object gameMapToggle,
         object controlPanelToggle,
         object switchFloor,
-        object saveMapCache)
+        object saveMapCache,
+        object restMapDisplay)
     {
         // 空操作：CLI 不需要热键绑定
     }

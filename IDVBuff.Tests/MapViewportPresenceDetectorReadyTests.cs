@@ -182,6 +182,104 @@ public sealed class MapViewportPresenceDetectorReadyTests
         Assert.Equal("DeferredNotReady", result.Mode);
     }
 
+    [Fact]
+    public void EvaluateReadyAcceptsMatchingReferenceStructureWithoutFrameAccumulation()
+    {
+        using var map = CreateStructuredFrame();
+        var signature = MapViewportPresenceDetector.CreateSignature(map);
+
+        var result = MapViewportPresenceDetector.EvaluateReady(
+            signature,
+            signature,
+            requireStructure: true,
+            requiredStableStructureFrames: 5,
+            observedStableStructureFrames: 0);
+
+        Assert.True(result.IsPresent);
+        Assert.Equal("reference-hsv", result.Mode);
+    }
+
+    [Fact]
+    public void EvaluateReadyAcceptsChangedExplorationAfterThreeStableFrames()
+    {
+        using var referenceFrame = CreateStructuredFrame();
+        using var changedFrame = CreateHsvFrame(new Scalar(125, 30, 50));
+        Cv2.Rectangle(changedFrame, new Rect(40, 35, 240, 130), Scalar.White, 3);
+        Cv2.Line(changedFrame, new Point(40, 100), new Point(280, 100), Scalar.White, 3);
+        var reference = MapViewportPresenceDetector.CreateSignature(referenceFrame);
+        var changed = MapViewportPresenceDetector.CreateSignature(changedFrame);
+
+        var result = MapViewportPresenceDetector.EvaluateReady(
+            changed,
+            reference,
+            previousFrame: changed,
+            requireStructure: true,
+            requiredStableStructureFrames: 3,
+            observedStableStructureFrames: 3);
+
+        Assert.True(result.IsPresent);
+        Assert.Equal("stable-structure-fallback", result.Mode);
+    }
+
+    [Fact]
+    public void ChangedExplorationAccumulatesFromConsecutiveLiveFrames()
+    {
+        using var referenceFrame = CreateStructuredFrame();
+        using var changedFrame = CreateHsvFrame(new Scalar(125, 30, 50));
+        Cv2.Rectangle(changedFrame, new Rect(40, 35, 240, 130), Scalar.White, 3);
+        Cv2.Line(changedFrame, new Point(40, 100), new Point(280, 100), Scalar.White, 3);
+        var reference = MapViewportPresenceDetector.CreateSignature(referenceFrame);
+        var changed = MapViewportPresenceDetector.CreateSignature(changedFrame);
+        MapViewportColorSignature? previous = null;
+        var stableFrames = 0;
+        MapViewportPresenceResult? result = null;
+
+        for (var frame = 0; frame < 3; frame++)
+        {
+            var consistent = MapViewportPresenceDetector.IsStructureConsistent(
+                changed.Structure,
+                previous?.Structure,
+                minimumSimilarity: 0.90d);
+            stableFrames = consistent ? stableFrames + 1 : 1;
+            result = MapViewportPresenceDetector.EvaluateReady(
+                changed,
+                reference,
+                previous,
+                requireStructure: true,
+                requiredStableStructureFrames: 3,
+                observedStableStructureFrames: stableFrames);
+            previous = changed;
+        }
+
+        Assert.NotNull(result);
+        Assert.True(result.IsPresent);
+        Assert.Equal("stable-structure-fallback", result.Mode);
+    }
+
+    [Fact]
+    public void EvaluateReadyRejectsZoomTransitionDespiteMatchingColor()
+    {
+        using var settled = CreateStructuredFrame();
+        using var cropped = new Mat(settled, new Rect(64, 40, 192, 120));
+        using var zoomTransition = new Mat();
+        Cv2.Resize(cropped, zoomTransition, settled.Size());
+        var reference = MapViewportPresenceDetector.CreateSignature(settled);
+        var candidate = MapViewportPresenceDetector.CreateSignature(zoomTransition);
+
+        var colorOnly = MapViewportPresenceDetector.EvaluateReady(
+            candidate,
+            reference,
+            requireStructure: false);
+        var structureAware = MapViewportPresenceDetector.EvaluateReady(
+            candidate,
+            reference,
+            requireStructure: true);
+
+        Assert.True(colorOnly.IsPresent);
+        Assert.False(structureAware.IsPresent);
+        Assert.Equal("DeferredNotReady", structureAware.Mode);
+    }
+
     private static Mat CreateHsvFrame(Scalar hsvColor)
     {
         using var hsv = new Mat(

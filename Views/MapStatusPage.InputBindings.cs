@@ -45,7 +45,8 @@ public sealed partial class MapStatusPage
         }
 
         _recording = null;
-        _recordingModifiers = MapInputModifiers.None;
+        _recordingHeldKeys.Clear();
+        _recordingTriggerKey = 0;
         try
         {
             var resetTask = _runtime.SetBindingAsync(target, new MapInputBinding());
@@ -70,6 +71,7 @@ public sealed partial class MapStatusPage
         MapRuntimeBindingTarget.ControlPanelToggle => _runtime.Settings.ControlPanelToggleBinding,
         MapRuntimeBindingTarget.SwitchFloor => _runtime.Settings.SwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _runtime.Settings.SaveMapCacheBinding,
+        MapRuntimeBindingTarget.RestMapDisplay => _runtime.Settings.RestMapDisplayBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
 
@@ -157,9 +159,9 @@ public sealed partial class MapStatusPage
         return null;
     }
 
-    private static bool TryGetModifier(VirtualKey key, out MapInputModifiers modifier)
+    private static bool TryGetModifier(uint key, out MapInputModifiers modifier)
     {
-        modifier = (uint)key switch
+        modifier = key switch
         {
             0x10 or 0xA0 or 0xA1 => MapInputModifiers.Shift,
             0x11 or 0xA2 or 0xA3 => MapInputModifiers.Control,
@@ -211,39 +213,24 @@ public sealed partial class MapStatusPage
         if (_recording is null)
             return;
         e.Handled = true;
-        if (TryGetModifier(e.Key, out var modifier))
-        {
-            _recordingModifiers |= modifier;
+        var key = (uint)e.Key;
+        if (!_recordingHeldKeys.Add(key))
             return;
-        }
-
-        var modifiers = _recordingModifiers;
-        _recordingModifiers = MapInputModifiers.None;
-        await SaveRecordedBindingAsync(new MapInputBinding
-        {
-            Kind = MapInputBindingKind.Keyboard,
-            VirtualKey = (uint)e.Key,
-            Modifiers = modifiers
-        });
+        _recordingTriggerKey = key;
     }
 
     private async void Root_KeyUp(object sender, KeyRoutedEventArgs e)
     {
-        if (_recording is null || !TryGetModifier(e.Key, out var modifier))
+        if (_recording is null)
             return;
 
         e.Handled = true;
-        if ((_recordingModifiers & modifier) == 0)
+        var key = (uint)e.Key;
+        if (!_recordingHeldKeys.Contains(key))
             return;
-
-        // A modifier on its own is still a valid single-key binding. If a
-        // second key was pressed, Root_KeyDown already completed recording.
-        _recordingModifiers = MapInputModifiers.None;
-        await SaveRecordedBindingAsync(new MapInputBinding
-        {
-            Kind = MapInputBindingKind.Keyboard,
-            VirtualKey = (uint)e.Key
-        });
+        await SaveRecordedBindingAsync(CreateKeyboardBinding(
+            _recordingTriggerKey,
+            _recordingHeldKeys.Where(held => held != _recordingTriggerKey)));
     }
 
     private async void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -273,7 +260,8 @@ public sealed partial class MapStatusPage
         if (_recording is not { } target)
             return;
         _recording = null;
-        _recordingModifiers = MapInputModifiers.None;
+        _recordingHeldKeys.Clear();
+        _recordingTriggerKey = 0;
         try
         {
             await _runtime.SetBindingAsync(target, binding);
@@ -283,5 +271,27 @@ public sealed partial class MapStatusPage
             _status.Text = exception.Message;
         }
         Refresh();
+    }
+
+    private static MapInputBinding CreateKeyboardBinding(
+        uint virtualKey,
+        IEnumerable<uint> heldKeys)
+    {
+        var modifiers = MapInputModifiers.None;
+        var companions = new List<uint>();
+        foreach (var heldKey in heldKeys)
+        {
+            if (TryGetModifier(heldKey, out var modifier))
+                modifiers |= modifier;
+            else
+                companions.Add(heldKey);
+        }
+        return new MapInputBinding
+        {
+            Kind = MapInputBindingKind.Keyboard,
+            VirtualKey = virtualKey,
+            Modifiers = modifiers,
+            CompanionVirtualKeys = companions
+        };
     }
 }

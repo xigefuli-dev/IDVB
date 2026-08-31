@@ -349,6 +349,8 @@ public sealed partial class MapRuntimeSettingsRulesTests
         var settings = new MapRuntimeSettings
         {
             CollectAlignmentResearchData = true,
+            ContinuousMapLearningEnabled = true,
+            AutomaticMapModelTrainingEnabled = true,
             FloorScaleCalibrations = [floorCalibration]
         };
 
@@ -356,6 +358,8 @@ public sealed partial class MapRuntimeSettingsRulesTests
         clone.Normalize();
 
         Assert.True(clone.CollectAlignmentResearchData);
+        Assert.True(clone.ContinuousMapLearningEnabled);
+        Assert.True(clone.AutomaticMapModelTrainingEnabled);
         var persisted = Assert.Single(clone.FloorScaleCalibrations);
         Assert.NotSame(floorCalibration, persisted);
         Assert.Equal("upper", persisted.FloorKey);

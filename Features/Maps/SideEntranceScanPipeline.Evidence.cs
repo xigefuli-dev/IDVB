@@ -51,7 +51,9 @@ public sealed partial class SideEntranceScanPipeline
         MapScreenRect viewport)
     {
         var profile = MapFloorRules.GetFloorProfile(candidate.Map, candidate.FloorKey);
-        var anchor = profile?.FindAnchor("side-entrance");
+        var anchor = MapScanFloorRules.GetScanFeatureAnchor(
+            candidate.Map,
+            candidate.FloorKey);
         if (profile is null || anchor?.Bounds?.IsValid is not true)
             return double.PositiveInfinity;
 

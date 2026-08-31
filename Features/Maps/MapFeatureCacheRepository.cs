@@ -139,6 +139,56 @@ public sealed class MapFeatureCacheRepository
         }
     }
 
+    public async Task<int> RemoveMapFloorAsync(
+        Guid mapId,
+        string contentFingerprint,
+        string floorKey)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            MapFeatureCacheDocument snapshot;
+            int removed;
+            lock (_stateGate)
+            {
+                removed = _document.Entries.RemoveAll(entry =>
+                    entry.Key.MapId == mapId
+                    && string.Equals(
+                        entry.Key.MapContentFingerprint,
+                        contentFingerprint,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        entry.Key.FloorKey,
+                        floorKey,
+                        StringComparison.Ordinal));
+                if (removed == 0)
+                    return 0;
+                snapshot = new MapFeatureCacheDocument
+                {
+                    SchemaVersion = MapFeatureCacheSchema.CurrentVersion,
+                    Entries = [.. _document.Entries]
+                };
+            }
+
+            var directory = Path.GetDirectoryName(_path)!;
+            Directory.CreateDirectory(directory);
+            var temporaryPath = $"{_path}.tmp";
+            await using (var stream = File.Create(temporaryPath))
+            {
+                await JsonSerializer.SerializeAsync(
+                    stream,
+                    snapshot,
+                    SerializerOptions);
+            }
+            File.Move(temporaryPath, _path, overwrite: true);
+            return removed;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private static MapFeatureCacheEntry? MigrateGroup(
         IGrouping<MapFeatureCacheKey, MapFeatureCacheEntry> group)
     {

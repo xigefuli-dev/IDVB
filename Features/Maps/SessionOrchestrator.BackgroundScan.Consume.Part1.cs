@@ -88,6 +88,22 @@ public sealed partial class SessionOrchestrator
                     targetFloorKey);
                 MapRecognitionAttempt Align()
                 {
+                    if (sideEntranceSeed is not null)
+                    {
+                        return _recognition.AlignSideEntrance(
+                            frame,
+                            mapId,
+                            sideEntranceSeed,
+                            _settings!.OverlayAlignmentMode,
+                            alignmentTuning,
+                            structureTuning,
+                            alignmentSearchContext:
+                                CreateSideEntranceSearchContext(
+                                    sideEntranceSeed,
+                                    alignmentTuning,
+                                    useInitialHighPrecisionRecovery: true));
+                    }
+
                     if (!string.Equals(
                             targetFloorKey,
                             MapFloorRules.GetPrimaryFloorKey(identity.Map),
@@ -104,22 +120,6 @@ public sealed partial class SessionOrchestrator
                             alignmentTuning,
                             structureTuning,
                             allowPrimaryFloor: false);
-                    }
-
-                    if (sideEntranceSeed is not null)
-                    {
-                        return _recognition.AlignSideEntrance(
-                            frame,
-                            mapId,
-                            sideEntranceSeed,
-                            _settings!.OverlayAlignmentMode,
-                            alignmentTuning,
-                            structureTuning,
-                            alignmentSearchContext:
-                                CreateSideEntranceSearchContext(
-                                    sideEntranceSeed,
-                                    alignmentTuning,
-                                    useInitialHighPrecisionRecovery: true));
                     }
 
                     return MapCvAlignmentService.AlignSelectedCore(

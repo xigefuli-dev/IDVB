@@ -25,6 +25,23 @@ public sealed class MapRecognitionChoice
     /// the strict geometry tie-break order.
     /// </summary>
     public int PreferredOrder { get; init; } = int.MaxValue;
+    public double? TraditionalScore { get; init; }
+    public double? ModelProbability { get; init; }
+    public double? FusionScore { get; init; }
+    public string ModelMatchedFloorKey { get; init; } = string.Empty;
+    public double? ModelMatchedCenterX { get; init; }
+    public double? ModelMatchedCenterY { get; init; }
+    public double? ModelMatchedExtent { get; init; }
+    public string ModelVersion { get; init; } = string.Empty;
+    public string ModelFailureReason { get; init; } = string.Empty;
+    public double ModelInferenceMilliseconds { get; init; }
+    public MapCandidateEvidenceSource EvidenceSources { get; init; } =
+        MapCandidateEvidenceSource.Traditional;
+    public MapLearningConfidenceBand ModelConfidenceBand { get; init; }
+    public double RankingScore => FusionScore
+        ?? ModelProbability
+        ?? TraditionalScore
+        ?? RawConfidence;
     public double RawConfidence => double.IsFinite(EvidenceScore)
         ? EvidenceScore
         : Recognition.Result.Confidence;

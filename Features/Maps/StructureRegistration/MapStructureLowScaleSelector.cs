@@ -2,149 +2,260 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-/// <summary>
-/// Ranks scale hypotheses from the visible local structure itself. Unlike the
-/// former whole-bounds ratio, the score is translation invariant and does not
-/// assume that the explored fragment spans the complete reference floor.
-/// </summary>
 internal static class MapStructureLowScaleSelector
 {
+    private sealed record ScaleScore(double Scale, double Cost);
+
     internal static IReadOnlyList<double> Rank(
         MapStructureFeatures live,
         MapStructureFeatures reference,
         MapStructureRegistrationTuning tuning)
     {
-        var scales = MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
-            tuning.LowStructureMinimumScale,
-            tuning.LowStructureMaximumScale,
-            tuning.LowStructureScaleHypothesisCount,
-            tuning.MinimumUsableScale);
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var selection = Analyze(live, reference, tuning);
+        timer.Stop();
+        selection = selection with { ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds };
+        LowStructureScaleSelectionContext.Current = selection;
+        return selection.Scales;
+    }
+
+    internal static LowStructureScaleSelection Analyze(
+        MapStructureFeatures live,
+        MapStructureFeatures reference,
+        MapStructureRegistrationTuning tuning)
+    {
+        var coarseGrid = MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
+                tuning.LowStructureMinimumScale,
+                tuning.LowStructureMaximumScale,
+                tuning.LowStructureScaleHypothesisCount,
+                tuning.MinimumUsableScale)
+            .OrderBy(scale => scale)
+            .ToArray();
         var points = MapStructureScaleSearch.FindNonZeroPoints(live.Edges);
         if (points.Length < tuning.MinimumEdgePixels)
-            return [];
+            return new([], 0d, coarseGrid.Length, true);
         var bounds = Cv2.BoundingRect(points);
-        if (bounds.Width < tuning.MinimumSpanPixels
-            || bounds.Height < tuning.MinimumSpanPixels)
-            return [];
+        if (bounds.Width < tuning.MinimumSpanPixels || bounds.Height < tuning.MinimumSpanPixels)
+            return new([], 0d, coarseGrid.Length, true);
 
         using var livePatch = new Mat(live.Edges, bounds);
-        var factor = Math.Max(4, tuning.FastCoarseDownsampleFactor * 2);
         var referenceDistance = reference.GetOrCreateClippedReferenceDistanceMap(
             tuning.DistanceClipPixels);
-        var coarseReferenceSize = new Size(
-            Math.Max(1, referenceDistance.Width / factor),
-            Math.Max(1, referenceDistance.Height / factor));
-        using var coarseReference = new Mat();
-        Cv2.Resize(
-            referenceDistance,
-            coarseReference,
-            coarseReferenceSize,
-            interpolation: InterpolationFlags.Area);
-
-        var ranked = ScoreScales(scales, factor, coarseReference);
-        var ordered = ranked
+        var coarseFactor = Math.Max(4, tuning.FastCoarseDownsampleFactor * 2);
+        using var coarseDistance = Resize(referenceDistance, coarseFactor);
+        using var coarseEdges = Resize(reference.Edges, coarseFactor);
+        var coarse = ScoreScales(
+                coarseGrid,
+                coarseFactor,
+                coarseDistance,
+                coarseEdges,
+                livePatch,
+                tuning.DistanceClipPixels)
             .OrderBy(item => item.Cost)
             .ThenBy(item => Math.Abs(Math.Log(item.Scale)))
             .ToArray();
-        if (ordered.Length == 0)
-            return [];
+        if (coarse.Length == 0)
+            return new([], 0d, coarseGrid.Length, true);
 
-        // The thirteen-point cold grid is only a basin locator. Its adjacent
-        // points are roughly 11-12% apart, which is far too coarse for an
-        // overlay transform and caused a persistent B1F ghost image even on
-        // accepted matches. Refine the winning basin in this already
-        // downsampled selector, then spend exact registration budget on only
-        // the best fine scale and its two immediate neighbours.
-        var coarseGrid = scales.OrderBy(scale => scale).ToArray();
-        var coarseWinnerIndex = Array.FindIndex(
-            coarseGrid,
-            scale => Math.Abs(scale - ordered[0].Scale) < 1e-9d);
-        var fineGrid = BuildFineScaleGrid(
-            coarseGrid,
-            coarseWinnerIndex,
-            Math.Min(tuning.ScaleSearchStep, 0.005d));
+        var ambiguous = IsAmbiguous(coarse);
         var fineFactor = Math.Max(2, tuning.FastCoarseDownsampleFactor);
-        using var fineReference = new Mat();
-        Cv2.Resize(
-            referenceDistance,
-            fineReference,
-            new Size(
-                Math.Max(1, referenceDistance.Width / fineFactor),
-                Math.Max(1, referenceDistance.Height / fineFactor)),
-            interpolation: InterpolationFlags.Area);
-        var fineOrdered = ScoreScales(fineGrid, fineFactor, fineReference)
+        using var fineDistance = Resize(referenceDistance, fineFactor);
+        using var fineEdges = Resize(reference.Edges, fineFactor);
+        var winnerIndex = Array.FindIndex(
+            coarseGrid,
+            scale => Math.Abs(scale - coarse[0].Scale) < 1e-9d);
+        var firstRound = BuildRefinementRound(coarseGrid, winnerIndex, 5);
+        var firstScores = ScoreScales(
+                firstRound,
+                fineFactor,
+                fineDistance,
+                fineEdges,
+                livePatch,
+                tuning.DistanceClipPixels)
+            .OrderBy(item => item.Cost)
+            .ToArray();
+        if (firstScores.Length == 0)
+            return new([coarse[0].Scale], AdjacentResolution(coarseGrid, coarse[0].Scale), coarseGrid.Length, false);
+
+        var firstOrdered = firstRound.OrderBy(scale => scale).ToArray();
+        var firstWinnerIndex = Array.FindIndex(
+            firstOrdered,
+            scale => Math.Abs(scale - firstScores[0].Scale) < 1e-9d);
+        var secondRound = BuildRefinementRound(firstOrdered, firstWinnerIndex, 5);
+        var finalScores = ScoreScales(
+                secondRound,
+                fineFactor,
+                fineDistance,
+                fineEdges,
+                livePatch,
+                tuning.DistanceClipPixels)
             .OrderBy(item => item.Cost)
             .ThenBy(item => Math.Abs(Math.Log(item.Scale)))
             .ToArray();
-        if (fineOrdered.Length == 0)
-            return [];
-
-        var sortedFine = fineGrid.OrderBy(scale => scale).ToArray();
-        var fineWinner = fineOrdered[0].Scale;
-        var fineWinnerIndex = Array.FindIndex(
-            sortedFine,
-            scale => Math.Abs(scale - fineWinner) < 1e-9d);
-        var bracket = new List<double> { fineWinner };
-        if (fineWinnerIndex > 0)
-            bracket.Add(sortedFine[fineWinnerIndex - 1]);
-        if (fineWinnerIndex >= 0 && fineWinnerIndex + 1 < sortedFine.Length)
-            bracket.Add(sortedFine[fineWinnerIndex + 1]);
-        return bracket
-            .Concat(fineOrdered.Select(item => item.Scale))
-            .DistinctBy(scale => Math.Round(scale, 9))
-            .ToArray();
-
-        List<(double Scale, double Cost)> ScoreScales(
-            IEnumerable<double> candidates,
-            int scoringFactor,
-            Mat scoringReference)
+        var finalGrid = secondRound.OrderBy(scale => scale).ToArray();
+        if (finalScores.Length == 0)
         {
-            var scoresByScale = new List<(double Scale, double Cost)>();
-            foreach (var scale in candidates)
-            {
-                var templateSize = new Size(
-                    Math.Max(1, (int)Math.Round(
-                        livePatch.Width / scale / scoringFactor)),
-                    Math.Max(1, (int)Math.Round(
-                        livePatch.Height / scale / scoringFactor)));
-                if (templateSize.Width < 3
-                    || templateSize.Height < 3
-                    || templateSize.Width >= scoringReference.Width
-                    || templateSize.Height >= scoringReference.Height)
-                {
-                    continue;
-                }
-                using var template = new Mat();
-                Cv2.Resize(
-                    livePatch,
-                    template,
-                    templateSize,
-                    interpolation: InterpolationFlags.Area);
-                using var templateFloat = new Mat();
-                template.ConvertTo(
-                    templateFloat,
-                    MatType.CV_32FC1,
-                    1d / 255d);
-                var mass = Cv2.Sum(templateFloat).Val0;
-                if (mass < 1d)
-                    continue;
-                using var scoreMap = new Mat();
-                Cv2.MatchTemplate(
-                    scoringReference,
-                    templateFloat,
-                    scoreMap,
-                    TemplateMatchModes.CCorr);
-                Cv2.MinMaxLoc(
-                    scoreMap,
-                    out var minimum,
-                    out _,
-                    out _,
-                    out _);
-                if (double.IsFinite(minimum))
-                    scoresByScale.Add((scale, minimum / mass));
-            }
-            return scoresByScale;
+            finalScores = firstScores;
+            finalGrid = firstOrdered;
         }
+
+        var winner = finalScores[0].Scale;
+        var selected = SelectExactCandidates(
+            winner,
+            finalGrid,
+            coarse.Select(item => item.Scale).ToArray(),
+            ambiguous);
+        return new(
+            selected,
+            AdjacentResolution(finalGrid, winner),
+            coarseGrid.Length,
+            ambiguous);
+    }
+
+    internal static IReadOnlyList<double> SelectExactCandidates(
+        double refinedWinner,
+        IReadOnlyList<double> refinedGrid,
+        IReadOnlyList<double> orderedCoarseBasins,
+        bool ambiguous)
+    {
+        var selected = new List<double> { refinedWinner };
+        if (ambiguous)
+        {
+            selected.AddRange(orderedCoarseBasins
+                .Skip(1)
+                .Where(scale => LowStructureScaleEvidenceRules.RelativeDifference(
+                    scale,
+                    orderedCoarseBasins[0]) > 0.03d));
+        }
+        else
+        {
+            var winnerIndex = refinedGrid
+                .Select((scale, index) => (scale, index))
+                .OrderBy(item => Math.Abs(item.scale - refinedWinner))
+                .FirstOrDefault().index;
+            if (winnerIndex > 0)
+                selected.Add(refinedGrid[winnerIndex - 1]);
+            if (winnerIndex + 1 < refinedGrid.Count)
+                selected.Add(refinedGrid[winnerIndex + 1]);
+        }
+        return selected
+            .DistinctBy(scale => Math.Round(scale, 9))
+            .Take(3)
+            .ToArray();
+    }
+
+    private static bool IsAmbiguous(IReadOnlyList<ScaleScore> ordered)
+    {
+        if (ordered.Count < 2)
+            return false;
+        return (ordered[1].Cost - ordered[0].Cost)
+            / Math.Max(Math.Abs(ordered[0].Cost), 0.05d) < 0.005d;
+    }
+
+    private static IReadOnlyList<ScaleScore> ScoreScales(
+        IEnumerable<double> candidates,
+        int factor,
+        Mat referenceDistance,
+        Mat referenceEdges,
+        Mat livePatch,
+        double distanceClipPixels)
+    {
+        var scores = new List<ScaleScore>();
+        foreach (var scale in candidates)
+        {
+            var size = new Size(
+                Math.Max(1, (int)Math.Round(livePatch.Width / scale / factor)),
+                Math.Max(1, (int)Math.Round(livePatch.Height / scale / factor)));
+            if (size.Width < 3 || size.Height < 3
+                || size.Width >= referenceDistance.Width || size.Height >= referenceDistance.Height)
+                continue;
+            using var template = new Mat();
+            Cv2.Resize(livePatch, template, size, interpolation: InterpolationFlags.Area);
+            using var templateFloat = new Mat();
+            template.ConvertTo(templateFloat, MatType.CV_32FC1, 1d / 255d);
+            var mass = Cv2.Sum(templateFloat).Val0;
+            if (mass < 1d)
+                continue;
+            using var scoreMap = new Mat();
+            Cv2.MatchTemplate(referenceDistance, templateFloat, scoreMap, TemplateMatchModes.CCorr);
+            Cv2.MinMaxLoc(scoreMap, out var minimum, out _, out var minimumLocation, out _);
+            if (!double.IsFinite(minimum))
+                continue;
+
+            using var binaryTemplate = new Mat();
+            Cv2.Threshold(template, binaryTemplate, 32d, 255d, ThresholdTypes.Binary);
+            using var invertedTemplate = new Mat();
+            Cv2.BitwiseNot(binaryTemplate, invertedTemplate);
+            using var templateDistance = new Mat();
+            Cv2.DistanceTransform(
+                invertedTemplate,
+                templateDistance,
+                DistanceTypes.L2,
+                DistanceTransformMasks.Mask3);
+            using var referenceWindow = new Mat(
+                referenceEdges,
+                new Rect(minimumLocation.X, minimumLocation.Y, size.Width, size.Height));
+            using var referenceBinary = new Mat();
+            Cv2.Threshold(referenceWindow, referenceBinary, 32d, 1d, ThresholdTypes.Binary);
+            using var referenceFloat = new Mat();
+            referenceBinary.ConvertTo(referenceFloat, MatType.CV_32FC1);
+            var referenceMass = Cv2.Sum(referenceFloat).Val0;
+            var reverse = referenceMass < 1d
+                ? distanceClipPixels
+                : Cv2.Sum(templateDistance.Mul(referenceFloat)).Val0 / referenceMass;
+            scores.Add(new(
+                scale,
+                ((minimum / mass) * 0.95d) + (reverse * 0.05d)));
+        }
+        return scores;
+    }
+
+    private static Mat Resize(Mat source, int factor)
+    {
+        var result = new Mat();
+        Cv2.Resize(
+            source,
+            result,
+            new Size(Math.Max(1, source.Width / factor), Math.Max(1, source.Height / factor)),
+            interpolation: InterpolationFlags.Area);
+        return result;
+    }
+
+    private static double AdjacentResolution(IReadOnlyList<double> grid, double scale)
+    {
+        var ordered = grid.OrderBy(item => item).ToArray();
+        var index = Array.FindIndex(ordered, item => Math.Abs(item - scale) < 1e-9d);
+        if (index < 0 || ordered.Length < 2)
+            return 0d;
+        var differences = new List<double>();
+        if (index > 0)
+            differences.Add(LowStructureScaleEvidenceRules.RelativeDifference(ordered[index], ordered[index - 1]));
+        if (index + 1 < ordered.Length)
+            differences.Add(LowStructureScaleEvidenceRules.RelativeDifference(ordered[index], ordered[index + 1]));
+        return differences.Count == 0 ? 0d : differences.Min();
+    }
+
+    private static IReadOnlyList<double> BuildRefinementRound(
+        IReadOnlyList<double> grid,
+        int winnerIndex,
+        int pointCount)
+    {
+        if (grid.Count == 0 || winnerIndex < 0)
+            return [];
+        winnerIndex = Math.Min(winnerIndex, grid.Count - 1);
+        var winner = grid[winnerIndex];
+        var lower = winnerIndex > 0
+            ? Math.Sqrt(grid[winnerIndex - 1] * winner)
+            : winner / Math.Sqrt(grid[Math.Min(1, grid.Count - 1)] / winner);
+        var upper = winnerIndex + 1 < grid.Count
+            ? Math.Sqrt(winner * grid[winnerIndex + 1])
+            : winner * Math.Sqrt(winner / grid[Math.Max(0, winnerIndex - 1)]);
+        if (!double.IsFinite(lower) || !double.IsFinite(upper) || lower <= 0d || upper < lower)
+            return [winner];
+        var count = Math.Clamp(pointCount, 3, 5);
+        return Enumerable.Range(0, count)
+            .Select(index => lower * Math.Exp(Math.Log(upper / lower) * index / (count - 1d)))
+            .ToArray();
     }
 
     internal static IReadOnlyList<double> BuildFineScaleGrid(
@@ -157,24 +268,17 @@ internal static class MapStructureLowScaleSelector
         winnerIndex = Math.Min(winnerIndex, coarseGrid.Count - 1);
         var lower = coarseGrid[Math.Max(0, winnerIndex - 1)];
         var upper = coarseGrid[Math.Min(coarseGrid.Count - 1, winnerIndex + 1)];
-        if (!double.IsFinite(lower)
-            || !double.IsFinite(upper)
-            || lower <= 0d
-            || upper < lower)
-        {
+        if (!double.IsFinite(lower) || !double.IsFinite(upper) || lower <= 0d || upper < lower)
             return [];
-        }
         if (Math.Abs(upper - lower) < 1e-9d)
             return [lower];
-
-        var logSpan = Math.Log(upper / lower);
-        var logStep = Math.Clamp(maximumRelativeStep, 0.0025d, 0.02d);
         var segments = Math.Clamp(
-            (int)Math.Ceiling(logSpan / logStep),
+            (int)Math.Ceiling(Math.Log(upper / lower)
+                / Math.Clamp(maximumRelativeStep, 0.0025d, 0.02d)),
             2,
             48);
         return Enumerable.Range(0, segments + 1)
-            .Select(index => lower * Math.Exp(logSpan * index / segments))
+            .Select(index => lower * Math.Exp(Math.Log(upper / lower) * index / segments))
             .ToArray();
     }
 }

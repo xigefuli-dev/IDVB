@@ -17,6 +17,46 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed partial class MapControlPanelWindow : IDisposable
 {
+    private readonly Func<Task>? _correctMap;
+    private readonly Button _correctMapButton = new()
+    {
+        Content = "纠正地图",
+        MinHeight = 36,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        Visibility = Visibility.Collapsed
+    };
+
+    private double ResolveDesiredHeight() => _variantContext is null
+        ? 410d
+        : Math.Clamp(440d + _variantContext.Options.Count * 72d, 410d, 670d);
+
+    private void RefreshCorrectMapVisibility(MapMatchSnapshot snapshot)
+    {
+        _correctMapButton.Visibility = snapshot.IsStarted
+                && snapshot.Mode == MapRunMode.Normal
+                && _correctMap is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private async void CorrectMapButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_correctMap is null)
+            return;
+        SetActionsEnabled(false);
+        try
+        {
+            await _correctMap();
+        }
+        catch (Exception exception)
+        {
+            _messageText.Text = exception.Message;
+        }
+        finally
+        {
+            SetActionsEnabled(true);
+        }
+    }
 
     private async Task<bool> ConfirmAutomaticMapCacheSaveAsync()
     {
@@ -42,6 +82,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _beginButton.IsEnabled = enabled
             && _pendingClass is not null;
         _endButton.IsEnabled = enabled;
+        _correctMapButton.IsEnabled = enabled;
         _surveyModeToggle.IsEnabled = enabled && CanChangeSurveyMode(_snapshot);
     }
 

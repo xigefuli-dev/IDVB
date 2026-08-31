@@ -20,6 +20,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
     private readonly Dictionary<string, ThirdPartyPluginStatus> _statuses = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private bool _started;
+    private bool _matchActivationAllowed = true;
 
     public ThirdPartyPluginRuntimeManager(
         PluginDirectories directories,
@@ -34,6 +35,9 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
     }
 
     public PluginSafeModeState SafeMode { get; private set; } = new();
+
+    /// <summary>True only while the match controller has activated plugins.</summary>
+    public bool IsMatchActivationAllowed => _matchActivationAllowed;
 
     public IReadOnlyList<ThirdPartyPluginStatus> Statuses
     {
@@ -67,7 +71,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
                                         plugin.QuarantineReason is null && !plugin.CapabilityApprovalRequired)
                 .ToArray();
 
-            if (SafeMode.IsActive || enabled.Length == 0)
+            if (SafeMode.IsActive || !_matchActivationAllowed || enabled.Length == 0)
             {
                 _started = true;
                 return;
@@ -154,7 +158,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
                 return;
             }
 
-            if (SafeMode.IsActive || _loaded.ContainsKey(pluginId))
+            if (SafeMode.IsActive || !_matchActivationAllowed || _loaded.ContainsKey(pluginId))
                 return;
             var catalog = await _state.ReadCatalogAsync(cancellationToken);
             var entry = catalog.Plugins.SingleOrDefault(plugin => plugin.Id == pluginId);
@@ -163,6 +167,54 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
             {
                 await TryLoadAsync(entry, cancellationToken);
             }
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Starts the primary-enabled plugins only for an active match, or stops
+    /// every loaded plugin when that match gate closes. Catalog preferences are
+    /// deliberately left unchanged.
+    /// </summary>
+    public async Task SetMatchActivationAsync(
+        bool active,
+        CancellationToken cancellationToken = default)
+    {
+        await _lifecycleGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_matchActivationAllowed == active)
+                return;
+
+            if (!active)
+            {
+                foreach (var loaded in _loaded.Values.Reverse().ToArray())
+                    await StopOneAsync(loaded, cancellationToken);
+                _loaded.Clear();
+                TryDeleteFile(_directories.SessionMarkerPath);
+                _matchActivationAllowed = false;
+                return;
+            }
+
+            _matchActivationAllowed = true;
+            if (!_started || SafeMode.IsActive)
+                return;
+            var catalog = await _state.ReadCatalogAsync(cancellationToken);
+            var enabled = catalog.Plugins.Where(static plugin => plugin.Enabled
+                && plugin.ActiveVersion is not null
+                && plugin.QuarantineReason is null
+                && !plugin.CapabilityApprovalRequired).ToArray();
+            if (enabled.Length == 0)
+                return;
+            await WriteJsonAsync(
+                _directories.SessionMarkerPath,
+                new PluginSessionMarker { EnabledPluginIds = enabled.Select(static plugin => plugin.Id).ToArray() },
+                cancellationToken);
+            foreach (var entry in enabled)
+                await TryLoadAsync(entry, cancellationToken);
         }
         finally
         {

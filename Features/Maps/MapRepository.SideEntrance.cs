@@ -34,7 +34,7 @@ public sealed partial class MapRepository
     }
 
     /// <summary>
-    /// 若侧门锚点已标注，为该楼层生成侧门特征图并更新 profile 的相关字段。
+    /// 若扫描门锚点已标注，为该楼层生成门特征图并更新 profile 的相关字段。
     /// 若锚点未标注或识别图不存在，则静默跳过。
     /// </summary>
     private async Task TryGenerateSideEntranceFeatureAsync(
@@ -43,8 +43,8 @@ public sealed partial class MapRepository
     {
         if (IsCvDisabledForSafeMode())
             return;
-        var sideAnchor = profile.FindAnchor("side-entrance");
-        if (sideAnchor?.IsMarked is not true)
+        var scanAnchor = GetScanFeatureAnchor(profile);
+        if (scanAnchor?.IsMarked is not true)
             return;
 
         // 找到已在 staging 中写好的识别图路径
@@ -61,7 +61,7 @@ public sealed partial class MapRepository
 
             using var result = _sideEntrancePreprocessor.Value.Process(
                 recognitionMat,
-                sideAnchor.Bounds!,
+                scanAnchor.Bounds!,
                 SideEntranceScanRules.FeatureRegionRatio,
                 SideEntranceScanRules.ClampFeatureToBounds);
 
@@ -127,8 +127,10 @@ public sealed partial class MapRepository
                 var profile = MapFloorRules.GetFloorProfile(record, floorDef.Key);
                 if (profile is null)
                     continue;
-                var sideAnchor = profile.FindAnchor("side-entrance");
-                if (sideAnchor?.IsMarked is not true)
+                var scanAnchor = MapScanFloorRules.GetScanFeatureAnchor(
+                    record,
+                    floorDef.Key);
+                if (scanAnchor?.IsMarked is not true)
                     continue;
 
                 var recognitionPath = GetFloorRecognitionPath(record, floorDef.Key);
@@ -143,7 +145,7 @@ public sealed partial class MapRepository
 
                     using var result = _sideEntrancePreprocessor.Value.Process(
                         recognitionMat,
-                        sideAnchor.Bounds!,
+                        scanAnchor.Bounds!,
                         SideEntranceScanRules.FeatureRegionRatio,
                         SideEntranceScanRules.ClampFeatureToBounds);
 
@@ -321,7 +323,8 @@ public sealed partial class MapRepository
     {
         if (IsCvDisabledForSafeMode())
             return false;
-        if (profile.FindAnchor("side-entrance") is not { IsMarked: true } anchor
+        if (MapScanFloorRules.GetScanFeatureAnchor(record, floorKey)
+                is not { IsMarked: true } anchor
             || anchor.Bounds?.IsValid is not true
             || !File.Exists(recognitionPath))
         {
@@ -366,6 +369,12 @@ public sealed partial class MapRepository
         Environment.GetEnvironmentVariable("IDVB_SAFE_MODE"),
         "1",
         StringComparison.Ordinal);
+
+    private static RecognitionAnchor? GetScanFeatureAnchor(
+        FloorRecognitionProfile profile) =>
+        profile.Floor == MapFloor.First
+            ? profile.FindAnchor("side-entrance")
+            : profile.FindAnchor(MapScanFloorRules.SecondaryGateAnchorKey);
 
     private static string ComputeFileSha256(string path)
     {

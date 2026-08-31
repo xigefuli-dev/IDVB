@@ -28,7 +28,11 @@ public sealed partial class MapRepository
                 foreach (var map in maps)
                 {
                     map.NormalizeRecognition();
-                    if (!map.Recognition.HasRequiredIdentificationData())
+                    var scanFloorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+                    if (!map.Recognition.HasRequiredIdentificationData()
+                        && !MapScanFloorRules.HasRequiredScanMarkers(
+                            map,
+                            scanFloorKey))
                         continue;
 
                     foreach (var floor in MapFloorRules.GetOrderedFloors(map))
@@ -43,6 +47,9 @@ public sealed partial class MapRepository
                             map.Class,
                             out var properties)
                             && properties.RemoveBackground;
+                        var backgroundRemovalIntensity = properties is null
+                            ? MapBackgroundProcessor.DefaultBackgroundRemovalIntensity
+                            : properties.BackgroundRemovalIntensity;
                         var needsIndependentRecognition = removeBackground
                             || profile.BackgroundLayers.Count > 0
                             || !UsesWholeSourceImage(profile);
@@ -92,7 +99,8 @@ public sealed partial class MapRepository
                                 recognitionPath,
                                 profile,
                                 overlayPath,
-                                removeBackground);
+                                removeBackground,
+                                backgroundRemovalIntensity);
                             PopulateDerivedImageMetadataAsync(
                                 floor,
                                 sourcePath,

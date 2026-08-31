@@ -11,7 +11,6 @@ using IDVBuff.Core.Contracts;
 using WinRT.Interop;
 
 namespace IDVBuff.Features.Maps;
-
 /// <summary>
 /// Small interactive match controller. This window is intentionally separate
 /// from both the click-through map overlay and the full-screen manual selector.
@@ -114,7 +113,8 @@ public sealed partial class MapControlPanelWindow : IDisposable
         Func<Task<MapMatchSnapshot>>? activateSurveyMatch = null,
         Func<Task<MapVariantSelectionContext?>>? getVariantContext = null,
         Func<Guid, Task>? switchVariant = null,
-        ICaptureProtectionService? captureProtection = null)
+        ICaptureProtectionService? captureProtection = null,
+        Func<Task>? correctMap = null)
     {
         _beginMatch = beginMatch;
         _beginSurveyMatch = beginSurveyMatch ?? beginMatch;
@@ -128,9 +128,11 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _activateSurveyMatch = activateSurveyMatch;
         _getVariantContext = getVariantContext;
         _switchVariant = switchVariant;
+        _correctMap = correctMap;
         _captureProtection = captureProtection;
         _beginButton.Click += BeginButton_Click;
         _endButton.Click += EndButton_Click;
+        _correctMapButton.Click += CorrectMapButton_Click;
         _surveyModeToggle.Toggled += SurveyModeToggle_Toggled;
     }
 
@@ -177,9 +179,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         var dpi = GetDpiForWindow(gameWindowHandle);
         var scale = Math.Max(1d, (dpi == 0 ? 96d : dpi) / 96d);
         var width = (int)Math.Round(400d * scale);
-        var desiredHeight = _variantContext is null
-            ? 360d
-            : Math.Clamp(390d + _variantContext.Options.Count * 72d, 360d, 620d);
+        var desiredHeight = ResolveDesiredHeight();
         var height = (int)Math.Round(desiredHeight * scale);
         var margin = (int)Math.Round(16d * scale);
         _window!.AppWindow.MoveAndResize(new RectInt32(
@@ -235,6 +235,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _endButton.Visibility = snapshot.IsStarted
             ? Visibility.Visible
             : Visibility.Collapsed;
+        RefreshCorrectMapVisibility(snapshot);
         _messageText.Text = snapshot.IsStarted
             ? _isAutomaticMapCacheEnabled()
                 ? "结束时将询问是否保存本局收集的稳定地图缩放值。"
@@ -320,6 +321,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         content.Children.Add(_variantScroller);
         content.Children.Add(_messageText);
         content.Children.Add(_beginButton);
+        content.Children.Add(_correctMapButton);
         content.Children.Add(_endButton);
         return content;
     }
@@ -487,6 +489,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
             SetActionsEnabled(true);
         }
     }
+
 }
 /*
  * 文件职责：MapControlPanelWindow。

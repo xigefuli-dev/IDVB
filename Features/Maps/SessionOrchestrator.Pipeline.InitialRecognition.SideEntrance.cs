@@ -248,7 +248,9 @@ public sealed partial class SessionOrchestrator
             // Ambiguity is a valid empty-recognition outcome. Never promote
             // the highest template maximum merely to fill the chooser.
             if (reliable.Count != 1
-                || _settings.RecognitionTuning.ForceCandidateSelection)
+                || _settings.RecognitionTuning.ForceCandidateSelection
+                || _settings.CandidateDecisionMode
+                    != MapCandidateDecisionMode.Traditional)
             {
                 pendingChoices = choices;
                 pendingChoicesReason = reliable.Count == 0
@@ -330,6 +332,7 @@ public sealed partial class SessionOrchestrator
             if (recognizeOnly)
                 return;
             _lastRecognition = sideRec;
+            _currentFloorKey = sideRec.Result.Floor;
             _mapLease.Bind(_matchSession.Snapshot, sideRec.Map.Id);
             // 用侧门扫描种子（而非 null）作为 previous，保留
             // SideEntranceScanPriorConfidence，使后续仅对齐调用

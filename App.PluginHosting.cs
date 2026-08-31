@@ -71,11 +71,32 @@ public partial class App
             contextFactory);
         try
         {
+            await _thirdPartyPluginRuntime.SetMatchActivationAsync(false);
             await _thirdPartyPluginRuntime.StartAsync();
         }
         catch (Exception exception)
         {
             OutputLog.Write("ERROR", "PLUGIN/HOST", $"Third-party plugin startup was disabled: {exception}");
+        }
+    }
+
+    private async Task SetMatchPluginActivationAsync(bool active)
+    {
+        var builtIn = _pluginManager;
+        var thirdParty = _thirdPartyPluginRuntime;
+        var previous = thirdParty?.IsMatchActivationAllowed ?? false;
+        try
+        {
+            builtIn?.SetMatchActivation(active);
+            if (thirdParty is not null)
+                await thirdParty.SetMatchActivationAsync(active);
+        }
+        catch
+        {
+            if (thirdParty is not null && thirdParty.IsMatchActivationAllowed != previous)
+                await thirdParty.SetMatchActivationAsync(previous);
+            builtIn?.SetMatchActivation(previous);
+            throw;
         }
     }
 

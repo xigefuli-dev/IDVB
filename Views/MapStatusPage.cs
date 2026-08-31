@@ -18,12 +18,17 @@ public sealed partial class MapStatusPage : UserControl
         MapOverlayAlignmentMode Mode,
         string DisplayName);
 
+    private sealed record MapDecisionModeChoice(
+        MapCandidateDecisionMode Mode,
+        string DisplayName);
+
 
     public MapStatusPage()
     {
         try
         {
             BuildView();
+            AttachMapLearningPanel();
             _viewBuilt = true;
         }
         catch (Exception exception)

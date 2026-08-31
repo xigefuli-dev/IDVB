@@ -154,7 +154,8 @@ namespace IDVBuff
                 _updateShutdownServer = new UpdateShutdownServer(() =>
                     dispatcher.TryEnqueue(RequestApplicationExit));
                 _updateShutdownServer.Start();
-                if (await TryCompleteSafeModeLaunchAsync(startMinimized))
+                await InitializeModelImprovementAsync(preferences, startMinimized);
+                if (await TryCompleteSafeModeLaunchAsync(startMinimized, preferences))
                     return;
                 // ═══ 构建 DI 容器 ═══
                 var services = new ServiceCollection();
@@ -193,6 +194,9 @@ namespace IDVBuff
                     pluginBus,
                     pluginContextFactory,
                     preferences: preferencesStore);
+                // Plugin-page switches remain saved primary preferences. The
+                // runtime gate only opens from the started-match control.
+                _pluginManager.SetMatchActivation(false);
                 _teachingTipManager = new TeachingTipManager(dispatcher, preferencesStore);
                 _hostEventBridge = new HostEventBridge(
                     pluginBus,
@@ -206,6 +210,7 @@ namespace IDVBuff
                 _pluginManager.Start();
 
                 await InitializeThirdPartyPluginsAsync(pluginBus);
+                session.MatchPluginActivationChanged += SetMatchPluginActivationAsync;
 
                 if (!string.IsNullOrWhiteSpace(cliOptions.IdvbControlPipeName))
                 {
@@ -226,6 +231,7 @@ namespace IDVBuff
                 if (!startMinimized && !startupElevationRequired)
                     await ShowQuickStartAsync(session);
                 AutomaticUpdateLauncher.TryLaunch();
+                _ = CheckMapSubscriptionsInBackgroundAsync(session);
                 if (startMinimized)
                 {
                     HideMainWindow();

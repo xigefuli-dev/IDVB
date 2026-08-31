@@ -71,7 +71,8 @@ internal sealed partial class AdaptiveScaleCoordinator
                 strongInitial,
                 DateTimeOffset.UtcNow,
                 preserveWhenUnqualified: evidence.StructureValidated
-                    && !evidence.ScaleIndependentlyEstimated);
+                    && !evidence.ScaleIndependentlyEstimated,
+                clusterTolerance: evidence.ScaleClusterTolerance);
             if (streakResult.Changed)
                 QueueInitialStreakWrite(streakResult.Snapshot);
 
@@ -81,7 +82,7 @@ internal sealed partial class AdaptiveScaleCoordinator
             _activeOpenId = effectiveOpenId;
             var resumed = controller.BeginOrResumeOpen(
                 _activeOpenId,
-                scale,
+                trusted ? streak.MedianScale : scale,
                 entry?.CalibrationScale,
                 trusted,
                 requiresRecovery: !strongInitial);
@@ -114,6 +115,9 @@ internal sealed partial class AdaptiveScaleCoordinator
             details["scaleIndependentlyEstimated"] =
                 evidence.ScaleIndependentlyEstimated;
             details["highQualityClusterRebuilt"] = streakResult.Rebuilt;
+            details["scaleResolutionRatio"] = evidence.ScaleResolutionRatio;
+            details["scaleClusterTolerance"] = evidence.ScaleClusterTolerance;
+            details["initialScaleRelativeMad"] = streakResult.Snapshot.RelativeMad;
             details["reliabilityReason"] = reason.ToString();
             details["legacySource"] = legacySource?.ToString();
             _log?.Invoke(
@@ -140,7 +144,9 @@ internal sealed partial class AdaptiveScaleCoordinator
                 reliable ? "Reliable" : "Provisional",
                 streak.Count,
                 _options.RequiredConsecutiveInitialResults,
-                reason);
+                reason,
+                streakResult.Snapshot.RelativeMad,
+                streakResult.Rebuilt);
         }
     }
 

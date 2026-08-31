@@ -199,7 +199,9 @@ public sealed partial class IdvmPackageService
             item => item.ClassId,
             item => new MapClassProperties
             {
-                RemoveBackground = item.Properties?.RemoveBackground is true
+                RemoveBackground = item.Properties?.RemoveBackground is true,
+                ScanFloorKey = MapScanFloorRules.NormalizeFloorIdentity(
+                    item.Properties?.ScanFloorKey)
             });
         foreach (var item in manifest.Classes)
             draftsByClass[item.ClassId] = [];

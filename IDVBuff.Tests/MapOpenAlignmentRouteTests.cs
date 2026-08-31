@@ -105,7 +105,7 @@ public sealed class MapOpenAlignmentRouteTests
     [InlineData(false, false, 0d, false, false)]
     [InlineData(false, true, 0d, true, false)]
     [InlineData(true, false, 0d, false, true)]
-    public void IndependentFloorAlignmentIsRestrictedToOtherFloorsOrPendingVariantWithoutSideSeed(
+    public void IndependentFloorAlignmentCoversOtherFloorsAndUnalignedNeutralSessions(
         bool isOtherFloor,
         bool isPendingVariantAlignment,
         double sidePrior,
@@ -124,6 +124,32 @@ public sealed class MapOpenAlignmentRouteTests
                 isOtherFloor,
                 isPendingVariantAlignment,
                 session));
+    }
+
+    [Fact]
+    public void ProvisionalPrimaryStructureCannotSeedTheNextFixedScaleAttempt()
+    {
+        var provisionalWrongSession = new MapAlignmentSession
+        {
+            FloorKey = "1f",
+            Mode = MapAlignmentTrackingMode.StructureMatched,
+            LockedTransform = new MapOverlayTransform
+            {
+                ScaleX = 1.70d,
+                ScaleY = 1.70d,
+                OffsetX = 639d,
+                OffsetY = 332.9d
+            },
+            LastConfidence = 0.7281d,
+            SideEntranceScanPriorConfidence = 0d,
+            HasGatePairLock = false
+        };
+
+        Assert.True(
+            MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+                isOtherFloor: false,
+                isPendingVariantAlignment: false,
+                provisionalWrongSession));
     }
 
     [Theory]

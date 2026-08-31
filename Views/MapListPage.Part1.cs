@@ -83,14 +83,12 @@ public sealed partial class MapListPage : UserControl
         _variantButton.Click += async (_, _) => await ToggleSelectedVariantGroupAsync();
         var classPicker = CreateClassPicker();
 
-        var exportButton = CreateActionButton("导出", AccentBlue);
-        _exportButton = exportButton;
-        exportButton.IsEnabled = !_isPackageOperation && _loadedMaps.Count > 0;
-        exportButton.Click += async (_, _) => await ShowExportDialogAsync(importButton, exportButton);
+        var publishButton = CreateActionButton("发布", AccentBlue);
+        _publishButton = publishButton;
+        publishButton.IsEnabled = !_isPackageOperation && _loadedMaps.Count > 0;
 
-        // The four map operations form one compact semantic group. Only the
-        // boundaries around the class controls share the remaining width, so
-        // opening the navigation pane contracts those larger group gaps first.
+        // The boundaries around the map-class controls share the remaining width,
+        // so opening the navigation pane contracts those larger group gaps first.
         var mapActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -105,7 +103,7 @@ public sealed partial class MapListPage : UserControl
         [
             mapActions,
             classPicker,
-            exportButton
+            publishButton
         ];
         for (var index = 0; index < actionElements.Length; index++)
         {
@@ -123,7 +121,7 @@ public sealed partial class MapListPage : UserControl
             }
         }
 
-        var teachingTip = CreateImportTeachingTip(importButton, exportButton);
+        var teachingTip = CreateImportTeachingTip(importButton, publishButton);
         importButton.Click += (_, _) =>
         {
             if (_isPackageOperation)
@@ -131,6 +129,15 @@ public sealed partial class MapListPage : UserControl
 
             PlayDetailTriggerFeedback(importButton);
             teachingTip.IsOpen = !teachingTip.IsOpen;
+        };
+        var publishTeachingTip = CreatePublishTeachingTip(importButton, publishButton);
+        publishButton.Click += (_, _) =>
+        {
+            if (_isPackageOperation || _loadedMaps.Count == 0)
+                return;
+
+            PlayDetailTriggerFeedback(publishButton);
+            publishTeachingTip.IsOpen = !publishTeachingTip.IsOpen;
         };
 
         // ── Scrollable content (cards only) ──
@@ -215,7 +222,11 @@ public sealed partial class MapListPage : UserControl
         buttonBarLayout.Children.Add(buttonBar);
         root.Children.Add(buttonBarLayout);
 
+        // TeachingTip must stay attached to the page's visual tree for its
+        // complete lifetime. Opening an unattached tip crashes inside the
+        // WinUI controls layer before managed exception handling can run.
         root.Children.Add(teachingTip);
+        root.Children.Add(publishTeachingTip);
 
         _workflowHost.Content = root;
         PlayWorkflowEnterAnimation();
@@ -353,11 +364,11 @@ public sealed partial class MapListPage : UserControl
 
     private async Task ShowCreateClassDialogAsync()
     {
-        var nameBox = new TextBox { PlaceholderText = "输入新 Class 名称", MinWidth = 220 };
+        var nameBox = new TextBox { PlaceholderText = "输入新地图类名称", MinWidth = 220 };
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "新建 Class",
+            Title = "新建地图类",
             Content = nameBox,
             PrimaryButtonText = "确认",
             CloseButtonText = "取消",
@@ -376,7 +387,7 @@ public sealed partial class MapListPage : UserControl
         }
         catch (Exception exception)
         {
-            await ShowMessageAsync("无法创建 Class", exception.Message);
+            await ShowMessageAsync("无法创建地图类", exception.Message);
         }
     }
 
@@ -386,8 +397,8 @@ public sealed partial class MapListPage : UserControl
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = $"删除 Class “{className}”？",
-            Content = $"将永久删除当前展示的 Class 及其 {count} 张地图，此操作无法撤销。",
+            Title = $"删除地图类“{className}”？",
+            Content = $"将永久删除当前展示的地图类及其 {count} 张地图，此操作无法撤销。",
             PrimaryButtonText = "删除",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
@@ -407,7 +418,7 @@ public sealed partial class MapListPage : UserControl
         }
         catch (Exception exception)
         {
-            await ShowMessageAsync("删除 Class 失败", exception.Message);
+            await ShowMessageAsync("删除地图类失败", exception.Message);
         }
     }
 

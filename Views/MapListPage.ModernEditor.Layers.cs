@@ -60,7 +60,8 @@ public sealed partial class MapListPage : UserControl
         var anchorNumber = 0;
         foreach (var anchor in profile.Anchors)
         {
-            var isGate = anchor.Key is "main-entrance" or "side-entrance";
+            var isGate = anchor.Key is "main-entrance" or "side-entrance"
+                || anchor.Key == MapScanFloorRules.SecondaryGateAnchorKey;
             var label = isGate ? anchor.DisplayName : $"{anchor.DisplayName} {++anchorNumber}";
             specialItems.Add(new ModernLayerItem(
                 ModernAnchorKey(anchor.Id),

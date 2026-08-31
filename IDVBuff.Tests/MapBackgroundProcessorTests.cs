@@ -52,6 +52,23 @@ public sealed class MapBackgroundProcessorTests
     }
 
     [Fact]
+    public void HigherAutomaticRemovalIntensityCoversWiderColorRange()
+    {
+        using var source = new Mat(1, 2, MatType.CV_8UC4, Scalar.Black);
+        SetPixel(source, 0, 0, new Scalar(10, 20, 30, 255));
+        SetPixel(source, 0, 1, new Scalar(10, 20, 42, 255));
+        var profile = new FloorRecognitionProfile();
+
+        using var low = MapBackgroundProcessor.Process(
+            source, profile, removeBackground: true, backgroundRemovalIntensity: 8);
+        using var high = MapBackgroundProcessor.Process(
+            source, profile, removeBackground: true, backgroundRemovalIntensity: 12);
+
+        Assert.Equal(new Vec4b(10, 20, 42, 255), low.Recognition.At<Vec4b>(0, 1));
+        Assert.Equal(new Vec4b(0, 0, 0, 0), high.Recognition.At<Vec4b>(0, 1));
+    }
+
+    [Fact]
     public void ManualConcealIsAppliedWhenClassRemovalIsDisabled()
     {
         using var source = new Mat(5, 5, MatType.CV_8UC4, new Scalar(11, 22, 33, 255));

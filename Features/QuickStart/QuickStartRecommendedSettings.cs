@@ -23,7 +23,10 @@ public static class QuickStartRecommendedSettings
         settings.SelectedResolutionPreset = null;
         settings.AllowAutomaticMapCache = false;
         settings.CollectLogs = true;
-        settings.CollectAlignmentResearchData = true;
+        // Privacy-scoped collection follows the explicit main-program consent
+        // and is applied after this general recommendation.
+        settings.CollectAlignmentResearchData = false;
+        settings.ContinuousMapLearningEnabled = false;
         settings.ShowOverlayStatus = true;
         settings.AllowMapExtendBeyondBounds = true;
         settings.PersistentMiniMapEnabled = true;

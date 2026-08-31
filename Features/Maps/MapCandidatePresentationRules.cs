@@ -9,7 +9,15 @@ internal static class MapCandidatePresentationRules
 {
     internal const double LivePreviewZoom = 1.20d;
     internal const double MapPreviewZoom = 1.10d;
-    internal const double MapSideEntranceTargetY = 0.95d;
+    internal const double SecondaryFloorMapPreviewZoom = 3.00d;
+    internal const double PreviewSafeInset = 0.10d;
+
+    internal sealed record MapPreviewPlan(
+        MapNormalizedPoint Center,
+        double Zoom,
+        double TargetX,
+        double TargetY,
+        bool IsSecondaryFloor);
 
     internal static IReadOnlyList<MapRecognitionChoice> AppendCatalogMaps(
         IReadOnlyList<MapRecognitionChoice> orderedCandidates,
@@ -49,7 +57,7 @@ internal static class MapCandidatePresentationRules
         {
             if (!includedMapIds.Add(map.Id))
                 continue;
-            var floorKey = MapFloorRules.GetPrimaryFloorKey(map);
+            var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
             result.Add(new MapRecognitionChoice
             {
                 Recognition = new RuntimeMapRecognition
@@ -77,9 +85,53 @@ internal static class MapCandidatePresentationRules
 
     internal static MapNormalizedPoint? ResolveMapSideEntranceCenter(MapRecord map)
     {
-        var floorKey = MapFloorRules.GetPrimaryFloorKey(map);
+        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+        return ResolveMapScanFeatureCenter(map, floorKey);
+    }
+
+    internal static MapPreviewPlan? ResolveMapPreviewPlan(
+        MapRecord map,
+        string floorKey)
+    {
+        var center = ResolveMapScanFeatureCenter(map, floorKey);
+        if (center is null)
+            return null;
+        if (MapScanFloorRules.IsPrimaryFloor(map, floorKey))
+        {
+            return new MapPreviewPlan(
+                center.Value,
+                MapPreviewZoom,
+                ResolveSafePreviewTarget(center.Value.X),
+                ResolveSafePreviewTarget(center.Value.Y),
+                false);
+        }
+
+        var zoom = SecondaryFloorMapPreviewZoom;
+        return new MapPreviewPlan(
+            center.Value,
+            zoom,
+            ResolveSafePreviewTarget(center.Value.X),
+            ResolveSafePreviewTarget(center.Value.Y),
+            true);
+    }
+
+    internal static string ResolveFloorDisplayName(
+        MapRecord map,
+        string floorKey) =>
+        MapFloorRules.GetOrderedFloors(map)
+            .FirstOrDefault(floor => string.Equals(
+                floor.Key,
+                floorKey,
+                StringComparison.OrdinalIgnoreCase))
+            ?.DisplayName
+        ?? floorKey;
+
+    private static MapNormalizedPoint? ResolveMapScanFeatureCenter(
+        MapRecord map,
+        string floorKey)
+    {
         var profile = MapFloorRules.GetFloorProfile(map, floorKey);
-        var bounds = profile?.FindAnchor("side-entrance")?.Bounds;
+        var bounds = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey)?.Bounds;
         if (bounds?.IsValid is true)
         {
             return new MapNormalizedPoint(
@@ -107,16 +159,31 @@ internal static class MapCandidatePresentationRules
         return null;
     }
 
+    private static double ResolveSafePreviewTarget(double center) =>
+        Math.Clamp(center, PreviewSafeInset, 1d - PreviewSafeInset);
+
+    internal static double EstimateSourceCoverage(MapPreviewPlan plan)
+    {
+        static double AxisCoverage(double center, double zoom, double target)
+        {
+            var start = target - (center * zoom);
+            var end = target + ((1d - center) * zoom);
+            return Math.Max(0d, Math.Min(1d, end) - Math.Max(0d, start));
+        }
+
+        return AxisCoverage(plan.Center.X, plan.Zoom, plan.TargetX)
+            * AxisCoverage(plan.Center.Y, plan.Zoom, plan.TargetY);
+    }
+
     internal static MapScreenRect? ResolveLiveSideEntranceBounds(
         IEnumerable<MapRecognitionChoice> choices)
     {
         foreach (var choice in choices)
         {
             var map = choice.Recognition.Map;
-            var profile = MapFloorRules.GetFloorProfile(
+            var anchor = MapScanFloorRules.GetScanFeatureAnchor(
                 map,
                 choice.Recognition.Result.Floor);
-            var anchor = profile?.FindAnchor("side-entrance");
             if (anchor is null)
                 continue;
             var match = choice.Recognition.Result.AnchorMatches

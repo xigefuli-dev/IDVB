@@ -9,7 +9,6 @@ using System.Diagnostics;
 using IDVBuff.Survey.Contracts;
 
 namespace IDVBuff.Features.Maps;
-
 public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposable, IAsyncDisposable
 {
     private readonly DispatcherQueue _dispatcher;
@@ -65,6 +64,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private string _statusMessage = "就绪";
     private bool _elevationEventRaised;
     private bool _manualSelectionActive;
+    private bool _matchPluginsActivated;
     private int _activeScanOperations;
 
     // TODO: 扫描/对齐逻辑实现后填充以下字段
@@ -86,8 +86,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private IntPtr _lastGameWindowHandle;
     private readonly bool _headless;
 
-    // ════════════════ Constructor ════════════════
-
     public SessionOrchestrator(
         DispatcherQueue dispatcher,
         ISettingsRepository settingsRepo,
@@ -107,7 +105,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         ISurveyCoordinator surveyCoordinator,
         SurveyCaptureTuning? surveyCaptureTuning = null,
         ICaptureProtectionService? captureProtection = null,
-        bool headless = false)
+        bool headless = false,
+        IMapCandidateLearningEngine? learningEngine = null)
     {
         _dispatcher = dispatcher;
         _settingsRepo = settingsRepo;
@@ -128,6 +127,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _surveyCaptureTuning.Validate();
         _captureProtection = captureProtection;
         _scanProgressOverlay = new GameOverlayProgressBar(_captureProtection);
+        _learningEngine = learningEngine ?? new MapCandidateLearningEngine();
         _surveyCoordinator.StatusChanged += SurveyCoordinator_StatusChanged;
         _headless = headless;
 
@@ -180,7 +180,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 ActivateSurveyMatchAsync,
                 GetCurrentVariantContextAsync,
                 SwitchVariantAsync,
-                _captureProtection);
+                _captureProtection,
+                CorrectMapAsync);
         }
 
         // 全局输入事件仅在 GUI 模式订阅（headless CLI 无输入设备）
@@ -202,6 +203,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 RunInputAction("switch-floor", HandleSwitchFloorSafely);
             _input.SaveMapCacheInvoked += (_, _) =>
                 StartInputOperation("save-map-cache", SaveCurrentMapCacheAsync);
+            _input.RestMapDisplayInvoked += (_, _) =>
+                StartInputOperation("rest-map-display", RestMapDisplayAsync);
         }
     }
 
@@ -327,6 +330,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     "Map runtime was forced off: " + prerequisiteFailure);
             }
             await _mapFeatureCacheRepository.InitializeAsync();
+            await InitializeLearningEngineAsync();
             await InitializeAdaptiveScaleAsync();
             await _surveyCoordinator.InitializeAsync(_lifetimeCts.Token);
 
@@ -463,8 +467,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             if (_matchSession.Snapshot.IsStarted)
                 throw new InvalidOperationException("A match is already in progress.");
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
+            _matchPluginsActivated = false;
             StartMatchCancellationScope();
             var match = _matchSession.Begin(mapClass);
+            await SetMatchPluginsActivatedCoreAsync(true);
             _statusMessage = $"对局已开始 · {mapClass}";
             _logCollector.Append(
                 MapLogCategory.Session,

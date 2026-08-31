@@ -22,6 +22,12 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             var endingMatch = _matchSession.Snapshot;
             if (!endingMatch.IsStarted)
                 return;
+            var finalLearningMapId = _mapLease.MapId
+                ?? _pendingAlignmentIdentity?.Map.Id
+                ?? _lastRecognition?.Map.Id;
+
+            if (_matchPluginsActivated)
+                await SetMatchPluginsActivatedCoreAsync(false);
 
             Volatile.Write(ref _matchEnding, 1);
             // Invalidate the match identity first. Any scan/alignment already
@@ -46,6 +52,16 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     ? "测绘对局不使用普通地图缓存样本"
                     : "用户选择不保存或退出路径无法确认");
             await EndSurveyMatchAsync(endingMatch);
+            if (!isSurvey)
+                await FinalizeMapLearningLabelAsync(
+                    endingMatch,
+                    finalLearningMapId);
+            if (_hasPendingMapLearningSample
+                && _settings?.ContinuousMapLearningEnabled is true
+                && _settings.AutomaticMapModelTrainingEnabled)
+            {
+                QueueMapModelTraining();
+            }
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
 
             _statusMessage = "对局已结束。";
@@ -65,6 +81,17 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             Volatile.Write(ref _matchEnding, 0);
             _matchLifecycleGate.Release();
         }
+    }
+
+    private async Task SetMatchPluginsActivatedCoreAsync(bool active)
+    {
+        var handlers = MatchPluginActivationChanged;
+        if (handlers is not null)
+        {
+            foreach (Func<bool, Task> handler in handlers.GetInvocationList())
+                await handler(active);
+        }
+        _matchPluginsActivated = active;
     }
 
     /// <summary>

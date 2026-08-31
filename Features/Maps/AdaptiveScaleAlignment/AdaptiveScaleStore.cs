@@ -155,6 +155,45 @@ internal sealed class AdaptiveScaleStore
         }
     }
 
+    public async Task<int> ResetMapFloorAsync(
+        Guid mapId,
+        long mapUpdatedAtTicks,
+        string floorKey,
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_writesDisabledForUnsupportedSchema)
+            {
+                throw new InvalidOperationException(
+                    "Adaptive scale cache uses a newer unsupported schema.");
+            }
+            Dictionary<AdaptiveScaleKey, AdaptiveScaleStoreEntry> snapshot;
+            int removed;
+            lock (_stateGate)
+            {
+                snapshot = new(_entries);
+                var matchingKeys = snapshot.Keys.Where(key =>
+                    key.MapId == mapId
+                    && key.MapUpdatedAtTicks == mapUpdatedAtTicks
+                    && key.FloorKey == floorKey).ToArray();
+                foreach (var key in matchingKeys)
+                    snapshot.Remove(key);
+                removed = matchingKeys.Length;
+                _entries = snapshot;
+            }
+            if (removed > 0)
+                await SaveSnapshotAsync(snapshot, cancellationToken)
+                    .ConfigureAwait(false);
+            return removed;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public static bool IsTrusted(AdaptiveScaleStoreEntry? entry)
     {
         if (entry is null

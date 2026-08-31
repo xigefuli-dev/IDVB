@@ -50,6 +50,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             StateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
+        if (_settings.BackgroundScanEnabled)
+            ClearPendingBackgroundScan();
         var operationMatch = _matchSession.Snapshot;
         if (!_captureSvc.TryGetForegroundClientBounds(
                 out var clientBounds, out var windowHandle, out var failureReason))
@@ -385,6 +387,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _controlPanel?.Dispose();
         _surveyCoordinator.StatusChanged -= SurveyCoordinator_StatusChanged;
         await _researchCollector.DisposeAsync();
+        await _learningEngine.DisposeAsync();
         await DrainAdaptiveScaleAsync();
         await _logCollector.DisposeAsync();
         _initializeGate.Dispose();

@@ -34,6 +34,7 @@ public sealed partial class MapRepository
             global::IDVBuff.AppDataPaths.RootDirectory,
             "Maps");
         RecoverInterruptedIdvmImports();
+        RecoverRetiredSubscriptionMaps();
     }
 
     private string CatalogPath => Path.Combine(_rootDirectory, "maps.json");
@@ -46,7 +47,7 @@ public sealed partial class MapRepository
             var catalog = await ReadCatalogAsync();
             return catalog.Maps
                 .OrderBy(record => record.SequenceNumber)
-                .Select(record => record.Clone())
+                .Select(record => CloneWithClassProperties(catalog, record))
                 .ToArray();
         }
         finally
@@ -110,6 +111,11 @@ public sealed partial class MapRepository
                 Title = record.Title,
                 ContentVersion = record.ContentVersion,
                 Source = record.Source,
+                AcquisitionKind = record.AcquisitionKind,
+                SubscriptionId = record.SubscriptionId,
+                SubscriptionPublisherHandle = record.SubscriptionPublisherHandle,
+                SubscriptionPublisherKeyId = record.SubscriptionPublisherKeyId,
+                SubscriptionVersion = record.SubscriptionVersion,
                 SourceProjectId = record.SourceProjectId,
                 SourceProjectRevision = record.SourceProjectRevision,
                 SourceVisualSha256 = record.SourceVisualSha256,
@@ -159,6 +165,11 @@ public sealed partial class MapRepository
             record.Source = string.Equals(draft.Source, "survey", StringComparison.Ordinal)
                 ? "survey"
                 : "manual";
+            record.AcquisitionKind = draft.AcquisitionKind;
+            record.SubscriptionId = draft.SubscriptionId;
+            record.SubscriptionPublisherHandle = draft.SubscriptionPublisherHandle;
+            record.SubscriptionPublisherKeyId = draft.SubscriptionPublisherKeyId;
+            record.SubscriptionVersion = draft.SubscriptionVersion;
             record.SourceProjectId = draft.SourceProjectId;
             record.SourceProjectRevision = draft.SourceProjectRevision;
             record.SourceVisualSha256 = draft.SourceVisualSha256;
@@ -271,8 +282,11 @@ public sealed partial class MapRepository
                     out var surveyStructurePath)
                     && IsSupportedImage(surveyStructurePath)
                     && File.Exists(surveyStructurePath);
+                var classProperties = GetClassProperties(catalog, record.Class);
                 var removeBackground = draft.RemoveBackgroundOverride
-                    ?? GetClassProperties(catalog, record.Class).RemoveBackground;
+                    ?? classProperties.RemoveBackground;
+                var backgroundRemovalIntensity = draft.BackgroundRemovalIntensityOverride
+                    ?? classProperties.BackgroundRemovalIntensity;
                 var needsIndependentRecognition = removeBackground
                     || profile.BackgroundLayers.Count > 0
                     || !UsesWholeSourceImage(profile);
@@ -284,7 +298,8 @@ public sealed partial class MapRepository
                     using var processed = MapBackgroundProcessor.Process(
                         surveyImage,
                         profile,
-                        removeBackground);
+                        removeBackground,
+                        backgroundRemovalIntensity);
                     if (!needsIndependentRecognition && UsesWholeSourceImage(profile))
                         await CopyRecognitionSourceAsync(surveyStructurePath!, recognitionPath);
                     else if (!Cv2.ImWrite(recognitionPath, processed.Recognition))
@@ -304,7 +319,8 @@ public sealed partial class MapRepository
                         recognitionPath,
                         profile,
                         overlayPath,
-                        removeBackground);
+                        removeBackground,
+                        backgroundRemovalIntensity);
                 }
                 await PopulateDerivedImageMetadataAsync(
                     floor,
@@ -382,7 +398,8 @@ public sealed partial class MapRepository
                             compatibilityRecognitionPath,
                             profile,
                             compatibilityOverlayPath,
-                            removeBackground);
+                            removeBackground,
+                            backgroundRemovalIntensity);
                     }
                 }
             }
@@ -449,50 +466,5 @@ public sealed partial class MapRepository
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         await input.CopyToAsync(output);
         await output.FlushAsync();
-    }
-    public async Task DeleteAsync(Guid id)
-    {
-        await Gate.WaitAsync();
-        string? stagedDeletion = null;
-        try
-        {
-            var catalog = await ReadCatalogAsync();
-            var record = catalog.Maps.SingleOrDefault(map => map.Id == id)
-                ?? throw new InvalidOperationException("找不到要删除的地图。");
-            var directory = GetMapDirectory(record.Id);
-            if (Directory.Exists(directory))
-            {
-                stagedDeletion = Path.Combine(_rootDirectory, $".delete-{record.Id:N}");
-                if (Directory.Exists(stagedDeletion))
-                    Directory.Delete(stagedDeletion, recursive: true);
-                Directory.Move(directory, stagedDeletion);
-            }
-            catalog.Maps.Remove(record);
-            RemoveMapFromVariantGroups(catalog, record.Id);
-            await WriteCatalogAsync(catalog);
-            if (stagedDeletion is not null && Directory.Exists(stagedDeletion))
-                Directory.Delete(stagedDeletion, recursive: true);
-        }
-        catch
-        {
-            if (stagedDeletion is not null && Directory.Exists(stagedDeletion))
-            {
-                var restoreDirectory = GetMapDirectory(id);
-                if (!Directory.Exists(restoreDirectory))
-                    Directory.Move(stagedDeletion, restoreDirectory);
-            }
-            throw;
-        }
-        finally
-        {
-            Gate.Release();
-        }
-    }
-    public string GetFloorOnePath(MapRecord record)
-    {
-        var firstFloor = MapFloorRules.GetOrderedFloors(record).FirstOrDefault();
-        return firstFloor is not null && !string.IsNullOrWhiteSpace(firstFloor.ImageFileName)
-            ? GetSafeMapFilePath(GetMapDirectory(record.Id), firstFloor.ImageFileName)
-            : GetStoredFloorImagePath(record.Id, record.FloorOneFileName, "floor-1");
     }
 }

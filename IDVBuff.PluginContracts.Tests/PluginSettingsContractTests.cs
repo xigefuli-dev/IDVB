@@ -99,6 +99,17 @@ public class PluginSettingsContractTests
     }
 
     [Fact]
+    public void PluginInputBinding_RoundTripsOrdinaryKeyCombination()
+    {
+        var original = PluginInputBinding.Keyboard(0x43,
+            companionVirtualKeys: [0x42]);
+
+        Assert.True(PluginInputBinding.TryParse(original.StorageValue, out var parsed));
+        Assert.Equal("B + C", parsed.DisplayName);
+        Assert.Equal(original, parsed);
+    }
+
+    [Fact]
     public void PluginInputBinding_ParsesMouseAndNone()
     {
         Assert.True(PluginInputBinding.TryParse(
@@ -112,6 +123,22 @@ public class PluginSettingsContractTests
             PluginInputBindingKinds.Keyboard,
             out var none));
         Assert.False(none.IsConfigured);
+    }
+
+    [Theory]
+    [InlineData(0xC0u, "`")]
+    [InlineData(0x60u, "小键盘 0")]
+    [InlineData(0xBAu, ";")]
+    [InlineData(0xA6u, "浏览器后退")]
+    public void PluginInputBinding_UsesReadableNamesForNonAlphanumericKeys(
+        uint virtualKey,
+        string expectedName)
+    {
+        var binding = PluginInputBinding.Keyboard(virtualKey);
+
+        Assert.Equal(expectedName, binding.DisplayName);
+        Assert.DoesNotContain("VK", binding.DisplayName,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

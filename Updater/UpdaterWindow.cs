@@ -140,9 +140,12 @@ internal sealed class UpdaterWindow : Form
         if (_options.Background) { Opacity = 1; ShowInTaskbar = true; Activate(); }
         var metadata = _coordinator.Metadata;
         _status.Text = "有可用的更新";
+        var delivery = _coordinator.WillUseDeltaPackage
+            ? $"将下载 {_coordinator.DeltaPackageCount} 个增量包，仅传输变更内容；若校验或还原失败，会自动安全回退到完整包。"
+            : "将下载完整更新包；这是首次更新、跨版本缺少增量包，或服务器未提供可用增量包时的安全回退。";
         _details.Text = metadata is null
-            ? $"当前版本：{_coordinator.CurrentVersion}"
-            : $"当前版本：{_coordinator.CurrentVersion}\n目标版本：{metadata.PublicVersion}\n\n{metadata.ReleaseNotes}";
+            ? $"当前版本：{_coordinator.CurrentVersion}\n{delivery}"
+            : $"当前版本：{_coordinator.CurrentVersion}\n目标版本：{metadata.PublicVersion}\n{delivery}\n\n{metadata.ReleaseNotes}";
         _primary.Text = "下载更新";
         _primary.Enabled = true;
     }

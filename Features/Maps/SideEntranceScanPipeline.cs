@@ -49,18 +49,20 @@ public sealed partial class SideEntranceScanPipeline
             return false;
         }
 
-        var sideAnchor = profile.FindAnchor("side-entrance");
-        if (sideAnchor?.Bounds?.IsValid is not true)
+        var scanAnchor = MapScanFloorRules.GetScanFeatureAnchor(
+            candidate.Map,
+            candidate.FloorKey);
+        if (scanAnchor?.Bounds?.IsValid is not true)
         {
-            failureReason = "the selected map has no marked side-entrance anchor.";
+            failureReason = "the selected map has no marked scan gate feature.";
             return false;
         }
 
         var referenceBounds = new MapScreenRect(
-            sideAnchor.Bounds.X * profile.RecognitionPixelWidth,
-            sideAnchor.Bounds.Y * profile.RecognitionPixelHeight,
-            sideAnchor.Bounds.Width * profile.RecognitionPixelWidth,
-            sideAnchor.Bounds.Height * profile.RecognitionPixelHeight);
+            scanAnchor.Bounds.X * profile.RecognitionPixelWidth,
+            scanAnchor.Bounds.Y * profile.RecognitionPixelHeight,
+            scanAnchor.Bounds.Width * profile.RecognitionPixelWidth,
+            scanAnchor.Bounds.Height * profile.RecognitionPixelHeight);
 
         // The side feature is cut from the map recognition image, so its
         // searched scale is the map-image scale. Gate icons can remain nearly
@@ -128,7 +130,7 @@ public sealed partial class SideEntranceScanPipeline
             [
                 new CvAnchorEvidence
                 {
-                    AnchorId = sideAnchor.Id,
+                    AnchorId = scanAnchor.Id,
                     Score = Math.Clamp(gate.Score, 0d, 1d),
                     TemplateScale = gate.Scale,
                     ReferenceBounds = referenceBounds,
@@ -148,7 +150,7 @@ public sealed partial class SideEntranceScanPipeline
     }
 
     /// <summary>
-    /// Creates a provisional alignment session from the side-entrance feature
+    /// Creates a provisional alignment session from the configured scan-gate feature
     /// match. The feature template is cut from the recognition image, so its
     /// center gives us an initial scale and translation even when no gate is
     /// visible in the current frame. The normal alignment pipeline still has
@@ -166,7 +168,7 @@ public sealed partial class SideEntranceScanPipeline
 
         if (!viewportBounds.IsValid || !candidate.MatchLocation.IsValid)
         {
-            failureReason = "侧门特征匹配位置或当前地图视口无效。";
+            failureReason = "扫描门特征匹配位置或当前地图视口无效。";
             return false;
         }
 
@@ -177,7 +179,7 @@ public sealed partial class SideEntranceScanPipeline
             || profile.RecognitionPixelWidth <= 0
             || profile.RecognitionPixelHeight <= 0)
         {
-            failureReason = "侧门特征对应楼层缺少有效的识别图尺寸。";
+            failureReason = "扫描门特征对应楼层缺少有效的识别图尺寸。";
             return false;
         }
 
@@ -188,10 +190,12 @@ public sealed partial class SideEntranceScanPipeline
             || referenceCenterX <= 0d
             || referenceCenterY <= 0d)
         {
-            var anchor = profile.FindAnchor("side-entrance");
+            var anchor = MapScanFloorRules.GetScanFeatureAnchor(
+                candidate.Map,
+                candidate.FloorKey);
             if (anchor?.Bounds?.IsValid is not true)
             {
-                failureReason = "侧门特征缺少可用的参考中心点。";
+                failureReason = "扫描门特征缺少可用的参考中心点。";
                 return false;
             }
 
@@ -210,7 +214,7 @@ public sealed partial class SideEntranceScanPipeline
             || scale < SideEntranceScanRules.MinimumScale
             || scale > SideEntranceScanRules.MaximumScale)
         {
-            failureReason = "侧门特征无法生成有效的初始缩放。";
+            failureReason = "扫描门特征无法生成有效的初始缩放。";
             return false;
         }
 
@@ -220,7 +224,7 @@ public sealed partial class SideEntranceScanPipeline
         var offsetY = screenCenterY - (referenceCenterY * scale);
         if (!double.IsFinite(offsetX) || !double.IsFinite(offsetY))
         {
-            failureReason = "侧门特征无法生成有效的初始位移。";
+            failureReason = "扫描门特征无法生成有效的初始位移。";
             return false;
         }
 

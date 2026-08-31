@@ -6,9 +6,13 @@ public sealed partial class MapStructureRegistrar
         MapStructureConfidenceBreakdown breakdown) => new()
         {
             ["confidence"] = breakdown.LockConfidence,
+            ["chamferPixels"] = breakdown.ChamferPixels,
             ["chamferQuality"] = breakdown.ChamferQuality,
+            ["reverseChamferPixels"] = breakdown.ReverseChamferPixels,
             ["edgeCoverage"] = breakdown.EdgeCoverage,
             ["occupancyCoverage"] = breakdown.OccupancyCoverage,
+            ["referenceCoverage"] = breakdown.ReferenceCoverage,
+            ["projectionCorrelation"] = breakdown.ProjectionCorrelation,
             ["partitionQuality"] = breakdown.PartitionQuality,
             ["geometricFitQuality"] = breakdown.GeometricFitQuality,
             ["evidenceConfidence"] = breakdown.EvidenceConfidence,

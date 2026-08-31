@@ -139,6 +139,21 @@ public sealed partial class MapStatusPage : UserControl
         _firstScanStrategyToggle.IsOn =
             _runtime.Settings.FirstScanStrategy == FirstScanStrategy.SideEntrance;
         _backgroundScanToggle.IsOn = _runtime.Settings.BackgroundScanEnabled;
+        _candidateDecisionMode.SelectedItem = _candidateDecisionMode.Items
+            .OfType<MapDecisionModeChoice>()
+            .FirstOrDefault(choice =>
+                choice.Mode == _runtime.Settings.CandidateDecisionMode);
+        _continuousLearningToggle.IsOn =
+            _runtime.Settings.ContinuousMapLearningEnabled
+            && _runtime.Settings.CollectAlignmentResearchData;
+        _automaticModelTrainingToggle.IsOn =
+            _runtime.Settings.AutomaticMapModelTrainingEnabled;
+        _automaticModelTrainingToggle.IsEnabled =
+            _runtime.Settings.ContinuousMapLearningEnabled;
+        var learning = _runtime.MapLearningStatus;
+        _mapLearningState.Text = FormatMapLearningStatus(learning);
+        _gpuSidecarState.Text = "GPU 加速：" + _runtime.MapLearningGpuStatus;
+        UpdateMapLearningProgress(learning);
 
         // 预设选择器（「自动」+ 各分辨率预设）
         if (_presetSelector.Items.Count == 0)
@@ -246,6 +261,8 @@ public sealed partial class MapStatusPage : UserControl
         _switchFloorBinding.Text = $"当前：{_runtime.Settings.SwitchFloorBinding.DisplayName}";
         _saveMapCacheBinding.Text =
             $"当前：{_runtime.Settings.SaveMapCacheBinding.DisplayName}";
+        _restMapDisplayBinding.Text =
+            $"当前：{_runtime.Settings.RestMapDisplayBinding.DisplayName}";
         foreach (var target in _bindingButtons.Keys)
             RefreshBindingButtonAppearance(target);
         _overlayState.Text = _runtime.IsOverlayVisible
@@ -283,7 +300,7 @@ public sealed partial class MapStatusPage : UserControl
             : "尚无楼层识别结果";
         _mapReadiness.Text =
             $"主识别 {_runtime.ReadyMapCount}/{_runtime.TotalMapCount} · "
-            + $"侧门扫描 {_runtime.SideEntranceReadyMapCount}/{_runtime.TotalMapCount} 就绪";
+            + $"门特征扫描 {_runtime.SideEntranceReadyMapCount}/{_runtime.TotalMapCount} 就绪";
         _selectedMapState.Text = _runtime.SelectedMap is { } selectedMap
             ? selectedMap.DisplayName
             : "尚未快捷扫描或手动选择地图";
@@ -322,8 +339,6 @@ public sealed partial class MapStatusPage : UserControl
                     : string.Empty)
             : "尚无扫描数据";
         _collectLogsToggle.IsOn = _runtime.Settings.CollectLogs;
-        _collectResearchToggle.IsOn =
-            _runtime.Settings.CollectAlignmentResearchData;
         _allowExtendToggle.IsOn = _runtime.Settings.AllowMapExtendBeyondBounds;
         _miniMapEnabledToggle.IsOn = _runtime.Settings.PersistentMiniMapEnabled;
         _playerTrackingToggle.IsOn = _runtime.Settings.PlayerTrackingEnabled;

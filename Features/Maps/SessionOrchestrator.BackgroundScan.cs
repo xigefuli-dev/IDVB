@@ -7,6 +7,9 @@ public sealed partial class SessionOrchestrator
     private BackgroundScanStatus _backgroundScanStatus;
     private RuntimeMapRecognition? _pendingBackgroundIdentity;
     private IReadOnlyList<MapRecognitionChoice>? _pendingBackgroundChoices;
+    // 与候选列表一同冻结的模型评分快照。开图事件只能消费该快照，不能
+    // 再触发空间模型预处理、参考瓦片构建或推理。
+    private MapLearningScoreResult? _pendingBackgroundLearningResult;
     // 已补齐目录尾项、可直接传给原生候选窗口的候选列表。
     private bool _pendingBackgroundChoicesAreDisplayReady;
     private IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>?
@@ -47,19 +50,6 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         CancellationToken cancellationToken)
     {
-        if (state.ScanSucceeded)
-        {
-            // 后台扫描不改变游戏地图的物理开关状态：侧门识别作用于游戏世界中
-            // 的门特征（无需打开大地图），玩家按快捷扫描键时地图通常处于关闭
-            // 状态。因此不预置 _gameMapToggleState 为打开——否则玩家第一次按键
-            // 会被 Toggle() 翻转为「关闭」（不消费），第二次才「打开」（消费）。
-            // 保持扫描前的开关状态，玩家第一次打开地图（关→开）即触发消费。
-            _logCollector.Append(
-                MapLogCategory.Session,
-                MapLogLevel.Info,
-                "后台扫描成功；玩家第一次打开游戏地图时消费对齐。");
-        }
-
         var outcome = BackgroundScanRules.ClassifyBackgroundScan(
             state.Recognition,
             state.PendingChoices,
@@ -67,6 +57,7 @@ public sealed partial class SessionOrchestrator
         _pendingBackgroundIdentity = outcome.Identity;
         _pendingBackgroundChoices = outcome.Choices;
         _pendingBackgroundChoicesReason = state.PendingChoicesReason;
+        _pendingBackgroundLearningResult = null;
         _pendingBackgroundChoicesAreDisplayReady = false;
         _pendingBackgroundChoicePreviews = null;
         _pendingBackgroundLivePreview = null;
@@ -75,7 +66,9 @@ public sealed partial class SessionOrchestrator
         // 特征会保留，消费候选确认后可为所选地图重建对应种子。
         _pendingBackgroundSeed = state.PendingSideEntranceSeed;
         _pendingBackgroundScan = state.PendingSideEntranceScan;
-        _backgroundScanStatus = outcome.Status;
+        // 完成状态只能在所有候选资源冻结后发布。准备期间保持 Idle，避免
+        // 开图热键提前进入仍在计算的候选消费路径。
+        _backgroundScanStatus = BackgroundScanStatus.Idle;
 
         // 候选界面依赖的目录补齐此前被放在「开图后」才执行，使第一次开图
         // 仍有后台准备工作。预扫描到 100% 前完成它，开图事件即可直接弹窗。
@@ -84,9 +77,48 @@ public sealed partial class SessionOrchestrator
             && _activeCandidateSelector is null)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            _scanProgressOverlay.Report(0.91d, "正在整理全部候选...");
             _pendingBackgroundChoices = await BuildNativeCandidateChoicesAsync(
                 _pendingBackgroundChoices,
                 _matchSession.Snapshot.MapClass!);
+
+            var decisionMode = _settings?.CandidateDecisionMode
+                ?? MapCandidateDecisionMode.Traditional;
+            _scanProgressOverlay.Report(
+                0.94d,
+                decisionMode == MapCandidateDecisionMode.Traditional
+                    ? "正在冻结候选排序..."
+                    : "正在完成空间候选评分...");
+            var scoringClock = System.Diagnostics.Stopwatch.StartNew();
+            var choicesToScore = _pendingBackgroundChoices;
+            _pendingBackgroundLearningResult = await Task.Run(
+                () => _learningEngine.ScoreAsync(
+                    frame.Image,
+                    choicesToScore,
+                    decisionMode,
+                    cancellationToken),
+                cancellationToken);
+            _pendingBackgroundChoices =
+                _pendingBackgroundLearningResult.Choices;
+            scoringClock.Stop();
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Info,
+                "后台候选评分已冻结；开图事件不再执行模型推理。",
+                details: new()
+                {
+                    ["decisionMode"] = decisionMode.ToString(),
+                    ["candidateCount"] = _pendingBackgroundChoices.Count,
+                    ["modelAvailable"] =
+                        _pendingBackgroundLearningResult.ModelAvailable,
+                    ["modelVersion"] =
+                        _pendingBackgroundLearningResult.ModelVersion,
+                    ["elapsedMilliseconds"] = scoringClock.Elapsed.TotalMilliseconds,
+                    ["failureReason"] =
+                        _pendingBackgroundLearningResult.FailureReason
+                });
+
+            _scanProgressOverlay.Report(0.97d, "正在生成候选界面...");
             _pendingBackgroundChoicePreviews =
                 await MapManualCandidateWindow.PrepareChoicePreviewsAsync(
                     _pendingBackgroundChoices,
@@ -103,7 +135,20 @@ public sealed partial class SessionOrchestrator
                     _pendingBackgroundChoices,
                     _pendingBackgroundCandidateFrame.ViewportBounds);
             _pendingBackgroundChoicesAreDisplayReady = true;
+            _scanProgressOverlay.Report(0.99d, "候选结果已就绪...");
         }
+
+        // 后台扫描不改变游戏地图的物理开关状态。只有已经保存了可消费
+        // 身份或候选，且其界面资源已全部冻结时才发布完成状态。
+        _backgroundScanStatus = outcome.Status;
+        _logCollector.Append(
+            MapLogCategory.Session,
+            outcome.Status == BackgroundScanStatus.CompletedFailed
+                ? MapLogLevel.Warning
+                : MapLogLevel.Info,
+            outcome.Status == BackgroundScanStatus.CompletedFailed
+                ? $"后台扫描未产生可消费结果：{outcome.FailureReason ?? "未知原因"}"
+                : "后台扫描成功；候选结果已预计算，玩家第一次打开游戏地图时直接显示。");
 
         _statusMessage = outcome.Status switch
         {
@@ -122,6 +167,7 @@ public sealed partial class SessionOrchestrator
         _backgroundScanStatus = BackgroundScanStatus.Idle;
         _pendingBackgroundIdentity = null;
         _pendingBackgroundChoices = null;
+        _pendingBackgroundLearningResult = null;
         _pendingBackgroundChoicesAreDisplayReady = false;
         _pendingBackgroundChoicePreviews = null;
         _pendingBackgroundCandidateFrame?.Dispose();

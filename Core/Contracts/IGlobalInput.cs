@@ -6,14 +6,59 @@ namespace IDVBuff.Core.Contracts;
 /// 全局鼠标滚轮输入。<see cref="CapsHeld"/> 表示事件发生时 Caps 键仍处于
 /// 物理按下状态，不受 CapsLock 的切换状态影响。
 /// </summary>
-public sealed class MouseWheelInputEventArgs(long timestamp, int delta, bool capsHeld) : EventArgs
+public sealed class MouseWheelInputEventArgs(
+    long timestamp,
+    int delta,
+    bool capsHeld,
+    IReadOnlySet<PluginInputBindingState>? pluginBindingStates = null) : EventArgs
 {
     public long Timestamp { get; } = timestamp;
 
     public int Delta { get; } = delta;
 
     public bool CapsHeld { get; } = capsHeld;
+
+    private IReadOnlySet<PluginInputBindingState> PluginBindingStates { get; } =
+        pluginBindingStates ?? new HashSet<PluginInputBindingState>();
+
+    /// <summary>
+    /// Returns whether a plugin binding was physically pressed when this wheel
+    /// input was captured. This remains valid after the event is queued to the
+    /// UI thread and the user has already released the binding.
+    /// </summary>
+    public bool IsPluginBindingPressed(string pluginId, string bindingKey) =>
+        PluginBindingStates.Contains(new PluginInputBindingState(pluginId, bindingKey));
+
+    /// <summary>
+    /// Returns whether this input can be merged with another contiguous wheel
+    /// input without changing which plugin bindings were held at capture time.
+    /// </summary>
+    public bool CanCoalesceWith(MouseWheelInputEventArgs other) =>
+        other is not null
+        && CapsHeld == other.CapsHeld
+        && PluginBindingStates.Count == other.PluginBindingStates.Count
+        && PluginBindingStates.All(other.PluginBindingStates.Contains);
+
+    /// <summary>Creates one wheel input containing the accumulated delta.</summary>
+    public MouseWheelInputEventArgs Coalesce(MouseWheelInputEventArgs other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        if (!CanCoalesceWith(other))
+            throw new ArgumentException("Wheel inputs have different binding states.", nameof(other));
+
+        return new MouseWheelInputEventArgs(
+            other.Timestamp,
+            (int)Math.Clamp(
+                (long)Delta + other.Delta,
+                int.MinValue,
+                int.MaxValue),
+            CapsHeld,
+            PluginBindingStates);
+    }
 }
+
+/// <summary>插件绑定在某个全局输入事件发生瞬间的物理按下快照。</summary>
+public sealed record PluginInputBindingState(string PluginId, string BindingKey);
 
 /// <summary>插件级绑定的全局按键状态变化。</summary>
 public sealed class PluginInputInvokedEventArgs(
@@ -73,6 +118,9 @@ public interface IGlobalInput : IDisposable
     /// <summary>保存当前地图缩放缓存热键被触发。</summary>
     event EventHandler</* MapInputInvokedEventArgs */ object>? SaveMapCacheInvoked;
 
+    /// <summary>强制结束当前对齐地图显示热键被触发。</summary>
+    event EventHandler</* MapInputInvokedEventArgs */ object>? RestMapDisplayInvoked;
+
     /// <summary>Alt 键按下事件，供需要全局快捷键的插件使用。</summary>
     event EventHandler</* MapInputInvokedEventArgs */ object>? AltInvoked;
 
@@ -92,7 +140,8 @@ public interface IGlobalInput : IDisposable
         object /* MapInputBinding */ gameMapToggle,
         object /* MapInputBinding */ controlPanelToggle,
         object /* MapInputBinding */ switchFloor,
-        object /* MapInputBinding */ saveMapCache);
+        object /* MapInputBinding */ saveMapCache,
+        object /* MapInputBinding */ restMapDisplay);
 
     /// <summary>
     /// 清除所有按键绑定并释放钩子。

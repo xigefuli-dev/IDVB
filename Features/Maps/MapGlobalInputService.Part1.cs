@@ -112,7 +112,8 @@ public sealed partial class MapGlobalInputService : IDisposable
                     DispatchMouseWheel(new MouseWheelInputEventArgs(
                         Stopwatch.GetTimestamp(),
                         delta,
-                        capsHeld: IsKeyDown(CapsLockVirtualKey)));
+                        capsHeld: IsKeyDown(CapsLockVirtualKey),
+                        pluginBindingStates: SnapshotPressedPluginBindings()));
             }
 
             if (TryGetMouseButton(message, lParam, out var button, out var isDown))
@@ -161,6 +162,14 @@ public sealed partial class MapGlobalInputService : IDisposable
                     DispatchInput(invoked, "mouse", _saveMapCache.DisplayName,
                         "save-map-cache",
                         () => SaveMapCacheInvoked?.Invoke(this, invoked));
+                }
+                if (isDown
+                    && _restMapDisplay.Kind == MapInputBindingKind.Mouse
+                    && _restMapDisplay.MouseButton == button)
+                {
+                    DispatchInput(invoked, "mouse", _restMapDisplay.DisplayName,
+                        "rest-map-display",
+                        () => RestMapDisplayInvoked?.Invoke(this, invoked));
                 }
 
                 DispatchPluginMouseInput(button, timestamp, isDown);

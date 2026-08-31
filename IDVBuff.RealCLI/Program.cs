@@ -41,6 +41,10 @@ return command switch
     "batch" => await RunBatchAsync(args[1..], dispatcher),
     "mapopen" => await MapOpenCommand.RunAsync(args[1..], dispatcher),
     "mapopen-replay" => await MapOpenReplayCommand.RunAsync(args[1..], dispatcher),
+    "model-train" => await ModelTrainCommand.RunAsync(args[1..]),
+    "model-replay" => await ModelReplayCommand.RunAsync(args[1..], dispatcher),
+    "model-device" => await ModelDeviceCommand.RunAsync(args[1..]),
+    "model-memory-test" => await ModelMemoryTestCommand.RunAsync(args[1..]),
     "survey" => await SurveyReplayCommand.RunAsync(args[1..]),
     _ => UnknownCommand(command)
 };
@@ -346,7 +350,7 @@ static string[] ResolveGlob(string pattern)
 static int UnknownCommand(string command)
 {
     Console.Error.WriteLine($"未知命令：{command}");
-    Console.Error.WriteLine("可用命令：run | batch | mapopen | mapopen-replay | survey");
+    Console.Error.WriteLine("可用命令：run | batch | mapopen | mapopen-replay | model-train | model-replay | model-device | model-memory-test | survey");
     return 1;
 }
 
@@ -360,6 +364,8 @@ static void PrintUsage()
           IDVB.RealCLI.exe batch --files <glob> [--parallel N] [--out <path>]
           IDVB.RealCLI.exe mapopen --image <path> [--candidate N] [--out <path>] [--settings <path>]
           IDVB.RealCLI.exe mapopen-replay --manifest <path> [--out <path>] [--settings <path>]
+          IDVB.RealCLI.exe model-train --manifest <path> --repository <path> [--out <path>]
+          IDVB.RealCLI.exe model-replay --manifest <path> --repository <path> --mode <mode> [--out <path>]
 
         run 命令：
           --image, -i <path>    输入截图路径（必需）

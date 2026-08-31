@@ -16,7 +16,6 @@ using Windows.Storage;
 using Windows.UI;
 
 namespace IDVBuff.Views;
-
 public sealed partial class MapListPage : UserControl
 {
     private void UpdateMarkerConfirmState()
@@ -74,32 +73,18 @@ public sealed partial class MapListPage : UserControl
 
     private TeachingTip CreateImportTeachingTip(Button importButton, Button exportButton)
     {
-        var createMap = new Button
-        {
-            Content = "创建地图",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-            MinWidth = 150
-        };
-        var importPackage = new Button
-        {
-            Content = "导入数据包",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-            MinWidth = 150
-        };
+        var createMap = CreateTeachingTipChoiceButton("创建地图");
+        var importPackage = CreateTeachingTipChoiceButton("导入数据包");
+        var updateSubscriptions = CreateTeachingTipChoiceButton("更新订阅");
         var choices = new StackPanel { Spacing = 8 };
         choices.Children.Add(createMap);
         choices.Children.Add(importPackage);
-        var tip = new TeachingTip
-        {
-            Target = importButton,
-            Title = "请选择导入方式",
-            Subtitle = "创建新地图，或导入其他用户分享的 IDVM 数据包。",
-            Content = choices,
-            IsLightDismissEnabled = true,
-            PreferredPlacement = TeachingTipPlacementMode.Bottom
-        };
+        choices.Children.Add(updateSubscriptions);
+        var tip = CreatePackageActionTeachingTip(
+            importButton,
+            "请选择导入方式",
+            "创建新地图、导入 IDVM 数据包，或管理地图更新订阅。",
+            choices);
         createMap.Click += async (_, _) =>
         {
             tip.IsOpen = false;
@@ -112,8 +97,27 @@ public sealed partial class MapListPage : UserControl
             tip.IsOpen = false;
             await ImportIdvmPackageAsync(importButton, exportButton);
         };
+        updateSubscriptions.Click += async (_, _) =>
+        {
+            tip.IsOpen = false;
+            await ShowMapSubscriptionsDialogAsync(importButton, exportButton);
+        };
         return tip;
     }
+
+    private static TeachingTip CreatePackageActionTeachingTip(
+        Button target,
+        string title,
+        string subtitle,
+        UIElement content) => new()
+    {
+        Target = target,
+        Title = title,
+        Subtitle = subtitle,
+        Content = content,
+        IsLightDismissEnabled = true,
+        PreferredPlacement = TeachingTipPlacementMode.Bottom
+    };
 
     private async Task ImportIdvmPackageAsync(Button importButton, Button exportButton)
     {
@@ -151,7 +155,7 @@ public sealed partial class MapListPage : UserControl
             // opening a second ContentDialog while a picker/confirmation is
             // still closing; WinUI permits only one ContentDialog at a time.
             System.Diagnostics.Debug.WriteLine(
-                $"数据包导入完成：已创建 {result.CreatedClasses.Count} 个 Class，导入 {result.ImportedMaps.Count} 张地图。"
+                $"数据包导入完成：已创建 {result.CreatedClasses.Count} 个地图类，导入 {result.ImportedMaps.Count} 张地图。"
                 + string.Join("、", result.CreatedClasses));
         }
         catch (Exception exception)
@@ -166,77 +170,16 @@ public sealed partial class MapListPage : UserControl
         }
     }
 
-    private async Task ShowExportDialogAsync(Button importButton, Button exportButton)
-    {
-        var currentCount = GetVisibleMaps().Count;
-        var totalCount = _loadedMaps.Count;
-        var content = new StackPanel { Spacing = 8 };
-        content.Children.Add(new TextBlock
-        {
-            Text = $"当前 Class：{_selectedClass}（{currentCount} 张地图）",
-            TextWrapping = TextWrapping.Wrap
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = $"全部非空 Class：{_classes.Count(name => _loadedMaps.Any(map => string.Equals(map.Class, name, StringComparison.OrdinalIgnoreCase)))} 个，{totalCount} 张地图",
-            TextWrapping = TextWrapping.Wrap
-        });
-        var dialog = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "导出 IDVM 数据包",
-            Content = content,
-            PrimaryButtonText = "当前 Class",
-            SecondaryButtonText = "全部地图",
-            CloseButtonText = "取消",
-            IsPrimaryButtonEnabled = currentCount > 0,
-            IsSecondaryButtonEnabled = totalCount > 0,
-            DefaultButton = currentCount > 0
-                ? ContentDialogButton.Primary
-                : ContentDialogButton.Secondary
-        };
-        var result = await dialog.ShowAsync();
-        if (result == ContentDialogResult.None)
-            return;
-        var scope = result == ContentDialogResult.Primary
-            ? IdvmExportScope.CurrentClass
-            : IdvmExportScope.AllClasses;
-        var suggestedName = scope == IdvmExportScope.CurrentClass
-            ? $"IDVB-{SanitizeFileName(_selectedClass)}-{DateTime.Now:yyyyMMdd-HHmmss}"
-            : $"IDVB-All-{DateTime.Now:yyyyMMdd-HHmmss}";
-        var destination = await PickIdvmDestinationAsync(suggestedName);
-        if (destination is null)
-            return;
-
-        SetPackageOperationState(importButton, exportButton, isBusy: true, "正在导出…");
-        try
-        {
-            await Task.Run(() => _idvmPackageService.ExportAsync(
-                scope,
-                scope == IdvmExportScope.CurrentClass ? _selectedClass : null,
-                destination));
-            await ShowMessageAsync("数据包导出完成", $"已保存到：\n{destination}");
-        }
-        catch (Exception exception)
-        {
-            await ShowMessageAsync("数据包导出失败", exception.Message);
-        }
-        finally
-        {
-            SetPackageOperationState(importButton, exportButton, isBusy: false, null);
-        }
-    }
-
     private void SetPackageOperationState(
         Button importButton,
-        Button exportButton,
+        Button publishButton,
         bool isBusy,
         string? busyText)
     {
         _isPackageOperation = isBusy;
         importButton.IsEnabled = !isBusy;
-        exportButton.IsEnabled = !isBusy && _loadedMaps.Count > 0;
-        exportButton.Content = isBusy ? busyText : "导出";
+        publishButton.IsEnabled = !isBusy && _loadedMaps.Count > 0;
+        publishButton.Content = isBusy ? busyText : "发布";
     }
 
     private async Task<string?> PickIdvmPackageAsync()
@@ -262,40 +205,11 @@ public sealed partial class MapListPage : UserControl
         }
     }
 
-    private async Task<string?> PickIdvmDestinationAsync(string suggestedName)
-    {
-        try
-        {
-            var picker = new FileSavePicker(((App)Application.Current).MainWindow.AppWindow.Id)
-            {
-                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-                SuggestedFileName = suggestedName,
-                DefaultFileExtension = ".idvm",
-                CommitButtonText = "导出",
-                FileTypeChoices =
-                {
-                    { "IDVM 地图数据包", new List<string> { ".idvm" } }
-                }
-            };
-            var result = await picker.PickSaveFileAsync();
-            if (result is null || string.IsNullOrWhiteSpace(result.Path))
-                return null;
-            return System.IO.Path.GetExtension(result.Path).Equals(".idvm", StringComparison.OrdinalIgnoreCase)
-                ? result.Path
-                : result.Path + ".idvm";
-        }
-        catch (Exception exception)
-        {
-            await ShowMessageAsync("无法打开保存选择器", exception.Message);
-            return null;
-        }
-    }
-
     private static string SanitizeFileName(string value)
     {
         var invalid = System.IO.Path.GetInvalidFileNameChars().ToHashSet();
         var sanitized = new string(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray()).Trim();
-        return string.IsNullOrWhiteSpace(sanitized) ? "Class" : sanitized;
+        return string.IsNullOrWhiteSpace(sanitized) ? "地图类" : sanitized;
     }
 
     private async Task<string?> PickImageAsync(string title)
@@ -383,8 +297,15 @@ public sealed partial class MapListPage : UserControl
         draft.FloorPaths.Count > 0
         && draft.FloorPaths.Values.Any(path => MapRepository.IsSupportedImage(path) && File.Exists(path));
 
-    private static string BuildRecognitionSummary(MapRecord map) =>
-        $"一楼：{BuildFloorSummary(map.Recognition.FirstFloor)} · 二楼：{BuildFloorSummary(map.Recognition.SecondFloor)}";
+    private static string BuildRecognitionSummary(MapRecord map)
+    {
+        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+        var profile = MapFloorRules.GetFloorProfile(map, floorKey);
+        var label = MapFloorRules.GetFloorDisplayName(map, floorKey);
+        return profile is null
+            ? $"扫描楼层：{label} · 不可用"
+            : $"扫描楼层：{label} · {BuildFloorSummary(profile)}";
+    }
 
     private static string BuildFloorSummary(FloorRecognitionProfile floor)
     {

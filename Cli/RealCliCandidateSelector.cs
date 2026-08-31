@@ -6,7 +6,9 @@ namespace IDVBuff.Cli;
 /// RealCLI's implementation of the in-scan candidate-selection contract.
 /// Positions are one-based because that is what the CLI displays to users.
 /// </summary>
-internal sealed class RealCliCandidateSelector(int? requestedPosition)
+internal sealed class RealCliCandidateSelector(
+    int? requestedPosition,
+    Guid? requestedMapId = null)
     : IMapCandidateSelector
 {
     public Task<MapCandidateDecision> SelectAsync(
@@ -18,6 +20,19 @@ internal sealed class RealCliCandidateSelector(int? requestedPosition)
         cancellationToken.ThrowIfCancellationRequested();
         if (candidates.Count == 0)
             return Task.FromResult(MapCandidateDecision.Cancel());
+
+        if (requestedMapId is { } mapId)
+        {
+            var index = candidates.ToList().FindIndex(candidate =>
+                candidate.Recognition.Map.Id == mapId);
+            if (index < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(requestedMapId),
+                    $"--map-id {mapId:D} 不在当前 Class 候选中。");
+            }
+            return Task.FromResult(MapCandidateDecision.SelectKnownMap(index));
+        }
 
         if (requestedPosition is { } position)
         {

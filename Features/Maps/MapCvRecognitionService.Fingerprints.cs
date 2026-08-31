@@ -6,16 +6,22 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCvRecognitionService
 {
+    public bool RequiresSingleFeatureScan(string? mapClass) => _maps
+        .Where(map => string.IsNullOrWhiteSpace(mapClass)
+            || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
+        .Any(map => !MapScanFloorRules.IsPrimaryFloor(
+            map,
+            MapScanFloorRules.ResolveScanFloorKey(map)));
+
     private MapGeometryFingerprint? TryCreateFingerprint(MapRecord map)
     {
         map.NormalizeRecognition();
-        if (!map.Recognition.HasRequiredIdentificationData())
-            return null;
-        var floorKey = MapFloorRules.GetPrimaryFloorKey(map);
+        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
         var profile = MapFloorRules.GetFloorProfile(map, floorKey)
             ?? map.Recognition.FirstFloor;
-        var main = profile.FindAnchor("main-entrance");
-        var side = profile.FindAnchor("side-entrance");
+        var anchors = MapScanFloorRules.GetGeometryAnchors(map, floorKey);
+        var main = anchors?.Main;
+        var side = anchors?.Side;
         if (main?.Bounds?.IsValid is not true
             || side?.Bounds?.IsValid is not true
             || profile.RecognitionPixelWidth <= 0
@@ -124,13 +130,17 @@ public sealed partial class MapCvRecognitionService
         foreach (var ((mapId, floorKey), template) in _sideEntranceFeatureCache)
         {
             var map = _maps.FirstOrDefault(item => item.Id == mapId);
-            if (map is null
-                || (selectedMapId is { } requiredMapId && map.Id != requiredMapId)
+            if (map is null)
+                continue;
+
+            var scanFloorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+            if ((selectedMapId is { } requiredMapId && map.Id != requiredMapId)
                 || (!string.IsNullOrWhiteSpace(mapClass)
                     && !string.Equals(map.Class, mapClass,
                         StringComparison.OrdinalIgnoreCase))
-                || !string.Equals(floorKey, MapFloorRules.GetPrimaryFloorKey(map),
-                    StringComparison.Ordinal))
+                || !string.Equals(floorKey, scanFloorKey,
+                    StringComparison.OrdinalIgnoreCase)
+                || !MapScanFloorRules.HasRequiredScanMarkers(map, floorKey))
             {
                 continue;
             }
@@ -201,10 +211,9 @@ public sealed partial class MapCvRecognitionService
         var eligibleMapCount = _maps.Count(map =>
             (string.IsNullOrWhiteSpace(mapClass)
                 || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
-            && MapFloorRules.GetFloorProfile(
+            && MapScanFloorRules.GetScanFeatureAnchor(
                 map,
-                MapFloorRules.GetPrimaryFloorKey(map))?
-                .FindAnchor("side-entrance")?.IsMarked is true);
+                MapScanFloorRules.ResolveScanFloorKey(map))?.IsMarked is true);
         var candidates = _sideEntrancePipeline.RunScan(
             frame.Image,
             inputs,

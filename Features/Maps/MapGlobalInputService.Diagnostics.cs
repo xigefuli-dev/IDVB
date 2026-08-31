@@ -6,13 +6,72 @@ public sealed partial class MapGlobalInputService
 {
     private void DispatchMouseWheel(MouseWheelInputEventArgs input)
     {
+        var shouldSchedule = false;
+        lock (_mouseWheelDispatchLock)
+        {
+            var lastIndex = _pendingMouseWheelInputs.Count - 1;
+            if (lastIndex >= 0
+                && _pendingMouseWheelInputs[lastIndex].CanCoalesceWith(input))
+            {
+                _pendingMouseWheelInputs[lastIndex] =
+                    _pendingMouseWheelInputs[lastIndex].Coalesce(input);
+            }
+            else
+            {
+                _pendingMouseWheelInputs.Add(input);
+            }
+
+            if (!_mouseWheelDispatchScheduled)
+            {
+                _mouseWheelDispatchScheduled = true;
+                shouldSchedule = true;
+            }
+        }
+
+        if (!shouldSchedule)
+            return;
+
         try
         {
-            _ = _dispatcher.TryEnqueue(() => MouseWheelScrolled?.Invoke(this, input));
+            if (_dispatcher.TryEnqueue(DispatchPendingMouseWheel))
+                return;
+
+            lock (_mouseWheelDispatchLock)
+            {
+                _pendingMouseWheelInputs.Clear();
+                _mouseWheelDispatchScheduled = false;
+            }
         }
         catch
         {
+            lock (_mouseWheelDispatchLock)
+            {
+                _pendingMouseWheelInputs.Clear();
+                _mouseWheelDispatchScheduled = false;
+            }
             // 输入钩子不能因 UI 线程关闭或队列拒绝而抛出到 Win32 回调。
+        }
+    }
+
+    private void DispatchPendingMouseWheel()
+    {
+        while (true)
+        {
+            MouseWheelInputEventArgs[] inputs;
+            lock (_mouseWheelDispatchLock)
+            {
+                if (_pendingMouseWheelInputs.Count == 0)
+                {
+                    _mouseWheelDispatchScheduled = false;
+                    return;
+                }
+
+                inputs = [.. _pendingMouseWheelInputs];
+                _pendingMouseWheelInputs.Clear();
+            }
+
+            foreach (var input in inputs)
+                MouseWheelScrolled?.Invoke(this, input);
         }
     }
 

@@ -1,8 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-
 namespace IDVBuff.Features.Maps;
-
 /// <summary>A rectangle expressed as a fraction of the original image dimensions.</summary>
 public sealed class NormalizedRectangle
 {
@@ -13,7 +11,6 @@ public sealed class NormalizedRectangle
 
     [JsonIgnore]
     public bool IsValid => Width >= 0.01 && Height >= 0.01;
-
     public NormalizedRectangle Clone() => new() { X = X, Y = Y, Width = Width, Height = Height };
 }
 
@@ -246,18 +243,13 @@ public static class MapFloorRules
             StringComparison.Ordinal);
 }
 
-public sealed class MapRecord
+public sealed partial class MapRecord
 {
     public Guid Id { get; set; }
     public int SequenceNumber { get; set; }
     public string FloorOneFileName { get; set; } = string.Empty;
     public string FloorTwoFileName { get; set; } = string.Empty;
     public MapRecognitionProfile Recognition { get; set; } = new();
-    public string Source { get; set; } = "manual";
-    public Guid? SourceProjectId { get; set; }
-    public long? SourceProjectRevision { get; set; }
-    public string? SourceVisualSha256 { get; set; }
-    public string? SourceStructureSha256 { get; set; }
 
     /// <summary>Portable title. Empty legacy values use the local sequence label.</summary>
     public string Title { get; set; } = string.Empty;
@@ -280,6 +272,10 @@ public sealed class MapRecord
 
     /// <summary>V6: map classification / season group. Defaults to "S1" for all existing maps.</summary>
     public string Class { get; set; } = "S1";
+
+    /// <summary>Runtime Class settings attached by the repository; not duplicated per map.</summary>
+    [JsonIgnore]
+    public MapClassProperties ClassProperties { get; internal set; } = new();
 
     /// <summary>V6: ordered list of floor definitions (key, display name, sort order).</summary>
     public List<FloorDefinition> Floors { get; set; } =
@@ -370,6 +366,15 @@ public sealed class MapRecord
             Class = "S1";
         if (ContentVersion <= 0)
             ContentVersion = 1;
+        if (!Enum.IsDefined(AcquisitionKind))
+            AcquisitionKind = MapAcquisitionKind.Local;
+        if (AcquisitionKind != MapAcquisitionKind.Subscription)
+        {
+            SubscriptionId = null;
+            SubscriptionPublisherHandle = null;
+            SubscriptionPublisherKeyId = null;
+            SubscriptionVersion = null;
+        }
         PortableGates ??= [];
         Tags ??= [];
     }
@@ -385,6 +390,11 @@ public sealed class MapRecord
             FloorTwoFileName = FloorTwoFileName,
             Recognition = Recognition.Clone(),
             Source = Source,
+            AcquisitionKind = AcquisitionKind,
+            SubscriptionId = SubscriptionId,
+            SubscriptionPublisherHandle = SubscriptionPublisherHandle,
+            SubscriptionPublisherKeyId = SubscriptionPublisherKeyId,
+            SubscriptionVersion = SubscriptionVersion,
             SourceProjectId = SourceProjectId,
             SourceProjectRevision = SourceProjectRevision,
             SourceVisualSha256 = SourceVisualSha256,
@@ -396,6 +406,7 @@ public sealed class MapRecord
             MainEntrance = MainEntrance?.Clone(),
             SideEntrance = SideEntrance?.Clone(),
             Class = Class,
+            ClassProperties = ClassProperties.Clone(),
             Floors = Floors.Select(f => new FloorDefinition
             {
                 Key = f.Key,
@@ -435,7 +446,7 @@ public sealed class MapRecord
     }
 }
 
-public sealed class MapDraft
+public sealed partial class MapDraft
 {
     public Guid? Id { get; set; }
     public string? FloorOnePath { get; set; }
@@ -453,17 +464,13 @@ public sealed class MapDraft
     public MapClassProperties ClassProperties { get; internal set; } = new();
     public string Title { get; set; } = string.Empty;
     public int ContentVersion { get; set; } = 1;
-    public string Source { get; set; } = "manual";
-    public Guid? SourceProjectId { get; set; }
-    public long? SourceProjectRevision { get; set; }
-    public string? SourceVisualSha256 { get; set; }
-    public string? SourceStructureSha256 { get; set; }
     public List<MapGateDefinition> PortableGates { get; set; } = [];
     public Dictionary<Guid, string> Tags { get; set; } = [];
     internal Dictionary<Guid, string> ImportedTagGroupNames { get; set; } = [];
     internal bool CreateAsImportedCopy { get; set; }
     internal Guid? SourcePackageMapId { get; set; }
     internal bool? RemoveBackgroundOverride { get; set; }
+    internal int? BackgroundRemovalIntensityOverride { get; set; }
     public MapRecognitionProfile Recognition { get; set; } = new();
     /// <summary>IDVM 导入时，各楼层侧门特征图的临时暂存路径（floorKey → 磁盘绝对路径）。</summary>
     internal Dictionary<string, string> SideEntranceFeaturePaths { get; set; } = [];

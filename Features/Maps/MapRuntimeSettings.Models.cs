@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 16;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -30,6 +30,10 @@ public sealed partial class MapRuntimeSettings
     public bool ShowOverlayStatus { get; set; } = true;
     public bool CollectLogs { get; set; }
     public bool CollectAlignmentResearchData { get; set; }
+    public MapCandidateDecisionMode CandidateDecisionMode { get; set; } =
+        MapCandidateDecisionMode.Traditional;
+    public bool ContinuousMapLearningEnabled { get; set; }
+    public bool AutomaticMapModelTrainingEnabled { get; set; }
     /// <summary>
     /// 设为 true 则不运行楼层图像识别，使用用户手动切换的楼层；
     /// 尚未手动切换时使用地图主层。
@@ -73,6 +77,7 @@ public sealed partial class MapRuntimeSettings
         VirtualKey = (uint)Windows.System.VirtualKey.X
     };
     public MapInputBinding SaveMapCacheBinding { get; set; } = new();
+    public MapInputBinding RestMapDisplayBinding { get; set; } = new();
     public MapRecognitionTuning RecognitionTuning { get; set; } = new();
     public MapStructureRegistrationTuning StructureRegistrationTuning { get; set; } = new();
     public MapSessionTuning SessionTuning { get; set; } = new();
@@ -108,6 +113,9 @@ public sealed partial class MapRuntimeSettings
         ShowOverlayStatus = true,
         CollectLogs = false,
         CollectAlignmentResearchData = false,
+        CandidateDecisionMode = MapCandidateDecisionMode.Traditional,
+        ContinuousMapLearningEnabled = false,
+        AutomaticMapModelTrainingEnabled = false,
         SkipFloorRecognition = false,
         AllowMapExtendBeyondBounds = false,
         PersistentMiniMapEnabled = false,
@@ -147,6 +155,7 @@ public sealed partial class MapRuntimeSettings
             VirtualKey = (uint)Windows.System.VirtualKey.X
         },
         SaveMapCacheBinding = new MapInputBinding(),
+        RestMapDisplayBinding = new MapInputBinding(),
         RecognitionTuning = new MapRecognitionTuning
         {
             GateTemplateThreshold = 0.72d,
@@ -280,6 +289,9 @@ public sealed partial class MapRuntimeSettings
         ShowOverlayStatus = ShowOverlayStatus,
         CollectLogs = CollectLogs,
         CollectAlignmentResearchData = CollectAlignmentResearchData,
+        CandidateDecisionMode = CandidateDecisionMode,
+        ContinuousMapLearningEnabled = ContinuousMapLearningEnabled,
+        AutomaticMapModelTrainingEnabled = AutomaticMapModelTrainingEnabled,
         SkipFloorRecognition = SkipFloorRecognition,
         OverlayAlignmentMode = OverlayAlignmentMode,
         QuickScanBinding = QuickScanBinding?.Clone() ?? new MapInputBinding(),
@@ -296,6 +308,7 @@ public sealed partial class MapRuntimeSettings
                 VirtualKey = (uint)Windows.System.VirtualKey.X
             },
         SaveMapCacheBinding = SaveMapCacheBinding?.Clone() ?? new MapInputBinding(),
+        RestMapDisplayBinding = RestMapDisplayBinding?.Clone() ?? new MapInputBinding(),
         AllowAutomaticMapCache = AllowAutomaticMapCache,
         RecognitionTuning = RecognitionTuning?.Clone() ?? new MapRecognitionTuning(),
         StructureRegistrationTuning =

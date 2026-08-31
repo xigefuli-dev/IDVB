@@ -52,6 +52,9 @@ public sealed partial class SessionOrchestrator
     {
         lock (_mapOpenCancellationGate)
         {
+            // Map-open alignment is latest-wins. Revoke the previous owner's
+            // token before publishing a new scope; the toggle-version checks
+            // below remain the independent commit guard.
             _mapOpenCancellation?.Cancel();
             var scope = CancellationTokenSource.CreateLinkedTokenSource(
                 CurrentMatchCancellationToken);
@@ -160,6 +163,7 @@ public sealed partial class SessionOrchestrator
 
         _activeCandidateSelector = null;
         _lastCandidateChoices = [];
+        ClearMapLearningContext();
         _manualSelectionActive = false;
         _currentFloorKey = null;
         _mapLease.Clear();

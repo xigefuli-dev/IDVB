@@ -42,6 +42,11 @@ public sealed partial class MapRepository
                     cancellationToken.ThrowIfCancellationRequested();
                     sourceDraft.Id = Guid.NewGuid();
                     sourceDraft.CreateAsImportedCopy = true;
+                    sourceDraft.AcquisitionKind = MapAcquisitionKind.ImportedPackage;
+                    sourceDraft.SubscriptionId = null;
+                    sourceDraft.SubscriptionPublisherHandle = null;
+                    sourceDraft.SubscriptionPublisherKeyId = null;
+                    sourceDraft.SubscriptionVersion = null;
                     sourceDraft.Class = localClass;
                     journal.ImportedMapIds.Add(sourceDraft.Id.Value);
                     WriteImportJournal(journalPath, journal);

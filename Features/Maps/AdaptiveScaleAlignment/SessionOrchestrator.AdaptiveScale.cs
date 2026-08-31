@@ -110,7 +110,12 @@ public sealed partial class SessionOrchestrator
             ScaleIndependentlyEstimated: diagnostics is null
                 || string.IsNullOrWhiteSpace(diagnostics.LowStructureRoute)
                 || LowStructureScaleEvidenceRules.IsIndependentScaleRoute(
-                    diagnostics.LowStructureRoute));
+                    diagnostics.LowStructureRoute),
+            ScaleClusterTolerance: diagnostics is { LowStructureScaleResolutionRatio: > 0d }
+                ? LowStructureScaleEvidenceRules.ResolveClusterTolerance(
+                    diagnostics.LowStructureScaleResolutionRatio)
+                : null,
+            ScaleResolutionRatio: diagnostics?.LowStructureScaleResolutionRatio ?? 0d);
     }
 
     private MapFeatureCacheSource? ResolveLegacyScaleSource(

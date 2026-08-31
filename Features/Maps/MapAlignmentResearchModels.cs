@@ -132,6 +132,7 @@ public static class MapAlignmentResearchFailureClassifier
                 MapAlignmentResearchFailureCategory.AmbiguousCandidates,
             MapStructureRejectionReason.InvalidLockedScale
                 or MapStructureRejectionReason.ScaleChangeTooLarge
+                or MapStructureRejectionReason.ScaleSearchBoundary
                 or MapStructureRejectionReason.NativeScaleChanged =>
                 MapAlignmentResearchFailureCategory.ScaleOutOfRange,
             MapStructureRejectionReason.OutsideValidBounds

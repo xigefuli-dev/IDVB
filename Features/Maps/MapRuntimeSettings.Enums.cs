@@ -1,5 +1,12 @@
 namespace IDVBuff.Features.Maps;
 
+public enum MapCandidateDecisionMode
+{
+    Traditional,
+    Fusion,
+    ModelOnly
+}
+
 public enum MapInputBindingKind
 {
     None,
@@ -44,7 +51,8 @@ public enum MapRuntimeBindingTarget
     ControlPanelToggle,
     SwitchFloor,
     TraditionalWindowSwitchFloor,
-    SaveMapCache
+    SaveMapCache,
+    RestMapDisplay
 }
 /*
  * 文件职责：MapRuntimeSettings.Enums。

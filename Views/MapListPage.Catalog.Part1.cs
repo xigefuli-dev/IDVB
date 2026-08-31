@@ -180,13 +180,13 @@ public sealed partial class MapListPage : UserControl
         var textBox = new TextBox
         {
             Text = currentClass,
-            PlaceholderText = "输入新的 Class 名称"
+            PlaceholderText = "输入新的地图类名称"
         };
 
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "重命名 Class",
+            Title = "重命名地图类",
             Content = textBox,
             PrimaryButtonText = "确认",
             CloseButtonText = "取消",
@@ -220,8 +220,8 @@ public sealed partial class MapListPage : UserControl
         var confirm = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "重新排序当前 Class",
-            Content = $"将“{_selectedClass}”中的每个变体组合优先归拢为连续块，并按稳定顺序重新编号。此操作会清除当前 Class 的自定义地图名称，但不会改变地图 Guid、资产或缓存键。\n\n迁移备份保存在：\n{_repository.VariantMigrationBackupRoot}",
+            Title = "重新排序当前地图类",
+            Content = $"将“{_selectedClass}”中的每个变体组合优先归拢为连续块，并按稳定顺序重新编号。此操作会清除当前地图类的自定义地图名称，但不会改变地图 Guid、资产或缓存键。\n\n迁移备份保存在：\n{_repository.VariantMigrationBackupRoot}",
             PrimaryButtonText = "确认重新排序",
             CloseButtonText = "取消"
         };

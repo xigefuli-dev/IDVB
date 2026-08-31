@@ -243,7 +243,11 @@ internal static class MapCvRecognitionHelpers
     {
         if (left.Id != right.Id
             || left.UpdatedAt != right.UpdatedAt
-            || left.Recognition.SchemaVersion != right.Recognition.SchemaVersion)
+            || left.Recognition.SchemaVersion != right.Recognition.SchemaVersion
+            || !string.Equals(
+                MapScanFloorRules.NormalizeFloorIdentity(left.ClassProperties?.ScanFloorKey),
+                MapScanFloorRules.NormalizeFloorIdentity(right.ClassProperties?.ScanFloorKey),
+                StringComparison.Ordinal))
             return false;
 
         var leftFloors = MapFloorRules.GetOrderedFloors(left);

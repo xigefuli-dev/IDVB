@@ -267,6 +267,7 @@ public sealed partial class PluginsPage
                 {
                     Content = command.DisplayName,
                     IsEnabled = entry.Enabled && !entry.PendingDelete
+                        && runtime?.IsMatchActivationAllowed == true
                 };
                 commandButton.Click += async (_, _) => await ExecuteThirdPartyCommandAsync(entry.Id, command.Id, commandButton);
                 actions.Children.Add(commandButton);

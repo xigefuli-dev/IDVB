@@ -72,6 +72,8 @@ public sealed partial class MapListPage : UserControl
 
     private readonly MapRepository _repository = new();
     private readonly IdvmPackageService _idvmPackageService;
+    private readonly MapSubscriptionService _mapSubscriptionService;
+    private readonly MapPublicationService _mapPublicationService;
     private readonly ContentPresenter _workflowHost = new();
     internal ScrollViewer? ParentScrollViewer { get; set; }
     internal Action<bool>? NavigationCompactStateChanged { get; set; }
@@ -83,7 +85,7 @@ public sealed partial class MapListPage : UserControl
     private Button? _variantButton;
     private Button? _classEditButton;
     private Button? _importButton;
-    private Button? _exportButton;
+    private Button? _publishButton;
     private HashSet<Guid> _selectedMapIds = [];
     private Guid? _lastClickedMapId;
     private IReadOnlyList<MapRecord> _loadedMaps = [];
@@ -147,6 +149,8 @@ public sealed partial class MapListPage : UserControl
     public MapListPage()
     {
         _idvmPackageService = new IdvmPackageService(_repository);
+        _mapSubscriptionService = new MapSubscriptionService(_repository);
+        _mapPublicationService = new MapPublicationService(_repository);
         Content = _workflowHost;
         Loaded += MapListPage_Loaded;
         Unloaded += OnUnloaded;

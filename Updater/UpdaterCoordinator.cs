@@ -27,6 +27,8 @@ internal sealed class UpdaterCoordinator : IDisposable
     public bool IsInstalled => _manager.IsInstalled;
     public string CurrentVersion => _manager.CurrentVersion?.ToString() ?? "旧版安装";
     public UpdateFeedPayload? Metadata => _source.LastVerifiedPayload;
+    public bool WillUseDeltaPackage => _update is { DeltasToTarget.Length: > 0 };
+    public int DeltaPackageCount => _update?.DeltasToTarget.Length ?? 0;
 
     public async Task<bool> CheckAsync(CancellationToken cancellationToken)
     {

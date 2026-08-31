@@ -70,7 +70,7 @@ public sealed partial class SessionOrchestrator
                     "map_fingerprint",
                     MapOperationWaitKind.Compute,
                     mapId: map.Id.ToString("D"),
-                    floorKey: MapFloorRules.GetPrimaryFloorKey(map));
+                    floorKey: MapScanFloorRules.ResolveScanFloorKey(map));
                 map.NormalizeRecognition();
                 var fp = BuildFingerprint(map);
                 if (fp != null) fingerprints.Add(fp);
@@ -131,7 +131,9 @@ public sealed partial class SessionOrchestrator
             alignmentTuning.GateTemplateThreshold = GateTemplateRules.FallbackPairThreshold;
 
         // ── 强制候选选择：对齐所有候选，让用户从中选择 ──
-        if (alignmentTuning.ForceCandidateSelection
+        if ((alignmentTuning.ForceCandidateSelection
+                || _settings.CandidateDecisionMode
+                    != MapCandidateDecisionMode.Traditional)
             && scanCtx.Candidates.Count >= 1)
         {
             // 后台扫描仅识别不对齐：跳过逐候选对齐，直接把候选包装为
@@ -178,9 +180,7 @@ public sealed partial class SessionOrchestrator
                     try
                     {
                         var candidateMap = _recognition.TryGetMap(cMapId);
-                        var candidateFloorKey = candidateMap is null
-                            ? candidate.FloorKey
-                            : MapFloorRules.GetPrimaryFloorKey(candidateMap);
+                        var candidateFloorKey = candidate.FloorKey;
                         var candidateStructureTuning = candidateMap is null
                             ? CreateInitialAlignmentStructureTuning()
                             : CreateStructureTuningForFloor(
@@ -261,7 +261,7 @@ public sealed partial class SessionOrchestrator
             if (MapFloorRules.GetFloorProfile(selectedMapForIdentity, floorKey)
                 is null)
             {
-                floorKey = MapFloorRules.GetPrimaryFloorKey(selectedMapForIdentity);
+                floorKey = MapScanFloorRules.ResolveScanFloorKey(selectedMapForIdentity);
             }
 
             pendingSideEntranceIdentity = new RuntimeMapRecognition
@@ -315,9 +315,7 @@ public sealed partial class SessionOrchestrator
         try
         {
             var selectedMap = _recognition.TryGetMap(mapId);
-            var selectedFloorKey = selectedMap is null
-                ? scanCtx.SelectedCandidate.FloorKey
-                : MapFloorRules.GetPrimaryFloorKey(selectedMap);
+            var selectedFloorKey = scanCtx.SelectedCandidate.FloorKey;
             var selectedStructureTuning = selectedMap is null
                 ? CreateInitialAlignmentStructureTuning()
                 : CreateStructureTuningForFloor(

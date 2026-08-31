@@ -195,7 +195,7 @@ public sealed partial class MapListPage : UserControl
             button.BorderBrush = new SolidColorBrush(isSelected ? Color.FromArgb(255, 49, 156, 255) : Color.FromArgb(0, 0, 0, 0));
             button.BorderThickness = new Thickness(isSelected ? 1 : 0);
             if (tool == MapEditorTool.Gate)
-                button.IsEnabled = string.Equals(_activeFloorKey, _modernToolState.FirstFloorKey, StringComparison.OrdinalIgnoreCase);
+                button.IsEnabled = true;
         }
     }
 

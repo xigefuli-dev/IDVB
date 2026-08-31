@@ -43,6 +43,7 @@
     </PackageReference>
     <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+    <PackageReference Include="TorchSharp-cpu" Version="0.107.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -68,14 +69,34 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapModels.Provenance.cs" Link="Production\MapModels.Provenance.cs" />
     <Compile Include="..\Features\Maps\MapTagTemplateStore.cs" Link="Production\MapTagTemplateStore.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.Part*.cs" />
     <Compile Include="..\Features\Maps\MapModels.Anchor.cs" Link="Production\MapModels.Anchor.cs" />
     <Compile Include="..\Features\Maps\MapEditorState.cs" Link="Production\MapEditorState.cs" />
     <Compile Include="..\Features\Maps\MapModels.Catalog.cs" Link="Production\MapModels.Catalog.cs" />
+    <Compile Include="..\Features\Maps\MapScanFloorRules.cs" Link="Production\MapScanFloorRules.cs" />
     <Compile Include="..\Features\Maps\FloorOrderProjection.cs" Link="Production\FloorOrderProjection.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionCoordinates.cs" Link="Production\MapRecognitionCoordinates.cs" />
+    <Compile Include="..\Features\Maps\MapLearningModels.cs" Link="Production\MapLearningModels.cs" />
+    <Compile Include="..\Features\Maps\MapLearningPersistenceModels.cs" Link="Production\MapLearningPersistenceModels.cs" />
+    <Compile Include="..\Features\Maps\MapLearningPreprocessor.cs" Link="Production\MapLearningPreprocessor.cs" />
+    <Compile Include="..\Features\Maps\SiameseMapNetwork.cs" Link="Production\SiameseMapNetwork.cs" />
+    <Compile Include="..\Features\Maps\MapLearningRepository.cs" Link="Production\MapLearningRepository.cs" />
+    <Compile Include="..\Features\Maps\MapLearningRepository.Migration.cs" Link="Production\MapLearningRepository.Migration.cs" />
+    <Compile Include="..\Features\Maps\MapLearningRepository.Maintenance.cs" Link="Production\MapLearningRepository.Maintenance.cs" />
+    <Compile Include="..\Features\Maps\MapLearningRepository.Spatial.cs" Link="Production\MapLearningRepository.Spatial.cs" />
+    <Compile Include="..\Features\Maps\MapLearningRepository.Export.cs" Link="Production\MapLearningRepository.Export.cs" />
+    <Compile Include="..\Features\Maps\MapLearningExportValidator.cs" Link="Production\MapLearningExportValidator.cs" />
+    <Compile Include="..\Features\Maps\MapCandidateLearningEngine.cs" Link="Production\MapCandidateLearningEngine.cs" />
+    <Compile Include="..\Features\Maps\MapCandidateLearningEngine.Helpers.cs" Link="Production\MapCandidateLearningEngine.Helpers.cs" />
+    <Compile Include="..\Features\Maps\MapCandidateLearningEngine.Spatial.cs" Link="Production\MapCandidateLearningEngine.Spatial.cs" />
+    <Compile Include="..\Features\Maps\MapCandidateLearningEngine.Evaluation.cs" Link="Production\MapCandidateLearningEngine.Evaluation.cs" />
+    <Compile Include="..\Features\Maps\MapCandidateLearningEngine.State.cs" Link="Production\MapCandidateLearningEngine.State.cs" />
+    <Compile Include="..\Features\Maps\MapCandidateLearningEngine.Versions.cs" Link="Production\MapCandidateLearningEngine.Versions.cs" />
+    <Compile Include="..\Features\Maps\MapGpuTrainingSidecar.cs" Link="Production\MapGpuTrainingSidecar.cs" />
+    <Compile Include="..\Features\Maps\MapGpuTrainingSidecar.Job.cs" Link="Production\MapGpuTrainingSidecar.Job.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentConfidence.cs" Link="Production\MapAlignmentConfidence.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionScript.cs" Link="Production\MapCvRecognitionScript.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionModels.cs" Link="Production\MapRecognitionModels.cs" />
@@ -202,6 +223,7 @@
     <Compile Include="..\Features\Maps\MapRepository.Part*.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.Subscriptions.cs" Link="Production\MapRepository.Subscriptions.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Assets.cs" Link="Production\MapRepository.Assets.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Assets.Part*.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Variants.cs" Link="Production\MapRepository.Variants.cs" />

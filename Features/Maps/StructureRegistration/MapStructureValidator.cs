@@ -19,6 +19,8 @@ internal static partial class MapStructureValidator
                 ? tuning.MinimumPriorAgreement
                 : StructureRegistrationRules.MinimumPriorAgreement))
             return MapStructureRejectionReason.PlayerPriorMismatch;
+        if (IsUncalibratedScaleSearchBoundary(best, tuning, request))
+            return MapStructureRejectionReason.ScaleSearchBoundary;
         var chamferLimit = restrictedSearch
             ? Math.Min(
                 tuning.MaximumChamferPixels,

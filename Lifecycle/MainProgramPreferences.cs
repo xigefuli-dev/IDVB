@@ -10,6 +10,9 @@ public sealed class MainProgramPreferences
 
     public bool StartWithWindows { get; set; }
     public bool SafeMode { get; set; } = true;
+    public bool SafeModeFirstRunIntroductionCompleted { get; set; }
+    public bool ModelImprovementConsentPromptCompleted { get; set; }
+    public bool HelpImproveModels { get; set; }
     public bool StartMinimized { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool UseLegacyTheme { get; set; }
@@ -17,6 +20,7 @@ public sealed class MainProgramPreferences
     public bool UseDarkTheme { get; set; }
     public bool AllowUnsafePluginRandomDelayMinimums { get; set; }
     public bool AllowSurveyMode { get; set; }
+    public bool DeveloperMode { get; set; }
 
     public static MainProgramPreferences Load()
     {

@@ -47,6 +47,9 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
 
     public PluginInputModifiers Modifiers { get; init; }
 
+    /// <summary>Non-modifier keys that must remain held before VirtualKey fires.</summary>
+    public IReadOnlyList<uint> CompanionVirtualKeys { get; init; } = [];
+
     public PluginMouseButton MouseButton { get; init; }
 
     public bool IsConfigured => Kind != PluginInputBindingKind.None;
@@ -69,7 +72,9 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
     public string StorageValue => Kind switch
     {
         PluginInputBindingKind.Keyboard =>
-            $"keyboard:{VirtualKey:X}:{(int)Modifiers}",
+            (CompanionVirtualKeys?.Count ?? 0) == 0
+                ? $"keyboard:{VirtualKey:X}:{(int)Modifiers}"
+                : $"keyboard:{VirtualKey:X}:{(int)Modifiers}:{string.Join(',', NormalizedCompanionVirtualKeys().Select(key => key.ToString("X")))}",
         PluginInputBindingKind.Mouse =>
             $"mouse:{(int)MouseButton}",
         _ => "none"
@@ -80,6 +85,7 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
         Kind = Kind,
         VirtualKey = VirtualKey,
         Modifiers = Modifiers,
+        CompanionVirtualKeys = [.. NormalizedCompanionVirtualKeys()],
         MouseButton = MouseButton
     };
 
@@ -87,20 +93,25 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
         && Kind == other.Kind
         && VirtualKey == other.VirtualKey
         && Modifiers == other.Modifiers
+        && NormalizedCompanionVirtualKeys()
+            .SequenceEqual(other.NormalizedCompanionVirtualKeys())
         && MouseButton == other.MouseButton;
 
     public override bool Equals(object? obj) => Equals(obj as PluginInputBinding);
 
     public override int GetHashCode() => HashCode.Combine(
-        Kind, VirtualKey, Modifiers, MouseButton);
+        Kind, VirtualKey, Modifiers, MouseButton,
+        string.Join(',', NormalizedCompanionVirtualKeys()));
 
     public static PluginInputBinding Keyboard(
         uint virtualKey,
-        PluginInputModifiers modifiers = PluginInputModifiers.None) => new()
+        PluginInputModifiers modifiers = PluginInputModifiers.None,
+        IEnumerable<uint>? companionVirtualKeys = null) => new()
     {
         Kind = PluginInputBindingKind.Keyboard,
         VirtualKey = virtualKey,
-        Modifiers = modifiers
+        Modifiers = modifiers,
+        CompanionVirtualKeys = companionVirtualKeys?.ToArray() ?? []
     };
 
     public static PluginInputBinding Mouse(PluginMouseButton button) => new()
@@ -125,7 +136,7 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
             return true;
 
         var parts = value.Trim().Split(':');
-        if (parts.Length == 3
+        if (parts.Length is 3 or 4
             && parts[0].Equals("keyboard", StringComparison.OrdinalIgnoreCase)
             && allowedKinds.HasFlag(PluginInputBindingKinds.Keyboard)
             && uint.TryParse(parts[1], System.Globalization.NumberStyles.HexNumber,
@@ -138,9 +149,11 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
                 & ~(int)(PluginInputModifiers.Control
                     | PluginInputModifiers.Alt
                     | PluginInputModifiers.Shift
-                    | PluginInputModifiers.Windows)) == 0)
+                    | PluginInputModifiers.Windows)) == 0
+            && TryParseCompanionVirtualKeys(parts, out var companionVirtualKeys))
         {
-            binding = Keyboard(virtualKey, (PluginInputModifiers)modifiers);
+            binding = Keyboard(virtualKey, (PluginInputModifiers)modifiers,
+                companionVirtualKeys);
             return true;
         }
 
@@ -159,7 +172,7 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
 
     private string FormatKeyboardDisplayName()
     {
-        var parts = new List<string>(5);
+        var parts = new List<string>(5 + (CompanionVirtualKeys?.Count ?? 0));
         if (Modifiers.HasFlag(PluginInputModifiers.Control))
             parts.Add("Ctrl");
         if (Modifiers.HasFlag(PluginInputModifiers.Alt))
@@ -168,38 +181,37 @@ public sealed class PluginInputBinding : IEquatable<PluginInputBinding>
             parts.Add("Shift");
         if (Modifiers.HasFlag(PluginInputModifiers.Windows))
             parts.Add("Win");
-        parts.Add(FormatVirtualKey(VirtualKey));
+        parts.AddRange(NormalizedCompanionVirtualKeys()
+            .Select(InputKeyDisplayName.FormatVirtualKey));
+        parts.Add(InputKeyDisplayName.FormatVirtualKey(VirtualKey));
         return string.Join(" + ", parts);
     }
 
-    private static string FormatVirtualKey(uint key)
+    private IEnumerable<uint> NormalizedCompanionVirtualKeys() =>
+        (CompanionVirtualKeys ?? [])
+            .Where(key => key != 0 && key <= ushort.MaxValue && key != VirtualKey)
+            .Distinct()
+            .OrderBy(key => key);
+
+    private static bool TryParseCompanionVirtualKeys(
+        string[] parts,
+        out uint[] companionVirtualKeys)
     {
-        if (key is >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A)
-            return ((char)key).ToString();
-        if (key is >= 0x70 and <= 0x87)
-            return $"F{key - 0x6F}";
-        return key switch
-        {
-            0x08 => "Backspace",
-            0x09 => "Tab",
-            0x0D => "Enter",
-            0x1B => "Escape",
-            0x20 => "Space",
-            0x21 => "PageUp",
-            0x22 => "PageDown",
-            0x25 => "Left",
-            0x26 => "Up",
-            0x27 => "Right",
-            0x28 => "Down",
-            0x2D => "Insert",
-            0x2E => "Delete",
-            0x14 => "CapsLock",
-            0x10 => "Shift",
-            0x11 => "Ctrl",
-            0x12 => "Alt",
-            0x5B or 0x5C => "Win",
-            _ => $"VK 0x{key:X2}"
-        };
+        companionVirtualKeys = [];
+        if (parts.Length == 3)
+            return true;
+        if (string.IsNullOrWhiteSpace(parts[3]))
+            return false;
+        var parsed = parts[3].Split(',')
+            .Select(value => uint.TryParse(value,
+                System.Globalization.NumberStyles.HexNumber, null, out var key)
+                ? (uint?)key : null)
+            .ToArray();
+        if (parsed.Any(key => key is null or 0)
+            || parsed.Any(key => key!.Value > ushort.MaxValue))
+            return false;
+        companionVirtualKeys = parsed.Select(key => key!.Value).ToArray();
+        return true;
     }
 }
 

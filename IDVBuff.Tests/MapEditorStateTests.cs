@@ -21,13 +21,15 @@ public sealed class MapEditorStateTests
     }
 
     [Fact]
-    public void GateToolIsFirstFloorOnlyAndCommitsAtomically()
+    public void GateToolIsAvailableOnEveryFloorAndPrimaryPairCommitsAtomically()
     {
         var state = new MapEditorToolState { FirstFloorKey = "ground", ActiveFloorKey = "upper" };
-        Assert.False(state.Select(MapEditorTool.Gate));
+        Assert.True(state.Select(MapEditorTool.Gate));
+        Assert.False(state.UsesPrimaryGatePair);
 
         state.ActiveFloorKey = "ground";
         Assert.True(state.Select(MapEditorTool.Gate));
+        Assert.True(state.UsesPrimaryGatePair);
         var main = new NormalizedRectangle { X = .1, Y = .2, Width = .1, Height = .1 };
         var side = new NormalizedRectangle { X = .6, Y = .2, Width = .1, Height = .1 };
         state.StageMainGate(main);

@@ -33,13 +33,18 @@ public sealed class MapBackgroundProcessingResult : IDisposable
 /// </summary>
 public static class MapBackgroundProcessor
 {
-    public const int BackgroundColorTolerance = 8;
+    public const int DefaultBackgroundRemovalIntensity = 8;
+    public const int MinBackgroundRemovalIntensity = 0;
+    public const int MaxBackgroundRemovalIntensity = 64;
     public const int DefaultBrushSizePixels = 64;
     public const int MinBrushSizePixels = 1;
     public const int MaxBrushSizePixels = 1024;
 
     public static int ClampBrushSize(int value) =>
         Math.Clamp(value, MinBrushSizePixels, MaxBrushSizePixels);
+
+    public static int ClampBackgroundRemovalIntensity(int value) =>
+        Math.Clamp(value, MinBackgroundRemovalIntensity, MaxBackgroundRemovalIntensity);
 
     public static Mat RasterizeMask(
         IReadOnlyList<MapBackgroundLayer>? layers,
@@ -84,7 +89,8 @@ public static class MapBackgroundProcessor
     public static MapBackgroundProcessingResult Process(
         Mat source,
         FloorRecognitionProfile profile,
-        bool removeBackground)
+        bool removeBackground,
+        int backgroundRemovalIntensity = DefaultBackgroundRemovalIntensity)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(profile);
@@ -97,7 +103,10 @@ public static class MapBackgroundProcessor
         using var combinedMask = fullMask.Clone();
         if (removeBackground)
         {
-            using var automatic = BuildAutomaticMask(bgra, fullMask);
+            using var automatic = BuildAutomaticMask(
+                bgra,
+                fullMask,
+                ClampBackgroundRemovalIntensity(backgroundRemovalIntensity));
             Cv2.BitwiseOr(combinedMask, automatic, combinedMask);
         }
         ClearMaskedPixels(processedFull, combinedMask);
@@ -120,10 +129,11 @@ public static class MapBackgroundProcessor
     public static Mat Apply(
         Mat source,
         IReadOnlyList<MapBackgroundLayer>? layers,
-        bool removeBackground)
+        bool removeBackground,
+        int backgroundRemovalIntensity = DefaultBackgroundRemovalIntensity)
     {
         var profile = new FloorRecognitionProfile { BackgroundLayers = (layers ?? []).Select(layer => layer.Clone()).ToList() };
-        using var result = Process(source, profile, removeBackground);
+        using var result = Process(source, profile, removeBackground, backgroundRemovalIntensity);
         return result.Recognition.Clone();
     }
 
@@ -181,7 +191,7 @@ public static class MapBackgroundProcessor
         }
     }
 
-    private static Mat BuildAutomaticMask(Mat bgra, Mat manualMask)
+    private static Mat BuildAutomaticMask(Mat bgra, Mat manualMask, int tolerance)
     {
         var counts = new Dictionary<int, int>();
         var rows = bgra.Rows;
@@ -217,9 +227,9 @@ public static class MapBackgroundProcessor
                     continue;
                 var pixel = bgra.At<Vec4b>(y, x);
                 if (pixel.Item3 != 0
-                    && Math.Abs(pixel.Item2 - mainR) <= BackgroundColorTolerance
-                    && Math.Abs(pixel.Item1 - mainG) <= BackgroundColorTolerance
-                    && Math.Abs(pixel.Item0 - mainB) <= BackgroundColorTolerance)
+                    && Math.Abs(pixel.Item2 - mainR) <= tolerance
+                    && Math.Abs(pixel.Item1 - mainG) <= tolerance
+                    && Math.Abs(pixel.Item0 - mainB) <= tolerance)
                 {
                     result.Set(y, x, (byte)255);
                 }

@@ -8,6 +8,8 @@ public partial class App
         Features.Maps.SessionOrchestrator session)
     {
         await session.ApplyQuickStartRecommendedSettingsAsync();
+        await session.SetMapImprovementDataCollectionEnabledAsync(
+            Lifecycle.MainProgramPreferences.Load().HelpImproveModels);
         DisableBuiltInPluginsForQuickStart();
         if (_thirdPartyPluginRuntime is not null)
             await _thirdPartyPluginRuntime.DisableAllAsync();

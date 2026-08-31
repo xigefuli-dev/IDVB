@@ -18,7 +18,8 @@ public sealed class SafeModeMapStatusPage : UserControl
     private Grid? _root;
     private bool _recording;
     private bool _hovered;
-    private MapInputModifiers _recordingModifiers;
+    private readonly HashSet<uint> _recordingHeldKeys = [];
+    private uint _recordingTriggerKey;
 
     public SafeModeMapStatusPage()
     {
@@ -135,7 +136,8 @@ public sealed class SafeModeMapStatusPage : UserControl
         if (!_settings.TraditionalWindowSwitchFloorBinding.IsConfigured)
         {
             _recording = true;
-            _recordingModifiers = MapInputModifiers.None;
+            _recordingHeldKeys.Clear();
+            _recordingTriggerKey = 0;
             _status.Text = "请按下用于切换传统窗口楼层的键盘或鼠标按键。";
             _root?.Focus(FocusState.Programmatic);
             Refresh();
@@ -148,31 +150,21 @@ public sealed class SafeModeMapStatusPage : UserControl
     {
         if (!_recording) return;
         e.Handled = true;
-        if (TryGetModifier(e.Key, out var modifier))
-        {
-            _recordingModifiers |= modifier;
+        var key = (uint)e.Key;
+        if (!_recordingHeldKeys.Add(key))
             return;
-        }
-        var binding = new MapInputBinding
-        {
-            Kind = MapInputBindingKind.Keyboard,
-            VirtualKey = (uint)e.Key,
-            Modifiers = _recordingModifiers
-        };
-        _recordingModifiers = MapInputModifiers.None;
-        _ = SaveAsync(binding);
+        _recordingTriggerKey = key;
     }
 
     private void Root_KeyUp(object sender, KeyRoutedEventArgs e)
     {
-        if (!_recording || !TryGetModifier(e.Key, out var modifier)
-            || (_recordingModifiers & modifier) == 0) return;
+        if (!_recording) return;
         e.Handled = true;
-        _recordingModifiers = MapInputModifiers.None;
-        _ = SaveAsync(new MapInputBinding
-        {
-            Kind = MapInputBindingKind.Keyboard, VirtualKey = (uint)e.Key
-        });
+        var key = (uint)e.Key;
+        if (_recordingHeldKeys.Contains(key))
+            _ = SaveAsync(CreateKeyboardBinding(
+                _recordingTriggerKey,
+                _recordingHeldKeys.Where(held => held != _recordingTriggerKey)));
     }
 
     private void Root_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -194,7 +186,8 @@ public sealed class SafeModeMapStatusPage : UserControl
     private async Task SaveAsync(MapInputBinding binding)
     {
         _recording = false;
-        _recordingModifiers = MapInputModifiers.None;
+        _recordingHeldKeys.Clear();
+        _recordingTriggerKey = 0;
         try
         {
             if (_settings is null)
@@ -234,9 +227,9 @@ public sealed class SafeModeMapStatusPage : UserControl
                 : Color.FromArgb(255, 32, 32, 32));
     }
 
-    private static bool TryGetModifier(VirtualKey key, out MapInputModifiers modifier)
+    private static bool TryGetModifier(uint key, out MapInputModifiers modifier)
     {
-        modifier = (uint)key switch
+        modifier = key switch
         {
             0x10 or 0xA0 or 0xA1 => MapInputModifiers.Shift,
             0x11 or 0xA2 or 0xA3 => MapInputModifiers.Control,
@@ -245,5 +238,27 @@ public sealed class SafeModeMapStatusPage : UserControl
             _ => MapInputModifiers.None
         };
         return modifier != MapInputModifiers.None;
+    }
+
+    private static MapInputBinding CreateKeyboardBinding(
+        uint virtualKey,
+        IEnumerable<uint> heldKeys)
+    {
+        var modifiers = MapInputModifiers.None;
+        var companions = new List<uint>();
+        foreach (var heldKey in heldKeys)
+        {
+            if (TryGetModifier(heldKey, out var modifier))
+                modifiers |= modifier;
+            else
+                companions.Add(heldKey);
+        }
+        return new MapInputBinding
+        {
+            Kind = MapInputBindingKind.Keyboard,
+            VirtualKey = virtualKey,
+            Modifiers = modifiers,
+            CompanionVirtualKeys = companions
+        };
     }
 }

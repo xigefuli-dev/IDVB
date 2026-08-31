@@ -244,12 +244,34 @@ public sealed partial class MainPage : Page
     {
         try
         {
+            if (App.IsSafeMode)
+            {
+                await ShowSafeModeTutorialAsync();
+                return;
+            }
             await ShowRecommendedConfigurationGuideAsync();
         }
         catch (Exception exception)
         {
             TryLogModuleFailure("help-guide", exception);
         }
+    }
+
+    private async Task ShowSafeModeTutorialAsync()
+    {
+        NavigateTo("map-list");
+        await Task.Yield();
+        if (ModuleContentHost.XamlRoot is not { } xamlRoot)
+            return;
+
+        await new ContentDialog
+        {
+            XamlRoot = xamlRoot,
+            Title = "安全模式新手教程",
+            Content = "安全模式下，IDVB 不会加载自动识别、自动对齐、游戏内显示层或插件。请在地图列表中导入或选择地图；打开后，地图会以普通窗口展示。\n\n如需完整的新手教程，请先在“主设置 - 安全模式”中关闭安全模式，并以管理员权限重新启动 IDVB。",
+            CloseButtonText = "知道了",
+            DefaultButton = ContentDialogButton.Close
+        }.ShowAsync();
     }
 
     private static bool IsSafeModeRestrictedModule(string moduleId) => moduleId is

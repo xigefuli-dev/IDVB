@@ -21,5 +21,6 @@
   <ItemGroup>
     <Content Include="..\Assets\Icons\IDVB_icon_multisize.ico" Link="Assets\IDVB.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\release\trust\*.pem" Link="UpdateTrust\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\release\trust\idvb-update-2026-01.pem" Link="MapTrust\idvb-update-2026-01.pem" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

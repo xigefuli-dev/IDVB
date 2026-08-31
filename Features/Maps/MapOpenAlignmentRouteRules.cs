@@ -184,6 +184,9 @@ internal static class MapOpenAlignmentRouteRules
         bool isPendingVariantAlignment,
         MapAlignmentSession session) =>
         isOtherFloor
+        || (session.Mode == MapAlignmentTrackingMode.StructureMatched
+            && session.SideEntranceScanPriorConfidence <= 0d
+            && !session.HasGatePairLock)
         || (isPendingVariantAlignment
             && session.SideEntranceScanPriorConfidence <= 0d
             && !session.HasGatePairLock);

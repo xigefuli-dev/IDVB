@@ -54,11 +54,18 @@ public sealed class MapRepositoryAdapter : IMapRepository
     public Task RenameClassAsync(string oldName, string newName) =>
         _repo.RenameClassAsync(oldName, newName);
 
-    public Task<IReadOnlyList<Guid>> SetClassRemoveBackgroundAsync(
+    public Task<IReadOnlyList<Guid>> SetClassBackgroundRemovalAsync(
         string className,
         bool enabled,
+        int intensity,
         CancellationToken cancellationToken = default) =>
-        _repo.SetClassRemoveBackgroundAsync(className, enabled, cancellationToken);
+        _repo.SetClassBackgroundRemovalAsync(className, enabled, intensity, cancellationToken);
+
+    public Task SetClassScanFloorAsync(
+        string className,
+        string? floorKey,
+        CancellationToken cancellationToken = default) =>
+        _repo.SetClassScanFloorAsync(className, floorKey, cancellationToken);
 
     public object GetCatalogRevision() => _repo.GetCatalogRevision();
 

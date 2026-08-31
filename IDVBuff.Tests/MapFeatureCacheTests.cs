@@ -16,6 +16,7 @@ public sealed partial class MapFeatureCacheTests
         Assert.Equal(MapRuntimeSettings.CurrentSchemaVersion, settings.SchemaVersion);
         Assert.False(settings.AllowAutomaticMapCache);
         Assert.False(settings.SaveMapCacheBinding.IsConfigured);
+        Assert.False(settings.RestMapDisplayBinding.IsConfigured);
     }
 
     [Theory]

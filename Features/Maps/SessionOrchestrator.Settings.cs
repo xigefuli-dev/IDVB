@@ -88,7 +88,8 @@ public sealed partial class SessionOrchestrator
         && settings.ControlPanelToggleBinding.IsConfigured
         && settings.QuickScanBinding.IsConfigured
         && settings.SwitchFloorBinding.IsConfigured
-        && settings.SaveMapCacheBinding.IsConfigured;
+        && settings.SaveMapCacheBinding.IsConfigured
+        && settings.RestMapDisplayBinding.IsConfigured;
 
     /// <summary>
     /// Applies the first-run recommended profile to the active runtime and
@@ -272,6 +273,7 @@ public sealed partial class SessionOrchestrator
         MapRuntimeBindingTarget.TraditionalWindowSwitchFloor =>
             _settings!.TraditionalWindowSwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _settings!.SaveMapCacheBinding,
+        MapRuntimeBindingTarget.RestMapDisplay => _settings!.RestMapDisplayBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
 
@@ -289,6 +291,7 @@ public sealed partial class SessionOrchestrator
                 _settings!.TraditionalWindowSwitchFloorBinding = binding;
                 break;
             case MapRuntimeBindingTarget.SaveMapCache: _settings!.SaveMapCacheBinding = binding; break;
+            case MapRuntimeBindingTarget.RestMapDisplay: _settings!.RestMapDisplayBinding = binding; break;
             default: throw new ArgumentOutOfRangeException(nameof(target), target, null);
         }
     }
@@ -310,7 +313,8 @@ public sealed partial class SessionOrchestrator
                 _settings.GameMapToggleBinding,
                 _settings.ControlPanelToggleBinding,
                 _settings.SwitchFloorBinding,
-                _settings.SaveMapCacheBinding);
+                _settings.SaveMapCacheBinding,
+                _settings.RestMapDisplayBinding);
         }
         catch (Exception ex)
         {

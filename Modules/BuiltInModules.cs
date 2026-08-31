@@ -43,7 +43,7 @@ internal sealed class MainSettingsModule : IAppModule
 internal sealed class HelpModule : IAppModule
 {
     public string Id => "help";
-    public string DisplayName => "帮助";
+    public string DisplayName => "教程";
     public string IconKey => nameof(Symbol.Help);
     public object CreateView() => new IDVBuff.Views.HelpPage();
 }

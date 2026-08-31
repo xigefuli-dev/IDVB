@@ -465,25 +465,8 @@ public sealed partial class MapStatusPage : UserControl
     {
         if (_refreshing)
             return;
-        try
-        {
-            if (!_collectResearchToggle.IsOn
-                && !await ConfirmDataCleanupAsync(
-                    "关闭算法研究采集",
-                    "关闭后会清理已采集的算法研究样本和临时文件，此操作不可恢复。"))
-            {
-                RestoreToggle(_collectResearchToggle);
-                return;
-            }
-
-            await _runtime.SetCollectAlignmentResearchDataAsync(
-                _collectResearchToggle.IsOn);
-        }
-        catch (Exception exception)
-        {
-            _status.Text = exception.Message;
-            Refresh();
-        }
+        await _runtime.SetMapImprovementDataCollectionEnabledAsync(
+            _collectResearchToggle.IsOn);
     }
 
 }

@@ -44,7 +44,8 @@ public sealed partial class TeachingTipManager
         }
 
         var recording = false;
-        var modifiers = PluginInputModifiers.None;
+        var recordingHeldKeys = new HashSet<uint>();
+        uint recordingTriggerKey = 0;
         var hovered = false;
         var ignoreNextClick = false;
         var xButton1WasDown = false;
@@ -96,7 +97,8 @@ public sealed partial class TeachingTipManager
         {
             sideButtonPoller.Stop();
             recording = false;
-            modifiers = PluginInputModifiers.None;
+            recordingHeldKeys.Clear();
+            recordingTriggerKey = 0;
             binding = next;
             PersistSetting(
                 provider,
@@ -123,7 +125,8 @@ public sealed partial class TeachingTipManager
             }
 
             recording = true;
-            modifiers = PluginInputModifiers.None;
+            recordingHeldKeys.Clear();
+            recordingTriggerKey = 0;
             xButton1WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
             xButton2WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
             sideButtonPoller.Start();
@@ -165,34 +168,27 @@ public sealed partial class TeachingTipManager
             if (!recording)
                 return;
             args.Handled = true;
-            if (TryGetPluginModifier(args.Key, out var modifier))
-            {
-                modifiers |= modifier;
+            var key = (uint)args.Key;
+            if (!recordingHeldKeys.Add(key))
                 return;
-            }
-
-            var next = PluginInputBinding.Keyboard(
-                (uint)args.Key,
-                ReadCurrentPluginModifiers(modifiers));
-            if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
-                await SaveBinding(next);
+            recordingTriggerKey = key;
         }), handledEventsToo: true);
 
         host.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler(async (_, args) =>
         {
-            if (!recording
-                || !TryGetPluginModifier(args.Key, out var modifier))
+            if (!recording)
             {
                 return;
             }
             args.Handled = true;
-            if ((modifiers & modifier) == 0)
+            var key = (uint)args.Key;
+            if (!recordingHeldKeys.Contains(key))
                 return;
-            modifiers = PluginInputModifiers.None;
             if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
             {
-                await SaveBinding(PluginInputBinding.Keyboard(
-                    (uint)args.Key));
+                await SaveBinding(CreatePluginKeyboardBinding(
+                    recordingTriggerKey,
+                    recordingHeldKeys.Where(held => held != recordingTriggerKey)));
             }
         }), handledEventsToo: true);
 

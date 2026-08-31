@@ -76,7 +76,7 @@ public sealed partial class PluginsPage : Page
                 },
                 new TextBlock
                 {
-                    Text = "已注册的插件服务。每个插件独立管理生命周期，宿主统一驱动。",
+                    Text = "这里的开关是主开关；插件只会在对局控件开始对局后运行，并在结束对局时自动停用。",
                     FontSize = 14,
                     Foreground = SecondaryTextBrush
                 }

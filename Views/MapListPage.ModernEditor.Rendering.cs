@@ -77,7 +77,10 @@ public sealed partial class MapListPage : UserControl
             {
                 var color = _modernToolState.ActiveTool switch
                 {
-                    MapEditorTool.Gate => _modernToolState.PendingMainGate is null ? MainEntranceBlue : SideEntranceGreen,
+                    MapEditorTool.Gate when !_modernToolState.UsesPrimaryGatePair => SecondFloorPurple,
+                    MapEditorTool.Gate => _modernToolState.PendingMainGate is null
+                        ? MainEntranceBlue
+                        : SideEntranceGreen,
                     MapEditorTool.Crop => RecognitionRegionRed,
                     MapEditorTool.Anchor => OptionalAnchorOrange,
                     _ => ParseEditorColor(_currentAnnotationColor)

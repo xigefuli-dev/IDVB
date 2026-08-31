@@ -11,10 +11,62 @@ internal enum LowStructureAlignmentRoute
     IncrementalRecovery
 }
 
+internal sealed record LowStructureScaleSelection(
+    IReadOnlyList<double> Scales,
+    double RelativeResolution,
+    int BasinCount,
+    bool Ambiguous,
+    double ElapsedMilliseconds = 0d);
+
+internal static class LowStructureScaleSelectionContext
+{
+    private static readonly AsyncLocal<LowStructureScaleSelection?> CurrentSelection = new();
+
+    public static LowStructureScaleSelection? Current
+    {
+        get => CurrentSelection.Value;
+        set => CurrentSelection.Value = value;
+    }
+}
+
 internal static class LowStructureScaleEvidenceRules
 {
     public const int MinimumIndependentScaleConfirmations = 5;
-    public const double MaximumLockRelativeDifference = 0.003d;
+    public const double MinimumClusterTolerance = 0.003d;
+    public const double MaximumClusterTolerance = 0.006d;
+    public const double MaximumLockRelativeDifference = MaximumClusterTolerance;
+    public const double ResolutionToleranceMultiplier = 1.2d;
+
+    public static double ResolveClusterTolerance(double relativeResolution) =>
+        Math.Clamp(
+            double.IsFinite(relativeResolution) && relativeResolution > 0d
+                ? relativeResolution * ResolutionToleranceMultiplier
+                : MinimumClusterTolerance,
+            MinimumClusterTolerance,
+            MaximumClusterTolerance);
+
+    public static double RelativeDifference(double first, double second) =>
+        Math.Abs(first - second) / Math.Max(Math.Max(first, second), 0.000001d);
+
+    public static double Median(IEnumerable<double> values)
+    {
+        var ordered = values.Where(double.IsFinite).Order().ToArray();
+        if (ordered.Length == 0)
+            return 0d;
+        var middle = ordered.Length / 2;
+        return ordered.Length % 2 == 0
+            ? (ordered[middle - 1] + ordered[middle]) / 2d
+            : ordered[middle];
+    }
+
+    public static double RelativeMad(IEnumerable<double> values)
+    {
+        var samples = values.Where(double.IsFinite).ToArray();
+        var median = Median(samples);
+        return samples.Length == 0 || median <= 0d
+            ? 0d
+            : Median(samples.Select(value => Math.Abs(value - median) / median));
+    }
 
     public static bool IsIndependentScaleRoute(string? route) =>
         Enum.TryParse<LowStructureAlignmentRoute>(route, out var parsed)
@@ -68,7 +120,10 @@ internal sealed record LowStructureAlignmentPlan(
     bool CanDirectAccept,
     int RecoveryBatch,
     int RecoveryTotalScaleCount,
-    string BudgetTerminationReason = "")
+    string BudgetTerminationReason = "",
+    double ScaleResolutionRatio = 0d,
+    int ScaleBasinCount = 0,
+    bool ScaleSelectionAmbiguous = false)
 {
     public bool UsesVpsg => false;
 
@@ -124,7 +179,20 @@ internal sealed record LowStructureAlignmentPlan(
 
     public static LowStructureAlignmentPlan SparseCoarseSeed(
         IReadOnlyList<double> rankedScales,
-        LowStructureConfig config) =>
+        LowStructureConfig config,
+        double scaleResolutionRatio = 0d,
+        int scaleBasinCount = 0,
+        bool ambiguous = false)
+    {
+        var selection = LowStructureScaleSelectionContext.Current;
+        if (selection is not null
+            && selection.Scales.SequenceEqual(rankedScales))
+        {
+            scaleResolutionRatio = selection.RelativeResolution;
+            scaleBasinCount = selection.BasinCount;
+            ambiguous = selection.Ambiguous;
+        }
+        return
         new(
             LowStructureAlignmentRoute.SparseCoarseSeed,
             rankedScales
@@ -139,7 +207,11 @@ internal sealed record LowStructureAlignmentPlan(
             // all selected scale basins before any transform is accepted.
             CanDirectAccept: false,
             RecoveryBatch: 0,
-            RecoveryTotalScaleCount: rankedScales.Count);
+            RecoveryTotalScaleCount: rankedScales.Count,
+            ScaleResolutionRatio: scaleResolutionRatio,
+            ScaleBasinCount: scaleBasinCount,
+            ScaleSelectionAmbiguous: ambiguous);
+    }
 
     public static LowStructureAlignmentPlan IncrementalRecovery(
         IReadOnlyList<double> recoveryGrid,

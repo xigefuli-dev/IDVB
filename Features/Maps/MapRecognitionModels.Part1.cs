@@ -29,7 +29,34 @@ public sealed partial class MapScanDiagnostics
     public string AlignmentChannel { get; set; } = "standard";
     public string FloorMarkerKeys { get; set; } = string.Empty;
     public string AlignmentConfigFingerprint { get; set; } = string.Empty;
-    public string LowStructureRoute { get; set; } = string.Empty;
+    private string _lowStructureRoute = string.Empty;
+    public string LowStructureRoute
+    {
+        get => _lowStructureRoute;
+        set
+        {
+            _lowStructureRoute = value;
+            LowStructureEnteredCachedFixed = string.Equals(
+                value,
+                nameof(LowStructureAlignmentRoute.CachedFixed),
+                StringComparison.Ordinal);
+            if (!string.Equals(
+                    value,
+                    nameof(LowStructureAlignmentRoute.SparseCoarseSeed),
+                    StringComparison.Ordinal)
+                || LowStructureScaleSelectionContext.Current is not { } selection)
+            {
+                return;
+            }
+            LowStructureScaleResolutionRatio = selection.RelativeResolution;
+            LowStructureScaleClusterTolerance =
+                LowStructureScaleEvidenceRules.ResolveClusterTolerance(
+                    selection.RelativeResolution);
+            LowStructureScaleBasinCount = selection.BasinCount;
+            LowStructureScaleSelectionAmbiguous = selection.Ambiguous;
+            LowStructureScaleSelectionMilliseconds = selection.ElapsedMilliseconds;
+        }
+    }
     public string LowStructureReadinessDecision { get; set; } = string.Empty;
     public string LowStructureCacheTrustLevel { get; set; } = string.Empty;
     public int LowStructurePlannedScaleCount { get; set; }
@@ -42,6 +69,14 @@ public sealed partial class MapScanDiagnostics
     public int LowStructureEvidenceCount { get; set; }
     public int LowStructureEvidenceRequired { get; set; } = 1;
     public bool LowStructureEvidencePending { get; set; }
+    public double LowStructureScaleResolutionRatio { get; set; }
+    public double LowStructureScaleClusterTolerance { get; set; }
+    public int LowStructureScaleBasinCount { get; set; }
+    public bool LowStructureScaleSelectionAmbiguous { get; set; }
+    public double LowStructureScaleSelectionMilliseconds { get; set; }
+    public string LowStructureEvidenceRebuildReason { get; set; } = string.Empty;
+    public bool LowStructureEnteredCachedFixed { get; set; }
+    public double LowStructureScaleRelativeMad { get; set; }
     public bool WarmStateHit { get; set; }
     public string WarmStateMissReason { get; set; } = string.Empty;
     public double InputToFirstCaptureMilliseconds { get; set; }

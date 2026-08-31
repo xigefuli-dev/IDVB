@@ -19,6 +19,8 @@ public sealed partial class MapRuntimeSettings
             : SelectedResolutionPreset.Trim();
         if (!Enum.IsDefined(FirstScanStrategy))
             FirstScanStrategy = FirstScanStrategy.DoubleGate;
+        if (!Enum.IsDefined(CandidateDecisionMode))
+            CandidateDecisionMode = MapCandidateDecisionMode.Traditional;
         QuickScanBinding ??= new MapInputBinding();
         OverlayToggleBinding ??= new MapInputBinding();
         GameMapToggleBinding ??= new MapInputBinding();
@@ -35,6 +37,7 @@ public sealed partial class MapRuntimeSettings
             VirtualKey = (uint)Windows.System.VirtualKey.X
         };
         SaveMapCacheBinding ??= new MapInputBinding();
+        RestMapDisplayBinding ??= new MapInputBinding();
         RecognitionTuning ??= new MapRecognitionTuning();
         StructureRegistrationTuning ??= new MapStructureRegistrationTuning();
         SessionTuning ??= new MapSessionTuning();
@@ -48,6 +51,7 @@ public sealed partial class MapRuntimeSettings
         NormalizeBinding(SwitchFloorBinding);
         NormalizeBinding(TraditionalWindowSwitchFloorBinding);
         NormalizeBinding(SaveMapCacheBinding);
+        NormalizeBinding(RestMapDisplayBinding);
         if (QuickScanBinding.IsConfigured
             && QuickScanBinding.Equals(OverlayToggleBinding))
         {
@@ -92,6 +96,17 @@ public sealed partial class MapRuntimeSettings
                 || SaveMapCacheBinding.Equals(SwitchFloorBinding)))
         {
             SaveMapCacheBinding = new MapInputBinding();
+        }
+        if (RestMapDisplayBinding.IsConfigured
+            && (RestMapDisplayBinding.Equals(QuickScanBinding)
+                || RestMapDisplayBinding.Equals(OverlayToggleBinding)
+                || RestMapDisplayBinding.Equals(ManualRecognitionBinding)
+                || RestMapDisplayBinding.Equals(GameMapToggleBinding)
+                || RestMapDisplayBinding.Equals(ControlPanelToggleBinding)
+                || RestMapDisplayBinding.Equals(SwitchFloorBinding)
+                || RestMapDisplayBinding.Equals(SaveMapCacheBinding)))
+        {
+            RestMapDisplayBinding = new MapInputBinding();
         }
         RecognitionTuning.Normalize();
         StructureRegistrationTuning.Normalize();
@@ -228,14 +243,20 @@ public sealed partial class MapRuntimeSettings
         if (binding.Kind == MapInputBindingKind.Keyboard && binding.VirtualKey == 0)
             binding.Kind = MapInputBindingKind.None;
         if (binding.Kind == MapInputBindingKind.Keyboard)
+        {
             binding.Modifiers &= MapInputModifiers.Control
                 | MapInputModifiers.Alt
                 | MapInputModifiers.Shift
                 | MapInputModifiers.Windows;
+            binding.CompanionVirtualKeys = [.. binding.NormalizedCompanionVirtualKeys()];
+        }
         if (binding.Kind == MapInputBindingKind.Mouse && !Enum.IsDefined(binding.MouseButton))
             binding.Kind = MapInputBindingKind.None;
         if (binding.Kind != MapInputBindingKind.Keyboard)
+        {
             binding.Modifiers = MapInputModifiers.None;
+            binding.CompanionVirtualKeys = [];
+        }
         if (!Enum.IsDefined(binding.Kind))
             binding.Kind = MapInputBindingKind.None;
     }

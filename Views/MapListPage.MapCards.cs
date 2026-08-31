@@ -46,11 +46,11 @@ public sealed partial class MapListPage : UserControl
             if (previews.ActualWidth > 0)
                 previews.Height = Math.Round(previews.ActualWidth / 1.6);
         };
-        var orderedFloors = MapFloorRules.GetOrderedFloors(map);
-        var firstFloorKey = orderedFloors.FirstOrDefault()?.Key ?? map.Recognition.FirstFloor.FloorKey;
-        var secondFloorKey = orderedFloors.Skip(1).FirstOrDefault()?.Key ?? map.Recognition.SecondFloor.FloorKey;
-        previews.Children.Add(CreatePreviewLayer(GetMapPreviewPath(map, secondFloorKey), new Thickness(16, 0, 0, 14)));
-        previews.Children.Add(CreatePreviewLayer(GetMapPreviewPath(map, firstFloorKey), new Thickness(0, 14, 16, 0)));
+        var scanFloorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+        previews.Children.Add(CreatePreviewLayer(
+            GetMapPreviewPath(map, scanFloorKey),
+            new Thickness(0)));
+        previews.Children.Add(CreateMapOriginBadge(map));
         content.Children.Add(previews);
 
         var label = new TextBlock
@@ -93,20 +93,53 @@ public sealed partial class MapListPage : UserControl
         return card;
     }
 
+    private static Border CreateMapOriginBadge(MapRecord map)
+    {
+        var label = map.AcquisitionKind switch
+        {
+            MapAcquisitionKind.ImportedPackage => "导入",
+            MapAcquisitionKind.Subscription when !string.IsNullOrWhiteSpace(map.SubscriptionPublisherHandle)
+                => $"订阅 · {map.SubscriptionPublisherHandle}",
+            MapAcquisitionKind.Subscription => "订阅",
+            _ when string.Equals(map.Source, "survey", StringComparison.Ordinal) => "本地 · 测绘",
+            _ => "本地"
+        };
+        var badge = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(205, 22, 29, 38)),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(7),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock
+            {
+                Text = label,
+                Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
+                FontSize = 11
+            }
+        };
+        if (map.AcquisitionKind == MapAcquisitionKind.Subscription)
+            ToolTipService.SetToolTip(
+                badge,
+                $"订阅版本：{map.SubscriptionVersion ?? "未知"}");
+        return badge;
+    }
+
     private async Task ShowMapImmediatelyAsync(MapRecord map)
     {
-        var floor = MapFloorRules.GetOrderedFloors(map).FirstOrDefault();
-        if (floor is null)
+        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
+        if (MapFloorRules.GetFloorProfile(map, floorKey) is null)
             return;
-        var path = _repository.GetFloorOverlayPath(map, floor.Key);
+        var path = _repository.GetFloorOverlayPath(map, floorKey);
         if (!File.Exists(path))
-            path = _repository.GetFloorRecognitionPath(map, floor.Key);
+            path = _repository.GetFloorRecognitionPath(map, floorKey);
         if (!File.Exists(path))
         {
             await ShowMessageAsync("无法展示地图", "没有找到该地图的楼层图片。");
             return;
         }
-        await DirectMapDisplayWindow.ShowAsync(map, _repository, floor.Key);
+        await DirectMapDisplayWindow.ShowAsync(map, _repository, floorKey);
     }
 
     private Border CreatePreviewLayer(string path, Thickness margin)

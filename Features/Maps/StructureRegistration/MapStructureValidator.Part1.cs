@@ -3,6 +3,44 @@ using OpenCvSharp;
 namespace IDVBuff.Features.Maps;
 internal static partial class MapStructureValidator
 {
+    /// <summary>
+    /// A cold standard search with a neutral scale has no evidence outside its
+    /// sampled interval. An accepted endpoint is therefore a censored estimate,
+    /// not an independently located optimum, and must not seed the session.
+    /// </summary>
+    private static bool IsUncalibratedScaleSearchBoundary(
+        MapStructureCandidate candidate,
+        MapStructureRegistrationTuning tuning,
+        MapStructureRegistrationRequest? request)
+    {
+        if (request is null
+            || request.Channel != MapAlignmentChannel.Standard
+            || request.ScaleSearchPolicy != MapScaleSearchPolicy.Search
+            || request.TrackingMode
+            || request.RestrictSearchToLockedTransform
+            || request.ForceBestCandidate
+            || request.SideEntrancePrior > 0d
+            || request.CandidateHistory.Count > 0
+            || !double.IsFinite(request.LockedTransform.ScaleX)
+            || Math.Abs(request.LockedTransform.ScaleX - 1d) > 0.0005d)
+        {
+            return false;
+        }
+
+        var radius = Math.Max(
+            tuning.ScaleSearchRadius,
+            StructureRegistrationRules.ScaleSearchRadius);
+        if (!double.IsFinite(radius) || radius <= 0d)
+            return false;
+
+        var lowerBoundary = request.LockedTransform.ScaleX * (1d - radius);
+        var upperBoundary = request.LockedTransform.ScaleX * (1d + radius);
+        var tolerance = Math.Max(
+            0.0005d,
+            StructureRegistrationRules.ScaleDuplicateTolerance * 0.5d);
+        return Math.Abs(candidate.Scale - lowerBoundary) <= tolerance
+            || Math.Abs(candidate.Scale - upperBoundary) <= tolerance;
+    }
 
     internal static MapStructureRegistrationResult BuildLegacyResult(
         MapStructureRejectionReason rejectionReason,

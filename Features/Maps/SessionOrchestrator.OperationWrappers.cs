@@ -12,10 +12,23 @@ public sealed partial class SessionOrchestrator
         CancelOrbTracking("absolute alignment started");
         await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;
-        if (!await _scanGate.WaitAsync(0))
+        try
         {
-            _statusMessage = "已有识别正在进行，请稍候。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
+            // A newly opened map is the latest owner. Wait for a cancelled
+            // predecessor to leave the shared recognition gate instead of
+            // dropping this input with a transient "busy" result.
+            await _scanGate.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            CompleteMapOpenCancellationScope(mapOpenCancellation);
+            return;
+        }
+        if (!IsCurrentMatchOperation(operationMatch)
+            || !_gameMapToggleState.IsCurrent(toggle))
+        {
+            _scanGate.Release();
             CompleteMapOpenCancellationScope(mapOpenCancellation);
             return;
         }

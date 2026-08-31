@@ -69,20 +69,41 @@ public sealed partial class SessionOrchestrator
                 aligned,
                 frame,
                 _lastDiagnostics);
+            if (_lastDiagnostics is { } adaptiveDiagnostics
+                && MapAlignmentChannelRegistry.Resolve(
+                    aligned.Map,
+                    aligned.Result.Floor).Channel == MapAlignmentChannel.LowStructure)
+            {
+                adaptiveDiagnostics.LowStructureEvidenceCount =
+                    adaptiveDecision.ConsecutiveHighQualityCount;
+                adaptiveDiagnostics.LowStructureEvidenceRequired =
+                    adaptiveDecision.RequiredHighQualityCount;
+                adaptiveDiagnostics.LowStructureEvidencePending =
+                    adaptiveDecision.ConsecutiveHighQualityCount
+                        < adaptiveDecision.RequiredHighQualityCount;
+                adaptiveDiagnostics.LowStructureScaleRelativeMad =
+                    adaptiveDecision.InitialScaleRelativeMad;
+                adaptiveDiagnostics.LowStructureEvidenceRebuildReason =
+                    adaptiveDecision.InitialScaleClusterRebuilt
+                        ? "scale-outside-quantized-basin"
+                        : string.Empty;
+            }
             aligned = adaptiveDecision.RecognitionToRender;
+            resultPublish?.Complete();
+            if (!IsCurrentMatchOperation(operationMatch)
+                || !_gameMapToggleState.IsCurrent(toggle))
+            {
+                trace?.SetTerminal("superseded", "match-operation-version-changed");
+                return MapOpenAlignmentPublishOutcome.Superseded;
+            }
+
             // 画面就绪参考签名不再受 AllowLegacyCacheWrite 门控：provisional（尺度
             // 缓存未达 reliable）也应记录本次对齐帧的颜色签名，否则下次开图「仅对齐」
             // 就绪判定会因缺少 reference 落到 blue-gray 兜底分支，该分支首帧必拒、
             // 白付一个抓帧周期。签名只依赖就绪帧画面，与 scale 是否 reliable 无关。
             RememberMapViewportPresenceReference(aligned, frame);
-            resultPublish?.Complete();
             if (adaptiveDecision.AllowLegacyCacheWrite)
                 RecordSuccessfulAlignment(aligned, frame);
-            if (!IsCurrentMatchOperation(operationMatch))
-            {
-                trace?.SetTerminal("superseded", "match-operation-version-changed");
-                return MapOpenAlignmentPublishOutcome.Superseded;
-            }
 
             // 与识别管线一致：首次成功对齐时 _lastAlignmentSession 可能仍为
             // null，需回退到侧门扫描种子以保留 SideEntranceScanPriorConfidence；

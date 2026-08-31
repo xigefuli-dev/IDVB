@@ -23,6 +23,8 @@ public sealed partial class MapStructureRegistrarTests
             0d,
             InterpolationFlags.Nearest);
         var viewport = new MapScreenRect(600d, 300d, live.Width, live.Height);
+        var tuning = TestTuning();
+        tuning.ScaleSearchRadius = 0.04d;
         var registrar = new MapStructureRegistrar(new MapStructurePreprocessor());
 
         var result = registrar.Register(new MapStructureRegistrationRequest
@@ -34,7 +36,7 @@ public sealed partial class MapStructureRegistrarTests
                 reference,
                 offsetX: viewport.X - crop.X,
                 offsetY: viewport.Y - crop.Y),
-            Tuning = TestTuning(),
+            Tuning = tuning,
             AllowScaleSearch = true
         });
 

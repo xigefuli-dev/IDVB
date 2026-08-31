@@ -157,7 +157,7 @@ public sealed class OverlayNormalizedLayoutTests
 
         settings.Normalize();
 
-        Assert.Equal(14, settings.SchemaVersion);
+        Assert.Equal(MapRuntimeSettings.CurrentSchemaVersion, settings.SchemaVersion);
         Assert.Equal(0d, settings.StatusOffsetX);
         Assert.Equal(0.5d, settings.StatusOffsetY);
         Assert.Equal(1d, settings.MiniMapOffsetX);

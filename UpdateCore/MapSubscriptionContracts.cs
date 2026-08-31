@@ -6,7 +6,7 @@ namespace IDVBuff.UpdateCore;
 public static class MapSubscriptionProtocol
 {
     public const int SchemaVersion = 1;
-    public const string OfficialPublisherHandle = "xigefuli";
+    public const string OfficialPublisherHandle = "@xigefuli";
     public const string OfficialTrustFileName = "idvb-update-2026-01.pem";
     public const long MaximumEncryptedPackageBytes = 384L * 1024 * 1024;
 

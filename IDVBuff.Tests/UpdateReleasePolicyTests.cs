@@ -15,6 +15,7 @@ public sealed class UpdateReleasePolicyTests
         Assert.DoesNotContain("Stable packaging is blocked", script);
         Assert.Contains("ecdsa-feed-sha256-assets", script);
         Assert.Contains("Restore-DeltaBasePackage", script);
+        Assert.Contains("Keep-OnlyTargetFeedAssets", script);
         Assert.Contains("Restored signed delta base package", script);
         Assert.Contains("Stable feed must contain exactly one target-version full package", script);
         Assert.Contains("vpk did not produce a target-version delta package", script);

@@ -20,7 +20,7 @@ public sealed class MapListPackageActionPolicyTests
         var catalog = Read("Views", "MapListPage.Catalog.cs");
         var actions = Read("Views", "MapListPage.ExportPublishing.cs");
 
-        Assert.Contains("CreateActionButton(\"发布\"", list);
+        Assert.Contains("CreateActionButton(GetWebsiteActionText()", list);
         Assert.DoesNotContain("CreateActionButton(\"导出\"", list);
         Assert.Contains("CreatePublishTeachingTip(importButton, publishButton)", list);
         Assert.Contains("root.Children.Add(teachingTip)", list);
@@ -29,7 +29,7 @@ public sealed class MapListPackageActionPolicyTests
         Assert.DoesNotContain("root.Children.Add(websiteTeachingTip)", list);
         Assert.Equal(1, CountOccurrences(actions, "CreatePackageActionTeachingTip("));
         Assert.Contains("CreateTeachingTipChoiceButton(\"导出地图包\")", actions);
-        Assert.Contains("CreateTeachingTipChoiceButton(\"发布到官网\")", actions);
+        Assert.Contains("CreateTeachingTipChoiceButton(updating ? \"更新到官网\" : \"发布到官网\")", actions);
         Assert.Contains("await CloseTeachingTipAsync(tip)", actions);
         Assert.Contains("ShowExportIdvmDialogAsync(importButton, publishButton)", actions);
         Assert.Contains("ShowWebsitePublishDialogAsync(importButton, publishButton)", actions);
@@ -46,7 +46,7 @@ public sealed class MapListPackageActionPolicyTests
         Assert.Contains("new ComboBox", actions);
         Assert.Contains("new TextBox", actions);
         Assert.Contains("Title = \"选择导出范围\"", actions);
-        Assert.Contains("Title = \"发布到 IDVB 官网\"", actions);
+        Assert.Contains("Title = isUpdate ? \"更新 IDVB 官网地图包\" : \"发布到 IDVB 官网\"", actions);
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public sealed class MapListPackageActionPolicyTests
         var service = Read("Features", "Maps", "MapPublicationService.cs");
 
         Assert.Contains("map.AcquisitionKind == MapAcquisitionKind.Subscription", service);
-        Assert.Contains("订阅获得的地图不能再次发布", service);
+        Assert.Contains("只有发布者自己的已发布地图类可以更新", service);
     }
 
     [Fact]

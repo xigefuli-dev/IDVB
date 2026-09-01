@@ -177,7 +177,7 @@
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
         <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
-        <PackageReference Include="TorchSharp-cpu" Version="0.107.0" />
+        <PackageReference Include="TorchSharp" Version="0.107.0" />
         <PackageReference Include="Velopack" Version="1.2.0" />
 
         <Manifest Include="$(ApplicationManifest)" />

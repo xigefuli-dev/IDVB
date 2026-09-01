@@ -82,6 +82,7 @@
     <Compile Include="..\Features\Maps\MapLearningModels.cs" Link="Production\MapLearningModels.cs" />
     <Compile Include="..\Features\Maps\MapLearningPersistenceModels.cs" Link="Production\MapLearningPersistenceModels.cs" />
     <Compile Include="..\Features\Maps\MapLearningPreprocessor.cs" Link="Production\MapLearningPreprocessor.cs" />
+    <Compile Include="..\Features\Maps\TorchRuntimeConfiguration.cs" Link="Production\TorchRuntimeConfiguration.cs" />
     <Compile Include="..\Features\Maps\SiameseMapNetwork.cs" Link="Production\SiameseMapNetwork.cs" />
     <Compile Include="..\Features\Maps\MapLearningRepository.cs" Link="Production\MapLearningRepository.cs" />
     <Compile Include="..\Features\Maps\MapLearningRepository.Migration.cs" Link="Production\MapLearningRepository.Migration.cs" />

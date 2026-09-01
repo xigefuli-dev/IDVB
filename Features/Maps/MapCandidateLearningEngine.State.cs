@@ -5,6 +5,8 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCandidateLearningEngine
 {
+    static MapCandidateLearningEngine() => TorchRuntimeConfiguration.Configure();
+
     private sealed record SpatialTrainingCandidate(
         MapLearningCandidateManifest Manifest,
         IReadOnlyList<MapLearningReferenceTile> Tiles);

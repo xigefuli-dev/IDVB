@@ -86,7 +86,7 @@ public sealed partial class IdvmPackageServiceTests
                 Guid.NewGuid(),
                 "@mapper",
                 new string('A', 64),
-                "v2");
+                "v2", isOfficialPublisher: true, isBuilderPublisher: true);
 
             var current = Assert.Single(
                 await target.GetMapsAsync(),

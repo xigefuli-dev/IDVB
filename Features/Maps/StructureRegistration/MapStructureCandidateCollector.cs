@@ -80,9 +80,10 @@ internal static class MapStructureCandidateCollector
         MapStructureRegistrar.ReciprocalScaleContext reciprocalScale,
         List<MapStructureCandidate> output)
     {
+        var historyLimit = ResolveHistoryCandidateLimit(tuning);
         foreach (var transform in request.CandidateHistory
             .Where(candidate => candidate?.IsValid is true)
-            .TakeLast(StructureRegistrationRules.MaxHistoryCandidates))
+            .TakeLast(historyLimit))
         {
             if (Math.Abs((transform.Scale / scale) - 1d)
                 > StructureRegistrationRules.ScaleAgreementTolerance)
@@ -122,6 +123,12 @@ internal static class MapStructureCandidateCollector
                 reciprocalScale));
         }
     }
+
+    internal static int ResolveHistoryCandidateLimit(
+        MapStructureRegistrationTuning tuning) =>
+        tuning.Channel == MapAlignmentChannel.LowStructure
+            ? 0
+            : StructureRegistrationRules.MaxHistoryCandidates;
 
     internal static bool IsStrongAbsoluteCandidate(
         MapStructureCandidate candidate,

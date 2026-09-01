@@ -92,6 +92,26 @@ public sealed class MapBackgroundProcessorTests
     }
 
     [Fact]
+    public void FreeCropMasksPixelsOutsideItsPolygon()
+    {
+        using var source = new Mat(5, 5, MatType.CV_8UC4, new Scalar(11, 22, 33, 255));
+        var profile = new FloorRecognitionProfile
+        {
+            FreeCropPoints =
+            [
+                new NormalizedPoint { X = .25, Y = .25 },
+                new NormalizedPoint { X = .75, Y = .25 },
+                new NormalizedPoint { X = .5, Y = .75 }
+            ]
+        };
+
+        using var result = MapBackgroundProcessor.Process(source, profile, removeBackground: false);
+
+        Assert.Equal(new Vec4b(11, 22, 33, 255), result.Recognition.At<Vec4b>(2, 2));
+        Assert.Equal(new Vec4b(0, 0, 0, 0), result.Recognition.At<Vec4b>(0, 0));
+    }
+
+    [Fact]
     public void ConcealStrokeBuilderCreatesOneLayerAndInterpolatesAtQuarterBrushSpacing()
     {
         var builder = new MapConcealStrokeBuilder();

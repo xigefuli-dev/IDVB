@@ -101,6 +101,7 @@ public static class MapBackgroundProcessor
         using var fullMask = RasterizeMask(profile.BackgroundLayers, bgra.Width, bgra.Height);
         using var processedFull = bgra.Clone();
         using var combinedMask = fullMask.Clone();
+        ApplyFreeCropMask(combinedMask, profile.FreeCropPoints);
         if (removeBackground)
         {
             using var automatic = BuildAutomaticMask(
@@ -189,6 +190,20 @@ public static class MapBackgroundProcessor
         {
             Cv2.Circle(mask, center, Math.Max(0, (size - 1) / 2), Scalar.White, -1);
         }
+    }
+
+    private static void ApplyFreeCropMask(Mat mask, IReadOnlyList<NormalizedPoint>? points)
+    {
+        var polygon = (points ?? []).Where(point => point.IsValid).ToArray();
+        if (polygon.Length < 3)
+            return;
+        using var kept = new Mat(mask.Rows, mask.Cols, MatType.CV_8UC1, Scalar.Black);
+        var pixels = polygon.Select(point => new Point(
+            Math.Clamp((int)Math.Round(point.X * (mask.Cols - 1)), 0, mask.Cols - 1),
+            Math.Clamp((int)Math.Round(point.Y * (mask.Rows - 1)), 0, mask.Rows - 1))).ToArray();
+        Cv2.FillPoly(kept, [pixels], Scalar.White);
+        Cv2.BitwiseNot(kept, kept);
+        Cv2.BitwiseOr(mask, kept, mask);
     }
 
     private static Mat BuildAutomaticMask(Mat bgra, Mat manualMask, int tolerance)

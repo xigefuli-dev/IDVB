@@ -284,6 +284,11 @@ namespace IDVBuff.Features.Maps;internal static partial class MapStructureScaleS
             globalDsTimer.Stop();
             ctx.GlobalTemplateSearchMs += globalDsTimer.Elapsed.TotalMilliseconds;
         }
+
+        RequestEarlyTerminationForExtremelyHighConfidence(
+            tuning,
+            request,
+            ctx);
     }
     internal static void CollectFastCoarseCandidates(
         QueryGeometry query,

@@ -45,6 +45,8 @@ public sealed partial class MapRepository
                     sourceDraft.AcquisitionKind = MapAcquisitionKind.ImportedPackage;
                     sourceDraft.SubscriptionId = null;
                     sourceDraft.SubscriptionPublisherHandle = null;
+                    sourceDraft.SubscriptionPublisherIsOfficial = false;
+                    sourceDraft.SubscriptionPublisherIsBuilder = false;
                     sourceDraft.SubscriptionPublisherKeyId = null;
                     sourceDraft.SubscriptionVersion = null;
                     sourceDraft.Class = localClass;

@@ -180,6 +180,7 @@ public sealed partial class MapListPage : UserControl
         MapEditorTool.Line => "拖动创建一条有方向的直线。",
         MapEditorTool.Rectangle => "拖动创建无填充矩形。",
         MapEditorTool.Crop => "拖出当前楼层的识别区域。",
+        MapEditorTool.FreeCrop => "按住鼠标自由框选任意形状的识别区域。",
         MapEditorTool.Anchor => "连续拖动创建锚点。",
         MapEditorTool.Conceal => "拖动涂抹背景；再次点击可调整笔头。",
         MapEditorTool.Pan => "拖动画布视图。",
@@ -225,19 +226,33 @@ public sealed partial class MapListPage : UserControl
         var imagePath = GetActiveFloorImagePath();
         if (string.IsNullOrWhiteSpace(imagePath))
             return;
-        _modernBitmap = CreateBitmap(imagePath);
-        _modernBitmap.ImageOpened += (_, _) =>
+        if (!_modernFloorBitmaps.TryGetValue(floorKey, out var entry))
         {
-            if (_modernScene is null || _modernCanvas is null || _modernBitmap.PixelWidth <= 0 || _modernBitmap.PixelHeight <= 0)
-                return;
-            _modernScene.Width = _modernBitmap.PixelWidth;
-            _modernScene.Height = _modernBitmap.PixelHeight;
-            _modernCanvas.Width = _modernBitmap.PixelWidth;
-            _modernCanvas.Height = _modernBitmap.PixelHeight;
-            RenderModernEditor();
-            if (fitWhenLoaded)
-                DispatcherQueue.TryEnqueue(FitModernCanvas);
-        };
+            using var imageInfo = System.Drawing.Image.FromFile(imagePath);
+            var sourceWidth = imageInfo.Width;
+            var sourceHeight = imageInfo.Height;
+            var bitmap = new BitmapImage
+            {
+                CreateOptions = BitmapCreateOptions.IgnoreImageCache,
+                DecodePixelWidth = Math.Min(
+                    sourceWidth,
+                    ModernEditorDecodePixelWidth),
+                UriSource = new Uri(imagePath)
+            };
+            RoutedEventHandler opened = (_, _) => ApplyModernFloorBitmap(
+                bitmap,
+                sourceWidth,
+                sourceHeight,
+                fitWhenLoaded);
+            bitmap.ImageOpened += opened;
+            entry = new ModernFloorBitmap(
+                bitmap,
+                sourceWidth,
+                sourceHeight,
+                opened);
+            _modernFloorBitmaps[floorKey] = entry;
+        }
+        _modernBitmap = entry.Bitmap;
         if (_modernImage is not null)
         {
             _modernImage.Source = _modernBitmap;
@@ -245,7 +260,34 @@ public sealed partial class MapListPage : UserControl
         }
         SetModernStatus($"正在编辑 {GetModernFloorDisplayName(floorKey)}。", false);
         RefreshModernLayerList();
+        ApplyModernFloorBitmap(
+            _modernBitmap,
+            entry.SourceWidth,
+            entry.SourceHeight,
+            fitWhenLoaded);
+    }
+
+    private void ApplyModernFloorBitmap(
+        BitmapImage bitmap,
+        int sourceWidth,
+        int sourceHeight,
+        bool fitWhenLoaded)
+    {
+        if (!ReferenceEquals(_modernBitmap, bitmap)
+            || _modernScene is null
+            || _modernCanvas is null
+            || bitmap.PixelWidth <= 0
+            || bitmap.PixelHeight <= 0)
+        {
+            return;
+        }
+        _modernScene.Width = sourceWidth;
+        _modernScene.Height = sourceHeight;
+        _modernCanvas.Width = sourceWidth;
+        _modernCanvas.Height = sourceHeight;
         RenderModernEditor();
+        if (fitWhenLoaded)
+            DispatcherQueue.TryEnqueue(FitModernCanvas);
     }
 
     private string GetModernFloorDisplayName(string floorKey) =>

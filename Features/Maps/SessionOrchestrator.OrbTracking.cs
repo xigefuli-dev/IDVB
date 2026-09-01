@@ -30,9 +30,12 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition recognition,
         CapturedGameFrame seedFrame)
     {
-        var config = _config.Get<OrbTrackingConfig>("orb_tracking");
         CancelOrbTracking("alignment replaced");
         await DrainOrbTrackingAsync();
+        if (_settings?.EnableContinuousAlignment != true)
+            return;
+
+        var config = _config.Get<OrbTrackingConfig>("orb_tracking");
         if ((!config.Enabled && !IsAdaptiveScaleEnabled)
             || recognition.Result.OverlayTransform is not { } transform
             || !_gameMapToggleState.IsOpen
@@ -41,7 +44,7 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        if (!_overlay.IsCaptureExclusionEnabled)
+        if (!_overlay.TryEnableCaptureExclusion(out var exclusionFailure))
         {
             if (Interlocked.Exchange(ref _orbCaptureExclusionWarningLogged, 1) == 0)
             {
@@ -51,7 +54,7 @@ public sealed partial class SessionOrchestrator
                     "ORB tracking disabled because the overlay cannot be excluded from capture.",
                     details: new()
                     {
-                        ["failureReason"] = "直播模式未实际应用 Overlay 捕获保护。"
+                        ["failureReason"] = exclusionFailure
                     });
             }
             return;

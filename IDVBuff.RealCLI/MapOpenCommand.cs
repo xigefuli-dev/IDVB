@@ -90,12 +90,15 @@ internal static class MapOpenCommand
         Guid? candidateMapId = null,
         MapCandidateDecisionMode decisionMode = MapCandidateDecisionMode.Traditional,
         bool continuousLearning = false,
-        bool? forceCandidateSelection = null)
+        bool? forceCandidateSelection = null,
+        string? mapClass = null)
     {
         var sw = Stopwatch.StartNew();
         try
         {
             await orchestrator.InitializeAsync();
+            if (!string.IsNullOrWhiteSpace(mapClass))
+                orchestrator.SetLastSelectedMapClassForSession(mapClass);
             orchestrator.SetMapLearningOptionsForSession(
                 decisionMode,
                 continuousLearning);
@@ -105,7 +108,9 @@ internal static class MapOpenCommand
                 tuning.ForceCandidateSelection = forceCandidateSelection.Value;
                 await orchestrator.SetRecognitionTuningAsync(tuning);
             }
-            await orchestrator.BeginMatchAsync("S0 厄运之女 · 困难");
+            await orchestrator.BeginMatchAsync(
+                orchestrator.Settings.LastSelectedMapClass
+                ?? "S0 厄运之女 · 噩梦（爱吃醋）");
 
             // 强制候选选择（--candidate）只在后台扫描关闭时生效；
             // 临时会话级关闭，不污染用户 settings。

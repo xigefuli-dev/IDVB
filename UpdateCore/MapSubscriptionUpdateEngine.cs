@@ -58,6 +58,16 @@ public sealed class MapSubscriptionUpdateEngine
             ?? throw new InvalidDataException("地图订阅 feed 为空。");
         var publication = MapSubscriptionCrypto.Verify(
             envelope, link.PublisherKeyId, officialPublicKeyPem);
+        record.PublisherHandle = publication.PublisherHandle;
+        record.PublisherDisplayName = publication.PublisherDisplayName;
+        record.IsOfficialPublisher = publication.IsOfficialPublisher;
+        record.IsBuilderPublisher = publication.IsBuilderPublisher;
+        record.PackageName = publication.PackageName;
+        var communityMetadata = await GetCommunityMetadataAsync(link.FeedUri, publication.PublicationId, cancellationToken);
+        record.PublisherDisplayName ??= communityMetadata.PublisherDisplayName;
+        record.PackageName ??= communityMetadata.PackageName;
+        if (string.Equals(record.LastAppliedVersion, publication.Version, StringComparison.Ordinal))
+            return false;
         if (record.LastPublishedAtUtc is { } previous && publication.PublishedAtUtc < previous)
             throw new CryptographicException("订阅 feed 发生版本回退，已拒绝应用。");
         if (string.Equals(
@@ -145,5 +155,44 @@ public sealed class MapSubscriptionUpdateEngine
                 || !string.Equals(result.Host, feedUri.Host, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("远程订阅包必须与 feed 使用相同的 HTTPS 主机。");
         return result;
+    }
+
+    private async Task<(string? PublisherDisplayName, string? PackageName)> GetCommunityMetadataAsync(
+        Uri feedUri,
+        Guid publicationId,
+        CancellationToken cancellationToken)
+    {
+        var segments = feedUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (!string.Equals(feedUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || segments.Length != 5
+            || !string.Equals(segments[0], "api", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(segments[1], "maps", StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(segments[2], "subscriptions", StringComparison.OrdinalIgnoreCase)
+            || !Guid.TryParse(segments[3], out var feedPublicationId)
+            || feedPublicationId != publicationId
+            || !string.Equals(segments[4], "feed.json", StringComparison.OrdinalIgnoreCase))
+            return default;
+
+        try
+        {
+            var catalog = await ReadUriAsync(new Uri(feedUri, "/api/maps"), 2 * 1024 * 1024, cancellationToken);
+            using var document = JsonDocument.Parse(catalog);
+            if (!document.RootElement.TryGetProperty("publications", out var publications)) return default;
+            foreach (var item in publications.EnumerateArray())
+            {
+                if (!item.TryGetProperty("id", out var id)
+                    || !Guid.TryParse(id.GetString(), out var catalogPublicationId)
+                    || catalogPublicationId != publicationId)
+                    continue;
+                return (
+                    item.TryGetProperty("publisherName", out var publisherName) ? publisherName.GetString() : null,
+                    item.TryGetProperty("name", out var packageName) ? packageName.GetString() : null);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Public catalog metadata only improves labels; the signed feed remains authoritative.
+        }
+        return default;
     }
 }

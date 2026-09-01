@@ -18,6 +18,8 @@ public sealed partial class MapRecord
     public MapAcquisitionKind AcquisitionKind { get; set; }
     public Guid? SubscriptionId { get; set; }
     public string? SubscriptionPublisherHandle { get; set; }
+    public bool SubscriptionPublisherIsOfficial { get; set; }
+    public bool SubscriptionPublisherIsBuilder { get; set; }
     public string? SubscriptionPublisherKeyId { get; set; }
     public string? SubscriptionVersion { get; set; }
 }
@@ -32,6 +34,8 @@ public sealed partial class MapDraft
     public MapAcquisitionKind AcquisitionKind { get; set; }
     public Guid? SubscriptionId { get; set; }
     public string? SubscriptionPublisherHandle { get; set; }
+    public bool SubscriptionPublisherIsOfficial { get; set; }
+    public bool SubscriptionPublisherIsBuilder { get; set; }
     public string? SubscriptionPublisherKeyId { get; set; }
     public string? SubscriptionVersion { get; set; }
 }

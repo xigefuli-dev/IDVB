@@ -112,7 +112,7 @@ internal sealed record LowStructureScaleProposal(
 /// Pure low-structure routing policy. It deliberately separates the number
 /// of scales in a recovery grid from the amount of work allowed in one call.
 /// </summary>
-internal sealed record LowStructureAlignmentPlan(
+internal sealed partial record LowStructureAlignmentPlan(
     LowStructureAlignmentRoute Route,
     IReadOnlyList<double> Scales,
     int TranslationTopK,

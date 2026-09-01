@@ -114,7 +114,11 @@ public sealed record MapPublicationPayload(
     long EncryptedLength,
     string EncryptedSha256,
     long PlaintextLength,
-    string PlaintextSha256);
+    string PlaintextSha256,
+    string? PublisherDisplayName = null,
+    bool IsOfficialPublisher = false,
+    bool IsBuilderPublisher = false,
+    string? PackageName = null);
 
 public sealed record SignedMapPublicationEnvelope(
     int SchemaVersion,
@@ -129,6 +133,11 @@ public sealed class MapSubscriptionRecord
     public string FeedUri { get; set; } = string.Empty;
     public string PublisherKeyId { get; set; } = string.Empty;
     public string? PublisherHandle { get; set; }
+    public string? PublisherDisplayName { get; set; }
+    public bool IsOfficialPublisher { get; set; }
+    public bool IsBuilderPublisher { get; set; }
+    public string? PackageName { get; set; }
+    public string? CoverPath { get; set; }
     public bool Enabled { get; set; } = true;
     public DateTimeOffset AddedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastCheckedAtUtc { get; set; }

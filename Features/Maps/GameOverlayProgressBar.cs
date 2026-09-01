@@ -27,7 +27,7 @@ internal sealed class GameOverlayProgressBar : IDisposable
     private static readonly WindowProcedure WindowProcedureDelegate = WindowProcedureCore;
     private static bool _windowClassRegistered;
     private IntPtr _window;
-    private bool _disposed, _completing;
+    private bool _disposed, _completing, _failed;
     private long _version;
     private MapScreenRect _bounds;
     private string _text = "正在扫描...";
@@ -44,7 +44,7 @@ internal sealed class GameOverlayProgressBar : IDisposable
     {
         if (!bounds.IsValid || gameWindowHandle == IntPtr.Zero || _disposed) return;
         long version;
-        lock (_gate) { _bounds = bounds; _text = text; _progress = 0; _completing = false; version = ++_version; }
+        lock (_gate) { _bounds = bounds; _text = text; _progress = 0; _completing = false; _failed = false; version = ++_version; }
         _ = AnimateAsync(version, completing: false);
     }
 
@@ -62,11 +62,26 @@ internal sealed class GameOverlayProgressBar : IDisposable
     /// <summary>显示“完成”，0.7 秒变为 #00BA1C，停留 1.8 秒后按入场反向退出。</summary>
     public void Complete()
     {
+        Finish("完成", failed: false);
+    }
+
+    /// <summary>以红色高对比终态显示扫描失败原因，然后自动退出。</summary>
+    public void Fail(string message)
+    {
+        Finish(
+            string.IsNullOrWhiteSpace(message)
+                ? "扫描失败，请重试。"
+                : message.Trim(),
+            failed: true);
+    }
+
+    private void Finish(string text, bool failed)
+    {
         long version;
         lock (_gate)
         {
             if (_disposed || _version == 0 || _completing) return;
-            _progress = 1; _text = "完成"; _completing = true; version = _version;
+            _progress = 1; _text = text; _failed = failed; _completing = true; version = _version;
         }
         _ = AnimateAsync(version, completing: true);
     }
@@ -115,23 +130,26 @@ internal sealed class GameOverlayProgressBar : IDisposable
 
     private void Paint(double visibility, double green)
     {
-        MapScreenRect bounds; string text; double progress;
-        lock (_gate) { bounds = _bounds; text = _text; progress = _progress; }
+        MapScreenRect bounds; string text; double progress; bool failed;
+        lock (_gate) { bounds = _bounds; text = _text; progress = _progress; failed = _failed; }
         EnsureWindow();
         using var bitmap = new Bitmap(BarWidth, BarHeight, PixelFormat.Format32bppPArgb);
         using (var g = Graphics.FromImage(bitmap))
         {
             g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             using var back = new SolidBrush(Color.FromArgb(235, 55, 82, 112)); using var backPath = Round(new RectangleF(0, 0, BarWidth - 1, BarHeight - 1), BarHeight / 2f); g.FillPath(back, backPath);
-            var blue = Color.FromArgb(255, 42, 130, 228); var success = Color.FromArgb(255, 0, 186, 28);
-            using var fill = new SolidBrush(Color.FromArgb(255, (int)(blue.R + (success.R - blue.R) * green), (int)(blue.G + (success.G - blue.G) * green), (int)(blue.B + (success.B - blue.B) * green)));
+            var blue = Color.FromArgb(255, 42, 130, 228);
+            var terminal = failed
+                ? Color.FromArgb(255, 179, 38, 30)
+                : Color.FromArgb(255, 0, 186, 28);
+            using var fill = new SolidBrush(Color.FromArgb(255, (int)(blue.R + (terminal.R - blue.R) * green), (int)(blue.G + (terminal.G - blue.G) * green), (int)(blue.B + (terminal.B - blue.B) * green)));
             using var fillPath = Round(new RectangleF(0, 0, Math.Max(BarHeight, BarWidth * (float)progress), BarHeight - 1), BarHeight / 2f); g.FillPath(fill, fillPath);
             using var font = new Font("Microsoft YaHei UI", 18, FontStyle.Regular, GraphicsUnit.Pixel); using var white = new SolidBrush(Color.White);
             using var left = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
             using var right = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center };
             // 信息文本层、进度文本层各自独立绘制。
             g.DrawString(text, font, white, new RectangleF(34, 0, 190, BarHeight), left);
-            g.DrawString($"{progress * 100:0}%", font, white, new RectangleF(225, 0, 80, BarHeight), right);
+            g.DrawString(failed ? "失败" : $"{progress * 100:0}%", font, white, new RectangleF(225, 0, 80, BarHeight), right);
         }
         var targetY = bounds.Y + bounds.Height * .85 - BarHeight / 2d; // -70%
         var hiddenY = bounds.Y + bounds.Height + BarHeight + 8d;

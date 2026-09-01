@@ -9,6 +9,8 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapManualCandidateWindow
 {
+    private const int CandidatePreviewDecodeWidth = 640;
+
     public sealed record CandidateLivePreviewAssets(
         ImageSource Original,
         ImageSource Detail);
@@ -284,15 +286,34 @@ public sealed partial class MapManualCandidateWindow
                     plan.Zoom,
                     plan.TargetX,
                     plan.TargetY);
-                return await MapManualRecognitionWindow.CreateBitmapAsync(positioned);
+                using var preview = ResizeForPreview(positioned);
+                return await MapManualRecognitionWindow.CreateBitmapAsync(preview);
             }
         }
 
         return new BitmapImage
         {
             CreateOptions = BitmapCreateOptions.IgnoreImageCache,
+            DecodePixelWidth = CandidatePreviewDecodeWidth,
             UriSource = new Uri(previewPath)
         };
+    }
+
+    private static Mat ResizeForPreview(Mat source)
+    {
+        if (source.Width <= CandidatePreviewDecodeWidth)
+            return source.Clone();
+        var resized = new Mat();
+        Cv2.Resize(
+            source,
+            resized,
+            new OpenCvSharp.Size(
+                CandidatePreviewDecodeWidth,
+                Math.Max(1, source.Height * CandidatePreviewDecodeWidth / source.Width)),
+            0,
+            0,
+            InterpolationFlags.Area);
+        return resized;
     }
 
     private Mat CreateRecognitionRegionImage() => CreateRecognitionRegionImage(

@@ -21,6 +21,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     public async Task RefreshMapCacheAsync(Guid? changedMapId = null)
     {
         await _recognition.RefreshCacheAsync(changedMapId);
+        if (_learningEngineInitialized)
+            await _learningEngine.InvalidateReferenceCacheAsync(
+                _lifetimeCts.Token);
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -71,15 +74,23 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         Interlocked.Increment(ref _activeScanOperations);
         StateChanged?.Invoke(this, EventArgs.Empty);
         var restoreOverlay = _overlay.IsVisible;
+        var backgroundScan = _settings.BackgroundScanEnabled;
+        var scanCompleted = false;
         if (restoreOverlay)
             _overlay.Hide();
         try
         {
             await RunRecognitionPipelineAsync();
+            scanCompleted = backgroundScan
+                ? IsBackgroundScanCompleted
+                : _hasCompletedQuickScanAlignment;
         }
         finally
         {
-            _scanProgressOverlay.Complete();
+            if (scanCompleted)
+                _scanProgressOverlay.Complete();
+            else
+                _scanProgressOverlay.Fail(GetScanProgressFailureMessage(operationMatch));
             if (restoreOverlay
                 && IsCurrentMatchOperation(operationMatch)
                 && !_overlay.IsVisible)
@@ -88,6 +99,21 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             Interlocked.Decrement(ref _activeScanOperations);
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    private string GetScanProgressFailureMessage(MapMatchSnapshot operationMatch)
+    {
+        if (!IsCurrentMatchOperation(operationMatch))
+            return "扫描已取消，请重新开始。";
+        if (_backgroundScanStatus == BackgroundScanStatus.CompletedFailed
+            && !string.IsNullOrWhiteSpace(_pendingBackgroundFailureReason))
+        {
+            return _pendingBackgroundFailureReason;
+        }
+        return string.IsNullOrWhiteSpace(_statusMessage)
+            || string.Equals(_statusMessage, "快速扫描中……", StringComparison.Ordinal)
+                ? "扫描失败，请查看状态或日志后重试。"
+                : _statusMessage;
     }
 
     /// <summary>
@@ -150,7 +176,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         StateChanged?.Invoke(this, EventArgs.Empty);
         try
         {
-            await RunMapOpenAlignmentAsync(transition);
+            await RunMapOpenAlignmentAsync(transition, continuous: false);
         }
         finally
         {
@@ -369,6 +395,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             CancelMatchOperations();
             await DrainMatchOperationsAsync();
             await DrainMapCacheWritesAsync();
+            await DrainHumanMapSelectionRecordingAsync();
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
         }
         finally

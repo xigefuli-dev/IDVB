@@ -1,4 +1,5 @@
 using IDVBuff.Features.Maps;
+using IDVBuff.Features.Accounts;
 using IDVBuff.Survey.Domain;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -98,15 +99,26 @@ public sealed partial class MapListPage : UserControl
         var label = map.AcquisitionKind switch
         {
             MapAcquisitionKind.ImportedPackage => "导入",
-            MapAcquisitionKind.Subscription when !string.IsNullOrWhiteSpace(map.SubscriptionPublisherHandle)
-                => $"订阅 · {map.SubscriptionPublisherHandle}",
             MapAcquisitionKind.Subscription => "订阅",
             _ when string.Equals(map.Source, "survey", StringComparison.Ordinal) => "本地 · 测绘",
             _ => "本地"
         };
+        var name = map.SubscriptionPublisherHandle;
+        if (name?.StartsWith("@u_", StringComparison.OrdinalIgnoreCase) == true
+            && string.Equals(name, AccountSession.Identity?.PublisherHandle, StringComparison.OrdinalIgnoreCase))
+            name = AccountSession.Identity!.DisplayName;
+        else if (string.IsNullOrWhiteSpace(name) || name.StartsWith("@u_", StringComparison.OrdinalIgnoreCase))
+            name = "未知作者";
+        if (map.AcquisitionKind == MapAcquisitionKind.Subscription)
+            label += " · @" + name.TrimStart('@');
+        var background = map.SubscriptionPublisherIsBuilder
+            ? Color.FromArgb(225, 233, 133, 34)
+            : map.SubscriptionPublisherIsOfficial
+                ? Color.FromArgb(225, 22, 135, 255)
+                : Color.FromArgb(205, 22, 29, 38);
         var badge = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(205, 22, 29, 38)),
+            Background = new SolidColorBrush(background),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(8, 3, 8, 3),
             Margin = new Thickness(7),
@@ -125,6 +137,7 @@ public sealed partial class MapListPage : UserControl
                 $"订阅版本：{map.SubscriptionVersion ?? "未知"}");
         return badge;
     }
+
 
     private async Task ShowMapImmediatelyAsync(MapRecord map)
     {

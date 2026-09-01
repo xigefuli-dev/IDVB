@@ -131,6 +131,9 @@ public interface IMapCandidateLearningEngine : IAsyncDisposable
 
     Task InitializeAsync(CancellationToken cancellationToken = default);
 
+    Task InvalidateReferenceCacheAsync(
+        CancellationToken cancellationToken = default);
+
     Task<MapLearningScoreResult> ScoreAsync(
         Mat liveViewport,
         IReadOnlyList<MapRecognitionChoice> choices,

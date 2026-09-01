@@ -4,8 +4,32 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private long _continuousAlignmentGeneration;
+
     private async Task RunMapOpenAlignmentAsync(
-        MapGameToggleTransition toggle)
+        MapGameToggleTransition toggle,
+        bool continuous = true)
+    {
+        continuous &= _settings?.EnableContinuousAlignment == true;
+        var generation = Interlocked.Increment(
+            ref _continuousAlignmentGeneration);
+        do
+        {
+            await RunSingleMapOpenAlignmentAsync(
+                toggle,
+                independentAlignment: continuous);
+        }
+        while (continuous
+            && generation == Volatile.Read(
+                ref _continuousAlignmentGeneration)
+            && _gameMapToggleState.IsCurrent(toggle)
+            && (_lastRecognition is not null
+                || _pendingAlignmentIdentity is not null));
+    }
+
+    private async Task RunSingleMapOpenAlignmentAsync(
+        MapGameToggleTransition toggle,
+        bool independentAlignment)
     {
         var mapOpenCancellation = BeginMapOpenCancellationScope();
         var cancellationToken = mapOpenCancellation.Token;
@@ -47,14 +71,23 @@ public sealed partial class SessionOrchestrator
                 // The wrapper owns the gate and overlay transition. Keeping
                 // this span explicit prevents that orchestration time from
                 // becoming an unexplained prefix before alignment starts.
-                restoreMainContent = _overlay.IsVisible;
+                var canKeepPreviousResult = independentAlignment
+                    && (_overlay.IsCaptureExclusionEnabled
+                        || _overlay.TryEnableCaptureExclusion(out _));
+                if (independentAlignment)
+                    _overlayStatus.KeepCurrent();
+                restoreMainContent = _overlay.IsVisible
+                    && !canKeepPreviousResult;
                 if (restoreMainContent)
                     _overlay.SetMainContentVisible(false);
             }
             await RunMapOpenAlignmentCoreAsync(
                 toggle,
                 operationMatch,
-                cancellationToken);
+                cancellationToken,
+                independentAlignment);
+            if (independentAlignment)
+                _overlayStatus.KeepCurrent();
         }
         catch (OperationCanceledException) when (
             cancellationToken.IsCancellationRequested)
@@ -106,6 +139,7 @@ public sealed partial class SessionOrchestrator
 
     private async Task RunRecognitionPipelineAsync()
     {
+        using var suppressScanDiagnostics = MapDiagnosticModeCapture.Suppress();
         CancelOrbTracking("recognition scan started");
         await DrainOrbTrackingAsync();
         var operationMatch = _matchSession.Snapshot;

@@ -372,6 +372,8 @@ public sealed partial class MapRecord
         {
             SubscriptionId = null;
             SubscriptionPublisherHandle = null;
+            SubscriptionPublisherIsOfficial = false;
+            SubscriptionPublisherIsBuilder = false;
             SubscriptionPublisherKeyId = null;
             SubscriptionVersion = null;
         }
@@ -393,6 +395,8 @@ public sealed partial class MapRecord
             AcquisitionKind = AcquisitionKind,
             SubscriptionId = SubscriptionId,
             SubscriptionPublisherHandle = SubscriptionPublisherHandle,
+            SubscriptionPublisherIsOfficial = SubscriptionPublisherIsOfficial,
+            SubscriptionPublisherIsBuilder = SubscriptionPublisherIsBuilder,
             SubscriptionPublisherKeyId = SubscriptionPublisherKeyId,
             SubscriptionVersion = SubscriptionVersion,
             SourceProjectId = SourceProjectId,

@@ -20,6 +20,7 @@ public static class QuickStartRecommendedSettings
         settings.IsEnabled = false;
         settings.FirstScanStrategy = FirstScanStrategy.SideEntrance;
         settings.BackgroundScanEnabled = true;
+        settings.EnableContinuousAlignment = false;
         settings.SelectedResolutionPreset = null;
         settings.AllowAutomaticMapCache = false;
         settings.CollectLogs = true;

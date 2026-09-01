@@ -114,4 +114,25 @@ public sealed class MapStructureRefinerTests
 
         Assert.InRange(estimate, 100, 400);
     }
+
+    [Theory]
+    [InlineData(MapAlignmentChannel.LowStructure, 100, 300, 300, true)]
+    [InlineData(MapAlignmentChannel.LowStructure, 101, 300, 300, false)]
+    [InlineData(MapAlignmentChannel.Standard, 200, 300, 300, true)]
+    [InlineData(MapAlignmentChannel.Standard, 301, 300, 300, false)]
+    public void ExpensiveRestrictedTemplateIsSkippedOnlyForLowStructure(
+        MapAlignmentChannel channel,
+        int estimate,
+        int remaining,
+        int warmBudget,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MapStructureScaleSearch.ShouldRunRestrictedTemplateSearch(
+                channel,
+                estimate,
+                remaining,
+                warmBudget));
+    }
 }

@@ -145,6 +145,33 @@ public sealed partial class SessionOrchestrator
     }
 
     /// <summary>
+    /// Changes the remembered map Class for the current headless session only.
+    /// Replay and diagnostic callers must not persist their per-case fixture.
+    /// </summary>
+    public void SetLastSelectedMapClassForSession(string mapClass)
+    {
+        if (_settings is null)
+            throw new InvalidOperationException(
+                "SessionOrchestrator has not been initialized.");
+
+        var normalized = string.IsNullOrWhiteSpace(mapClass)
+            ? null
+            : mapClass.Trim();
+        if (normalized is not null)
+            _settings.LastSelectedMapClass = normalized;
+    }
+
+    public async Task SetDiagnosticModeAsync(bool enabled)
+    {
+        if (!enabled)
+            MapDiagnosticModeCapture.Clear();
+        _settings!.DiagnosticModeEnabled = enabled;
+        await SaveSettingsAsync();
+        if (enabled && _matchSession.Snapshot.IsStarted)
+            MapDiagnosticModeCapture.BeginMatch();
+    }
+
+    /// <summary>
     /// Enables structured diagnostics for the in-process CLI without changing
     /// the user's persisted settings.  CLI output must contain the same
     /// MapLogCollector entries as the GUI runtime, including failures.

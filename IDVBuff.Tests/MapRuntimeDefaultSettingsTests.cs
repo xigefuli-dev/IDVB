@@ -13,6 +13,8 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
         Assert.False(settings.BackgroundScanEnabled);
+        Assert.True(settings.RequireStrictStructureRegistrationDuringScan);
+        Assert.False(settings.EnableContinuousAlignment);
         Assert.False(settings.CollectLogs);
         Assert.False(settings.CollectAlignmentResearchData);
         Assert.False(settings.ContinuousMapLearningEnabled);

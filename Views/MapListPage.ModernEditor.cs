@@ -60,6 +60,14 @@ public sealed partial class MapListPage : UserControl
     private TextBlock? _modernZoomText;
     private Border? _modernColorIndicator;
     private BitmapImage? _modernBitmap;
+    private const int ModernEditorDecodePixelWidth = 2048;
+    private sealed record ModernFloorBitmap(
+        BitmapImage Bitmap,
+        int SourceWidth,
+        int SourceHeight,
+        RoutedEventHandler OpenedHandler);
+    private readonly Dictionary<string, ModernFloorBitmap> _modernFloorBitmaps =
+        new(StringComparer.OrdinalIgnoreCase);
     private EditorSelection? _modernSelection;
     private EditorInteractionKind _modernInteraction;
     private Point _modernPointerStart;
@@ -74,6 +82,7 @@ public sealed partial class MapListPage : UserControl
     private NormalizedRectangle? _modernPendingBounds;
     private NormalizedPoint? _modernPendingStart;
     private NormalizedPoint? _modernPendingEnd;
+    private readonly List<NormalizedPoint> _modernFreeCropPoints = [];
     private string _currentAnnotationColor = MapAnnotationColor.Default;
     private bool _modernGridVisible = true;
     private bool _modernSnapEnabled = true;
@@ -88,6 +97,9 @@ public sealed partial class MapListPage : UserControl
     private readonly Stack<ModernUndoAction> _modernCreationUndoStack = new();
     private readonly MapConcealStrokeBuilder _modernConcealStroke = new();
     private NormalizedPoint? _modernConcealHoverPoint;
+    private Polyline? _modernConcealPreviewStroke;
+    private Shape? _modernConcealPreviewTip;
+    private int _modernConcealPreviewPointCount;
 
     private sealed record ModernUndoAction(
         string FloorKey,
@@ -290,10 +302,18 @@ public sealed partial class MapListPage : UserControl
         CancelModernInteraction(restoreGeometry: true);
         if (_modernImage is not null)
             _modernImage.Source = null;
+        foreach (var entry in _modernFloorBitmaps.Values)
+        {
+            entry.Bitmap.ImageOpened -= entry.OpenedHandler;
+            entry.Bitmap.UriSource = null;
+        }
+        _modernFloorBitmaps.Clear();
         if (_modernScene is not null)
             _modernScene.Children.Clear();
         if (_modernEditorRoot is not null)
             _modernEditorRoot.Children.Clear();
+        if (ReferenceEquals(_workflowHost.Content, _modernEditorRoot))
+            _workflowHost.Content = null;
         _modernEditorActive = false;
         NavigationCompactStateChanged?.Invoke(false);
         if (_editorThemeRoot is not null)
@@ -318,6 +338,12 @@ public sealed partial class MapListPage : UserControl
         _modernLayerList = null;
         _modernExportButton = null;
         _modernBitmap = null;
+        _modernLayerGroups.Clear();
+        _editorToolButtons.Clear();
+        _modernCreationUndoStack.Clear();
+        _modernFreeCropPoints.Clear();
+        _modernConcealStroke.Cancel();
+        _modernConcealHoverPoint = null;
         _modernSelection = null;
         _modernExportRendering = false;
         _modernExportInProgress = false;

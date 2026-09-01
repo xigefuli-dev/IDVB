@@ -22,6 +22,7 @@ internal static class MapStructureDebugOutput
         MapStructureFeatures live,
         MapStructureFeatures reference)
     {
+        MapDiagnosticModeCapture.WriteInputs(liveRoi, live.StructureMask);
         if (directory is null)
             return;
         TryWrite(Path.Combine(directory, "01-roi.png"), liveRoi);
@@ -40,7 +41,7 @@ internal static class MapStructureDebugOutput
         QueryGeometry? query,
         IReadOnlyList<MapStructureCandidate> candidates)
     {
-        if (directory is null)
+        if (directory is null && !MapDiagnosticModeCapture.IsActive)
             return;
         if (heatmap is not null && !heatmap.Empty())
         {
@@ -53,7 +54,9 @@ internal static class MapStructureDebugOutput
                 0d,
                 NormTypes.MinMax);
             normalizedFloat.ConvertTo(normalized, MatType.CV_8UC1);
-            TryWrite(Path.Combine(directory, "06-search-heatmap.png"), normalized);
+            MapDiagnosticModeCapture.WriteFitness(normalized);
+            if (directory is not null)
+                TryWrite(Path.Combine(directory, "06-search-heatmap.png"), normalized);
         }
         using var visual = new Mat();
         Cv2.CvtColor(reference.StructureMask, visual, ColorConversionCodes.GRAY2BGR);
@@ -73,7 +76,9 @@ internal static class MapStructureDebugOutput
                     index == 0 ? 3 : 1);
             }
         }
-        TryWrite(Path.Combine(directory, "07-top-candidates.png"), visual);
+        MapDiagnosticModeCapture.WriteFitness(visual);
+        if (directory is not null)
+            TryWrite(Path.Combine(directory, "07-top-candidates.png"), visual);
     }
 
     internal static void WriteFinalDebug(
@@ -83,7 +88,7 @@ internal static class MapStructureDebugOutput
         MapStructureFeatures live,
         MapOverlayTransform transform)
     {
-        if (directory is null)
+        if (directory is null && !MapDiagnosticModeCapture.IsActive)
             return;
         using var projected = new Mat();
         using var matrix = Mat.Zeros(2, 3, MatType.CV_64FC1).ToMat();
@@ -96,9 +101,10 @@ internal static class MapStructureDebugOutput
             projected,
             matrix,
             request.LiveRoi.Size(),
-            InterpolationFlags.Nearest,
+            InterpolationFlags.Area,
             BorderTypes.Constant,
             Scalar.Black);
+        Cv2.Threshold(projected, projected, 0d, 255d, ThresholdTypes.Binary);
         using var visual = new Mat(
             request.LiveRoi.Size(),
             MatType.CV_8UC3,
@@ -108,7 +114,9 @@ internal static class MapStructureDebugOutput
         using var overlap = new Mat();
         Cv2.BitwiseAnd(live.Edges, projected, overlap);
         visual.SetTo(new Scalar(0, 255, 255), overlap);
-        TryWrite(Path.Combine(directory, "08-final-overlay.png"), visual);
+        MapDiagnosticModeCapture.WriteFitness(visual);
+        if (directory is not null)
+            TryWrite(Path.Combine(directory, "08-final-overlay.png"), visual);
     }
 
     internal static void TryWrite(string path, Mat image)

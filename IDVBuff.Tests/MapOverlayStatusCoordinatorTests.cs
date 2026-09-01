@@ -55,6 +55,25 @@ public sealed class MapOverlayStatusCoordinatorTests
     }
 
     [Fact]
+    public async Task KeptStatusRemainsUntilItIsOverwritten()
+    {
+        var overlay = new RecordingOverlay();
+        using var coordinator = new MapOverlayStatusCoordinator(
+            overlay,
+            action => action(),
+            transientLifetime: TimeSpan.FromMilliseconds(30));
+        var bounds = new MapScreenRect(0, 0, 1920, 1080);
+
+        coordinator.Show(Status("first"), bounds, new IntPtr(1), true, true);
+        coordinator.KeepCurrent();
+        await Task.Delay(70);
+        coordinator.Show(Status("second"), bounds, new IntPtr(1), true, false);
+
+        Assert.Equal("second", overlay.Status?.Title);
+        Assert.Equal(0, overlay.ClearStatusCount);
+    }
+
+    [Fact]
     public void OverlayFailuresAreFailOpen()
     {
         var overlay = new RecordingOverlay

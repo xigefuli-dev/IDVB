@@ -145,7 +145,8 @@ internal static class MapOpenReplayCommand
                     continuousLearning: !readOnlyModelReplay
                         && candidateMapId.HasValue,
                     replayCase.ForceCandidateSelection
-                        ?? manifest.ForceCandidateSelection);
+                        ?? manifest.ForceCandidateSelection,
+                    replayCase.MapClass);
                 cases.Add(new MapOpenReplayCaseResult
                 {
                     Name = replayCase.Name,
@@ -260,6 +261,7 @@ internal sealed class MapOpenReplayManifest
 internal sealed class MapOpenReplayCase
 {
     public string? Name { get; init; }
+    public string? MapClass { get; init; }
     public string ScanImage { get; init; } = string.Empty;
     public string? ReopenImage { get; init; }
     public int? Candidate { get; init; }

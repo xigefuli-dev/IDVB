@@ -17,6 +17,8 @@ public sealed class FloorRecognitionProfile
     /// A missing value means that the region has not been explicitly configured.
     /// </summary>
     public NormalizedRectangle? RecognitionRegion { get; set; }
+    /// <summary>Optional freehand crop polygon in original-source coordinates.</summary>
+    public List<NormalizedPoint> FreeCropPoints { get; set; } = [];
     /// <summary>Pixel dimensions of the generated recognition image.</summary>
     public int RecognitionPixelWidth { get; set; }
     public int RecognitionPixelHeight { get; set; }
@@ -75,6 +77,7 @@ public sealed class FloorRecognitionProfile
         FloorKey = FloorKey,
         OrientationDegrees = OrientationDegrees,
         RecognitionRegion = RecognitionRegion?.Clone(),
+        FreeCropPoints = (FreeCropPoints ?? []).Where(point => point.IsValid).Select(point => point.Clone()).ToList(),
         RecognitionPixelWidth = RecognitionPixelWidth,
         RecognitionPixelHeight = RecognitionPixelHeight,
         ValidMapBounds = ValidMapBounds?.Clone(),
@@ -309,6 +312,7 @@ public sealed partial class MapRecognitionProfile
         NormalizeAnnotations(profile);
         profile.OrientationDegrees = NormalizeOrientation(profile.OrientationDegrees);
         profile.RecognitionRegion = NormalizeRecognitionRegion(profile.RecognitionRegion);
+        profile.FreeCropPoints = (profile.FreeCropPoints ?? []).Where(point => point.IsValid).Select(point => point.Clone()).ToList();
         profile.RecognitionPixelWidth = Math.Max(0, profile.RecognitionPixelWidth);
         profile.RecognitionPixelHeight = Math.Max(0, profile.RecognitionPixelHeight);
         profile.ValidMapBounds = NormalizeValidMapBounds(profile);

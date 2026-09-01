@@ -114,6 +114,8 @@ public sealed partial class MapRepository
                 AcquisitionKind = record.AcquisitionKind,
                 SubscriptionId = record.SubscriptionId,
                 SubscriptionPublisherHandle = record.SubscriptionPublisherHandle,
+                SubscriptionPublisherIsOfficial = record.SubscriptionPublisherIsOfficial,
+                SubscriptionPublisherIsBuilder = record.SubscriptionPublisherIsBuilder,
                 SubscriptionPublisherKeyId = record.SubscriptionPublisherKeyId,
                 SubscriptionVersion = record.SubscriptionVersion,
                 SourceProjectId = record.SourceProjectId,
@@ -168,6 +170,8 @@ public sealed partial class MapRepository
             record.AcquisitionKind = draft.AcquisitionKind;
             record.SubscriptionId = draft.SubscriptionId;
             record.SubscriptionPublisherHandle = draft.SubscriptionPublisherHandle;
+            record.SubscriptionPublisherIsOfficial = draft.SubscriptionPublisherIsOfficial;
+            record.SubscriptionPublisherIsBuilder = draft.SubscriptionPublisherIsBuilder;
             record.SubscriptionPublisherKeyId = draft.SubscriptionPublisherKeyId;
             record.SubscriptionVersion = draft.SubscriptionVersion;
             record.SourceProjectId = draft.SourceProjectId;

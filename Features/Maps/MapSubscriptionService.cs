@@ -36,6 +36,39 @@ public sealed class MapSubscriptionService
 
     public IReadOnlyList<MapSubscriptionRecord> GetSubscriptions() => _store.Load();
 
+    public async Task RegisterPublishedAsync(
+        MapPublicationResult publication,
+        string subscriptionLink,
+        IReadOnlyList<MapRecord> maps,
+        CancellationToken cancellationToken = default)
+    {
+        await OperationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var link = MapSubscriptionLink.Parse(subscriptionLink);
+            var records = _store.Load().ToList();
+            var record = records.SingleOrDefault(item => item.Id == publication.PublicationId);
+            record ??= new MapSubscriptionRecord { Id = publication.PublicationId };
+            if (!records.Contains(record)) records.Add(record);
+            record.Link = link.ToUriString();
+            record.FeedUri = link.FeedUri.AbsoluteUri;
+            record.PublisherKeyId = link.PublisherKeyId;
+            record.PublisherHandle = publication.PublisherHandle;
+            record.PublisherDisplayName = publication.PublisherDisplayName;
+            record.IsOfficialPublisher = publication.IsOfficialPublisher;
+            record.IsBuilderPublisher = publication.IsBuilderPublisher;
+            record.PackageName = publication.PackageName;
+            record.CoverPath = publication.CoverPath;
+            record.LastAppliedVersion = publication.Version;
+            record.LastPublishedAtUtc = DateTimeOffset.UtcNow;
+            record.InstalledMapIds = maps.Select(map => map.Id).ToList();
+            record.ClassBindings = maps.Select(map => map.Class).Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(name => name, name => name, StringComparer.OrdinalIgnoreCase);
+            _store.Save(records);
+        }
+        finally { OperationGate.Release(); }
+    }
+
     public async Task<MapSubscriptionReconciliationResult> ReconcileInstalledMapsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -191,6 +224,9 @@ public sealed class MapSubscriptionService
             {
                 await ApplyOneAsync(record, receipt, cancellationToken);
                 record.PublisherHandle = receipt.Publication.PublisherHandle;
+                record.PublisherDisplayName = receipt.Publication.PublisherDisplayName;
+                record.IsOfficialPublisher = receipt.Publication.IsOfficialPublisher;
+                record.IsBuilderPublisher = receipt.Publication.IsBuilderPublisher;
                 record.LastAppliedAtUtc = DateTimeOffset.UtcNow;
                 record.LastPublishedAtUtc = receipt.Publication.PublishedAtUtc;
                 record.LastAppliedPlaintextSha256 = receipt.Publication.PlaintextSha256;
@@ -203,6 +239,8 @@ public sealed class MapSubscriptionService
             catch (Exception exception)
             {
                 record.PublisherHandle = receipt.Publication.PublisherHandle;
+                record.IsOfficialPublisher = receipt.Publication.IsOfficialPublisher;
+                record.IsBuilderPublisher = receipt.Publication.IsBuilderPublisher;
                 record.LastError = "应用失败：" + exception.Message;
                 _store.Save(records);
                 OutputLog.Write(
@@ -242,9 +280,11 @@ public sealed class MapSubscriptionService
                 record.ClassBindings,
                 record.InstalledMapIds,
                 record.Id,
-                receipt.Publication.PublisherHandle,
+                receipt.Publication.PublisherDisplayName ?? receipt.Publication.PublisherHandle,
                 receipt.Publication.PublisherKeyId,
                 receipt.Publication.Version,
+                receipt.Publication.IsOfficialPublisher,
+                receipt.Publication.IsBuilderPublisher,
                 cancellationToken);
             record.ClassBindings = new Dictionary<string, string>(
                 promotion.ClassBindings, StringComparer.OrdinalIgnoreCase);

@@ -73,6 +73,19 @@ public sealed class MapOverlayStatusCoordinator : IDisposable
         TryOverlayOperation("status-clear", _overlay.ClearStatus);
     }
 
+    public void KeepCurrent()
+    {
+        if (_disposed)
+            return;
+        lock (_gate)
+        {
+            ++_version;
+            _expiration?.Cancel();
+            _expiration?.Dispose();
+            _expiration = null;
+        }
+    }
+
     private async Task ExpireAsync(long version, CancellationTokenSource expiration)
     {
         try

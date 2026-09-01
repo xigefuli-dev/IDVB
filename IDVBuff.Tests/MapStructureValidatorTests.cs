@@ -133,7 +133,7 @@ public sealed class MapStructureValidatorTests
     }
 
     [Fact]
-    public void LowStructureThresholdsAcceptSparseButUnambiguousCandidate()
+    public void LowStructureThresholdsRejectWeakEdgeFitDespiteOtherEvidence()
     {
         var tuning = MapAlignmentChannelRegistry.CreateLowStructure();
         var candidate = new MapStructureCandidate
@@ -149,7 +149,7 @@ public sealed class MapStructureValidatorTests
         };
 
         Assert.Equal(
-            MapStructureRejectionReason.None,
+            MapStructureRejectionReason.WeakAbsoluteScore,
             MapStructureValidator.Validate(
                 candidate,
                 margin: 0.156d,

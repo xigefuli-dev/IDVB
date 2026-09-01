@@ -28,6 +28,7 @@ public sealed partial class MapStatusPage : UserControl
         try
         {
             BuildView();
+            AttachDiagnosticModeToggle();
             AttachMapLearningPanel();
             _viewBuilt = true;
         }
@@ -38,6 +39,17 @@ public sealed partial class MapStatusPage : UserControl
         }
         Loaded += MapStatusPage_Loaded;
         Unloaded += MapStatusPage_Unloaded;
+    }
+
+    private void AttachDiagnosticModeToggle()
+    {
+        if (_root is null
+            || _root.Children.Count < 2
+            || _root.Children[1] is not StackPanel content)
+            return;
+        var logsIndex = content.Children.IndexOf(_collectLogsToggle);
+        content.Children.Insert(logsIndex >= 0 ? logsIndex + 1 : 0, _diagnosticModeToggle);
+        _diagnosticModeToggle.Toggled += DiagnosticModeToggle_Toggled;
     }
 
     private void MapStatusPage_Loaded(object sender, RoutedEventArgs e)

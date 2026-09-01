@@ -10,6 +10,7 @@ public enum MapEditorTool
     Rectangle,
     Gate,
     Crop,
+    FreeCrop,
     Anchor,
     Pan,
     Conceal
@@ -188,7 +189,7 @@ public sealed class MapEditorToolState
 
     public void CompleteCreation()
     {
-        if (ActiveTool is not (MapEditorTool.Text or MapEditorTool.Line or MapEditorTool.Rectangle or MapEditorTool.Anchor or MapEditorTool.Conceal))
+        if (ActiveTool is not (MapEditorTool.Text or MapEditorTool.Line or MapEditorTool.Rectangle or MapEditorTool.Anchor or MapEditorTool.Conceal or MapEditorTool.FreeCrop))
             ActiveTool = MapEditorTool.Select;
     }
 

@@ -8,9 +8,14 @@ public sealed record MapPublicationResult(
     Guid PublicationId,
     string Version,
     string PublisherHandle,
+    string PublisherDisplayName,
     bool IsOfficialPublisher,
+    bool IsBuilderPublisher,
     string OutputDirectory,
-    string SubscriptionLink);
+    string SubscriptionLink,
+    string PackageName,
+    string CoverPath,
+    string PackagePath);
 
 public sealed class MapPublicationService
 {
@@ -30,12 +35,20 @@ public sealed class MapPublicationService
         string? className,
         string outputParentDirectory,
         string publisherHandle,
+        string publisherDisplayName,
+        bool isOfficialPublisher,
+        bool isBuilderPublisher,
         bool intendedForOfficialWebsite,
+        string packageName,
+        string coverPath,
+        Guid? publicationId = null,
+        byte[]? existingContentKey = null,
         CancellationToken cancellationToken = default)
     {
         var snapshot = await _packages.GetExportMapsAsync(scope, className, cancellationToken);
-        if (snapshot.Any(map => map.AcquisitionKind == MapAcquisitionKind.Subscription))
-            throw new InvalidOperationException("订阅获得的地图不能再次发布。");
+        if (snapshot.Any(map => map.AcquisitionKind == MapAcquisitionKind.Subscription
+            && (publicationId is null || map.SubscriptionId != publicationId)))
+            throw new InvalidOperationException("只有发布者自己的已发布地图类可以更新。");
 
         var handle = MapSubscriptionProtocol.NormalizePublisherHandle(publisherHandle);
         var officialPublicKeyPem = MapSubscriptionTrust.LoadOfficialPublicKey(AppContext.BaseDirectory);
@@ -50,7 +63,7 @@ public sealed class MapPublicationService
             StringComparison.OrdinalIgnoreCase))
             throw new CryptographicException("xigefuli 官方身份验证失败。");
 
-        var publicationId = Guid.NewGuid();
+        publicationId ??= Guid.NewGuid();
         var staging = Path.Combine(
             Path.GetTempPath(),
             "IDVB",
@@ -62,33 +75,38 @@ public sealed class MapPublicationService
             await _packages.ExportAsync(scope, className, plaintextPath, cancellationToken);
             var plaintext = await File.ReadAllBytesAsync(plaintextPath, cancellationToken);
             var plainHash = Convert.ToHexString(SHA256.HashData(plaintext));
-            var contentKey = RandomNumberGenerator.GetBytes(32);
-            var encrypted = MapSubscriptionCrypto.EncryptIdvm(plaintext, contentKey, publicationId);
+            var contentKey = existingContentKey ?? RandomNumberGenerator.GetBytes(32);
+            if (contentKey.Length != 32) throw new CryptographicException("订阅内容密钥无效。");
+            var encrypted = MapSubscriptionCrypto.EncryptIdvm(plaintext, contentKey, publicationId.Value);
             var encryptedHash = Convert.ToHexString(SHA256.HashData(encrypted));
             var publishedAt = DateTimeOffset.UtcNow;
             var version = $"{publishedAt:yyyyMMddHHmmss}-{plainHash[..12]}";
             var output = Path.Combine(outputParentDirectory, $"IDVB-Map-{publicationId:N}");
             Directory.CreateDirectory(output);
-            var packageName = $"maps-{version}.idvm.secure";
-            var packagePath = Path.Combine(output, packageName);
+            var securePackageName = $"maps-{version}.idvm.secure";
+            var packagePath = Path.Combine(output, securePackageName);
             var packageTemporary = packagePath + ".tmp";
             await File.WriteAllBytesAsync(packageTemporary, encrypted, cancellationToken);
-            File.Move(packageTemporary, packagePath, overwrite: false);
+            File.Move(packageTemporary, packagePath, overwrite: true);
 
             var payload = new MapPublicationPayload(
                 MapSubscriptionProtocol.SchemaVersion,
-                publicationId,
+                publicationId.Value,
                 handle,
                 credential.KeyId,
                 version,
                 publishedAt,
                 scope == IdvmExportScope.CurrentClass ? "current-class" : "all-classes",
                 intendedForOfficialWebsite,
-                packageName,
+                securePackageName,
                 encrypted.LongLength,
                 encryptedHash,
                 plaintext.LongLength,
-                plainHash);
+                plainHash,
+                publisherDisplayName.Trim(),
+                isOfficialPublisher,
+                isBuilderPublisher,
+                packageName.Trim());
             var envelope = MapSubscriptionCrypto.Sign(payload, credential.PrivateKeyPem);
             var feedPath = Path.Combine(output, "feed.json");
             var feedTemporary = feedPath + ".tmp";
@@ -96,11 +114,12 @@ public sealed class MapPublicationService
                 feedTemporary,
                 JsonSerializer.Serialize(envelope, MapSubscriptionProtocol.JsonOptions),
                 cancellationToken);
-            File.Move(feedTemporary, feedPath, overwrite: false);
+            File.Move(feedTemporary, feedPath, overwrite: true);
             var link = new MapSubscriptionLink(
                 new Uri(feedPath), contentKey, credential.KeyId).ToUriString();
             return new MapPublicationResult(
-                publicationId, version, handle, isOfficial, output, link);
+                publicationId.Value, version, handle, publisherDisplayName.Trim(), isOfficialPublisher, isBuilderPublisher, output, link,
+                packageName.Trim(), coverPath, packagePath);
         }
         finally
         {

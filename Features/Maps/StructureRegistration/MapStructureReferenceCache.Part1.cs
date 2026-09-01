@@ -9,6 +9,38 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed partial class MapStructureReferenceCache : IDisposable
 {
+    internal int ResidentCount
+    {
+        get
+        {
+            lock (_memoryGate)
+                return _memoryCache.Count;
+        }
+    }
+
+    public void InvalidateMaps(IReadOnlySet<Guid> mapIds)
+    {
+        if (mapIds.Count == 0)
+            return;
+        var dispose = new List<MapStructureFeatures>();
+        lock (_memoryGate)
+        {
+            foreach (var key in _memoryCache.Keys
+                .Where(key => mapIds.Contains(key.MapId))
+                .ToArray())
+            {
+                var cached = _memoryCache[key];
+                _memoryCache.Remove(key);
+                _lruList.Remove(cached.Node);
+                if (_leaseCounts.GetValueOrDefault(key) > 0)
+                    _evictedWhileLeased[key] = cached.Features;
+                else
+                    dispose.Add(cached.Features);
+            }
+        }
+        foreach (var features in dispose)
+            features.Dispose();
+    }
 
     private sealed class KeyPointDocument
     {

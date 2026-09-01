@@ -39,7 +39,7 @@ internal static class MapStructurePreprocessingProfileExtensions
 /// </summary>
 public sealed partial class MapStructurePreprocessor
 {
-    public const int AlgorithmVersion = 6;
+    public const int AlgorithmVersion = 7;
 
     private static readonly object _cacheGate = new();
     private static string? _cachedReferencePath;

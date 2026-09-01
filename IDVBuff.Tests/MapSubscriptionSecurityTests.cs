@@ -113,6 +113,44 @@ public sealed class MapSubscriptionSecurityTests
         }
     }
 
+    [Fact]
+    public async Task SameVersionIsUpToDateAndPersistsPublicSubscriptionDetails()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var official = MapSubscriptionCrypto.CreatePublisherKey();
+            var publisher = MapSubscriptionCrypto.CreatePublisherKey();
+            var contentKey = RandomNumberGenerator.GetBytes(32);
+            var payload = CreatePayload("@mapper", publisher.KeyId) with
+            {
+                PublisherDisplayName = "地图作者",
+                PackageName = "湖景村地图包"
+            };
+            var feedPath = Path.Combine(root, "feed.json");
+            await File.WriteAllTextAsync(feedPath, JsonSerializer.Serialize(
+                MapSubscriptionCrypto.Sign(payload, publisher.PrivateKeyPem),
+                MapSubscriptionProtocol.JsonOptions));
+            var subscriptionRoot = Path.Combine(root, "subscriptions");
+            var link = new MapSubscriptionLink(new Uri(feedPath), contentKey, publisher.KeyId);
+            new MapSubscriptionStore(subscriptionRoot).Save([new MapSubscriptionRecord
+            {
+                Link = link.ToUriString(), FeedUri = link.FeedUri.AbsoluteUri,
+                PublisherKeyId = publisher.KeyId, LastAppliedVersion = payload.Version,
+                LastPublishedAtUtc = payload.PublishedAtUtc.AddMinutes(1)
+            }]);
+
+            var result = await new MapSubscriptionUpdateEngine().UpdateAllAsync(subscriptionRoot, official.PublicKeyPem);
+            var record = Assert.Single(new MapSubscriptionStore(subscriptionRoot).Load());
+
+            Assert.Equal(0, result.Failed);
+            Assert.Equal(0, result.Prepared);
+            Assert.Equal("地图作者", record.PublisherDisplayName);
+            Assert.Equal("湖景村地图包", record.PackageName);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     private static MapPublicationPayload CreatePayload(string handle, string keyId) => new(
         MapSubscriptionProtocol.SchemaVersion,
         Guid.NewGuid(),

@@ -54,7 +54,7 @@ public static class MapAlignmentChannelRegistry
                 MapStructureRegistrationTuning.LockedMaximumChamferPixels,
             RestrictedSearchMaximumChamferPixels =
                 MapStructureRegistrationTuning.LockedMaximumChamferPixels,
-            MinimumEdgeCoverage = config.MinimumEdgeCoverage,
+            MinimumEdgeCoverage = Math.Max(0.75d, config.MinimumEdgeCoverage),
             MinimumOccupancyCoverage = config.MinimumOccupancyCoverage,
             MinimumCandidateMargin = config.MinimumCandidateMargin,
             MinimumConsistentPartitions = config.MinimumConsistentPartitions,

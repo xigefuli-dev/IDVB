@@ -216,6 +216,8 @@ internal static partial class MapStructureScaleSearch
         public int? VisibleAwareStructurePixels;
         public int? VisibleAwareEdgePixels;
         public bool VisibleAwareEarlyAccepted;
+        public bool ScaleEarlyTerminated;
+        public double ScaleEarlyTerminationConfidence;
         public string? VisibleAwareFallbackReason;
         public bool SkipLegacyCandidates;
         public double MarginNormalizationFloor = 0.01d;
@@ -231,6 +233,96 @@ internal static partial class MapStructureScaleSearch
                 / Math.Max(MarginNormalizationFloor, VisibleAwareSecondCost),
                 0d, 1d);
     }
+
+    internal const double ExtremelyHighConfidenceThreshold = 0.95d;
+
+    internal static bool HasExtremelyHighConfidenceCandidate(
+        IReadOnlyList<MapStructureCandidate> candidates,
+        MapStructureRegistrationTuning tuning,
+        MapStructureRegistrationRequest request,
+        out double confidence)
+    {
+        confidence = 0d;
+        var ranked = MapStructureCandidateCollector.RankCandidatesByValidity(
+            candidates,
+            tuning,
+            request.LockedTransform,
+            request.RestrictSearchToLockedTransform,
+            request).Valid;
+        if (ranked.Length == 0)
+            return false;
+
+        var best = ranked[0];
+        var secondScore = ranked.Length > 1
+            ? ranked[1].CompositeCost
+            : double.PositiveInfinity;
+        if (!MapStructureValidator.MeetsEarlyTerminationCriteria(
+                best,
+                secondScore,
+                tuning))
+        {
+            return false;
+        }
+
+        var margin = double.IsPositiveInfinity(secondScore)
+            ? 1d
+            : Math.Clamp(
+                (secondScore - best.CompositeCost)
+                    / Math.Max(
+                        StructureRegistrationRules.MarginNormalizationFloor,
+                        secondScore),
+                0d,
+                1d);
+        var requiredMargin = tuning.MinimumCandidateMargin
+            * (best.UsedGlobalSearch
+                ? StructureRegistrationRules.GlobalSearchMarginMultiplier
+                : 1d);
+        if (MapStructureValidator.Validate(
+                best,
+                margin,
+                requiredMargin,
+                tuning,
+                request.RestrictSearchToLockedTransform,
+                request) != MapStructureRejectionReason.None)
+        {
+            return false;
+        }
+
+        confidence = MapStructureConfidenceCalculator.Calculate(
+            best,
+            margin,
+            tuning,
+            isTrackingMode: request.TrackingMode,
+            sideEntrancePrior: request.SideEntrancePrior).FinalScore;
+        return confidence >= ExtremelyHighConfidenceThreshold;
+    }
+
+    internal static void RequestEarlyTerminationForExtremelyHighConfidence(
+        MapStructureRegistrationTuning tuning,
+        MapStructureRegistrationRequest request,
+        ScaleSearchContext context)
+    {
+        if (tuning.DisableScaleEarlyTermination
+            || !HasExtremelyHighConfidenceCandidate(
+                context.Candidates,
+                tuning,
+                request,
+                out var confidence))
+        {
+            return;
+        }
+
+        context.ScaleEarlyTerminated = true;
+        context.ScaleEarlyTerminationConfidence = confidence;
+        // RegisterLegacy checks this per-call value before starting the next
+        // scale. The persisted tuning remains unchanged because it was cloned.
+        tuning.EarlyTerminationScoreThreshold = double.PositiveInfinity;
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            $"结构尺度搜索极高置信度早停 · {confidence:P0}");
+    }
+
     internal static void SearchRestrictedBranch(
         QueryGeometry query,
         MapStructureFeatures reference,
@@ -276,8 +368,11 @@ internal static partial class MapStructureScaleSearch
         ctx.EstimatedRestrictedTemplateMilliseconds = Math.Max(
             ctx.EstimatedRestrictedTemplateMilliseconds,
             estimatedTemplateMilliseconds);
-        var allowTemplateSearch = remainingBudgetMilliseconds
-            >= estimatedTemplateMilliseconds;
+        var allowTemplateSearch = ShouldRunRestrictedTemplateSearch(
+            request.Channel,
+            estimatedTemplateMilliseconds,
+            remainingBudgetMilliseconds,
+            tuning.LowStructureWarmPathBudgetMilliseconds);
         if (!allowTemplateSearch)
         {
             ctx.TimeBudgetExceeded = true;
@@ -292,6 +387,22 @@ internal static partial class MapStructureScaleSearch
                 expected, restrictedDomain, tuning,
                 reciprocalScale, ctx.Candidates, allowTemplateSearch);
         }
+        RequestEarlyTerminationForExtremelyHighConfidence(
+            tuning,
+            request,
+            ctx);
+    }
+    internal static bool ShouldRunRestrictedTemplateSearch(
+        MapAlignmentChannel channel,
+        int estimatedMilliseconds,
+        int remainingBudgetMilliseconds,
+        int lowStructureWarmPathBudgetMilliseconds)
+    {
+        if (remainingBudgetMilliseconds < estimatedMilliseconds)
+            return false;
+
+        return channel != MapAlignmentChannel.LowStructure
+            || estimatedMilliseconds <= lowStructureWarmPathBudgetMilliseconds / 3;
     }
     internal static int EstimateRestrictedTemplateMilliseconds(
         QueryGeometry query,

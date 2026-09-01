@@ -105,35 +105,39 @@ public sealed partial class MapListPage : UserControl
             return;
         var color = Color.FromArgb(alpha, 245, 86, 44);
         var points = layer.Points;
-        for (var index = 0; index < points.Count; index++)
+        var size = layer.BrushSizePixels;
+        if (points.Count > 1)
         {
-            var point = points[index];
-            var x = point.X * _modernCanvas.Width;
-            var y = point.Y * _modernCanvas.Height;
-            if (index > 0)
+            var stroke = new Polyline
             {
-                var previous = points[index - 1];
-                _modernCanvas.Children.Add(new Line
-                {
-                    X1 = previous.X * _modernCanvas.Width,
-                    Y1 = previous.Y * _modernCanvas.Height,
-                    X2 = x,
-                    Y2 = y,
-                    Stroke = new SolidColorBrush(color),
-                    StrokeThickness = layer.BrushSizePixels,
-                    StrokeStartLineCap = PenLineCap.Round,
-                    StrokeEndLineCap = PenLineCap.Round,
-                    IsHitTestVisible = false
-                });
-            }
-            var size = layer.BrushSizePixels;
+                Stroke = new SolidColorBrush(color),
+                StrokeThickness = size,
+                StrokeStartLineCap = layer.Shape == MapBackgroundLayerShape.Square
+                    ? PenLineCap.Square : PenLineCap.Round,
+                StrokeEndLineCap = layer.Shape == MapBackgroundLayerShape.Square
+                    ? PenLineCap.Square : PenLineCap.Round,
+                StrokeLineJoin = layer.Shape == MapBackgroundLayerShape.Square
+                    ? PenLineJoin.Miter : PenLineJoin.Round,
+                IsHitTestVisible = false
+            };
+            foreach (var point in points)
+                stroke.Points.Add(new Point(point.X * _modernCanvas.Width, point.Y * _modernCanvas.Height));
+            _modernCanvas.Children.Add(stroke);
+        }
+
+        // A single dot has no polyline segment. Square tips also need explicit end caps.
+        var markers = layer.Shape == MapBackgroundLayerShape.Square && points.Count > 1
+            ? new[] { points[0], points[^1] }
+            : new[] { points[0] };
+        foreach (var point in markers)
+        {
             Shape marker = layer.Shape == MapBackgroundLayerShape.Square
                 ? new Rectangle { Width = size, Height = size }
                 : new Ellipse { Width = size, Height = size };
             marker.Fill = new SolidColorBrush(color);
             marker.IsHitTestVisible = false;
-            Canvas.SetLeft(marker, x - size / 2d);
-            Canvas.SetTop(marker, y - size / 2d);
+            Canvas.SetLeft(marker, point.X * _modernCanvas.Width - size / 2d);
+            Canvas.SetTop(marker, point.Y * _modernCanvas.Height - size / 2d);
             _modernCanvas.Children.Add(marker);
         }
     }
@@ -142,16 +146,26 @@ public sealed partial class MapListPage : UserControl
     {
         if (_modernCanvas is null)
             return;
+        _modernConcealPreviewStroke = null;
+        _modernConcealPreviewTip = null;
+        _modernConcealPreviewPointCount = 0;
         var points = _modernConcealStroke.Points;
         if (points.Count > 0)
         {
-            var layer = new MapBackgroundLayer
+            _modernConcealPreviewStroke = new Polyline
             {
-                Shape = _modernConcealStroke.Shape,
-                BrushSizePixels = _modernConcealStroke.BrushSizePixels,
-                Points = points.Select(point => point.Clone()).ToList()
+                Stroke = new SolidColorBrush(Color.FromArgb(112, 245, 86, 44)),
+                StrokeThickness = _modernConcealStroke.BrushSizePixels,
+                StrokeStartLineCap = _modernConcealStroke.Shape == MapBackgroundLayerShape.Square
+                    ? PenLineCap.Square : PenLineCap.Round,
+                StrokeEndLineCap = _modernConcealStroke.Shape == MapBackgroundLayerShape.Square
+                    ? PenLineCap.Square : PenLineCap.Round,
+                StrokeLineJoin = _modernConcealStroke.Shape == MapBackgroundLayerShape.Square
+                    ? PenLineJoin.Miter : PenLineJoin.Round,
+                IsHitTestVisible = false
             };
-            AddModernConcealLayer(layer, 112);
+            _modernCanvas.Children.Add(_modernConcealPreviewStroke);
+            AppendModernConcealPreview();
         }
         if (_modernConcealHoverPoint is not { } hover)
             return;
@@ -159,15 +173,31 @@ public sealed partial class MapListPage : UserControl
         var x = hover.X * _modernCanvas.Width;
         var y = hover.Y * _modernCanvas.Height;
         var size = defaults.BrushSizePixels;
-        Shape marker = defaults.Shape == MapBackgroundLayerShape.Square
+        _modernConcealPreviewTip = defaults.Shape == MapBackgroundLayerShape.Square
             ? new Rectangle { Width = size, Height = size }
             : new Ellipse { Width = size, Height = size };
-        marker.Fill = new SolidColorBrush(Color.FromArgb(68, 245, 86, 44));
-        marker.Stroke = new SolidColorBrush(Color.FromArgb(220, 255, 130, 90));
-        marker.StrokeThickness = Math.Max(1, 1 / ModernZoomFactor);
-        marker.IsHitTestVisible = false;
-        Canvas.SetLeft(marker, x - size / 2d);
-        Canvas.SetTop(marker, y - size / 2d);
-        _modernCanvas.Children.Add(marker);
+        _modernConcealPreviewTip.Fill = new SolidColorBrush(Color.FromArgb(68, 245, 86, 44));
+        _modernConcealPreviewTip.Stroke = new SolidColorBrush(Color.FromArgb(220, 255, 130, 90));
+        _modernConcealPreviewTip.StrokeThickness = Math.Max(1, 1 / ModernZoomFactor);
+        _modernConcealPreviewTip.IsHitTestVisible = false;
+        Canvas.SetLeft(_modernConcealPreviewTip, x - size / 2d);
+        Canvas.SetTop(_modernConcealPreviewTip, y - size / 2d);
+        _modernCanvas.Children.Add(_modernConcealPreviewTip);
+    }
+
+    private void AppendModernConcealPreview()
+    {
+        if (_modernCanvas is null || _modernConcealPreviewStroke is null)
+            return;
+        var points = _modernConcealStroke.Points;
+        for (var index = _modernConcealPreviewPointCount; index < points.Count; index++)
+            _modernConcealPreviewStroke.Points.Add(new Point(
+                points[index].X * _modernCanvas.Width,
+                points[index].Y * _modernCanvas.Height));
+        _modernConcealPreviewPointCount = points.Count;
+        if (_modernConcealPreviewTip is null || _modernConcealHoverPoint is not { } hover)
+            return;
+        Canvas.SetLeft(_modernConcealPreviewTip, hover.X * _modernCanvas.Width - _modernConcealPreviewTip.Width / 2d);
+        Canvas.SetTop(_modernConcealPreviewTip, hover.Y * _modernCanvas.Height - _modernConcealPreviewTip.Height / 2d);
     }
 }

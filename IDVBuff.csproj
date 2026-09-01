@@ -29,11 +29,11 @@
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
         <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
-        <IDVBProductVersion>1.5.2</IDVBProductVersion>
-        <IDVBReleaseLine>b01.5</IDVBReleaseLine>
+        <IDVBProductVersion>1.6.0-unstable</IDVBProductVersion>
+        <IDVBReleaseLine>b01.6</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
-        <AssemblyVersion>1.5.2.0</AssemblyVersion>
-        <FileVersion>1.5.2.0</FileVersion>
+        <AssemblyVersion>1.6.0.0</AssemblyVersion>
+        <FileVersion>1.6.0.0</FileVersion>
         <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
         <UseSystemDrawing>true</UseSystemDrawing>
         <Configurations>Debug;Release;Test</Configurations>

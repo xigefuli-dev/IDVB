@@ -8,6 +8,55 @@ namespace IDVBuff.Tests;
 public sealed class AdaptiveScaleCoordinatorTests
 {
     [Fact]
+    public async Task DisabledAutomaticLockingKeepsFiveStrongResultsAndVpsgProvisional()
+    {
+        var directory = Directory.CreateTempSubdirectory("idvb-adaptive-scale-");
+        try
+        {
+            var coordinator = new AdaptiveScaleCoordinator(
+                new AdaptiveScaleOptions
+                {
+                    AutomaticScaleLockingEnabled = false
+                },
+                new AdaptiveScaleStore(Path.Combine(
+                    directory.FullName,
+                    "adaptive-scale-cache.json")));
+            using var frame = Frame();
+            var recognition = Recognition(1.01);
+            var vpsg = new AdaptiveVpsgEvidence(
+                true,
+                1.0105,
+                0.90,
+                MapVpsgScaleEstimator.MinimumUniqueMatches,
+                MapVpsgScaleEstimator.MinimumPairVotes,
+                1.0,
+                0.001);
+            AdaptiveAlignmentDecision? decision = null;
+
+            for (var openId = 1; openId <= 5; openId++)
+            {
+                decision = coordinator.EvaluateInitial(
+                    recognition,
+                    frame,
+                    null,
+                    new AdaptiveScaleInitialEvidence(openId, 0.04, true, vpsg),
+                    openId);
+            }
+
+            Assert.Equal(5, decision!.ConsecutiveHighQualityCount);
+            Assert.Equal(AdaptiveScaleReliability.Provisional, decision.Reliability);
+            Assert.Equal(AdaptiveScaleReliabilityReason.None, decision.ReliabilityReason);
+            Assert.False(decision.AllowReliableSession);
+            Assert.False(decision.AllowLegacyCacheWrite);
+            await coordinator.DrainAsync();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SteadyRecoveryResetRestartsReliabilityFromProvisional()
     {
         var directory = Directory.CreateTempSubdirectory("idvb-adaptive-scale-");

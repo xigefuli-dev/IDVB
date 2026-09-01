@@ -35,6 +35,7 @@ internal static partial class MapStructureValidator
                 && !MeetsEdgeDegradedSilhouetteEvidence(best, tuning))
             || best.OccupancyCoverage < tuning.MinimumOccupancyCoverage
             || (missesReferenceCoverage
+                && !MeetsClearCorridorEvidence(best, tuning)
                 && !MeetsTrustedCorridorEvidence(
                     best,
                     tuning,
@@ -118,8 +119,7 @@ internal static partial class MapStructureValidator
             tuning.LowStructureMinimumProjectionCorrelation * 0.80d);
         return candidate.ReferenceCoverage >= minimumReferenceCoverage
             && candidate.ChamferPixels <= chamferLimit * 0.75d
-            && candidate.EdgeCoverage
-                >= Math.Max(0.70d, tuning.MinimumEdgeCoverage + 0.20d)
+            && candidate.EdgeCoverage >= 0.70d
             && candidate.OccupancyCoverage
                 >= Math.Max(0.75d, tuning.MinimumOccupancyCoverage + 0.50d)
             && candidate.ProjectionCorrelation >= minimumProjectionCorrelation
@@ -141,9 +141,7 @@ internal static partial class MapStructureValidator
         if (tuning.Channel != MapAlignmentChannel.LowStructure)
             return false;
 
-        var minimumEdgeCoverage = Math.Max(
-            0.35d,
-            tuning.MinimumEdgeCoverage * 0.70d);
+        const double minimumEdgeCoverage = 0.35d;
         var minimumOccupancyCoverage = Math.Max(
             0.78d,
             tuning.MinimumOccupancyCoverage + 0.50d);

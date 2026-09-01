@@ -38,6 +38,10 @@ public sealed partial class MapListPage : UserControl
         {
             var savedMap = await _repository.SaveAsync(_draft);
             _selectedMapIds.Add(savedMap.Id);
+            // Saving no longer needs the editor's decoded images or XAML tree.
+            // Release them before cache refresh/list I/O so every confirm path
+            // has the same immediate lifetime boundary as cancel/navigation.
+            ResetMarkerEditorSession();
 
             // Old batch import flow (multiple image pairs dropped at once)
             if (TryAdvanceBatch())
@@ -75,7 +79,7 @@ public sealed partial class MapListPage : UserControl
     {
         var createMap = CreateTeachingTipChoiceButton("创建地图");
         var importPackage = CreateTeachingTipChoiceButton("导入数据包");
-        var updateSubscriptions = CreateTeachingTipChoiceButton("更新订阅");
+        var updateSubscriptions = CreateTeachingTipChoiceButton("地图订阅");
         var choices = new StackPanel { Spacing = 8 };
         choices.Children.Add(createMap);
         choices.Children.Add(importPackage);
@@ -179,7 +183,7 @@ public sealed partial class MapListPage : UserControl
         _isPackageOperation = isBusy;
         importButton.IsEnabled = !isBusy;
         publishButton.IsEnabled = !isBusy && _loadedMaps.Count > 0;
-        publishButton.Content = isBusy ? busyText : "发布";
+        publishButton.Content = isBusy ? busyText : GetWebsiteActionText();
     }
 
     private async Task<string?> PickIdvmPackageAsync()
@@ -305,6 +309,38 @@ public sealed partial class MapListPage : UserControl
         return profile is null
             ? $"扫描楼层：{label} · 不可用"
             : $"扫描楼层：{label} · {BuildFloorSummary(profile)}";
+    }
+
+    private async Task<string?> PickPublicationCoverAsync()
+    {
+        var path = await PickImageAsync("选择地图包封面");
+        if (path is null) return null;
+        try
+        {
+            var source = await StorageFile.GetFileFromPathAsync(path);
+            using var input = await source.OpenAsync(FileAccessMode.Read);
+            var decoder = await BitmapDecoder.CreateAsync(input);
+            var scale = Math.Min(1d, 1280d / Math.Max(decoder.PixelWidth, decoder.PixelHeight));
+            var directory = System.IO.Path.Combine(AppDataPaths.RootDirectory, "MapPublishing", "Covers");
+            Directory.CreateDirectory(directory);
+            var extension = System.IO.Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase)
+                ? ".png" : ".jpg";
+            var destination = System.IO.Path.Combine(directory, $"cover-{Guid.NewGuid():N}{extension}");
+            await File.WriteAllBytesAsync(destination, []);
+            var target = await StorageFile.GetFileFromPathAsync(destination);
+            using var output = await target.OpenAsync(FileAccessMode.ReadWrite);
+            var encoder = await BitmapEncoder.CreateForTranscodingAsync(output, decoder);
+            encoder.BitmapTransform.ScaledWidth = Math.Max(1u, (uint)Math.Round(decoder.PixelWidth * scale));
+            encoder.BitmapTransform.ScaledHeight = Math.Max(1u, (uint)Math.Round(decoder.PixelHeight * scale));
+            encoder.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Fant;
+            await encoder.FlushAsync();
+            return destination;
+        }
+        catch (Exception exception)
+        {
+            await ShowMessageAsync("封面处理失败", $"无法转换这张图片：{exception.Message}");
+            return null;
+        }
     }
 
     private static string BuildFloorSummary(FloorRecognitionProfile floor)

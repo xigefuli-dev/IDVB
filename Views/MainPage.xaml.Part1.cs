@@ -207,7 +207,10 @@ public sealed partial class MainPage : Page
             ModuleContentHost.Content = view;
             ConfigureMainContentScrolling(view);
             if (view is HelpPage helpPage)
+            {
                 helpPage.ActivateGuideRequested += HelpPage_ActivateGuideRequested;
+                helpPage.SubscribeMapsGuideRequested += HelpPage_SubscribeMapsGuideRequested;
+            }
             if (view is MapStatusPage mapStatusPage)
                 ConnectDisplayPreviewSource(mapStatusPage);
             // Keep the main content entrance motion consistent across all modules.
@@ -254,6 +257,18 @@ public sealed partial class MainPage : Page
         catch (Exception exception)
         {
             TryLogModuleFailure("help-guide", exception);
+        }
+    }
+
+    private async void HelpPage_SubscribeMapsGuideRequested(object? sender, EventArgs e)
+    {
+        try
+        {
+            await ShowMapSubscriptionGuideAsync();
+        }
+        catch (Exception exception)
+        {
+            TryLogModuleFailure("map-subscription-guide", exception);
         }
     }
 

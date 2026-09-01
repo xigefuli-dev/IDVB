@@ -75,6 +75,7 @@ public sealed partial class MainPage : Page
     private void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
         NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
+        _ = AccountSession.RefreshAsync();
     }
 
     private async void Navigation_ParentClick(object sender, RoutedEventArgs e)

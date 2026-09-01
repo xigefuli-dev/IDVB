@@ -1,10 +1,74 @@
 using IDVBuff.Features.Maps;
 using IDVBuff.Helps;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.System;
 
 namespace IDVBuff.Views;
 
 public sealed partial class MainPage
 {
+    private const string MapSubscriptionGuideCode = "IDVB-SUBSCRIBE-MAP-GUIDE";
+
+    private async Task ShowMapSubscriptionGuideAsync()
+    {
+        NavigateTo("map-list");
+        await Task.Delay(50);
+        if (ModuleContentHost.Content is not MapListPage mapListPage)
+            return;
+
+        var guide = new EmphasisGuide(EmphasisGuideHost);
+        await guide.ShowAsync(
+        [
+            new EmphasisGuideStep(
+                "前往地图社区",
+                "点击下方链接。IDVB 会复制一个引导口令，地图社区识别后会继续带你选择地图包。",
+                NextButtonDelay: TimeSpan.Zero,
+                ActionButtonText: "打开 https://community.idvb.xgflee.com/",
+                ActionAsync: OpenMapCommunityGuideAsync)
+        ]);
+
+        var subscriptionLink = await WaitForSubscriptionLinkAsync();
+        await guide.ShowAsync(
+        [
+            new EmphasisGuideStep(
+                "打开地图订阅",
+                "已识别订阅链接。点击“导入”，再点击“地图订阅”。",
+                mapListPage.GetImportControl(),
+                NextButtonDelay: TimeSpan.Zero)
+        ]);
+        await mapListPage.ShowMapSubscriptionsTutorialAsync(subscriptionLink);
+        await guide.ShowAsync(
+        [
+            new EmphasisGuideStep("订阅地图完成", "地图订阅流程已经结束。点击“完成”关闭教程。", NextButtonDelay: TimeSpan.Zero, AdvanceButtonText: "完成")
+        ]);
+    }
+
+    private static async Task OpenMapCommunityGuideAsync(CancellationToken cancellationToken)
+    {
+        var package = new DataPackage();
+        package.SetText(MapSubscriptionGuideCode);
+        Clipboard.SetContent(package);
+        await Launcher.LaunchUriAsync(new Uri("https://community.idvb.xgflee.com/?guide=subscribe"));
+    }
+
+    private static async Task<string> WaitForSubscriptionLinkAsync()
+    {
+        while (true)
+        {
+            try
+            {
+                var content = Clipboard.GetContent();
+                if (content.Contains(StandardDataFormats.Text))
+                {
+                    var text = await content.GetTextAsync();
+                    if (text.StartsWith("idvb-sub:", StringComparison.OrdinalIgnoreCase))
+                        return text;
+                }
+            }
+            catch { }
+            await Task.Delay(400);
+        }
+    }
     /// <summary>Runs after the user accepts the first-run recommended configuration.</summary>
     public async Task ShowRecommendedConfigurationGuideAsync()
     {

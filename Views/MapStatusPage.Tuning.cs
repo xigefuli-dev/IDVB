@@ -339,6 +339,7 @@ public sealed partial class MapStatusPage : UserControl
                     : string.Empty)
             : "尚无扫描数据";
         _collectLogsToggle.IsOn = _runtime.Settings.CollectLogs;
+        _diagnosticModeToggle.IsOn = _runtime.Settings.DiagnosticModeEnabled;
         _allowExtendToggle.IsOn = _runtime.Settings.AllowMapExtendBeyondBounds;
         _miniMapEnabledToggle.IsOn = _runtime.Settings.PersistentMiniMapEnabled;
         _playerTrackingToggle.IsOn = _runtime.Settings.PlayerTrackingEnabled;

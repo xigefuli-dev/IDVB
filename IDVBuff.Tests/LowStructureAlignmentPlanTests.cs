@@ -260,7 +260,7 @@ public sealed partial class LowStructureAlignmentPlanTests
             PriorAgreement = 1d,
             ChamferPixels = 2d,
             ReverseChamferPixels = 2d,
-            EdgeCoverage = 0.50d,
+            EdgeCoverage = 0.75d,
             OccupancyCoverage = 0.25d,
             ReferenceCoverage = 0.50d,
             ProjectionCorrelation = 0.75d,

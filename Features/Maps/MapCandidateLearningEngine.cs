@@ -6,6 +6,21 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCandidateLearningEngine : IMapCandidateLearningEngine
 {
+    public async Task InvalidateReferenceCacheAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _modelGate.WaitAsync(cancellationToken);
+        try
+        {
+            ClearReferenceEmbeddings();
+        }
+        finally
+        {
+            _modelGate.Release();
+        }
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

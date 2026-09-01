@@ -51,6 +51,31 @@ public sealed class MapStructureGenerationTuningTests
     }
 
     [Fact]
+    public void OnePixelStructureOpeningStillProducesThinGradientEdges()
+    {
+        using var source = CreateStructureImage();
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure().Generation;
+        var preprocessor = new MapStructurePreprocessor();
+
+        using var features = preprocessor.ProcessLiveRoiDiagnostic(
+            source,
+            ignoreRegions: null,
+            dynamicIgnoreRegions: null,
+            out _,
+            profile: MapStructurePreprocessingProfile.EdgesOnly,
+            generationTuning: tuning);
+        using var eroded = new Mat();
+        using var kernel = Cv2.GetStructuringElement(
+            MorphShapes.Rect,
+            new Size(3, 3));
+        Cv2.Erode(features.Edges, eroded, kernel);
+
+        var edgePixels = Cv2.CountNonZero(features.Edges);
+        Assert.True(edgePixels > 0);
+        Assert.True(Cv2.CountNonZero(eroded) < edgePixels / 10);
+    }
+
+    [Fact]
     public void GenerationTuningNormalizesAndRoundTripsThroughJson()
     {
         var tuning = new MapStructureGenerationTuning

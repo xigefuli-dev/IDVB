@@ -13,12 +13,14 @@ internal sealed record AccountIdentity(
     string DisplayName,
     string PublisherHandle,
     string? AvatarUrl,
-    bool IsOfficial);
+    bool IsOfficial,
+    bool IsBuilder);
 
 internal static class AccountSession
 {
     private const string CredentialResource = "IdentityVisionBridge.Account";
     private const string CredentialUserName = "current";
+    private const long MaximumPublicationPackageBytes = 90L * 1024 * 1024;
     private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://community.idvb.xgflee.com/") };
     private static string? _publishToken;
     public static AccountIdentity? Identity { get; private set; }
@@ -87,7 +89,8 @@ internal static class AccountSession
             user.GetProperty("displayName").GetString() ?? "IDVB 用户",
             user.GetProperty("publisherHandle").GetString() ?? throw new InvalidDataException("账户缺少发布者标识。"),
             user.TryGetProperty("avatarUrl", out var avatar) ? avatar.GetString() : null,
-            user.TryGetProperty("isOfficial", out var official) && official.GetBoolean());
+            user.TryGetProperty("isOfficial", out var official) && official.GetBoolean(),
+            user.TryGetProperty("isBuilder", out var builder) && builder.GetBoolean());
         Set(root.GetProperty("token").GetString()!, identity);
         return identity;
     }
@@ -145,7 +148,21 @@ internal static class AccountSession
             user.GetProperty("displayName").GetString() ?? "IDVB 用户",
             user.GetProperty("publisherHandle").GetString() ?? throw new InvalidDataException("账户缺少发布者标识。"),
             user.TryGetProperty("avatarUrl", out var avatar) ? avatar.GetString() : null,
-            user.TryGetProperty("isOfficial", out var official) && official.GetBoolean());
+            user.TryGetProperty("isOfficial", out var official) && official.GetBoolean(),
+            user.TryGetProperty("isBuilder", out var builder) && builder.GetBoolean());
+    }
+
+    public static async Task RefreshAsync()
+    {
+        try
+        {
+            var identity = await RequirePublishAccessAsync();
+            if (identity != Identity && _publishToken is { } token)
+                Set(token, identity);
+        }
+        catch (UnauthorizedAccessException) { }
+        catch (HttpRequestException) { }
+        catch (TaskCanceledException) { }
     }
 
     public static async Task<string> UploadPublicationAsync(
@@ -155,13 +172,23 @@ internal static class AccountSession
         _ = await RequirePublishAccessAsync(cancellationToken);
         var link = MapSubscriptionLink.Parse(publication.SubscriptionLink);
         var feedPath = Path.Combine(publication.OutputDirectory, "feed.json");
-        var packagePath = Directory.EnumerateFiles(
-            publication.OutputDirectory, "*.idvm.secure", SearchOption.TopDirectoryOnly).Single();
+        var packagePath = publication.PackagePath;
+        var packageLength = new FileInfo(packagePath).Length;
+        if (packageLength > MaximumPublicationPackageBytes)
+            throw new InvalidOperationException(
+                $"地图发布包为 {packageLength / 1024d / 1024d:F1} MB，超过官网 90 MB 限制。请改为发布当前地图类，或减少地图内容后重试。");
         await using var package = File.OpenRead(packagePath);
         using var form = new MultipartFormDataContent();
-        form.Add(new ByteArrayContent(await File.ReadAllBytesAsync(feedPath, cancellationToken)), "feed", "feed.json");
-        form.Add(new StreamContent(package), "package", Path.GetFileName(packagePath));
-        form.Add(new StringContent(Base64Url(link.ContentKey)), "contentKey");
+        AddFormPart(form, new ByteArrayContent(
+            await File.ReadAllBytesAsync(feedPath, cancellationToken)), "feed", "feed.json");
+        AddFormPart(form, new StreamContent(package), "package", Path.GetFileName(packagePath));
+        AddFormPart(form, new StringContent(Base64Url(link.ContentKey)), "contentKey");
+        AddFormPart(form, new StringContent(publication.PackageName), "name");
+        var cover = new StreamContent(File.OpenRead(publication.CoverPath));
+        cover.Headers.ContentType = new MediaTypeHeaderValue(
+            Path.GetExtension(publication.CoverPath).Equals(".png", StringComparison.OrdinalIgnoreCase)
+                ? "image/png" : "image/jpeg");
+        AddFormPart(form, cover, "cover", Path.GetFileName(publication.CoverPath));
         using var request = new HttpRequestMessage(HttpMethod.Post, "api/maps/publish") { Content = form };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _publishToken);
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -173,6 +200,20 @@ internal static class AccountSession
                 : "官网拒绝了地图发布。");
         return document.RootElement.GetProperty("subscriptionLink").GetString()
             ?? throw new InvalidDataException("官网没有返回更新订阅链接。");
+    }
+
+    private static void AddFormPart(
+        MultipartFormDataContent form,
+        HttpContent content,
+        string name,
+        string? fileName = null)
+    {
+        content.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
+        {
+            Name = $"\"{name}\"",
+            FileName = fileName is null ? null : $"\"{fileName}\""
+        };
+        form.Add(content);
     }
 
     private static string Base64Url(byte[] value) => Convert.ToBase64String(value)

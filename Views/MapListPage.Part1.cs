@@ -83,7 +83,7 @@ public sealed partial class MapListPage : UserControl
         _variantButton.Click += async (_, _) => await ToggleSelectedVariantGroupAsync();
         var classPicker = CreateClassPicker();
 
-        var publishButton = CreateActionButton("发布", AccentBlue);
+        var publishButton = CreateActionButton(GetWebsiteActionText(), AccentBlue);
         _publishButton = publishButton;
         publishButton.IsEnabled = !_isPackageOperation && _loadedMaps.Count > 0;
 

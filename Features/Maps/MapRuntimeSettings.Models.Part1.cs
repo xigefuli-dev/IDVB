@@ -9,6 +9,7 @@ public sealed partial class MapRuntimeSettings
     {
         var previousSchema = SchemaVersion;
         SchemaVersion = CurrentSchemaVersion;
+        EnableContinuousAlignment = false;
         if (SelectedMapId == Guid.Empty)
             SelectedMapId = null;
         LastSelectedMapClass = string.IsNullOrWhiteSpace(LastSelectedMapClass)

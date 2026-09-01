@@ -19,7 +19,11 @@ public sealed partial class MainPage
         AccountNavigationAvatar.ProfilePicture = Uri.TryCreate(identity?.AvatarUrl, UriKind.Absolute, out var avatar)
             ? new BitmapImage(avatar)
             : null;
-        AccountOfficialBadge.Visibility = identity?.IsOfficial == true
+        var isBuilder = identity?.IsBuilder == true;
+        AccountOfficialBadge.Visibility = !isBuilder && identity?.IsOfficial == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        AccountBuilderBadge.Visibility = isBuilder
             ? Visibility.Visible
             : Visibility.Collapsed;
         ToolTipService.SetToolTip(AccountNavigationButton, name);

@@ -84,6 +84,31 @@ public sealed class MapListPackageActionPolicyTests
         Assert.Contains("订阅获得的地图不能再次发布", service);
     }
 
+    [Fact]
+    public void WebsitePublicationRejectsOversizedPackagesBeforeUploading()
+    {
+        var session = Read("Features", "Accounts", "AccountSession.cs");
+
+        Assert.Contains("MaximumPublicationPackageBytes = 90L * 1024 * 1024", session);
+        Assert.Contains("超过官网 90 MB 限制", session);
+        Assert.True(
+            session.IndexOf("packageLength > MaximumPublicationPackageBytes", StringComparison.Ordinal)
+            < session.IndexOf("File.OpenRead(packagePath)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PublicationUpdateReplacesCurrentFeedAndUploadsItsNewPackage()
+    {
+        var publication = Read("Features", "Maps", "MapPublicationService.cs");
+        var session = Read("Features", "Accounts", "AccountSession.cs");
+
+        Assert.Contains("File.Move(packageTemporary, packagePath, overwrite: true)", publication);
+        Assert.Contains("File.Move(feedTemporary, feedPath, overwrite: true)", publication);
+        Assert.Contains("string PackagePath", publication);
+        Assert.Contains("var packagePath = publication.PackagePath", session);
+        Assert.DoesNotContain("Directory.EnumerateFiles(", session);
+    }
+
     private static string Read(params string[] components) =>
         File.ReadAllText(Path.Combine(new[] { RepositoryRoot }.Concat(components).ToArray()));
 

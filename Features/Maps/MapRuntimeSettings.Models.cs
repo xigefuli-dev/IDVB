@@ -18,6 +18,13 @@ public sealed partial class MapRuntimeSettings
     /// </summary>
     public bool BackgroundScanEnabled { get; set; }
     /// <summary>
+    /// 扫描候选是否逐项执行严格结构配准。关闭时扫描只提供模板候选，
+    /// 玩家选择地图后仍会在正式对齐阶段执行结构配准。
+    /// </summary>
+    public bool RequireStrictStructureRegistrationDuringScan { get; set; } = true;
+    /// <summary>地图打开时是否持续重复对齐；默认关闭。</summary>
+    public bool EnableContinuousAlignment { get; set; }
+    /// <summary>
     /// The stable identity chosen by quick scan or confirmed manual recognition.
     /// Runtime alignment state is deliberately not persisted.
     /// </summary>
@@ -29,6 +36,7 @@ public sealed partial class MapRuntimeSettings
     public string? LastSelectedMapClass { get; set; }
     public bool ShowOverlayStatus { get; set; } = true;
     public bool CollectLogs { get; set; }
+    public bool DiagnosticModeEnabled { get; set; }
     public bool CollectAlignmentResearchData { get; set; }
     public MapCandidateDecisionMode CandidateDecisionMode { get; set; } =
         MapCandidateDecisionMode.Traditional;
@@ -110,8 +118,11 @@ public sealed partial class MapRuntimeSettings
         IsEnabled = false,
         FirstScanStrategy = FirstScanStrategy.SideEntrance,
         BackgroundScanEnabled = false,
+        RequireStrictStructureRegistrationDuringScan = true,
+        EnableContinuousAlignment = false,
         ShowOverlayStatus = true,
         CollectLogs = false,
+        DiagnosticModeEnabled = false,
         CollectAlignmentResearchData = false,
         CandidateDecisionMode = MapCandidateDecisionMode.Traditional,
         ContinuousMapLearningEnabled = false,
@@ -284,10 +295,14 @@ public sealed partial class MapRuntimeSettings
         IsEnabled = IsEnabled,
         FirstScanStrategy = FirstScanStrategy,
         BackgroundScanEnabled = BackgroundScanEnabled,
+        RequireStrictStructureRegistrationDuringScan =
+            RequireStrictStructureRegistrationDuringScan,
+        EnableContinuousAlignment = EnableContinuousAlignment,
         SelectedMapId = SelectedMapId,
         LastSelectedMapClass = LastSelectedMapClass,
         ShowOverlayStatus = ShowOverlayStatus,
         CollectLogs = CollectLogs,
+        DiagnosticModeEnabled = DiagnosticModeEnabled,
         CollectAlignmentResearchData = CollectAlignmentResearchData,
         CandidateDecisionMode = CandidateDecisionMode,
         ContinuousMapLearningEnabled = ContinuousMapLearningEnabled,

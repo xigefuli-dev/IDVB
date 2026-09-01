@@ -401,7 +401,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     }
 
     // ════════════════ Public Properties ════════════════
-
     public MapRuntimeSettings Settings => _settings ??= new MapRuntimeSettings();
     public MapRecord? SelectedMap => null;
     public string? CurrentFloorKey => _currentFloorKey;
@@ -448,7 +447,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         new(false, false, "尚未检查。");
 
     // ════════════════ Events ════════════════
-
     public event EventHandler? StateChanged;
     public event EventHandler? ElevationRequiredDetected;
 
@@ -470,6 +468,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             _matchPluginsActivated = false;
             StartMatchCancellationScope();
             var match = _matchSession.Begin(mapClass);
+            if (_settings?.DiagnosticModeEnabled is true)
+                MapDiagnosticModeCapture.BeginMatch();
             await SetMatchPluginsActivatedCoreAsync(true);
             _statusMessage = $"对局已开始 · {mapClass}";
             _logCollector.Append(

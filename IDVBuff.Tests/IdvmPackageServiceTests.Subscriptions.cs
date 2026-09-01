@@ -61,7 +61,7 @@ public sealed partial class IdvmPackageServiceTests
                 Guid.NewGuid(),
                 "@mapper",
                 new string('A', 64),
-                "v1");
+                "v1", isOfficialPublisher: true, isBuilderPublisher: true);
             var localClass = firstPromotion.ClassBindings["S1"];
             var oldLocalMap = Assert.Single(
                 await target.GetMapsAsync(),
@@ -95,6 +95,8 @@ public sealed partial class IdvmPackageServiceTests
             Assert.Equal(localClass, current.Class);
             Assert.Equal(MapAcquisitionKind.Subscription, current.AcquisitionKind);
             Assert.Equal("@mapper", current.SubscriptionPublisherHandle);
+            Assert.True(current.SubscriptionPublisherIsOfficial);
+            Assert.True(current.SubscriptionPublisherIsBuilder);
             Assert.Equal("v2", current.SubscriptionVersion);
             Assert.DoesNotContain((await target.GetMapsAsync()), map => map.Id == oldLocalMap.Id);
             Assert.True(Directory.Exists(Path.GetDirectoryName(target.GetFloorOnePath(oldLocalMap))));

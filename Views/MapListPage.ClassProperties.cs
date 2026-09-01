@@ -47,6 +47,20 @@ public sealed partial class MapListPage : UserControl
             intensityValue.Text = MapBackgroundProcessor.ClampBackgroundRemovalIntensity(
                 (int)Math.Round(args.NewValue)).ToString();
         toggle.Toggled += (_, _) => intensitySlider.IsEnabled = toggle.IsOn;
+        var downsampleCombo = new ComboBox
+        {
+            Header = "地图图片降采样",
+            MinWidth = 280,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        downsampleCombo.Items.Add(new ComboBoxItem { Content = "0（不降低）", Tag = 0 });
+        for (var factor = 2; factor <= 8; factor++)
+            downsampleCombo.Items.Add(new ComboBoxItem { Content = $"降低 {factor} 倍", Tag = factor });
+        var currentDownsampleFactor = MapRepository.ClampImageDownsampleFactor(
+            current.ImageDownsampleFactor);
+        downsampleCombo.SelectedItem = downsampleCombo.Items
+            .OfType<ComboBoxItem>()
+            .First(item => (int)item.Tag == currentDownsampleFactor);
         var classMaps = _loadedMaps
             .Where(map => string.Equals(
                 map.Class,
@@ -131,6 +145,13 @@ public sealed partial class MapListPage : UserControl
             TextWrapping = TextWrapping.Wrap,
             Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
         });
+        content.Children.Add(downsampleCombo);
+        content.Children.Add(new TextBlock
+        {
+            Text = "先缩小整张原图，再按映射后的归一化坐标裁剪。原图始终保留在本机，可随时切换为其他倍数或恢复为 0；原图与该设置不会写入 IDVM。",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+        });
         content.Children.Add(scanFloorCombo);
         content.Children.Add(new TextBlock
         {
@@ -167,13 +188,24 @@ public sealed partial class MapListPage : UserControl
             selectedScanFloor,
             configuredScanFloor,
             StringComparison.Ordinal);
-        if (!removeBackgroundChanged && !backgroundRemovalIntensityChanged && !scanFloorChanged)
+        var downsampleFactor = (int)((downsampleCombo.SelectedItem as ComboBoxItem)?.Tag ?? 0);
+        var downsampleChanged = downsampleFactor != currentDownsampleFactor;
+        if (!removeBackgroundChanged && !backgroundRemovalIntensityChanged
+            && !downsampleChanged && !scanFloorChanged)
             return;
 
         SetClassEditBusy(true);
         try
         {
-            if (removeBackgroundChanged || backgroundRemovalIntensityChanged)
+            if (downsampleChanged)
+            {
+                await _repository.SetClassImageDownsamplingAsync(
+                    _selectedClass,
+                    downsampleFactor,
+                    toggle.IsOn,
+                    backgroundRemovalIntensity);
+            }
+            else if (removeBackgroundChanged || backgroundRemovalIntensityChanged)
             {
                 await _repository.SetClassBackgroundRemovalAsync(
                     _selectedClass,

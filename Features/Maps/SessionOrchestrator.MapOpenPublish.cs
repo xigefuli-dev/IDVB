@@ -25,6 +25,16 @@ public sealed partial class SessionOrchestrator
         bool resetRecoveredScaleState)
     {
         var trace = ActiveOperationTrace;
+        var independentAlignment = string.Equals(
+            _lastDiagnostics?.WarmStateMissReason,
+            "independent-alignment",
+            StringComparison.Ordinal);
+        if (independentAlignment
+            && aligned?.Result.ReusedLastTransform is true)
+        {
+            aligned = null;
+            failureReason = "独立对齐未通过，已拒绝直接复用上次变换。";
+        }
         var resultPublish = trace?.StartTopLevel(
             "result_publish",
             MapOperationWaitKind.Compute,
@@ -239,7 +249,7 @@ public sealed partial class SessionOrchestrator
 
             // Rendering is the latency boundary visible to the user. Tracking
             // startup and cache I/O must not delay the final Present call.
-            if (adaptiveDecision.StartOrbTracking)
+            if (adaptiveDecision.StartOrbTracking && !independentAlignment)
             {
                 var trackingStart = trace?.StartTopLevel(
                     "tracking_start",

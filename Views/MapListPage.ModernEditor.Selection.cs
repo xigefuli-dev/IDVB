@@ -45,7 +45,8 @@ public sealed partial class MapListPage : UserControl
                 && layer.Points.Any(candidate => ModernBackgroundPointContains(layer, candidate, point)))
                 return new EditorSelection(EditorSelectionKind.Background, layer.Id);
         }
-        if (profile.RecognitionRegion?.IsValid is true && IsModernItemVisible("special", "crop")
+        if (profile.RecognitionRegion?.IsValid is true && profile.FreeCropPoints.Count < 3
+            && IsModernItemVisible("special", "crop")
             && ModernRectangleBorderContains(profile.RecognitionRegion, point, 8))
             return new EditorSelection(EditorSelectionKind.Crop);
         return null;
@@ -200,7 +201,10 @@ public sealed partial class MapListPage : UserControl
     private void CommitModernSelectionTransform()
     {
         if (_modernSelection?.Kind == EditorSelectionKind.Crop && _modernPendingBounds?.IsValid is true)
+        {
             MapRecognitionCoordinates.ApplyRecognitionRegion(GetActiveFloorProfile(), _modernPendingBounds);
+            GetActiveFloorProfile().FreeCropPoints.Clear();
+        }
         _modernPendingBounds = null;
         UpdateMarkerConfirmState();
     }
@@ -209,6 +213,9 @@ public sealed partial class MapListPage : UserControl
     {
         _modernConcealStroke.Cancel();
         _modernConcealHoverPoint = null;
+        _modernConcealPreviewStroke = null;
+        _modernConcealPreviewTip = null;
+        _modernConcealPreviewPointCount = 0;
         if (restoreGeometry && _modernInteraction is EditorInteractionKind.Move or EditorInteractionKind.Resize)
         {
             if (_modernOriginalStart is not null && _modernOriginalEnd is not null)
@@ -220,6 +227,7 @@ public sealed partial class MapListPage : UserControl
         _modernPendingBounds = null;
         _modernPendingStart = null;
         _modernPendingEnd = null;
+        _modernFreeCropPoints.Clear();
         _modernCapturedPointerId = null;
         ClearModernOriginalGeometry();
         RenderModernEditor();
@@ -244,6 +252,7 @@ public sealed partial class MapListPage : UserControl
         {
             MapRecognitionCoordinates.ApplyRecognitionRegion(profile, new NormalizedRectangle { Width = 1, Height = 1 });
             profile.RecognitionRegion = null;
+            profile.FreeCropPoints.Clear();
         }
         else if (_modernSelection.Kind == EditorSelectionKind.Anchor && FindModernSelectedAnchor() is { } anchor)
         {

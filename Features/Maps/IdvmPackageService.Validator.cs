@@ -246,6 +246,10 @@ public sealed partial class IdvmPackageService
             }
             ValidateMarkerKeys(floor.MarkerKeys, requireFloorMarkerSchema);
             ValidateRectangle(floor.RecognitionRegion, allowNull: true, "recognitionRegion");
+            if (floor.FreeCropPoints.Count is 1 or 2)
+                throw new InvalidDataException("freeCropPoints 必须为空或至少包含三个点。");
+            foreach (var point in floor.FreeCropPoints)
+                ValidatePoint(point, "freeCropPoints");
             ValidateRectangle(floor.ValidMapBounds, allowNull: false, "validMapBounds");
             if (!string.IsNullOrWhiteSpace(floor.RecognitionImage))
             {

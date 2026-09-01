@@ -41,6 +41,7 @@
          宿主生成的注入输入；RealCLI 链接 Features/Maps 源码，必须能解析该命名空间。 -->
     <ProjectReference Include="..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
     <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
   </ItemGroup>
 
   <!-- 链接主项目源码：Features 全部（纯 Win32 窗口，无 XAML）+ 根目录必要文件 -->

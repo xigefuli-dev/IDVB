@@ -106,11 +106,11 @@ public sealed partial class SessionOrchestrator
             // pre-scan toggle state.
             scanSucceeded = true;
 
-            // Background scanning remains recognition-only with respect to
-            // session/overlay publication, but map identity still requires the
-            // same strict per-candidate structure validation as foreground
-            // scanning. Raw side-template similarity is only a retrieval clue
-            // and must never decide the chooser order by itself.
+            // Raw side-template similarity is only a retrieval clue. Strict
+            // per-candidate structure validation remains the default, while
+            // the explicit scan setting can defer it until player selection.
+            var requireStrictStructureRegistration = _settings!
+                .RequireStrictStructureRegistrationDuringScan;
             var sideAlignmentTuning = CreateInitialAlignmentRecognitionTuning();
             if (sideAlignmentTuning.GateTemplateThreshold
                 > GateTemplateRules.FallbackPairThreshold)
@@ -120,8 +120,14 @@ public sealed partial class SessionOrchestrator
             }
             var reliable = new List<(SideEntranceScanCandidate Candidate,
                 MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>();
-            var verificationCandidates = SideEntranceCandidateEvidence
-                .SelectVerificationCandidates(candidates);
+            var verificationCandidates = requireStrictStructureRegistration
+                ? SideEntranceCandidateEvidence.SelectVerificationCandidates(candidates)
+                : [];
+            if (!requireStrictStructureRegistration)
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    "扫描已按设置跳过严格结构配准；候选将在玩家选择后对齐。");
 
             initialPostProcess.Complete();
             var verifiedCount = 0;
@@ -237,8 +243,9 @@ public sealed partial class SessionOrchestrator
                         EvidenceScore = candidate.MatchScore,
                         IsReferenceOnly = true,
                         PreferredOrder = index,
-                        EvidenceLabel =
-                            $"仅供参考（未通过结构验证） · "
+                        EvidenceLabel = (requireStrictStructureRegistration
+                                ? "仅供参考（未通过结构验证） · "
+                                : "扫描阶段未验证 · ")
                             + $"模板相似度 {candidate.MatchScore:P0} · "
                             + candidate.RejectionDetail
                     });
@@ -253,10 +260,13 @@ public sealed partial class SessionOrchestrator
                     != MapCandidateDecisionMode.Traditional)
             {
                 pendingChoices = choices;
-                pendingChoicesReason = reliable.Count == 0
+                pendingChoicesReason = !requireStrictStructureRegistration
+                    ? $"扫描阶段未执行严格结构配准；以下 {referenceCandidates.Length} 项按模板相似度排序，选择后再执行结构对齐。"
+                    : reliable.Count == 0
                     ? $"0 个已验证结果；以下 {referenceCandidates.Length} 项仅供参考，点击后仍会执行严格结构复核。"
                     : $"{reliable.Count} 个已验证结果；已验证结果优先，另有 {referenceCandidates.Length} 项仅供参考。";
-                failureReason = reliable.Count == 0
+                failureReason = requireStrictStructureRegistration
+                    && reliable.Count == 0
                     ? $"侧门扫描无可靠候选（侧门就绪 {sideScan.ReadyMapCount}/{sideScan.EligibleMapCount}）。"
                     : null;
                 initialPostProcess.Complete();

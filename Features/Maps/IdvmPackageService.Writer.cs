@@ -179,6 +179,7 @@ public sealed partial class IdvmPackageService
                 ImageHeight = image.Height,
                 OrientationDegrees = profile.OrientationDegrees,
                 RecognitionRegion = ToDto(profile.RecognitionRegion),
+                FreeCropPoints = profile.FreeCropPoints.Select(point => ToDto(point)!).ToList(),
                 ValidMapBounds = NormalizeBounds(profile.ValidMapBounds,
                     profile.RecognitionPixelWidth,
                     profile.RecognitionPixelHeight),

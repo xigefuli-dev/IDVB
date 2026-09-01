@@ -56,6 +56,18 @@ public sealed partial class SessionOrchestrator
                     ?? MapCandidateDecisionMode.Traditional,
                 cancellationToken);
         orderedCandidates = learningResult.Choices.ToArray();
+        if (_headless && _activeCandidateSelector is not null)
+        {
+            // RealCLI replay cases carry a recorded map identity.  Recognition
+            // intentionally presents only its bounded top candidates, so a
+            // valid low-scoring fixture can otherwise be rejected before the
+            // actual structure alignment is exercised.  Append catalog entries
+            // only for headless selection; structure validation remains the
+            // acceptance gate for these identity-only entries.
+            orderedCandidates = (await BuildNativeCandidateChoicesAsync(
+                orderedCandidates,
+                mapClass)).ToArray();
+        }
         // 预加载缓存以原候选顺序生成；候选窗口沿用排序后的顺序时同步重排，
         // 避免卡片标题与预览图错位。
         var orderedPreviews = ReorderChoicePreviews(
@@ -142,11 +154,10 @@ public sealed partial class SessionOrchestrator
             }
 
             var recognition = MapCvRecognitionService.ConfirmChoice(displayChoices[index]);
-            await RecordHumanMapSelectionAsync(
+            QueueHumanMapSelectionRecording(
                 frame,
                 displayChoices,
-                recognition.Map.Id,
-                cancellationToken);
+                recognition.Map.Id);
             _statusMessage = displayChoices[index].IsReferenceOnly
                 ? $"正在严格复核参考线索：{recognition.Map.DisplayName}……"
                 : $"用户选择了可靠候选：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
@@ -234,11 +245,10 @@ public sealed partial class SessionOrchestrator
         }
 
         var recognition = MapCvRecognitionService.ConfirmChoice(candidates[index]);
-        await RecordHumanMapSelectionAsync(
+        QueueHumanMapSelectionRecording(
             frame,
             candidates,
-            recognition.Map.Id,
-            cancellationToken);
+            recognition.Map.Id);
         _statusMessage =
             $"候选地图接口已选择：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
         LockSelectedMapIdentity(recognition, frame, userConfirmed: true);

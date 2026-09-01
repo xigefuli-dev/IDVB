@@ -469,4 +469,27 @@ public sealed partial class MapStatusPage : UserControl
             _collectResearchToggle.IsOn);
     }
 
+    private async void DiagnosticModeToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing)
+            return;
+        try
+        {
+            if (!_diagnosticModeToggle.IsOn
+                && !await ConfirmDataCleanupAsync(
+                    "关闭诊断模式",
+                    "关闭后会清理诊断模式文件夹中的全部图片，此操作不可恢复。"))
+            {
+                RestoreToggle(_diagnosticModeToggle);
+                return;
+            }
+            await _runtime.SetDiagnosticModeAsync(_diagnosticModeToggle.IsOn);
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+            Refresh();
+        }
+    }
+
 }

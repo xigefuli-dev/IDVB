@@ -251,7 +251,7 @@ public sealed class BackgroundScanTests
     }
 
     [Fact]
-    public void BackgroundSideEntranceRecognitionCannotBypassStrictVerification()
+    public void BackgroundSideEntranceStrictVerificationRequiresExplicitOptOut()
     {
         var sourcePath = Path.Combine(
             FindRepositoryRoot(),
@@ -268,6 +268,10 @@ public sealed class BackgroundScanTests
 
         Assert.True(verificationIndex >= 0);
         Assert.True(backgroundCompletionIndex > verificationIndex);
+        Assert.Contains(
+            "RequireStrictStructureRegistrationDuringScan",
+            source,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "BuildSideEntranceChoices",
             source,

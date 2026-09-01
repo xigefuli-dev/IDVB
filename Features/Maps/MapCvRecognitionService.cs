@@ -18,9 +18,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
     // 该检查只在存在新鲜锚点位置时启用，不限制无门冷启动的整图平移恢复。
     internal const double SideEntranceAnchorDeviationTolerancePixels = 60d;
 
-    private sealed record CacheBuildResult(
-        IReadOnlyList<MapRecord> Maps,
-        IReadOnlyList<MapGeometryFingerprint> Fingerprints);
+    private sealed record CacheBuildResult(IReadOnlyList<MapRecord> Maps,
+        IReadOnlyList<MapGeometryFingerprint> Fingerprints, IReadOnlySet<Guid> ChangedMapIds);
 
     private readonly MapRepository _repository;
     private readonly SemaphoreSlim _cacheGate = new(1, 1);
@@ -171,7 +170,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
                             snapshot.Select(TryCreateFingerprint)
                                 .Where(fingerprint => fingerprint is not null)
                                 .Cast<MapGeometryFingerprint>()
-                                .ToArray());
+                                .ToArray(),
+                            snapshot.Select(map => map.Id).ToHashSet());
                     }
 
                     var previousMaps = _maps.ToDictionary(map => map.Id);
@@ -198,7 +198,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                             fingerprints.Add(rebuilt);
                     }
 
-                    return new CacheBuildResult(snapshot, fingerprints);
+                    return new CacheBuildResult(snapshot, fingerprints, changedIds);
                 });
             }
             finally
@@ -211,6 +211,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
             _fingerprints = cache.Fingerprints;
             _catalogRevision = _repository.GetCatalogRevision();
             _cacheInitialized = true;
+            _structureCache.InvalidateMaps(cache.ChangedMapIds);
             // MapRepository may overwrite an image without changing its
             // path. The overlay bitmap cache must not retain that old image.
             MapOverlayBitmapRenderer.InvalidateImageCache();

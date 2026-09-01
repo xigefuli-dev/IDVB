@@ -54,7 +54,8 @@ internal sealed partial class AdaptiveScaleCoordinator
             frame.ViewportBounds);
         var scale = UniformScale(transform);
         var entry = _store.TryGet(key);
-        var persistedTrusted = AdaptiveScaleStore.IsTrusted(entry);
+        var persistedTrusted = _options.AutomaticScaleLockingEnabled
+            && AdaptiveScaleStore.IsTrusted(entry);
         var strongInitial = IsStrongStructure(recognition, evidence);
         var strongVpsg = IsStrongVpsg(evidence.Vpsg, transform);
 
@@ -76,7 +77,8 @@ internal sealed partial class AdaptiveScaleCoordinator
             if (streakResult.Changed)
                 QueueInitialStreakWrite(streakResult.Snapshot);
 
-            var trusted = streak.IsReliable;
+            var trusted = _options.AutomaticScaleLockingEnabled
+                && streak.IsReliable;
             var controller = GetController(key);
             _activeKey = key;
             _activeOpenId = effectiveOpenId;
@@ -87,9 +89,10 @@ internal sealed partial class AdaptiveScaleCoordinator
                 trusted,
                 requiresRecovery: !strongInitial);
             AddInitialObservations(controller, recognition, transform, evidence);
-            if (strongVpsg)
+            if (strongVpsg && _options.AutomaticScaleLockingEnabled)
                 controller.LockCurrentScale(evidence.Vpsg!.Scale);
-            var reliable = controller.IsReliable;
+            var reliable = _options.AutomaticScaleLockingEnabled
+                && controller.IsReliable;
             var render = controller.HasReliableBaseline
                 && (resumed || strongVpsg)
                 ? MapCvRecognitionBuilders.ReplaceTransformAndSource(
@@ -233,6 +236,15 @@ internal sealed partial class AdaptiveScaleCoordinator
     {
         lock (_stateGate)
         {
+            if (!_options.AutomaticScaleLockingEnabled)
+            {
+                return new AdaptiveStructureDecision(
+                    recognition,
+                    false,
+                    false,
+                    false,
+                    AdaptiveScaleState.Provisional);
+            }
             var evidence = new AdaptiveScaleInitialEvidence(
                 consensus.LatestObservation.FrameId,
                 requiredCandidateMargin,
@@ -300,7 +312,7 @@ internal sealed partial class AdaptiveScaleCoordinator
         out AdaptiveScaleSeedDecision? seed)
     {
         seed = null;
-        if (!_options.Enabled)
+        if (!_options.Enabled || !_options.AutomaticScaleLockingEnabled)
             return false;
         var entry = _store.TryGet(key);
         if (!AdaptiveScaleStore.IsTrusted(entry))

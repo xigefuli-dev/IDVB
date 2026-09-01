@@ -73,7 +73,7 @@ public sealed partial class SessionOrchestrator
             var structureFallbackFrameCount = lowStructureReadiness
                 ? lowStructureReadinessFrameCount
                 : 2;
-            return await CaptureReadyViewportForLockedMapAsync(
+            var readyFrame = await CaptureReadyViewportForLockedMapAsync(
                 operation,
                 viewport,
                 interval,
@@ -86,6 +86,12 @@ public sealed partial class SessionOrchestrator
                 // channel needs consecutive structural readiness evidence.
                 requireStructureReadiness: lowStructureReadiness,
                 structureFallbackFrameCount);
+            if (readyFrame is not null
+                && string.Equals(operation, "仅对齐", StringComparison.Ordinal))
+            {
+                MapDiagnosticModeCapture.BeginMapOpen(readyFrame.Image);
+            }
+            return readyFrame;
         }
 
         var requiredFrames = Math.Max(2, sessionTuning.StableFrameCount);

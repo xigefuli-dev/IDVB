@@ -234,7 +234,9 @@ static async Task<RealCliSessionResult> RunRecognitionAsync(
         await orchestrator.InitializeAsync();
         // Real CLI 也遵循产品生命周期：扫描必须发生在进入对局之后。
         // S1 是 MapMatchSession 的兼容默认分组；截图仍由 CLI 的文件捕获器提供。
-    await orchestrator.BeginMatchAsync("S0 厄运之女 · 困难");
+        await orchestrator.BeginMatchAsync(
+            orchestrator.Settings.LastSelectedMapClass
+            ?? "S0 厄运之女 · 噩梦（爱吃醋）");
 
         // 🔥 这就是真实的 IDVB 识别管线
         // SessionOrchestrator.RunQuickScanAsync() 内部调用：

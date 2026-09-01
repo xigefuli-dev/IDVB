@@ -7,7 +7,15 @@ namespace IDVBuff.Views;
 
 public sealed partial class MapListPage
 {
-    private async Task ShowMapSubscriptionsDialogAsync(Button importButton, Button exportButton)
+    public async Task ShowMapSubscriptionsTutorialAsync(string subscriptionLink)
+    {
+        if (_mapSubscriptionService.GetSubscriptions().Any(record =>
+                string.Equals(record.Link, subscriptionLink, StringComparison.Ordinal)))
+            return;
+        await ShowMapSubscriptionsDialogAsync(_importButton!, _publishButton!, showTutorial: true);
+    }
+
+    private async Task ShowMapSubscriptionsDialogAsync(Button importButton, Button exportButton, bool showTutorial = false)
     {
         var reconciliation = await _mapSubscriptionService.ReconcileInstalledMapsAsync();
         var content = new StackPanel { Spacing = 10, MinWidth = 560 };
@@ -16,6 +24,16 @@ public sealed partial class MapListPage
             PlaceholderText = "粘贴地图订阅链接",
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
+        if (showTutorial)
+        {
+            content.Children.Add(new InfoBar
+            {
+                IsOpen = true,
+                Severity = InfoBarSeverity.Informational,
+                Title = "粘贴订阅链接",
+                Message = "粘贴地图社区刚刚复制的订阅链接，点击“添加并更新”，完成后点击“完成”。"
+            });
+        }
         content.Children.Add(linkBox);
         var status = new TextBlock
         {
@@ -61,13 +79,16 @@ public sealed partial class MapListPage
                 toggle.Toggled += async (_, _) =>
                     await _mapSubscriptionService.SetEnabledAsync(record.Id, toggle.IsOn);
                 row.Children.Add(toggle);
-                var official = string.Equals(
-                    record.PublisherHandle,
-                    MapSubscriptionProtocol.OfficialPublisherHandle,
-                    StringComparison.OrdinalIgnoreCase) ? " · 官方" : string.Empty;
+                var publisherName = string.IsNullOrWhiteSpace(record.PublisherDisplayName)
+                    ? "等待首次更新"
+                    : record.PublisherDisplayName.TrimStart('@');
+                var official = record.IsOfficialPublisher ? " · 官方" : string.Empty;
+                var packageName = string.IsNullOrWhiteSpace(record.PackageName)
+                    ? string.Empty
+                    : $"\n地图包：{record.PackageName}";
                 var details = new TextBlock
                 {
-                    Text = $"{record.PublisherHandle ?? "等待首次更新"}{official}"
+                    Text = $"{publisherName}{official}{packageName}"
                         + (string.IsNullOrWhiteSpace(record.LastError) ? string.Empty : $"\n错误：{record.LastError}"),
                     TextWrapping = TextWrapping.Wrap
                 };
@@ -102,7 +123,7 @@ public sealed partial class MapListPage
                     ? $"更新完成，{result.FailedCount} 个失败。"
                     : result.AppliedCount > 0
                         ? $"已更新 {result.AppliedCount} 个订阅。"
-                        : "已是最新。";
+                        : "已是最新版本。";
             }
             catch (Exception exception)
             {
@@ -135,7 +156,7 @@ public sealed partial class MapListPage
         await new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = "地图更新订阅",
+            Title = "地图订阅",
             Content = content,
             CloseButtonText = "完成"
         }.ShowAsync();

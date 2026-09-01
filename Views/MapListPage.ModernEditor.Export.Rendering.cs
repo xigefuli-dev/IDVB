@@ -64,7 +64,8 @@ public sealed partial class MapListPage : UserControl
                 }
             }
 
-            if (profile.RecognitionRegion?.IsValid is true && isVisible("special", "crop"))
+            if (profile.RecognitionRegion?.IsValid is true && profile.FreeCropPoints.Count < 3
+                && isVisible("special", "crop"))
             {
                 using var pen = CreateModernPngPen(RecognitionRegionRed, 2.5 * scale, dashed: true);
                 graphics.DrawRectangle(pen, 0, 0, options.Width - 1, options.Height - 1);

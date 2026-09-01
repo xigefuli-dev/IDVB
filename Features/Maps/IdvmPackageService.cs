@@ -390,6 +390,7 @@ public sealed partial class IdvmPackageService
         public int ImageHeight { get; set; }
         public int OrientationDegrees { get; set; }
         public RectangleDto? RecognitionRegion { get; set; }
+        public List<PointDto> FreeCropPoints { get; set; } = [];
         public RectangleDto ValidMapBounds { get; set; } = new() { Width = 1d, Height = 1d };
         /// <summary>侧门特征图元数据（可选，旧版 IDVM 包不含此字段）。</summary>
         public SideEntranceFeatureDto? SideEntranceFeature { get; set; }

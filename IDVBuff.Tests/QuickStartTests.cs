@@ -53,6 +53,7 @@ public sealed class QuickStartTests
         Assert.False(recommended.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, recommended.FirstScanStrategy);
         Assert.True(recommended.BackgroundScanEnabled);
+        Assert.False(recommended.EnableContinuousAlignment);
         Assert.Null(recommended.SelectedResolutionPreset);
         Assert.False(recommended.AllowAutomaticMapCache);
         Assert.True(recommended.CollectLogs);

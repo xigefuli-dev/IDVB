@@ -187,8 +187,14 @@ public sealed partial class SessionOrchestrator
             .Select(candidate => (double?)candidate.Scale)
             .FirstOrDefault() ?? lowSeed.ScaleX;
 
+        var recoveryMinimumScale = Math.Min(
+            config.MaximumScale,
+            LowStructureAlignmentPlan.ResolveRecoveryMinimumScale(
+                sparseSeedAttempt.StructureResult,
+                config.MinimumScale));
+
         var recoveryGrid = MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
-            config.MinimumScale,
+            recoveryMinimumScale,
             config.MaximumScale,
             config.ScaleHypothesisCount,
             config.MinimumUsableScale,

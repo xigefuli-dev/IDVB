@@ -13,11 +13,13 @@ public sealed partial class SessionOrchestrator
     private string _lastLearningMapClass = string.Empty;
     private bool _hasPendingMapLearningSample;
     private Guid? _lastRecordedMapLearningMapId;
+    private Task _humanMapSelectionRecordingTask = Task.CompletedTask;
     private MapLearningStatus? _externalMapLearningStatus;
     private int _externalTrainingQueued;
     private string _mapLearningComputeDiagnostic = string.Empty;
     private string _lastTrainingComputeDevice = string.Empty;
     private string _gpuInitializationStatus = string.Empty;
+    private bool _learningEngineInitialized;
 
     public string MapLearningGpuStatus => string.IsNullOrWhiteSpace(
         Volatile.Read(ref _gpuInitializationStatus))
@@ -42,6 +44,8 @@ public sealed partial class SessionOrchestrator
     {
         if (_settings!.CandidateDecisionMode == mode)
             return;
+        if (mode != MapCandidateDecisionMode.Traditional)
+            await EnsureLearningEngineInitializedAsync(_lifetimeCts.Token);
         _settings!.CandidateDecisionMode = mode;
         // 已冻结候选包含旧模式的排序/模型证据。切换引擎后必须重新扫描，
         // 不能在开图热键上偷偷重算并重新引入展示延迟。
@@ -78,9 +82,20 @@ public sealed partial class SessionOrchestrator
 
     private async Task InitializeLearningEngineAsync()
     {
+        if (_settings?.CandidateDecisionMode == MapCandidateDecisionMode.Traditional)
+            return;
+        await EnsureLearningEngineInitializedAsync(_lifetimeCts.Token);
+    }
+
+    private async Task EnsureLearningEngineInitializedAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_learningEngineInitialized)
+            return;
         try
         {
-            await _learningEngine.InitializeAsync(_lifetimeCts.Token);
+            await _learningEngine.InitializeAsync(cancellationToken);
+            _learningEngineInitialized = true;
         }
         catch (Exception exception)
         {
@@ -110,11 +125,10 @@ public sealed partial class SessionOrchestrator
         _lastCandidateChoices = choices;
     }
 
-    private async Task RecordHumanMapSelectionAsync(
+    private void QueueHumanMapSelectionRecording(
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> choices,
-        Guid selectedMapId,
-        CancellationToken cancellationToken)
+        Guid selectedMapId)
     {
         if (_settings?.ContinuousMapLearningEnabled is not true)
             return;
@@ -123,17 +137,44 @@ public sealed partial class SessionOrchestrator
         if (matchId == Guid.Empty)
             return;
 
+        var viewport = frame.Image.Clone();
+        var viewportBounds = frame.ViewportBounds;
+        var choiceSnapshot = choices.ToArray();
+        var previous = Volatile.Read(ref _humanMapSelectionRecordingTask);
+        var recording = Task.Run(async () =>
+        {
+            await previous;
+            await RecordHumanMapSelectionAsync(
+                matchId,
+                viewport,
+                viewportBounds,
+                choiceSnapshot,
+                selectedMapId);
+        });
+        Volatile.Write(ref _humanMapSelectionRecordingTask, recording);
+    }
+
+    private async Task RecordHumanMapSelectionAsync(
+        Guid matchId,
+        Mat viewport,
+        MapScreenRect viewportBounds,
+        IReadOnlyList<MapRecognitionChoice> choices,
+        Guid selectedMapId)
+    {
         try
         {
             await _learningEngine.RecordHumanSelectionAsync(
                 matchId,
-                frame.Image,
+                viewport,
                 choices,
                 selectedMapId,
-                cancellationToken,
-                frame.ViewportBounds);
+                _lifetimeCts.Token,
+                viewportBounds);
             _hasPendingMapLearningSample = true;
             _lastRecordedMapLearningMapId = selectedMapId;
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+        {
         }
         catch (Exception exception)
         {
@@ -148,6 +189,15 @@ public sealed partial class SessionOrchestrator
                     ["exception"] = exception.ToString()
                 });
         }
+        finally
+        {
+            viewport.Dispose();
+        }
+    }
+
+    private async Task DrainHumanMapSelectionRecordingAsync()
+    {
+        await Volatile.Read(ref _humanMapSelectionRecordingTask);
     }
 
     private async Task FinalizeMapLearningLabelAsync(
@@ -245,11 +295,10 @@ public sealed partial class SessionOrchestrator
         }
 
         var choice = scored.Choices[index];
-        await RecordHumanMapSelectionAsync(
+        QueueHumanMapSelectionRecording(
             frame,
             scored.Choices,
-            choice.Recognition.Map.Id,
-            cancellationToken);
+            choice.Recognition.Map.Id);
         UnlockMapForRescan();
         var recognition = MapCvRecognitionService.ConfirmChoice(choice);
         LockSelectedMapIdentity(recognition, frame, userConfirmed: true);
@@ -261,6 +310,7 @@ public sealed partial class SessionOrchestrator
     public async Task<MapLearningTrainingResult> TrainMapModelNowAsync(
         CancellationToken cancellationToken = default)
     {
+        await EnsureLearningEngineInitializedAsync(cancellationToken);
         var diagnostic = MapGpuTrainingSidecar.Diagnose();
         if (!diagnostic.IsPrepared)
         {
@@ -283,6 +333,7 @@ public sealed partial class SessionOrchestrator
                 status => Volatile.Write(ref _externalMapLearningStatus, status),
                 cancellationToken);
             await _learningEngine.InitializeAsync(cancellationToken);
+            _learningEngineInitialized = true;
             Volatile.Write(ref _lastTrainingComputeDevice, "CUDA:0 sidecar");
             Volatile.Write(ref _mapLearningComputeDiagnostic, string.Empty);
             return result;

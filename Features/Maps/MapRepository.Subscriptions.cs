@@ -12,14 +12,41 @@ public sealed partial class MapRepository
 {
     private static readonly Guid ProcessInstanceId = Guid.NewGuid();
 
+    public async Task MarkPublishedMapsAsSubscriptionAsync(
+        IReadOnlyCollection<Guid> mapIds, Guid publicationId, string publisherDisplayName,
+        string publisherKeyId, string version, bool isOfficialPublisher = false,
+        bool isBuilderPublisher = false, CancellationToken cancellationToken = default)
+    {
+        await Gate.WaitAsync(cancellationToken);
+        try
+        {
+            var catalog = await ReadCatalogAsync();
+            var ids = mapIds.ToHashSet();
+            foreach (var map in catalog.Maps.Where(map => ids.Contains(map.Id)))
+            {
+                map.AcquisitionKind = MapAcquisitionKind.Subscription;
+                map.SubscriptionId = publicationId;
+                map.SubscriptionPublisherHandle = publisherDisplayName;
+                map.SubscriptionPublisherIsOfficial = isOfficialPublisher;
+                map.SubscriptionPublisherIsBuilder = isBuilderPublisher;
+                map.SubscriptionPublisherKeyId = publisherKeyId;
+                map.SubscriptionVersion = version;
+            }
+            await WriteCatalogAsync(catalog);
+        }
+        finally { Gate.Release(); }
+    }
+
     public async Task<MapSubscriptionPromotionResult> PromoteSubscriptionImportAsync(
         IReadOnlyList<MapSubscriptionImportedClass> importedClasses,
         IReadOnlyDictionary<string, string> previousBindings,
         IReadOnlyCollection<Guid> previousMapIds,
         Guid subscriptionId,
-        string publisherHandle,
+        string publisherDisplayName,
         string publisherKeyId,
         string version,
+        bool isOfficialPublisher = false,
+        bool isBuilderPublisher = false,
         CancellationToken cancellationToken = default)
     {
         if (importedClasses.Count == 0
@@ -54,7 +81,9 @@ public sealed partial class MapRepository
             {
                 map.AcquisitionKind = MapAcquisitionKind.Subscription;
                 map.SubscriptionId = subscriptionId;
-                map.SubscriptionPublisherHandle = publisherHandle;
+                map.SubscriptionPublisherHandle = publisherDisplayName;
+                map.SubscriptionPublisherIsOfficial = isOfficialPublisher;
+                map.SubscriptionPublisherIsBuilder = isBuilderPublisher;
                 map.SubscriptionPublisherKeyId = publisherKeyId;
                 map.SubscriptionVersion = version;
             }

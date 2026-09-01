@@ -83,6 +83,7 @@
     <Compile Include="..\Features\Maps\MapRepository.Variants.cs" Link="Production\MapRepository.Variants.cs" />
     <Compile Include="..\Features\Maps\MapRepository.VariantBackup.cs" Link="Production\MapRepository.VariantBackup.cs" />
     <Compile Include="..\Features\Maps\MapRepository.ClassProperties.cs" Link="Production\MapRepository.ClassProperties.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.ImageDownsampling.cs" Link="Production\MapRepository.ImageDownsampling.cs" />
     <Compile Include="..\Features\Maps\MapRepository.FloorBindings.cs" Link="Production\MapRepository.FloorBindings.cs" />
     <Compile Include="..\Features\Maps\MapRepository.SideEntrance.cs" Link="Production\MapRepository.SideEntrance.cs" />
     <Compile Include="..\Features\Maps\MapBackgroundProcessor.cs" Link="Production\MapBackgroundProcessor.cs" />
@@ -130,6 +131,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureValidator.Part*.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRefiner.cs" Link="Production\MapStructureRefiner.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureDebugOutput.cs" Link="Production\MapStructureDebugOutput.cs" />
+    <Compile Include="..\Features\Maps\MapDiagnosticModeCapture.cs" Link="Production\MapDiagnosticModeCapture.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.Part*.cs" />
     <Compile Include="..\Features\Maps\StructureFilling\MapStructureFiller.cs" Link="Production\MapStructureFiller.cs" />

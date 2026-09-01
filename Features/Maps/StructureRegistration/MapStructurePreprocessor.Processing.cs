@@ -156,13 +156,16 @@ public sealed partial class MapStructurePreprocessor
             using var canny = new Mat();
             using var gradient = new Mat();
             using var expandedStructure = new Mat();
+            using var edgeKernel = Cv2.GetStructuringElement(
+                MorphShapes.Rect,
+                new Size(3, 3));
             Cv2.Canny(
                 blurred,
                 canny,
                 generationTuning.CannyLowThreshold,
                 generationTuning.CannyHighThreshold);
-            Cv2.MorphologyEx(structure, gradient, MorphTypes.Gradient, openKernel);
-            Cv2.Dilate(structure, expandedStructure, openKernel, iterations: 1);
+            Cv2.MorphologyEx(structure, gradient, MorphTypes.Gradient, edgeKernel);
+            Cv2.Dilate(structure, expandedStructure, edgeKernel, iterations: 1);
             Cv2.BitwiseAnd(canny, expandedStructure, canny);
             Cv2.BitwiseAnd(canny, ~nuisance, canny);
             var edges = new Mat();

@@ -33,15 +33,17 @@ internal static class MapStructureProjectionScorer
                 referenceY,
                 queryEdges.Width,
                 queryEdges.Height));
-        return (Normalize(Correlation(
-                    Projection(queryEdges, horizontal: true),
-                    Projection(referencePatch, horizontal: true),
-                    0))
-                + Normalize(Correlation(
-                    Projection(queryEdges, horizontal: false),
-                    Projection(referencePatch, horizontal: false),
-                    0)))
-            / 2d;
+        var xCorrelation = Normalize(Correlation(
+            Projection(queryEdges, horizontal: true),
+            Projection(referencePatch, horizontal: true),
+            0));
+        var yCorrelation = Normalize(Correlation(
+            Projection(queryEdges, horizontal: false),
+            Projection(referencePatch, horizontal: false),
+            0));
+        // Translation is two-dimensional. Averaging lets a strong axis hide
+        // a completely displaced perpendicular axis and publish a ghosted map.
+        return Math.Min(xCorrelation, yCorrelation);
     }
 
     private static double[] Projection(Mat binary, bool horizontal)

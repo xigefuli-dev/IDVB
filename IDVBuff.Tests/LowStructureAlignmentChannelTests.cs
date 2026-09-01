@@ -65,7 +65,7 @@ public sealed class LowStructureAlignmentChannelTests
         Assert.Equal(12d, low.DistanceClipPixels);
         Assert.Equal(90, low.MinimumEdgePixels);
         Assert.Equal(0.01d, low.ScaleSearchStep);
-        Assert.Equal(0.50d, low.MinimumEdgeCoverage);
+        Assert.Equal(0.75d, low.MinimumEdgeCoverage);
         Assert.Equal(0.25d, low.MinimumOccupancyCoverage);
         Assert.Equal(1, low.MinimumConsistentPartitions);
         Assert.True(low.EnforceTimeBudget);
@@ -79,7 +79,7 @@ public sealed class LowStructureAlignmentChannelTests
         Assert.Equal(65d, low.Generation.CannyHighThreshold);
         Assert.Equal(3, low.Generation.StructureCloseKernelSize);
         Assert.Equal(1, low.Generation.StructureOpenKernelSize);
-        Assert.Equal(1, low.Generation.EdgeClosingIterations);
+        Assert.Equal(0, low.Generation.EdgeClosingIterations);
         Assert.Equal(1, low.Generation.MinimumEdgeComponentAreaPixels);
         Assert.NotEqual(standard.CacheFingerprint, low.CacheFingerprint);
     }
@@ -116,6 +116,24 @@ public sealed class LowStructureAlignmentChannelTests
                 MapScaleSearchPolicy.Search,
                 isTracking: false,
                 tuning));
+    }
+
+    [Fact]
+    public void LegacyPresetCannotLowerLowStructureEdgeSafetyFloor()
+    {
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new LowStructureConfig { MinimumEdgeCoverage = 0.30d });
+
+        Assert.Equal(0.75d, tuning.MinimumEdgeCoverage);
+    }
+
+    [Fact]
+    public void LowStructureDoesNotRescoreStaleHistoryTransforms()
+    {
+        Assert.Equal(
+            0,
+            MapStructureCandidateCollector.ResolveHistoryCandidateLimit(
+                MapAlignmentChannelRegistry.CreateLowStructure()));
     }
 
     [Theory]

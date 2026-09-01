@@ -24,6 +24,41 @@ public sealed class BackgroundScanPreparationSourceTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void CandidateSelectionDoesNotWaitForLearningSamplePersistence()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.CandidateSelection.cs"));
+
+        Assert.Contains(
+            "QueueHumanMapSelectionRecording(",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "await RecordHumanMapSelectionAsync(",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SuccessfulBackgroundConsumeIsNotImmediatelyRealigned()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.PipelineHelpers.cs"))
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+
+        Assert.Contains(
+            "else if (IsBackgroundScanCompleted)\n"
+                + "            await ConsumeBackgroundScanAsync(toggle);\n"
+                + "        else\n",
+            source,
+            StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

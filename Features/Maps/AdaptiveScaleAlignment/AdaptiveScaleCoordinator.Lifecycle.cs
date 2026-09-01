@@ -85,6 +85,8 @@ internal sealed partial class AdaptiveScaleCoordinator
     {
         if (!_options.Enabled)
             return true;
+        if (!_options.AutomaticScaleLockingEnabled)
+            return false;
         lock (_stateGate)
             return _controllers.TryGetValue(currentKey, out var controller)
                 && controller.IsOpen
@@ -102,6 +104,8 @@ internal sealed partial class AdaptiveScaleCoordinator
     {
         if (!_options.Enabled)
             return true;
+        if (!_options.AutomaticScaleLockingEnabled)
+            return false;
         lock (_stateGate)
             return TryGetOpenController(expectedKey, openId, out var controller)
                 && controller.CanUseReliableScale(UniformScale(transform));

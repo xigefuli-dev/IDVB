@@ -148,6 +148,7 @@ internal sealed class AdaptiveScaleOptions
         MapVpsgScaleEstimator.HighConfidenceThreshold;
 
     public bool Enabled { get; set; } = true;
+    public bool AutomaticScaleLockingEnabled { get; set; } = true;
     public double ReliableConfidence { get; set; } = 0.65d;
     public double VpsgConfidence { get; set; } = DefaultVpsgConfidence;
     public double StrongRepairConfidence { get; set; } = 0.90d;

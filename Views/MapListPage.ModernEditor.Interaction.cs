@@ -96,6 +96,16 @@ public sealed partial class MapListPage : UserControl
                 _modernBitmap?.PixelHeight ?? (int)Math.Max(1, _modernCanvas.Height));
             _modernInteraction = EditorInteractionKind.Create;
             _modernConcealHoverPoint = normalized;
+            RenderModernEditor();
+        }
+        else if (_modernToolState.ActiveTool == MapEditorTool.FreeCrop)
+        {
+            var normalized = ToModernNormalizedPoint(pointer.Position, false);
+            if (normalized is null)
+                return;
+            _modernFreeCropPoints.Clear();
+            _modernFreeCropPoints.Add(normalized);
+            _modernInteraction = EditorInteractionKind.Create;
         }
         else
         {
@@ -155,6 +165,14 @@ public sealed partial class MapListPage : UserControl
         {
             _modernConcealHoverPoint = normalized;
             _modernConcealStroke.AddPoint(normalized);
+            AppendModernConcealPreview();
+            e.Handled = true;
+            return;
+        }
+        if (_modernToolState.ActiveTool == MapEditorTool.FreeCrop
+            && _modernInteraction == EditorInteractionKind.Create)
+        {
+            _modernFreeCropPoints.Add(normalized);
             RenderModernEditor();
             e.Handled = true;
             return;
@@ -280,6 +298,11 @@ public sealed partial class MapListPage : UserControl
             CompleteModernCreation("已创建遮瑕层。", returnToSelect: false);
             return;
         }
+        if (tool == MapEditorTool.FreeCrop)
+        {
+            CommitModernFreeCrop();
+            return;
+        }
 
         if (!ModernDragIsLargeEnough())
         {
@@ -334,11 +357,14 @@ public sealed partial class MapListPage : UserControl
                 break;
             case MapEditorTool.Crop when bounds?.IsValid is true:
                 var priorCrop = profile.RecognitionRegion?.Clone();
+                var priorCropPoints = profile.FreeCropPoints.Select(point => point.Clone()).ToList();
                 var priorCropAnchors = profile.Anchors.Select(anchor => anchor.Clone()).ToList();
                 MapRecognitionCoordinates.ApplyRecognitionRegion(profile, bounds);
+                profile.FreeCropPoints.Clear();
                 RecordModernCreation("已撤销裁剪创建。", () =>
                 {
                     profile.RecognitionRegion = priorCrop?.Clone();
+                    profile.FreeCropPoints = priorCropPoints.Select(point => point.Clone()).ToList();
                     profile.Anchors = priorCropAnchors.Select(anchor => anchor.Clone()).ToList();
                 });
                 _modernSelection = new EditorSelection(EditorSelectionKind.Crop);

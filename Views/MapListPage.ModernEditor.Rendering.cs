@@ -33,11 +33,14 @@ public sealed partial class MapListPage : UserControl
         if (profile.RecognitionRegion?.IsValid is true
             && IsModernItemVisible("special", "crop"))
         {
+            var hasFreeCrop = profile.FreeCropPoints.Count >= 3;
             var crop = _modernSelection?.Kind == EditorSelectionKind.Crop
                 && _modernPendingBounds?.IsValid is true
                     ? _modernPendingBounds
                     : profile.RecognitionRegion;
-            AddModernRectangle(crop, RecognitionRegionRed, dashed: true, thickness: 2.5);
+            if (!hasFreeCrop)
+                AddModernRectangle(crop, RecognitionRegionRed, dashed: true, thickness: 2.5);
+            AddModernFreeCrop(profile.FreeCropPoints);
         }
 
         if (IsModernItemVisible("special", string.Empty))
@@ -68,6 +71,8 @@ public sealed partial class MapListPage : UserControl
 
         if (!_modernExportRendering && _modernInteraction == EditorInteractionKind.Create)
         {
+            if (_modernToolState.ActiveTool == MapEditorTool.FreeCrop)
+                AddModernFreeCrop(_modernFreeCropPoints);
             if (_modernToolState.ActiveTool == MapEditorTool.Line
                 && _modernPendingStart?.IsValid is true && _modernPendingEnd?.IsValid is true)
             {
@@ -247,9 +252,30 @@ public sealed partial class MapListPage : UserControl
         _modernCanvas.Children.Add(line);
     }
 
+    private void AddModernFreeCrop(IReadOnlyList<NormalizedPoint> points)
+    {
+        if (_modernCanvas is null || points.Count < 2)
+            return;
+        var polygon = new Polyline
+        {
+            Stroke = new SolidColorBrush(RecognitionRegionRed),
+            StrokeThickness = 2.5 / ModernZoomFactor,
+            StrokeDashArray = new DoubleCollection { 6, 4 },
+            IsHitTestVisible = false
+        };
+        foreach (var point in points)
+            polygon.Points.Add(new Point(point.X * _modernCanvas.Width, point.Y * _modernCanvas.Height));
+        if (points.Count >= 3)
+            polygon.Points.Add(polygon.Points[0]);
+        _modernCanvas.Children.Add(polygon);
+    }
+
     private void AddModernSelectionAdorner()
     {
         if (_modernSelection is null || _modernCanvas is null)
+            return;
+        if (_modernSelection.Kind == EditorSelectionKind.Crop
+            && GetActiveFloorProfile().FreeCropPoints.Count >= 3)
             return;
         if (_modernSelection.Kind == EditorSelectionKind.Annotation
             && FindModernSelectedAnnotation() is { Type: MapAnnotationType.Line } line

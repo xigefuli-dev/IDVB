@@ -225,7 +225,7 @@ public sealed class LowStructureConfig
     public int CacheConfirmationCount { get; init; } = 2;
     public int ScaleHypothesisCount { get; init; } = 13;
     public double MaximumChamferPixels { get; init; } = 3.0;
-    public double MinimumEdgeCoverage { get; init; } = 0.50;
+    public double MinimumEdgeCoverage { get; init; } = 0.75;
     public double MinimumOccupancyCoverage { get; init; } = 0.25;
     public double MinimumReferenceCoverage { get; init; } = 0.50;
     public double MinimumProjectionCorrelation { get; init; } = 0.75;
@@ -267,7 +267,7 @@ public sealed class LowStructureConfig
     public double CannyHighThreshold { get; init; } = 65.0;
     public int LiveGradientSupportRadiusPixels { get; init; } = 6;
     public int MinimumEdgeComponentAreaPixels { get; init; } = 1;
-    public int EdgeClosingIterations { get; init; } = 1;
+    public int EdgeClosingIterations { get; init; }
     public bool EnableFeatureScaleEstimate { get; init; }
 }
 

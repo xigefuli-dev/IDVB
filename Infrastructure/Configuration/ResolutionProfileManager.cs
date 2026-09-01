@@ -183,6 +183,7 @@ public sealed class ResolutionProfileManager : IResolutionProfileService, IDispo
                 MinimumEdgeCoverage = 0.55,
                 MinimumCandidateMargin = 0.08,
                 VectorErrorTolerance = 0.04,
+                FastCoarseMaxDimension = 160,
             },
         ];
     }

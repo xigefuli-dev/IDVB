@@ -227,7 +227,7 @@ public sealed class EmphasisGuide : IDisposable
 
     private static string AdvanceButtonText(EmphasisGuideStep step, int seconds)
     {
-        var action = step.CheckAsync is null ? "下一步" : "检查";
+        var action = step.AdvanceButtonText ?? (step.CheckAsync is null ? "下一步" : "检查");
         return seconds > 0 ? $"{action}（{seconds}秒）" : action;
     }
 
@@ -274,12 +274,21 @@ public sealed class EmphasisGuide : IDisposable
         }
         if (!string.IsNullOrWhiteSpace(step.TutorialVideoUri))
             content.Children.Add(CreateTutorialVideoButton(step));
+        if (!string.IsNullOrWhiteSpace(step.ActionButtonText) && step.ActionAsync is not null)
+            content.Children.Add(CreateActionButton(step));
         return new ScrollViewer
         {
             Margin = new Thickness(0, 14, 0, 14),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = content
         };
+    }
+
+    private static Button CreateActionButton(EmphasisGuideStep step)
+    {
+        var button = new Button { Content = step.ActionButtonText, HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = 36 };
+        button.Click += async (_, _) => await step.ActionAsync!(CancellationToken.None);
+        return button;
     }
 
     private static Button CreateTutorialVideoButton(EmphasisGuideStep step)
@@ -455,7 +464,10 @@ public sealed record EmphasisGuideStep(
     IReadOnlyList<string>? ImageUris = null,
     Func<FrameworkElement?>? TargetProvider = null,
     string? TutorialVideoUri = null,
-    Action? VideoOpened = null)
+        Action? VideoOpened = null,
+        string? ActionButtonText = null,
+        Func<CancellationToken, Task>? ActionAsync = null,
+        string? AdvanceButtonText = null)
 {
     /// <summary>Whether this step leaves the highlighted application surface operable.</summary>
     public bool RequiresUserOperation => CheckAsync is not null;

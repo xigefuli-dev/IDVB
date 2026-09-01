@@ -82,6 +82,37 @@ public sealed partial class MapRuntimeSettingsRulesTests
     }
 
     [Fact]
+    public void StrictScanStructureRegistrationDefaultsOnAndRoundTrips()
+    {
+        var legacy = JsonSerializer.Deserialize<MapRuntimeSettings>("{}")!;
+        var settings = new MapRuntimeSettings
+        {
+            RequireStrictStructureRegistrationDuringScan = false
+        };
+
+        var restored = JsonSerializer.Deserialize<MapRuntimeSettings>(
+            JsonSerializer.Serialize(settings))!;
+
+        Assert.True(legacy.RequireStrictStructureRegistrationDuringScan);
+        Assert.False(restored.RequireStrictStructureRegistrationDuringScan);
+        Assert.False(settings.Clone()
+            .RequireStrictStructureRegistrationDuringScan);
+    }
+
+    [Fact]
+    public void ContinuousAlignmentIsDisabledWhenSettingsAreNormalized()
+    {
+        var settings = new MapRuntimeSettings
+        {
+            EnableContinuousAlignment = true
+        };
+
+        settings.Normalize();
+
+        Assert.False(settings.EnableContinuousAlignment);
+    }
+
+    [Fact]
     public void LegacySettingsWithoutBackgroundScanDefaultToDisabled()
     {
         var json = """

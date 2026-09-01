@@ -3,6 +3,17 @@ using OpenCvSharp;
 namespace IDVBuff.Features.Maps;
 internal static partial class MapStructureValidator
 {
+    internal static bool MeetsClearCorridorEvidence(
+        MapStructureCandidate candidate,
+        MapStructureRegistrationTuning tuning) =>
+        tuning.Channel == MapAlignmentChannel.LowStructure
+        && candidate.ReferenceCoverage >= 0.47d
+        && candidate.ChamferPixels <= 1.20d
+        && candidate.EdgeCoverage >= 0.90d
+        && candidate.OccupancyCoverage >= 0.78d
+        && candidate.ProjectionCorrelation >= 0.60d
+        && candidate.ConsistentPartitions >= 3;
+
     /// <summary>
     /// A cold standard search with a neutral scale has no evidence outside its
     /// sampled interval. An accepted endpoint is therefore a censored estimate,

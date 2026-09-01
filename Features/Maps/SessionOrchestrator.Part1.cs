@@ -33,6 +33,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             // Invalidate the match identity first. Any scan/alignment already
             // running may finish native work, but can no longer commit state.
             _matchSession.End();
+            MapDiagnosticModeCapture.EndMatch();
             CancelMatchOperations();
             var isSurvey = endingMatch.Mode == MapRunMode.Survey;
             _statusMessage = isSurvey
@@ -52,6 +53,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     ? "测绘对局不使用普通地图缓存样本"
                     : "用户选择不保存或退出路径无法确认");
             await EndSurveyMatchAsync(endingMatch);
+            await DrainHumanMapSelectionRecordingAsync();
             if (!isSurvey)
                 await FinalizeMapLearningLabelAsync(
                     endingMatch,

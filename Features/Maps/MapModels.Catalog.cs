@@ -46,6 +46,8 @@ public sealed record MapVariantGroupChangeResult(
 public sealed class MapClassProperties
 {
     public bool RemoveBackground { get; set; }
+    /// <summary>Local-only whole-image downsampling divisor. Zero keeps the original.</summary>
+    public int ImageDownsampleFactor { get; set; }
     /// <summary>
     /// Local-only RGB tolerance used for automatic background removal. This is
     /// intentionally not part of the portable IDVM package contract.
@@ -61,6 +63,7 @@ public sealed class MapClassProperties
     public MapClassProperties Clone() => new()
     {
         RemoveBackground = RemoveBackground,
+        ImageDownsampleFactor = MapRepository.ClampImageDownsampleFactor(ImageDownsampleFactor),
         BackgroundRemovalIntensity = MapBackgroundProcessor.ClampBackgroundRemovalIntensity(
             BackgroundRemovalIntensity),
         ScanFloorKey = MapScanFloorRules.NormalizeFloorIdentity(ScanFloorKey)
@@ -68,6 +71,8 @@ public sealed class MapClassProperties
 
     public override bool Equals(object? obj) => obj is MapClassProperties other
         && other.RemoveBackground == RemoveBackground
+        && MapRepository.ClampImageDownsampleFactor(other.ImageDownsampleFactor)
+            == MapRepository.ClampImageDownsampleFactor(ImageDownsampleFactor)
         && MapBackgroundProcessor.ClampBackgroundRemovalIntensity(other.BackgroundRemovalIntensity)
             == MapBackgroundProcessor.ClampBackgroundRemovalIntensity(BackgroundRemovalIntensity)
         && string.Equals(
@@ -77,6 +82,7 @@ public sealed class MapClassProperties
 
     public override int GetHashCode() => HashCode.Combine(
         RemoveBackground,
+        MapRepository.ClampImageDownsampleFactor(ImageDownsampleFactor),
         MapBackgroundProcessor.ClampBackgroundRemovalIntensity(BackgroundRemovalIntensity),
         MapScanFloorRules.NormalizeFloorIdentity(ScanFloorKey));
 }

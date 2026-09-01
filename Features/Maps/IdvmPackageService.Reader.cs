@@ -241,6 +241,7 @@ public sealed partial class IdvmPackageService
                     FloorKey = floor.Key,
                     OrientationDegrees = floor.OrientationDegrees,
                     RecognitionRegion = ToModel(floor.RecognitionRegion),
+                    FreeCropPoints = floor.FreeCropPoints.Select(point => ToModel(point)!).ToList(),
                     RecognitionPixelWidth = recognitionSize.Width,
                     RecognitionPixelHeight = recognitionSize.Height,
                     ValidMapBounds = ToPixelBounds(

@@ -253,13 +253,13 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("Get-Process -Name dotnet,MSBuild,VBCSCompiler", workflow);
         Assert.Contains("Build hosts are still running", workflow);
         Assert.Contains("continue this release", workflow);
-        Assert.Contains("GitHub publication requires a completed stable-channel publication receipt", workflow);
+        Assert.Contains("GitHub publication requires a completed $channel publication receipt", workflow);
         Assert.Contains("does not match GitHub target", workflow);
-        Assert.Contains("Create GitHub Release from stable assets", workflow);
+        Assert.Contains("Create GitHub Release from $channel assets", workflow);
+        Assert.Contains("--prerelease", workflow);
         Assert.DoesNotContain("Build-RemoteRelease.ps1", workflow);
         Assert.Contains("IDVB-Setup-$($manifest.PublicVersion)-x64.exe", workflow);
         Assert.Contains("feed-envelope.json", workflow);
-        Assert.DoesNotContain("publish-win-x64-test.json", workflow);
         Assert.DoesNotContain("Remove-Item", workflow, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("RestartManager", releaseRunner);
         Assert.Contains("Build lock owner:", releaseRunner);

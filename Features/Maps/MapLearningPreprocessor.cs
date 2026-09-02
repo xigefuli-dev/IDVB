@@ -1,6 +1,4 @@
 using OpenCvSharp;
-using TorchSharp;
-using static TorchSharp.torch;
 using CvSize = OpenCvSharp.Size;
 
 namespace IDVBuff.Features.Maps;
@@ -11,7 +9,7 @@ internal sealed record MapLearningReferenceTile(
     double CenterY,
     double Extent);
 
-internal static class MapLearningPreprocessor
+internal static partial class MapLearningPreprocessor
 {
     public const string Version =
         "spatial-focus-gray-edge-128-v5-full-floor-tiles";
@@ -71,17 +69,6 @@ internal static class MapLearningPreprocessor
             results.Add(CreateInputFromObservation(observation));
         }
         return results;
-    }
-
-    public static Tensor CreateGpuTrainingTensor(
-        Mat source,
-        Device device)
-    {
-        if (device.type != DeviceType.CUDA)
-            throw new ArgumentException("GPU 训练输入需要 CUDA 设备。",
-                nameof(device));
-        return SiameseMapNetwork.ToTensor(
-            CreateTrainingInputs(source), device);
     }
 
     public static IReadOnlyList<MapLearningReferenceTile> CreateReferenceTiles(

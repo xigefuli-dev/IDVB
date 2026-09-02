@@ -1,11 +1,22 @@
 using IDVBuff.Diagnostics;
 using IDVBuff.Features.Maps;
+using IDVBuff.Lifecycle;
 
 namespace IDVBuff;
 
 public partial class App
 {
-    private async Task CheckMapSubscriptionsInBackgroundAsync(SessionOrchestrator session)
+    private void StartStartupBackgroundTasks(SessionOrchestrator session)
+    {
+        // Offline network retries must never occupy the WinUI dispatcher.
+        _ = Task.Run(AutomaticUpdateLauncher.TryLaunch);
+        _ = CheckMapSubscriptionsInBackgroundAsync(session);
+    }
+
+    private Task CheckMapSubscriptionsInBackgroundAsync(SessionOrchestrator session) =>
+        Task.Run(() => CheckMapSubscriptionsCoreAsync(session));
+
+    private async Task CheckMapSubscriptionsCoreAsync(SessionOrchestrator session)
     {
         try
         {

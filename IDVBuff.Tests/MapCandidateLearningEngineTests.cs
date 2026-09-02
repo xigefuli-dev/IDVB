@@ -278,14 +278,8 @@ public sealed partial class MapCandidateLearningEngineTests
             DateTimeOffset.Parse("2026-08-30T08:00:00Z"));
         var correction = CreateSample(matchId, correctedMap, wrongMap,
             DateTimeOffset.Parse("2026-08-30T08:05:00Z"));
-        var method = typeof(MapCandidateLearningEngine).GetMethod(
-            "ApplyLatestMatchCorrections",
-            System.Reflection.BindingFlags.NonPublic
-                | System.Reflection.BindingFlags.Static)!;
-
-        var effective = Assert.IsAssignableFrom<
-            IReadOnlyList<MapLearningSampleManifest>>(
-                method.Invoke(null, [new[] { earlier, correction }]));
+        var effective = MapLearningSampleRules.LatestPerMatch(
+            [earlier, correction]);
 
         var authoritative = Assert.Single(effective);
         Assert.Equal(correction.SampleId, authoritative.SampleId);

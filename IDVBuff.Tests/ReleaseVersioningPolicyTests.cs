@@ -87,7 +87,7 @@ public sealed class ReleaseVersioningPolicyTests
         var buildTargets = File.ReadAllText(Path.Combine(RepositoryRoot, "Directory.Build.targets"));
         var about = File.ReadAllText(Path.Combine(RepositoryRoot, "Views", "SettingsPage.cs"));
 
-        Assert.Contains("<IDVBProductVersion>1.6.0-unstable</IDVBProductVersion>", project);
+        Assert.Contains("<IDVBProductVersion>1.6.0-unstable.2</IDVBProductVersion>", project);
         Assert.Contains("<IDVBReleaseLine>b01.6</IDVBReleaseLine>", project);
         Assert.Contains("b01.6", installer);
         Assert.Contains("1.6.0.0", installer);

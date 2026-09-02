@@ -29,7 +29,7 @@
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
         <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
-        <IDVBProductVersion>1.6.0-unstable</IDVBProductVersion>
+        <IDVBProductVersion>1.6.0-unstable.2</IDVBProductVersion>
         <IDVBReleaseLine>b01.6</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
         <AssemblyVersion>1.6.0.0</AssemblyVersion>
@@ -135,6 +135,18 @@
         <Compile Remove="IDVBuff.Tests\**\*.cs" />
         <Compile Remove="IDVBuff.MapAlignment.Probe\**\*.cs" />
         <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
+        <!-- The desktop client only collects and uploads training samples.
+             Torch training/inference stays in the user-provided RealCLI sidecar. -->
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Evaluation.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Helpers.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Spatial.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.State.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Versions.cs" />
+        <Compile Remove="Features\Maps\MapLearningPreprocessor.Torch.cs" />
+        <Compile Remove="Features\Maps\MapLearningRepository.Models.cs" />
+        <Compile Remove="Features\Maps\SiameseMapNetwork.cs" />
+        <Compile Remove="Features\Maps\TorchRuntimeConfiguration.cs" />
         <Compile Remove="UpdateCore\**\*.cs" />
         <Compile Remove="Updater\**\*.cs" />
         <!-- The Updater is an independent WinForms application under this
@@ -177,7 +189,6 @@
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
         <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
-        <PackageReference Include="TorchSharp" Version="0.107.0" />
         <PackageReference Include="Velopack" Version="1.2.0" />
 
         <Manifest Include="$(ApplicationManifest)" />

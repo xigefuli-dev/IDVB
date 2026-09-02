@@ -190,7 +190,7 @@ internal static partial class MapCvAlignmentService
             floorKey: fingerprint.FloorKey);
         using var liveMatchImage = prioritizeStructureValidation
             ? new Mat()
-            : GateTemplateDetector.CreateMatchImage(frame.Image);
+            : GateTemplateDetector.CreateMatchImage(frame.ComputationImage);
         inputPreprocess.Complete();
         stopwatch.Stop();
         diagnostics.PreprocessMilliseconds = prioritizeStructureValidation
@@ -240,7 +240,8 @@ internal static partial class MapCvAlignmentService
                     frame.ViewportBounds,
                     frame.ClientBounds.Width,
                     tuning.GateTemplateThreshold,
-                    gateContext);
+                    gateContext,
+                    frame.PhysicalPixelsPerComputationPixel);
             if (prioritizeStructureValidation)
             {
                 gateDetection.Complete(
@@ -330,7 +331,8 @@ internal static partial class MapCvAlignmentService
                         frame.ViewportBounds,
                         frame.ClientBounds.Width,
                         tuning.GateTemplateThreshold,
-                        warmContext);
+                        warmContext,
+                        frame.PhysicalPixelsPerComputationPixel);
                 }
                 gates = gateResult.Gates;
                 stopwatch.Stop();

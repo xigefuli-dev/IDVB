@@ -7,6 +7,103 @@ namespace IDVBuff.Tests;
 public sealed partial class MapStructureRegistrarTests
 {
     [Fact]
+    public void LatestLocalB1fResearchSampleRegisters()
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IDVB", "AlignmentResearch", "sessions",
+            "2026-09-02_031002--5bb5a044", "792f9899", "b1f");
+        if (!Directory.Exists(root))
+            return;
+        var samples = Directory.GetDirectories(root)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(20, samples.Length);
+        foreach (var sample in samples)
+            AssertLatestB1fSample(sample);
+    }
+
+    private static void AssertLatestB1fSample(string sampleDirectory)
+    {
+        var mapDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "IDVB", "Maps", "792f98994e5d48d6873d9c26b1116472");
+        var livePath = Path.Combine(sampleDirectory, "viewport.png");
+        var referencePath = Path.Combine(mapDirectory, "floor-b1f-recognition.png");
+        Assert.True(File.Exists(livePath), $"Missing replay input: {livePath}");
+        Assert.True(File.Exists(referencePath), $"Missing B1F reference: {referencePath}");
+
+        using var originalLive = Cv2.ImRead(livePath, ImreadModes.Unchanged);
+        using var referenceImage = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
+        Assert.False(originalLive.Empty(), $"Unreadable replay input: {livePath}");
+        Assert.False(referenceImage.Empty(), $"Unreadable B1F reference: {referencePath}");
+        using var computationLive = new Mat();
+        Cv2.Resize(originalLive, computationLive, new Size(
+            1003,
+            (int)Math.Round(originalLive.Height * (1003d / originalLive.Width))),
+            interpolation: InterpolationFlags.Area);
+        var ratio = originalLive.Width / (double)computationLive.Width;
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new LowStructureConfig());
+        var preprocessor = new MapStructurePreprocessor();
+        using var reference = preprocessor.ProcessReference(
+            referenceImage, null, tuning.Generation);
+        using var computation = preprocessor.ProcessLiveRoi(
+            computationLive, null, null,
+            generateVisibleMask: true,
+            profile: MapStructurePreprocessingProfile.EdgesOnly,
+            generationTuning: tuning.Generation);
+        var selectorTuning = tuning.Clone();
+        selectorTuning.LowStructureMinimumScale /= ratio;
+        selectorTuning.LowStructureMaximumScale /= ratio;
+        var rankedScales = MapStructureLowScaleSelector.Rank(
+            computation, reference, selectorTuning)
+            .Select(scale => scale * ratio)
+            .ToArray();
+        Assert.NotEmpty(rankedScales);
+        Assert.InRange(rankedScales[0], 0.44d, 0.50d);
+        var plan = LowStructureAlignmentPlan.SparseCoarseSeed(
+            rankedScales, LowStructureAlignmentPlan.CreateConfig(tuning));
+        var registrar = new MapStructureRegistrar(preprocessor);
+
+        var result = registrar.Register(new MapStructureRegistrationRequest
+        {
+            ReferenceImage = referenceImage,
+            LiveRoi = computationLive,
+            OriginalLiveRoi = originalLive,
+            PhysicalPixelsPerLivePixel = ratio,
+            PreparedReference = reference,
+            PreparedLive = computation,
+            ViewportBounds = new MapScreenRect(0d, 0d, originalLive.Width, originalLive.Height),
+            LockedTransform = Locked(referenceImage),
+            Tuning = tuning,
+            Channel = MapAlignmentChannel.LowStructure,
+            ScaleSearchPolicy = MapScaleSearchPolicy.Search,
+            LowStructurePlan = plan
+        });
+
+        Assert.True(result.Accepted,
+            $"{result.FailureReason}; ranked={string.Join(",", rankedScales)}; "
+            + $"bounds={result.QueryBoundsX},{result.QueryBoundsY},"
+            + $"{result.QueryBoundsWidth},{result.QueryBoundsHeight}; "
+            + CandidateMetrics(result));
+        Assert.NotNull(result.Transform);
+        Assert.InRange(result.Transform.ScaleX, 0.44d, 0.50d);
+        Assert.NotEmpty(result.Candidates);
+        Assert.InRange(result.Candidates[0].ChamferPixels, 0d, 3d);
+        Assert.True(
+            MapCvAlignmentService.HasLowStructureScaleIntegrity(
+                result,
+                new MapScreenRect(
+                    0d,
+                    0d,
+                    originalLive.Width,
+                    originalLive.Height),
+                tuning),
+            CandidateMetrics(result));
+    }
+
+    [Fact]
     public void LocalAlignmentResearchB1fSamplesStartInExpectedBasins()
     {
         var root = Path.Combine(
@@ -273,5 +370,75 @@ public sealed partial class MapStructureRegistrarTests
             $"scaleError={relativeScaleError:F6}; selected={result.Transform.ScaleX:F9}; "
             + $"ranked={string.Join(",", rankedScales.Select(scale => scale.ToString("F9")))}");
         Assert.InRange(result.SearchMilliseconds, 0d, 700d);
+    }
+
+    [Fact]
+    public void ComputationLowStructurePlanIsNotScaledTwice()
+    {
+        const double plantedPhysicalScale = 0.92d;
+        const double physicalPixelsPerComputationPixel = 1.3160518444666003d;
+        using var referenceImage = BuildReference();
+        using var source = new Mat(referenceImage, new Rect(82, 58, 300, 236));
+        using var originalLive = new Mat();
+        Cv2.Resize(source, originalLive, new Size(
+            (int)Math.Round(source.Width * plantedPhysicalScale),
+            (int)Math.Round(source.Height * plantedPhysicalScale)),
+            interpolation: InterpolationFlags.Nearest);
+        using var computationLive = new Mat();
+        Cv2.Resize(originalLive, computationLive, new Size(
+            (int)Math.Round(originalLive.Width
+                / physicalPixelsPerComputationPixel),
+            (int)Math.Round(originalLive.Height
+                / physicalPixelsPerComputationPixel)),
+            interpolation: InterpolationFlags.Area);
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+            new LowStructureConfig
+            {
+                MinimumEdgePixels = 20,
+                MinimumSpanPixels = 12
+            });
+        var preprocessor = new MapStructurePreprocessor();
+        using var reference = preprocessor.ProcessReference(
+            referenceImage, null, tuning.Generation);
+        using var computation = preprocessor.ProcessLiveRoi(
+            computationLive, null, null,
+            generateVisibleMask: true,
+            profile: MapStructurePreprocessingProfile.EdgesOnly,
+            generationTuning: tuning.Generation);
+        var selectorTuning = tuning.Clone();
+        selectorTuning.LowStructureMinimumScale /= physicalPixelsPerComputationPixel;
+        selectorTuning.LowStructureMaximumScale /= physicalPixelsPerComputationPixel;
+        var rankedScales = MapStructureLowScaleSelector.Rank(
+            computation, reference, selectorTuning)
+            .Select(scale => scale * physicalPixelsPerComputationPixel)
+            .ToArray();
+        var plan = LowStructureAlignmentPlan.SparseCoarseSeed(
+            rankedScales, LowStructureAlignmentPlan.CreateConfig(tuning));
+        var registrar = new MapStructureRegistrar(preprocessor);
+
+        var result = registrar.Register(new MapStructureRegistrationRequest
+        {
+            ReferenceImage = referenceImage,
+            LiveRoi = computationLive,
+            OriginalLiveRoi = originalLive,
+            PhysicalPixelsPerLivePixel = physicalPixelsPerComputationPixel,
+            PreparedReference = reference,
+            PreparedLive = computation,
+            ViewportBounds = new MapScreenRect(
+                600d, 300d, originalLive.Width, originalLive.Height),
+            LockedTransform = Locked(referenceImage),
+            Tuning = tuning,
+            Channel = MapAlignmentChannel.LowStructure,
+            ScaleSearchPolicy = MapScaleSearchPolicy.Search,
+            LowStructurePlan = plan
+        });
+
+        Assert.True(result.Accepted,
+            $"{result.FailureReason}; ranked={string.Join(",", rankedScales)}");
+        Assert.NotNull(result.Transform);
+        Assert.InRange(
+            Math.Abs((result.Transform.ScaleX / plantedPhysicalScale) - 1d),
+            0d,
+            0.02d);
     }
 }

@@ -60,7 +60,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     finalLearningMapId);
             if (_hasPendingMapLearningSample
                 && _settings?.ContinuousMapLearningEnabled is true
-                && _settings.AutomaticMapModelTrainingEnabled)
+                && _settings.AutomaticMapModelTrainingEnabled
+                && _learningEngine.SupportsTraining)
             {
                 QueueMapModelTraining();
             }

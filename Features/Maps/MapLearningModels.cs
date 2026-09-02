@@ -126,6 +126,7 @@ public sealed record MapModelVersionInfo
 
 public interface IMapCandidateLearningEngine : IAsyncDisposable
 {
+    bool SupportsTraining { get; }
     MapLearningStatus Status { get; }
     string RepositoryRoot { get; }
 

@@ -14,9 +14,9 @@ internal sealed partial class MapLearningRepository
         var temporaryPath = fullPath + ".tmp";
         if (File.Exists(temporaryPath))
             File.Delete(temporaryPath);
-        var samples = MapCandidateLearningEngine.ApplyLatestMatchCorrections(
+        var samples = MapLearningSampleRules.LatestPerMatch(
             await LoadSamplesAsync(cancellationToken))
-            .Where(MapCandidateLearningEngine.IsSpatialSampleForExport)
+            .Where(MapLearningSampleRules.IsSpatialSample)
             .ToArray();
         using (var archive = ZipFile.Open(temporaryPath, ZipArchiveMode.Create))
         {

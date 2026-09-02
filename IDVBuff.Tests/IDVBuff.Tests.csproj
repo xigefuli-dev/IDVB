@@ -82,9 +82,13 @@
     <Compile Include="..\Features\Maps\MapLearningModels.cs" Link="Production\MapLearningModels.cs" />
     <Compile Include="..\Features\Maps\MapLearningPersistenceModels.cs" Link="Production\MapLearningPersistenceModels.cs" />
     <Compile Include="..\Features\Maps\MapLearningPreprocessor.cs" Link="Production\MapLearningPreprocessor.cs" />
+    <Compile Include="..\Features\Maps\MapLearningPreprocessor.Torch.cs" Link="Production\MapLearningPreprocessor.Torch.cs" />
+    <Compile Include="..\Features\Maps\MapLearningSampleRules.cs" Link="Production\MapLearningSampleRules.cs" />
+    <Compile Include="..\Features\Maps\MapSampleProviderEngine.cs" Link="Production\MapSampleProviderEngine.cs" />
     <Compile Include="..\Features\Maps\TorchRuntimeConfiguration.cs" Link="Production\TorchRuntimeConfiguration.cs" />
     <Compile Include="..\Features\Maps\SiameseMapNetwork.cs" Link="Production\SiameseMapNetwork.cs" />
     <Compile Include="..\Features\Maps\MapLearningRepository.cs" Link="Production\MapLearningRepository.cs" />
+    <Compile Include="..\Features\Maps\MapLearningRepository.Models.cs" Link="Production\MapLearningRepository.Models.cs" />
     <Compile Include="..\Features\Maps\MapLearningRepository.Migration.cs" Link="Production\MapLearningRepository.Migration.cs" />
     <Compile Include="..\Features\Maps\MapLearningRepository.Maintenance.cs" Link="Production\MapLearningRepository.Maintenance.cs" />
     <Compile Include="..\Features\Maps\MapLearningRepository.Spatial.cs" Link="Production\MapLearningRepository.Spatial.cs" />

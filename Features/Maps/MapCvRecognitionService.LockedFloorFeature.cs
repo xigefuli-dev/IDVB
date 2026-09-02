@@ -30,11 +30,7 @@ public sealed partial class MapCvRecognitionService
         double AverageDescriptorDistance,
         double Confidence);
 
-    /// <summary>
-    /// Estimates scale for one explicitly selected map/floor with VPSG AKAZE
-    /// evidence, then requires a fixed-scale structure validation. The map and
-    /// floor identities are never searched or changed here.
-    /// </summary>
+    /// <summary>Estimates locked-floor VPSG scale, then validates structure.</summary>
     public MapRecognitionAttempt AlignLockedFloorFeature(
         CapturedGameFrame frame,
         Guid selectedMapId,
@@ -131,15 +127,29 @@ public sealed partial class MapCvRecognitionService
                 && estimate is not null)
             {
                 usedVpsg = true;
-                scaleEvidence = estimate.Evidence;
+                scaleEvidence = new MapScaleEstimationEvidence
+                {
+                    UniqueMatches = estimate.Evidence.UniqueMatches,
+                    PairVotes = estimate.Evidence.PairVotes,
+                    ReferenceSpan = estimate.Evidence.ReferenceSpan,
+                    LiveSpan = estimate.Evidence.LiveSpan
+                        * frame.PhysicalPixelsPerComputationPixel,
+                    ResidualPixels = estimate.Evidence.ResidualPixels
+                        * frame.PhysicalPixelsPerComputationPixel,
+                    RotationDegrees = estimate.Evidence.RotationDegrees,
+                    RelativeMedianAbsoluteDeviation =
+                        estimate.Evidence.RelativeMedianAbsoluteDeviation
+                };
                 fit = new LockedFloorFeatureFit(
-                    estimate.Scale,
-                    estimate.OffsetX,
-                    estimate.OffsetY,
+                    estimate.Scale * frame.PhysicalPixelsPerComputationPixel,
+                    estimate.OffsetX * frame.PhysicalPixelsPerComputationPixel,
+                    estimate.OffsetY * frame.PhysicalPixelsPerComputationPixel,
                     estimate.Evidence.UniqueMatches,
-                    estimate.Evidence.ResidualPixels,
+                    estimate.Evidence.ResidualPixels
+                        * frame.PhysicalPixelsPerComputationPixel,
                     estimate.Evidence.ReferenceSpan,
-                    estimate.Evidence.LiveSpan,
+                    estimate.Evidence.LiveSpan
+                        * frame.PhysicalPixelsPerComputationPixel,
                     0d,
                     estimate.Confidence);
                 rejectionReason = string.Empty;

@@ -46,9 +46,6 @@ public sealed partial class GateTemplateDetector : IDisposable
         GateTemplateRules.ApplyConfig(_configProvider);
     }
 
-    // ── Backward-compatible overloads ─────────────────────────────────────
-
-    /// <summary>Convenience overload that resolves defaults through <see cref="GateTemplateRules"/>.</summary>
     public IReadOnlyList<GateDetection> Detect(
         Mat liveMatchImage,
         MapScreenRect viewportBounds)
@@ -88,14 +85,13 @@ public sealed partial class GateTemplateDetector : IDisposable
             searchContext: null).Gates;
     }
 
-    // ── New primary overload ──────────────────────────────────────────────
-
     public GateDetectionResult Detect(
         Mat liveMatchImage,
         MapScreenRect viewportBounds,
         double clientWidth,
         double scoreThreshold,
-        GateSearchContext? searchContext)
+        GateSearchContext? searchContext,
+        double physicalPixelsPerImagePixel = 1d)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         scoreThreshold = double.IsFinite(scoreThreshold)
@@ -115,7 +111,6 @@ public sealed partial class GateTemplateDetector : IDisposable
         if (searchContext.Mode == GateSearchMode.LocalConfirmationSearch
             && searchContext.PredictedGateRegions.Count > 0)
         {
-            // ── Local confirmation: search each predicted ROI ──────────
             var scales = GetConfirmationScales(searchContext.PredictedScale);
             if (scales.Count == 0)
             {
@@ -144,12 +139,16 @@ public sealed partial class GateTemplateDetector : IDisposable
                         break;
                     }
 
-                    var width = Math.Max(12, (int)Math.Round(_gateSource.Width * scale));
-                    var height = Math.Max(12, (int)Math.Round(_gateSource.Height * scale));
+                    var width = Math.Max(12, (int)Math.Round(
+                        _gateSource.Width * scale / physicalPixelsPerImagePixel));
+                    var height = Math.Max(12, (int)Math.Round(
+                        _gateSource.Height * scale / physicalPixelsPerImagePixel));
                     if (width >= liveMatchImage.Width || height >= liveMatchImage.Height)
                         continue;
 
-                    var roi = BuildConfirmationRoi(region, width, height, searchContext, liveMatchImage, viewportBounds);
+                    var roi = BuildConfirmationRoi(region, width, height,
+                        searchContext, liveMatchImage, viewportBounds,
+                        physicalPixelsPerImagePixel);
                     scalesEvaluated++;
                     regionsEvaluated++;
 
@@ -171,10 +170,12 @@ public sealed partial class GateTemplateDetector : IDisposable
                             Score = score,
                             Scale = scale,
                             ScreenBounds = new MapScreenRect(
-                                viewportBounds.X + roi.X + location.X,
-                                viewportBounds.Y + roi.Y + location.Y,
-                                width,
-                                height),
+                                viewportBounds.X + ((roi.X + location.X)
+                                    * physicalPixelsPerImagePixel),
+                                viewportBounds.Y + ((roi.Y + location.Y)
+                                    * physicalPixelsPerImagePixel),
+                                width * physicalPixelsPerImagePixel,
+                                height * physicalPixelsPerImagePixel),
                         });
                     }
                 }
@@ -206,8 +207,10 @@ public sealed partial class GateTemplateDetector : IDisposable
                     break;
                 }
 
-                var width = Math.Max(12, (int)Math.Round(_gateSource.Width * scale));
-                var height = Math.Max(12, (int)Math.Round(_gateSource.Height * scale));
+                var width = Math.Max(12, (int)Math.Round(
+                    _gateSource.Width * scale / physicalPixelsPerImagePixel));
+                var height = Math.Max(12, (int)Math.Round(
+                    _gateSource.Height * scale / physicalPixelsPerImagePixel));
                 if (width >= liveMatchImage.Width || height >= liveMatchImage.Height)
                     continue;
 
@@ -235,10 +238,12 @@ public sealed partial class GateTemplateDetector : IDisposable
                         Score = score,
                         Scale = scale,
                         ScreenBounds = new MapScreenRect(
-                            viewportBounds.X + location.X,
-                            viewportBounds.Y + location.Y,
-                            width,
-                            height),
+                            viewportBounds.X
+                                + (location.X * physicalPixelsPerImagePixel),
+                            viewportBounds.Y
+                                + (location.Y * physicalPixelsPerImagePixel),
+                            width * physicalPixelsPerImagePixel,
+                            height * physicalPixelsPerImagePixel),
                     };
                     raw.Add(candidate);
                     scaleCandidates.Add(candidate);
@@ -246,8 +251,7 @@ public sealed partial class GateTemplateDetector : IDisposable
                     Cv2.Rectangle(output, suppression, Scalar.All(-1d), -1);
                 }
 
-                // Dual-gate early exit: two high-score candidates in same scale.
-                // Must verify they are spatially distinct (not same physical gate).
+                // Dual-gate early exit requires two spatially distinct matches.
                 if (searchContext.AllowDualGateEarlyExit
                     && scaleCandidates.Count >= 2
                     && scaleCandidates
@@ -267,9 +271,7 @@ public sealed partial class GateTemplateDetector : IDisposable
                     }
                 }
 
-                // Single-gate early exit (Warm + FullSearch). DualGate always wins.
-                // FullSearch requires a minimum scale count so an undersized first
-                // match cannot abort the cold list prematurely.
+                // FullSearch needs enough scales before single-gate early exit.
                 if (stopReason != GateSearchStopReason.DualGateEarlyExit
                     && searchContext.AllowSingleGateEarlyExit
                     && raw.Count > 0

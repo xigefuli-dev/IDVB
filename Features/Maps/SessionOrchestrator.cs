@@ -127,7 +127,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _surveyCaptureTuning.Validate();
         _captureProtection = captureProtection;
         _scanProgressOverlay = new GameOverlayProgressBar(_captureProtection);
-        _learningEngine = learningEngine ?? new MapCandidateLearningEngine();
+        _learningEngine = learningEngine ?? new MapSampleProviderEngine();
         _surveyCoordinator.StatusChanged += SurveyCoordinator_StatusChanged;
         _headless = headless;
 

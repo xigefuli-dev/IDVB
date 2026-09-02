@@ -275,11 +275,64 @@ internal static class MapStructureCandidateCollector
             1d / Math.Max(1, Cv2.CountNonZero(coarseTemplate)),
             scores);
 
+        // Sparse B1F corridors repeat throughout the reference. Distance-map
+        // peaks can therefore miss the actual room even when its scale is
+        // correct. Add the strongest appearance location as one more coarse
+        // hypothesis; it still has to pass the original-pixel structure gate.
+        if (query.Appearance is not null
+            && !query.Appearance.Empty()
+            && !reference.NormalizedGray.Empty())
+        {
+            using var grayTemplate = new Mat(query.Appearance, query.Bounds);
+            if (grayTemplate.Width < reference.NormalizedGray.Width
+                && grayTemplate.Height < reference.NormalizedGray.Height)
+            {
+                using var grayScores = new Mat();
+                Cv2.MatchTemplate(
+                    reference.NormalizedGray,
+                    grayTemplate,
+                    grayScores,
+                    TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(
+                    grayScores,
+                    out _,
+                    out var maximum,
+                    out _,
+                    out var appearanceLocation);
+                if (double.IsFinite(maximum))
+                {
+                    output.Add(MapStructureEvaluator.Evaluate(
+                        query,
+                        reference,
+                        referenceDistance,
+                        request,
+                        scale,
+                        appearanceLocation.X,
+                        appearanceLocation.Y,
+                        usedGlobalSearch: true,
+                        tuning,
+                        reciprocalScale) with
+                    {
+                        FromAppearanceSearch = true,
+                        AppearanceCorrelation = maximum
+                    });
+                }
+            }
+        }
+
         var coordinateScaleX = (double)referenceDistance.Width / referenceWidth;
         var coordinateScaleY = (double)referenceDistance.Height / referenceHeight;
         var suppression = Math.Max(2, tuning.FastCoarseNmsRadius);
-        var topK = Math.Min(tuning.LowStructureTranslationTopK, 2);
-        for (var index = 0; index < topK; index++)
+        var maximumCandidatesPerScale = Math.Min(
+            tuning.LowStructureTranslationTopK,
+            2);
+        for (var index = 0;
+             index < maximumCandidatesPerScale
+                && output.Count(candidate =>
+                    Math.Abs(candidate.Scale - scale)
+                        < tuning.ScaleDuplicateTolerance)
+                    < maximumCandidatesPerScale;
+             index++)
         {
             Cv2.MinMaxLoc(scores, out var minimum, out _, out var location, out _);
             if (!double.IsFinite(minimum))
@@ -385,8 +438,15 @@ internal static class MapStructureCandidateCollector
                 tuning,
                 restrictedSearch,
                 request);
-        var valid = rawBestRejection
-                == MapStructureRejectionReason.ScaleSearchBoundary
+        var valid = request?.ForceBestCandidate == true
+            ? ordered
+                .OrderByDescending(candidate => candidate.FromAppearanceSearch)
+                .ThenBy(candidate => ScalePriority(candidate, request.LowStructurePlan))
+                .ThenByDescending(candidate => candidate.AppearanceCorrelation)
+                .ThenBy(candidate => candidate.CompositeCost)
+                .Take(tuning.TopCandidateCount)
+                .ToArray()
+            : rawBestRejection == MapStructureRejectionReason.ScaleSearchBoundary
             ? []
             : ordered
                 .Where(candidate => MapStructureValidator.ValidateAbsolute(
@@ -396,6 +456,21 @@ internal static class MapStructureCandidateCollector
                     request) == MapStructureRejectionReason.None)
                 .Take(tuning.TopCandidateCount)
                 .ToArray();
+
+        static int ScalePriority(
+            MapStructureCandidate candidate,
+            LowStructureAlignmentPlan? plan)
+        {
+            if (plan is null || plan.Scales.Count == 0)
+                return int.MaxValue;
+            return plan.Scales
+                .Select((scale, index) => new
+                {
+                    Index = index,
+                    Distance = Math.Abs(scale - candidate.Scale)
+                })
+                .MinBy(item => item.Distance)!.Index;
+        }
         return (ordered, diagnostic, valid);
     }
 }

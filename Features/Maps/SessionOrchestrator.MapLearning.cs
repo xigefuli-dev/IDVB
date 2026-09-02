@@ -21,7 +21,9 @@ public sealed partial class SessionOrchestrator
     private string _gpuInitializationStatus = string.Empty;
     private bool _learningEngineInitialized;
 
-    public string MapLearningGpuStatus => string.IsNullOrWhiteSpace(
+    public string MapLearningGpuStatus => !_learningEngine.SupportsTraining
+        ? _learningEngine.Status.ComputeFallbackReason
+        : string.IsNullOrWhiteSpace(
         Volatile.Read(ref _gpuInitializationStatus))
             ? MapGpuTrainingSidecar.Diagnose().Message
             : Volatile.Read(ref _gpuInitializationStatus);
@@ -42,6 +44,8 @@ public sealed partial class SessionOrchestrator
 
     public async Task SetCandidateDecisionModeAsync(MapCandidateDecisionMode mode)
     {
+        if (!_learningEngine.SupportsTraining)
+            mode = MapCandidateDecisionMode.Traditional;
         if (_settings!.CandidateDecisionMode == mode)
             return;
         if (mode != MapCandidateDecisionMode.Traditional)
@@ -63,7 +67,7 @@ public sealed partial class SessionOrchestrator
 
     public async Task SetAutomaticMapModelTrainingEnabledAsync(bool enabled)
     {
-        _settings!.AutomaticMapModelTrainingEnabled = enabled;
+        _settings!.AutomaticMapModelTrainingEnabled = enabled && _learningEngine.SupportsTraining;
         await SaveSettingsAsync();
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -76,12 +80,23 @@ public sealed partial class SessionOrchestrator
             return;
         if (_settings.CandidateDecisionMode != mode)
             ClearPendingBackgroundScan();
-        _settings.CandidateDecisionMode = mode;
+        _settings.CandidateDecisionMode = _learningEngine.SupportsTraining
+            ? mode : MapCandidateDecisionMode.Traditional;
         _settings.ContinuousMapLearningEnabled = continuousLearningEnabled;
     }
 
     private async Task InitializeLearningEngineAsync()
     {
+        if (!_learningEngine.SupportsTraining && _settings is not null)
+        {
+            var changed = _settings.CandidateDecisionMode != MapCandidateDecisionMode.Traditional || _settings.AutomaticMapModelTrainingEnabled;
+            _settings.CandidateDecisionMode = MapCandidateDecisionMode.Traditional;
+            _settings.AutomaticMapModelTrainingEnabled = false;
+            if (changed)
+                await SaveSettingsAsync();
+            await EnsureLearningEngineInitializedAsync(_lifetimeCts.Token);
+            return;
+        }
         if (_settings?.CandidateDecisionMode == MapCandidateDecisionMode.Traditional)
             return;
         await EnsureLearningEngineInitializedAsync(_lifetimeCts.Token);
@@ -311,6 +326,8 @@ public sealed partial class SessionOrchestrator
         CancellationToken cancellationToken = default)
     {
         await EnsureLearningEngineInitializedAsync(cancellationToken);
+        if (!_learningEngine.SupportsTraining)
+            return await _learningEngine.TrainNowAsync(cancellationToken);
         var diagnostic = MapGpuTrainingSidecar.Diagnose();
         if (!diagnostic.IsPrepared)
         {

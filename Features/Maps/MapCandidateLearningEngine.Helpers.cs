@@ -41,19 +41,6 @@ public sealed partial class MapCandidateLearningEngine
             ? $"CUDA:{Math.Max(0, device.index)}"
             : "CPU";
 
-    internal static IReadOnlyList<MapLearningSampleManifest> ApplyLatestMatchCorrections(
-        IReadOnlyList<MapLearningSampleManifest> samples)
-    {
-        return samples
-            .GroupBy(item => item.MatchId)
-            .Select(group => group
-                .OrderByDescending(item => item.CreatedAt)
-                .ThenByDescending(item => item.SampleId, StringComparer.Ordinal)
-                .First())
-            .OrderBy(item => item.CreatedAt)
-            .ToArray();
-    }
-
     private static bool IsPromotionMessage(string value) =>
         value.Contains("晋级", StringComparison.Ordinal);
 
@@ -362,9 +349,10 @@ public sealed partial class MapCandidateLearningEngine
         CancellationToken cancellationToken = default)
     {
         await _repository.ClearSamplesAsync(cancellationToken);
-        var retained = ApplyLatestMatchCorrections(
+        var retained = MapLearningSampleRules.LatestPerMatch(
             await _repository.LoadSamplesAsync(cancellationToken));
-        var compatible = retained.Where(IsSpatialSample).ToArray();
+        var compatible = retained.Where(
+            MapLearningSampleRules.IsSpatialSample).ToArray();
         var partition = PartitionSpatialSamples(compatible);
         SetStatus(Status with
         {

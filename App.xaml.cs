@@ -230,8 +230,7 @@ namespace IDVBuff
                     await ShowUpdatedSuccessfullyAsync();
                 if (!startMinimized && !startupElevationRequired)
                     await ShowQuickStartAsync(session);
-                AutomaticUpdateLauncher.TryLaunch();
-                _ = CheckMapSubscriptionsInBackgroundAsync(session);
+                StartStartupBackgroundTasks(session);
                 if (startMinimized)
                 {
                     HideMainWindow();

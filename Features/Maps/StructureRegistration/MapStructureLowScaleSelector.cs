@@ -34,7 +34,7 @@ internal static class MapStructureLowScaleSelector
         var points = MapStructureScaleSearch.FindNonZeroPoints(live.Edges);
         if (points.Length < tuning.MinimumEdgePixels)
             return new([], 0d, coarseGrid.Length, true);
-        var bounds = Cv2.BoundingRect(points);
+        var bounds = MapStructureScaleSearch.FindTemplateBounds(live.Edges);
         if (bounds.Width < tuning.MinimumSpanPixels || bounds.Height < tuning.MinimumSpanPixels)
             return new([], 0d, coarseGrid.Length, true);
 
@@ -100,16 +100,116 @@ internal static class MapStructureLowScaleSelector
         }
 
         var winner = finalScores[0].Scale;
+        var appearanceWinner = FindAppearanceScale(
+            live,
+            reference,
+            bounds,
+            coarseGrid);
         var selected = SelectExactCandidates(
             winner,
             finalGrid,
             coarse.Select(item => item.Scale).ToArray(),
-            ambiguous);
+            ambiguous)
+            .Prepend(appearanceWinner ?? winner)
+            .Take(2)
+            .Append(coarseGrid[0])
+            .DistinctBy(scale => Math.Round(scale, 9))
+            .Take(3)
+            .ToArray();
         return new(
             selected,
             AdjacentResolution(finalGrid, winner),
             coarseGrid.Length,
             ambiguous);
+    }
+
+    private static double? FindAppearanceScale(
+        MapStructureFeatures live,
+        MapStructureFeatures reference,
+        Rect bounds,
+        IReadOnlyList<double> coarseGrid)
+    {
+        if (live.NormalizedGray.Empty() || reference.NormalizedGray.Empty())
+            return null;
+        const int factor = 4;
+        using var livePatch = new Mat(live.NormalizedGray, bounds);
+        using var coarseReference = Resize(reference.NormalizedGray, factor);
+        var coarse = ScoreAppearanceScales(
+                coarseGrid,
+                livePatch,
+                coarseReference,
+                factor)
+            .OrderBy(score => score.Cost)
+            .ToArray();
+        if (coarse.Length == 0)
+            return null;
+        var winnerIndex = Array.FindIndex(
+            coarseGrid.ToArray(),
+            scale => Math.Abs(scale - coarse[0].Scale) < 1e-9d);
+        var fineGrid = BuildRefinementRound(coarseGrid, winnerIndex, 5);
+        var fineReference = reference.NormalizedGray;
+        var fineScores = ScoreAppearanceScales(
+            fineGrid,
+            livePatch,
+            fineReference,
+            1)
+            .OrderBy(score => score.Cost)
+            .ToArray();
+        if (fineScores.Length == 0)
+            return coarse[0].Scale;
+        var orderedFineGrid = fineGrid.OrderBy(scale => scale).ToArray();
+        var fineWinnerIndex = Array.FindIndex(
+            orderedFineGrid,
+            scale => Math.Abs(scale - fineScores[0].Scale) < 1e-9d);
+        var finalGrid = BuildRefinementRound(
+            orderedFineGrid,
+            fineWinnerIndex,
+            5);
+        var finalScores = ScoreAppearanceScales(
+                finalGrid,
+                livePatch,
+                fineReference,
+                1)
+            .OrderBy(score => score.Cost)
+            .ToArray();
+        return finalScores.FirstOrDefault()?.Scale ?? fineScores[0].Scale;
+    }
+
+    private static IReadOnlyList<ScaleScore> ScoreAppearanceScales(
+        IEnumerable<double> candidates,
+        Mat livePatch,
+        Mat referenceGray,
+        int factor)
+    {
+        var scores = new List<ScaleScore>();
+        foreach (var scale in candidates)
+        {
+            var size = new Size(
+                Math.Max(1, (int)Math.Round(livePatch.Width / scale / factor)),
+                Math.Max(1, (int)Math.Round(livePatch.Height / scale / factor)));
+            if (size.Width < 8 || size.Height < 8
+                || size.Width >= referenceGray.Width
+                || size.Height >= referenceGray.Height)
+            {
+                continue;
+            }
+            using var template = new Mat();
+            Cv2.Resize(
+                livePatch,
+                template,
+                size,
+                interpolation: InterpolationFlags.Area);
+            using var scoreMap = new Mat();
+            Cv2.MatchTemplate(
+                referenceGray,
+                template,
+                scoreMap,
+                TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(scoreMap, out _, out var maximum, out _, out _);
+            if (double.IsFinite(maximum))
+                scores.Add(new(scale, -maximum));
+        }
+        return scores;
     }
 
     internal static IReadOnlyList<double> SelectExactCandidates(

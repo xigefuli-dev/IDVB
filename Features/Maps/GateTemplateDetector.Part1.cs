@@ -42,7 +42,8 @@ public sealed partial class GateTemplateDetector : IDisposable
         int templateHeight,
         GateSearchContext context,
         Mat matchImage,
-        MapScreenRect viewportBounds)
+        MapScreenRect viewportBounds,
+        double physicalPixelsPerImagePixel)
     {
         var paddingX = Math.Max(
             context.LocalRoiMinimumPaddingPixels,
@@ -55,14 +56,18 @@ public sealed partial class GateTemplateDetector : IDisposable
 
         // Convert absolute screen coordinates to viewport-local coordinates
         // for ROI construction. matchImage is the viewport crop.
-        var localCenterX = predictedRegion.CenterX - viewportBounds.X;
-        var localCenterY = predictedRegion.CenterY - viewportBounds.Y;
-        var left = Math.Max(0, (int)Math.Round(localCenterX - (predictedRegion.Width / 2d) - paddingX));
-        var top = Math.Max(0, (int)Math.Round(localCenterY - (predictedRegion.Height / 2d) - paddingY));
+        var localCenterX = (predictedRegion.CenterX - viewportBounds.X)
+            / physicalPixelsPerImagePixel;
+        var localCenterY = (predictedRegion.CenterY - viewportBounds.Y)
+            / physicalPixelsPerImagePixel;
+        var predictedWidth = predictedRegion.Width / physicalPixelsPerImagePixel;
+        var predictedHeight = predictedRegion.Height / physicalPixelsPerImagePixel;
+        var left = Math.Max(0, (int)Math.Round(localCenterX - (predictedWidth / 2d) - paddingX));
+        var top = Math.Max(0, (int)Math.Round(localCenterY - (predictedHeight / 2d) - paddingY));
         var right = Math.Min(matchImage.Width,
-            (int)Math.Round(localCenterX + (predictedRegion.Width / 2d) + paddingX));
+            (int)Math.Round(localCenterX + (predictedWidth / 2d) + paddingX));
         var bottom = Math.Min(matchImage.Height,
-            (int)Math.Round(localCenterY + (predictedRegion.Height / 2d) + paddingY));
+            (int)Math.Round(localCenterY + (predictedHeight / 2d) + paddingY));
 
         if (right <= left || bottom <= top)
             return new Rect(0, 0, Math.Min(templateWidth, matchImage.Width),

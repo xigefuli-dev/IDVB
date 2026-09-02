@@ -1,5 +1,11 @@
 namespace IDVBuff.Features.Maps;
 
+internal static class MapLearningModelContract
+{
+    internal const string ArchitectureVersion =
+        "idvb-spatial-cross-domain-matcher-128-v3";
+}
+
 internal sealed record MapLearningSampleManifest
 {
     public int SchemaVersion { get; init; } = 2;
@@ -36,7 +42,7 @@ internal sealed record MapModelManifest
 {
     public int SchemaVersion { get; init; } = 2;
     public string ArchitectureVersion { get; init; } =
-        SiameseMapNetwork.ArchitectureVersion;
+        MapLearningModelContract.ArchitectureVersion;
     public string PreprocessingVersion { get; init; } =
         MapLearningPreprocessor.Version;
     public string Version { get; init; } = string.Empty;

@@ -73,9 +73,9 @@ internal static partial class MapCvAlignmentService
         stopwatch.Restart();
         using var preparedLive =
             service.StructurePreprocessor.ProcessLiveRoiDiagnostic(
-            frame.Image,
+            frame.ComputationImage,
             liveIgnoreRegions,
-            dynamicIgnoreRegions,
+            dynamicIgnoreRegions.Select(frame.ToComputationRect).ToArray(),
                 out var liveStructureTiming,
                 profile: route == SelectedAlignmentRoute.SideEntrance
                 ? MapStructurePreprocessingProfile.EdgesOnly
@@ -176,7 +176,9 @@ internal static partial class MapCvAlignmentService
         {
             ReferenceImage = reference,
             Channel = structureSearchTuning.Channel,
-            LiveRoi = frame.Image,
+            LiveRoi = frame.ComputationImage,
+            OriginalLiveRoi = frame.Image,
+            PhysicalPixelsPerLivePixel = frame.PhysicalPixelsPerComputationPixel,
             ViewportBounds = frame.ViewportBounds,
             LockedTransform = structureSeed,
             Tuning = structureSearchTuning,
@@ -254,7 +256,10 @@ internal static partial class MapCvAlignmentService
                 {
                     ReferenceImage = reference,
                     Channel = globalRecoveryTuning.Channel,
-                    LiveRoi = frame.Image,
+                    LiveRoi = frame.ComputationImage,
+                    OriginalLiveRoi = frame.Image,
+                    PhysicalPixelsPerLivePixel =
+                        frame.PhysicalPixelsPerComputationPixel,
                     ViewportBounds = frame.ViewportBounds,
                     LockedTransform = structureSeed,
                     Tuning = globalRecoveryTuning,

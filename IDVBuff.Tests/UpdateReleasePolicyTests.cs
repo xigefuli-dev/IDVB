@@ -217,6 +217,25 @@ public sealed class UpdateReleasePolicyTests
     }
 
     [Fact]
+    public void DesktopClientProvidesTrainingSamplesWithoutTorch()
+    {
+        var project = Read("IDVBuff.csproj");
+        var orchestrator = Read("Features", "Maps", "SessionOrchestrator.cs");
+        var provider = Read("Features", "Maps", "MapSampleProviderEngine.cs");
+
+        Assert.DoesNotContain("PackageReference Include=\"TorchSharp",
+            project, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MapLearningPreprocessor.Torch.cs", project);
+        Assert.Contains("MapLearningRepository.Models.cs", project);
+        Assert.Contains("SiameseMapNetwork.cs", project);
+        Assert.Contains("TorchRuntimeConfiguration.cs", project);
+        Assert.Contains("new MapSampleProviderEngine()", orchestrator);
+        Assert.Contains("SaveHumanSelectionAsync", provider);
+        Assert.Contains("_repository.ExportAsync", provider);
+        Assert.Contains("SupportsTraining => false", provider);
+    }
+
+    [Fact]
     public void EveryReleasePathRequiresTheEmbeddedUpdateTrustRoot()
     {
         var updateRelease = Read("release", "Invoke-IDVBRelease.ps1");

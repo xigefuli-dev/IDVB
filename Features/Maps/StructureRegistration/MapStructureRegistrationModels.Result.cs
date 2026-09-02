@@ -25,6 +25,8 @@ public sealed record MapStructureCandidate
     public bool EccConverged { get; init; }
     public double EccCorrelation { get; init; }
     public bool FromVisibleAware { get; init; }
+    public bool FromAppearanceSearch { get; init; }
+    public double AppearanceCorrelation { get; init; }
     public double VisibleFraction { get; init; }
     public int VisibleStructurePixels { get; init; }
     public int VisibleEdgePixels { get; init; }

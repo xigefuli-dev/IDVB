@@ -5,6 +5,37 @@ namespace IDVBuff.Tests;
 
 public sealed class CapturedGameFrameStructureCacheTests
 {
+    [Theory]
+    [InlineData(1333, 1062, 1003, 799)]
+    [InlineData(2006, 1594, 1003, 797)]
+    public void ComputationImageCapsWidthAndPreservesPhysicalCoordinates(
+        int width, int height, int expectedWidth, int expectedHeight)
+    {
+        using var frame = new CapturedGameFrame(
+            new Mat(height, width, MatType.CV_8UC3),
+            new MapScreenRect(100d, 200d, width, height),
+            new MapScreenRect(100d, 200d, width, height),
+            IntPtr.Zero);
+
+        Assert.False(frame.HasCreatedComputationImage);
+        Assert.Equal(expectedWidth, frame.ComputationImage.Width);
+        Assert.True(frame.HasCreatedComputationImage);
+        Assert.Equal(expectedHeight, frame.ComputationImage.Height);
+        var ratio = frame.PhysicalPixelsPerComputationPixel;
+        var physicalX = 617d;
+        var computationX = (physicalX - frame.ViewportBounds.X) / ratio;
+        var roundTripX = frame.ViewportBounds.X + (computationX * ratio);
+        Assert.Equal(physicalX, roundTripX, 9);
+        Assert.Equal(
+            new Rect(
+                (int)Math.Round(120d / ratio),
+                (int)Math.Round(80d / ratio),
+                Math.Max(1, (int)Math.Round(240d / ratio)),
+                Math.Max(1, (int)Math.Round(160d / ratio))),
+            frame.ToComputationRect(new Rect(120, 80, 240, 160)));
+        Assert.True(ratio > 1d);
+    }
+
     [Fact]
     public void DefaultLiveStructureIsExtractedOnlyOncePerFrozenFrame()
     {

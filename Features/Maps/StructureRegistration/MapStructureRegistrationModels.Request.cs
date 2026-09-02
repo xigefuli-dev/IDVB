@@ -15,6 +15,8 @@ public sealed class MapStructureRegistrationRequest
     public Mat ReferenceImage { get; init; } = new();
     public MapAlignmentChannel Channel { get; init; } = MapAlignmentChannel.Standard;
     public Mat LiveRoi { get; init; } = new();
+    public Mat? OriginalLiveRoi { get; init; }
+    public double PhysicalPixelsPerLivePixel { get; init; } = 1d;
     public MapScreenRect ViewportBounds { get; init; }
     public MapOverlayTransform LockedTransform { get; init; } = new();
     public MapStructureRegistrationTuning Tuning { get; init; } = new();

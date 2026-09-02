@@ -1,5 +1,6 @@
 using IDVBuff.Pipeline;
 using OpenCvSharp;
+using System.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
 
@@ -37,6 +38,20 @@ public sealed partial class MapStructureRegistrar
             MapOperationWaitKind.Compute);
         lock (_registrationGate)
         {
+            using var inferredComputationRoi =
+                request.PhysicalPixelsPerLivePixel <= 1.000001d
+                && request.PreparedLive is { } prepared
+                && prepared.Edges.Width > 0
+                && request.LiveRoi.Width > prepared.Edges.Width
+                    ? new Mat(prepared.Edges.Size(), request.LiveRoi.Type())
+                    : null;
+            if (inferredComputationRoi is not null)
+            {
+                var ratio = request.LiveRoi.Width
+                    / (double)inferredComputationRoi.Width;
+                request = WithComputationInput(
+                    request, inferredComputationRoi, ratio);
+            }
             var tuning = request.Tuning.Clone();
             tuning.Channel = request.Channel;
             tuning.Normalize();
@@ -45,7 +60,111 @@ public sealed partial class MapStructureRegistrar
             _currentReciprocalScale = ReciprocalScaleContext.None;
             try
             {
-                return RegisterInternal(request, tuning);
+                if (request.PhysicalPixelsPerLivePixel <= 1.000001d
+                    || request.OriginalLiveRoi is null)
+                {
+                    return RegisterInternal(request, tuning);
+                }
+
+                var ratio = request.PhysicalPixelsPerLivePixel;
+                var totalTimer = Stopwatch.StartNew();
+                var computationRequest = ToComputationRequest(request, ratio);
+                var coarse = RegisterInternal(computationRequest, tuning);
+                if (!coarse.Accepted || coarse.Transform is null)
+                {
+                    totalTimer.Stop();
+                    LogTwoStageCompletion(
+                        request,
+                        coarse,
+                        coarse,
+                        totalTimer.Elapsed.TotalMilliseconds,
+                        originalAttemptCount: 0,
+                        originalPreprocessMilliseconds: 0d,
+                        executionMode: "computation-coarse-rejected");
+                    return coarse;
+                }
+
+                var fineTuning = request.Tuning.Clone();
+                fineTuning.Channel = request.Channel;
+                fineTuning.EnableFeatureVoting = false;
+                fineTuning.EnableFastAlignment = false;
+                fineTuning.Normalize();
+                if (request.Channel == MapAlignmentChannel.LowStructure
+                    && ResolveRemainingBudget(
+                        request,
+                        fineTuning,
+                        totalTimer) <= 0)
+                {
+                    totalTimer.Stop();
+                    var timedOut = CreateOriginalBudgetFailure(
+                        request,
+                        coarse,
+                        "低结构计算搜索完成后已无原图验收预算。");
+                    LogTwoStageCompletion(
+                        request,
+                        coarse,
+                        timedOut,
+                        totalTimer.Elapsed.TotalMilliseconds,
+                        originalAttemptCount: 0,
+                        originalPreprocessMilliseconds: 0d,
+                        executionMode: "computation-coarse-budget-exceeded");
+                    return timedOut;
+                }
+
+                using var fineSpan = MapOperationTraceAmbient.StartChild(
+                    "original_narrow_refinement",
+                    MapOperationWaitKind.Compute);
+                using var fineLive = _preprocessor.ProcessLiveRoi(
+                    request.OriginalLiveRoi,
+                    request.LiveIgnoreRegions,
+                    request.DynamicIgnoreRegions,
+                    generateVisibleMask: fineTuning.EnableVisibleMask,
+                    profile: MapStructurePreprocessingProfile.EdgesOnly,
+                    generationTuning: fineTuning.Generation);
+                var remainingBudget = ResolveRemainingBudget(
+                    request,
+                    fineTuning,
+                    totalTimer);
+                if (request.Channel == MapAlignmentChannel.LowStructure
+                    && remainingBudget <= 0)
+                {
+                    totalTimer.Stop();
+                    var timedOut = CreateOriginalBudgetFailure(
+                        request,
+                        coarse,
+                        "低结构原图预处理完成后已无原图验收预算",
+                        fineLive.DiagnosticTiming?.TotalMs ?? 0d);
+                    LogTwoStageCompletion(
+                        request,
+                        coarse,
+                        timedOut,
+                        totalTimer.Elapsed.TotalMilliseconds,
+                        originalAttemptCount: 0,
+                        originalPreprocessMilliseconds:
+                            fineLive.DiagnosticTiming?.TotalMs ?? 0d,
+                        executionMode: "computation-coarse-original-budget-exceeded");
+                    return timedOut;
+                }
+
+                fineTuning.StructureFallbackBudgetMilliseconds = Math.Min(
+                    fineTuning.StructureFallbackBudgetMilliseconds,
+                    Math.Max(1, remainingBudget));
+                var coarseTransform = ToPhysicalTransform(coarse.Transform, ratio);
+                var fine = RegisterInternal(ToOriginalFineRequest(
+                    request,
+                    coarseTransform,
+                    fineLive), fineTuning);
+                totalTimer.Stop();
+                LogTwoStageCompletion(
+                    request,
+                    coarse,
+                    fine,
+                    totalTimer.Elapsed.TotalMilliseconds,
+                    originalAttemptCount: 1,
+                    originalPreprocessMilliseconds:
+                        fineLive.DiagnosticTiming?.TotalMs ?? 0d,
+                    executionMode: "computation-coarse-original-acceptance");
+                return fine;
             }
             finally
             {
@@ -53,4 +172,236 @@ public sealed partial class MapStructureRegistrar
             }
         }
     }
+
+    private static MapStructureRegistrationRequest WithComputationInput(
+        MapStructureRegistrationRequest source, Mat computationRoi, double ratio) => new()
+    {
+        ReferenceImage = source.ReferenceImage,
+        Channel = source.Channel,
+        LiveRoi = computationRoi,
+        OriginalLiveRoi = source.LiveRoi,
+        PhysicalPixelsPerLivePixel = ratio,
+        ViewportBounds = source.ViewportBounds,
+        LockedTransform = source.LockedTransform,
+        Tuning = source.Tuning,
+        ScaleSearchPolicy = source.ScaleSearchPolicy,
+        RestrictSearchToLockedTransform = source.RestrictSearchToLockedTransform,
+        TrackingMode = source.TrackingMode,
+        // Computation-image metrics are only a coarse-search signal. The
+        // mapped candidate must reach the strict original-pixel quality gate.
+        ForceBestCandidate = source.ForceBestCandidate,
+        FixedRotationDegrees = source.FixedRotationDegrees,
+        ValidMapBounds = source.ValidMapBounds,
+        PredictedViewportOrigin = source.PredictedViewportOrigin,
+        PlayerPrior = source.PlayerPrior,
+        CandidateHistory = source.CandidateHistory,
+        LiveIgnoreRegions = source.LiveIgnoreRegions,
+        DynamicIgnoreRegions = source.DynamicIgnoreRegions,
+        DebugOutputDirectory = source.DebugOutputDirectory,
+        PreparedReference = source.PreparedReference,
+        PreparedLive = source.PreparedLive,
+        LowStructurePlan = source.LowStructurePlan,
+        SideEntrancePrior = source.SideEntrancePrior
+    };
+
+    private static MapStructureRegistrationRequest ToComputationRequest(
+        MapStructureRegistrationRequest source, double ratio) => new()
+    {
+        ReferenceImage = source.ReferenceImage,
+        Channel = source.Channel,
+        LiveRoi = source.LiveRoi,
+        ViewportBounds = Scale(source.ViewportBounds, 1d / ratio),
+        LockedTransform = Scale(source.LockedTransform, 1d / ratio),
+        Tuning = source.Tuning,
+        ScaleSearchPolicy = source.ScaleSearchPolicy,
+        RestrictSearchToLockedTransform = source.RestrictSearchToLockedTransform,
+        TrackingMode = source.TrackingMode,
+        ForceBestCandidate = source.ForceBestCandidate,
+        FixedRotationDegrees = source.FixedRotationDegrees,
+        ValidMapBounds = source.ValidMapBounds,
+        PredictedViewportOrigin = source.PredictedViewportOrigin,
+        PlayerPrior = source.PlayerPrior,
+        CandidateHistory = source.CandidateHistory.Select(x => Scale(x, 1d / ratio)).ToArray(),
+        LiveIgnoreRegions = source.LiveIgnoreRegions,
+        DynamicIgnoreRegions = source.DynamicIgnoreRegions.Select(x => Scale(x, 1d / ratio)).ToArray(),
+        DebugOutputDirectory = source.DebugOutputDirectory,
+        PreparedReference = source.PreparedReference,
+        PreparedLive = source.PreparedLive,
+        LowStructurePlan = ToComputationPlan(source.LowStructurePlan, ratio),
+        SideEntrancePrior = source.SideEntrancePrior
+    };
+
+    private static MapStructureRegistrationRequest ToOriginalFineRequest(
+        MapStructureRegistrationRequest source,
+        MapOverlayTransform seed,
+        MapStructureFeatures fineLive) => new()
+    {
+        ReferenceImage = source.ReferenceImage,
+        Channel = source.Channel,
+        LiveRoi = source.OriginalLiveRoi!,
+        ViewportBounds = source.ViewportBounds,
+        LockedTransform = seed,
+        Tuning = source.Tuning,
+        ScaleSearchPolicy = MapScaleSearchPolicy.Fixed,
+        RestrictSearchToLockedTransform = true,
+        TrackingMode = source.TrackingMode,
+        ForceBestCandidate = false,
+        FixedRotationDegrees = source.FixedRotationDegrees,
+        ValidMapBounds = source.ValidMapBounds,
+        PredictedViewportOrigin = source.PredictedViewportOrigin,
+        PlayerPrior = source.PlayerPrior,
+        CandidateHistory = [new MapSimilarityTransform
+        {
+            Scale = seed.ScaleX,
+            RotationDegrees = seed.OrientationDegrees,
+            TranslationX = seed.OffsetX,
+            TranslationY = seed.OffsetY
+        }],
+        LiveIgnoreRegions = source.LiveIgnoreRegions,
+        DynamicIgnoreRegions = source.DynamicIgnoreRegions,
+        DebugOutputDirectory = source.DebugOutputDirectory,
+        PreparedReference = source.PreparedReference,
+        PreparedLive = fineLive,
+        // Keep the route and basin metadata from the computation stage, but
+        // execute original-pixel validation at exactly the selected scale.
+        LowStructurePlan = ToOriginalFinePlan(source.LowStructurePlan, seed),
+        SideEntrancePrior = source.SideEntrancePrior
+    };
+
+    private static LowStructureAlignmentPlan? ToOriginalFinePlan(
+        LowStructureAlignmentPlan? plan,
+        MapOverlayTransform seed) =>
+        plan is null
+            ? null
+            : plan with { Scales = [seed.ScaleX] };
+
+    private static int ResolveRemainingBudget(
+        MapStructureRegistrationRequest request,
+        MapStructureRegistrationTuning tuning,
+        Stopwatch totalTimer) =>
+        request.Channel == MapAlignmentChannel.LowStructure
+            ? Math.Max(
+                0,
+                tuning.LowStructureEndToEndBudgetMilliseconds
+                - (int)Math.Ceiling(totalTimer.Elapsed.TotalMilliseconds))
+            : int.MaxValue;
+
+    private static MapStructureRegistrationResult CreateOriginalBudgetFailure(
+        MapStructureRegistrationRequest request,
+        MapStructureRegistrationResult coarse,
+        string detail,
+        double preprocessMilliseconds = 0d) =>
+        MapStructureRegistrationResult.Reject(
+            MapStructureRejectionReason.TimeBudgetExceeded,
+            detail,
+            candidates: coarse.Candidates,
+            preprocessMilliseconds:
+                coarse.PreprocessMilliseconds + preprocessMilliseconds,
+            searchMilliseconds: coarse.SearchMilliseconds,
+            debugOutputDirectory: coarse.DebugOutputDirectory,
+            lockedScale: coarse.LockedScale,
+            referenceWidth: coarse.ReferenceWidth,
+            referenceHeight: coarse.ReferenceHeight,
+            queryEdgePixels: coarse.QueryEdgePixels,
+            queryBounds: new Rect(
+                coarse.QueryBoundsX,
+                coarse.QueryBoundsY,
+                coarse.QueryBoundsWidth,
+                coarse.QueryBoundsHeight),
+            scaleHypothesisCount: coarse.ScaleHypothesisCount,
+            oversizedHypothesisCount: coarse.OversizedHypothesisCount,
+            usedRestrictedSearch: coarse.UsedRestrictedSearch,
+            lowStructureRoute: request.LowStructurePlan?.Route.ToString()
+                ?? coarse.LowStructureRoute,
+            lowStructureCompletedScaleCount:
+                coarse.LowStructureCompletedScaleCount,
+            lowStructureTranslationCandidateCount:
+                coarse.LowStructureTranslationCandidateCount,
+            lowStructureBudgetTerminationReason: "end-to-end-budget-exceeded",
+            lowStructureVpsgEnabled: false);
+
+    private static void LogTwoStageCompletion(
+        MapStructureRegistrationRequest request,
+        MapStructureRegistrationResult computation,
+        MapStructureRegistrationResult result,
+        double totalMilliseconds,
+        int originalAttemptCount,
+        double originalPreprocessMilliseconds,
+        string executionMode)
+    {
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            result.Accepted ? MapLogLevel.Info : MapLogLevel.Warning,
+            $"两阶段结构配准完成 · accepted={result.Accepted}",
+            elapsedMs: totalMilliseconds,
+            details: new()
+            {
+                ["executionMode"] = executionMode,
+                ["computationSearchMs"] = computation.SearchMilliseconds,
+                ["computationPreprocessMs"] = computation.PreprocessMilliseconds,
+                ["computationScaleCount"] = computation.ScaleHypothesisCount,
+                ["originalPreprocessMs"] = originalPreprocessMilliseconds,
+                ["originalAcceptanceSearchMs"] =
+                    originalAttemptCount == 0 ? 0d : result.SearchMilliseconds,
+                ["originalScaleCount"] =
+                    originalAttemptCount == 0 ? 0 : result.ScaleHypothesisCount,
+                ["originalAttemptCount"] = originalAttemptCount,
+                ["totalMs"] = totalMilliseconds,
+                ["evidenceRoute"] = request.LowStructurePlan?.Route.ToString()
+                    ?? result.LowStructureRoute,
+                ["actualScale"] = result.Transform?.ScaleX,
+                ["rejection"] = result.RejectionReason.ToString(),
+                ["failureReason"] = result.FailureReason,
+                ["budgetTerminationReason"] =
+                    result.LowStructureBudgetTerminationReason
+            });
+    }
+
+    private static MapScreenRect Scale(MapScreenRect value, double scale) =>
+        new(value.X * scale, value.Y * scale, value.Width * scale, value.Height * scale);
+
+    private static Rect Scale(Rect value, double scale) => new(
+        (int)Math.Round(value.X * scale), (int)Math.Round(value.Y * scale),
+        Math.Max(1, (int)Math.Round(value.Width * scale)),
+        Math.Max(1, (int)Math.Round(value.Height * scale)));
+
+    private static MapOverlayTransform Scale(MapOverlayTransform value, double scale) => new()
+    {
+        ScaleX = value.ScaleX * scale, ScaleY = value.ScaleY * scale,
+        OffsetX = value.OffsetX * scale, OffsetY = value.OffsetY * scale,
+        ReferenceCenterX = value.ReferenceCenterX,
+        ReferenceCenterY = value.ReferenceCenterY,
+        ScreenCenterX = value.ScreenCenterX * scale,
+        ScreenCenterY = value.ScreenCenterY * scale,
+        ReferenceWidth = value.ReferenceWidth, ReferenceHeight = value.ReferenceHeight,
+        OrientationDegrees = value.OrientationDegrees,
+        AlignmentMode = value.AlignmentMode,
+        MaximumResidualPixels = value.MaximumResidualPixels * scale,
+        UsedDegenerateAxisFallback = value.UsedDegenerateAxisFallback
+    };
+
+    private static MapOverlayTransform ToPhysicalTransform(
+        MapOverlayTransform value, double ratio) => Scale(value, ratio);
+
+    private static LowStructureAlignmentPlan? ToComputationPlan(
+        LowStructureAlignmentPlan? plan,
+        double ratio)
+    {
+        if (plan is null)
+            return plan;
+        return plan with
+        {
+            Scales = plan.Scales.Select(scale => scale / ratio).ToArray()
+        };
+    }
+
+    private static MapSimilarityTransform Scale(MapSimilarityTransform value, double scale) =>
+        new()
+        {
+            Scale = value.Scale * scale,
+            RotationDegrees = value.RotationDegrees,
+            TranslationX = value.TranslationX * scale,
+            TranslationY = value.TranslationY * scale
+        };
+
 }

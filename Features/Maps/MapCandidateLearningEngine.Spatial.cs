@@ -7,17 +7,6 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCandidateLearningEngine
 {
-    private static bool IsSpatialSample(MapLearningSampleManifest sample) =>
-        sample.SchemaVersion >= 2
-        && sample.Candidates.Count >= 2
-        && sample.Candidates.All(candidate => string.Equals(
-            candidate.ReferenceScope, "floor", StringComparison.Ordinal))
-        && sample.Candidates.Any(candidate =>
-            candidate.MapId == sample.SelectedMapId && candidate.IsPositive);
-
-    internal static bool IsSpatialSampleForExport(
-        MapLearningSampleManifest sample) => IsSpatialSample(sample);
-
     internal static (
         IReadOnlyList<MapLearningSampleManifest> Training,
         IReadOnlyList<MapLearningSampleManifest> Validation)

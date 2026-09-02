@@ -128,7 +128,9 @@ internal static partial class MapStructureValidator
             lowStructureCompletedScaleCount: d.Ctx.ScalesEvaluated,
             lowStructureTranslationCandidateCount: d.Ctx.Candidates.Count,
             lowStructureBudgetTerminationReason: d.Ctx.TimeBudgetExceeded
-                ? "budget-exceeded"
+                ? d.Ctx.WorkPreflightRejected
+                    ? "work-preflight-budget-exceeded"
+                    : "search-budget-exceeded"
                 : string.Empty,
             lowStructureVpsgEnabled: false);
     }

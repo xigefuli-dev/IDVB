@@ -94,6 +94,7 @@ internal static partial class MapStructureScaleSearch
             0d,
             InterpolationFlags.Nearest);
         Mat? visibleMask = null;
+        Mat? appearance = null;
         if (includeVisibleMask
             && live.RawVisibleMask is not null
             && !live.RawVisibleMask.Empty())
@@ -106,11 +107,18 @@ internal static partial class MapStructureScaleSearch
                 0d, 0d,
                 InterpolationFlags.Nearest);
         }
-        var points = FindNonZeroPoints(edges);
-        var bounds = points.Length == 0
-            ? new Rect()
-            : Cv2.BoundingRect(points);
-        var relativeEdgePoints = points
+        if (includeVisibleMask && !live.NormalizedGray.Empty())
+        {
+            appearance = new Mat();
+            Cv2.Resize(
+                live.NormalizedGray,
+                appearance,
+                target,
+                interpolation: InterpolationFlags.Area);
+        }
+        var bounds = FindTemplateBounds(edges);
+        var relativeEdgePoints = FindNonZeroPoints(edges)
+            .Where(point => bounds.Contains(point))
             .Select(point => new Point(
                 point.X - bounds.X,
                 point.Y - bounds.Y))
@@ -121,7 +129,8 @@ internal static partial class MapStructureScaleSearch
             edges,
             bounds,
             relativeEdgePoints,
-            visibleMask: visibleMask);
+            visibleMask: visibleMask,
+            appearance: appearance);
     }
     internal static Mat CreateDistanceMap(
         MapStructureFeatures reference,
@@ -181,6 +190,7 @@ internal static partial class MapStructureScaleSearch
         pointMatrix.GetArray(out Point[] points);
         return points;
     }
+
     internal sealed class ScaleSearchContext : IDisposable
     {
         public VisibleAwareCorrelationSession? VisibleAwareSession;

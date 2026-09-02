@@ -158,6 +158,37 @@ public sealed class MapStructureValidatorTests
                 restrictedSearch: false));
     }
 
+    [Fact]
+    public void SparseAppearanceCandidateStillRequiresStructureQuality()
+    {
+        var tuning = MapAlignmentChannelRegistry.CreateLowStructure();
+        var candidate = new MapStructureCandidate
+        {
+            ChamferPixels = 2.10d,
+            EdgeCoverage = 0.32d,
+            OccupancyCoverage = 0.15d,
+            ReferenceCoverage = 0.62d,
+            ProjectionCorrelation = 0.50d,
+            ConsistentPartitions = 1
+        };
+        var request = new MapStructureRegistrationRequest
+        {
+            Channel = MapAlignmentChannel.LowStructure,
+            ScaleSearchPolicy = MapScaleSearchPolicy.Fixed,
+            RestrictSearchToLockedTransform = true
+        };
+
+        Assert.Equal(
+            MapStructureRejectionReason.WeakAbsoluteScore,
+            MapStructureValidator.Validate(
+                candidate,
+                margin: 1d,
+                requiredMargin: tuning.MinimumCandidateMargin,
+                tuning,
+                restrictedSearch: true,
+                request));
+    }
+
 
     [Fact]
     public void Preset2560x1600UsesThreePixelGlobalChamferLimit()

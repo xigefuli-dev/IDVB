@@ -22,9 +22,9 @@ public sealed partial class MapStatusPage
     };
     private readonly ToggleSwitch _continuousLearningToggle = new()
     {
-        Header = "持续学习与研究算法数据采集",
-        OffContent = "关闭（不会保存训练或研究样本）",
-        OnContent = "开启（保存与模型改进相关的脱敏数据）"
+        Header = "提供模型改进样本",
+        OffContent = "关闭（不会保存或传输训练样本）",
+        OnContent = "开启（保存并按隐私设置传输脱敏样本）"
     };
     private readonly ToggleSwitch _automaticModelTrainingToggle = new()
     {
@@ -77,24 +77,16 @@ public sealed partial class MapStatusPage
             Orientation = Orientation.Horizontal,
             Spacing = 8
         };
-        actions.Children.Add(_initializeGpuButton);
-        actions.Children.Add(_trainMapModelButton);
         actions.Children.Add(_exportMapTrainingButton);
         actions.Children.Add(_clearMapTrainingButton);
-        actions.Children.Add(_mapModelHistoryButton);
 
-        _candidateDecisionMode.SelectionChanged += CandidateDecisionMode_Changed;
         _continuousLearningToggle.Toggled += ContinuousLearning_Toggled;
-        _automaticModelTrainingToggle.Toggled += AutomaticModelTraining_Toggled;
-        _trainMapModelButton.Click += TrainMapModel_Click;
-        _initializeGpuButton.Click += InitializeGpu_Click;
         _exportMapTrainingButton.Click += ExportMapTraining_Click;
         _clearMapTrainingButton.Click += ClearMapTraining_Click;
-        _mapModelHistoryButton.Click += MapModelHistory_Click;
 
         return new Expander
         {
-            Header = "地图选择与自我训练",
+            Header = "模型改进样本",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Content = new StackPanel
@@ -104,17 +96,13 @@ public sealed partial class MapStatusPage
                 {
                     new TextBlock
                     {
-                        Text = "空间模型把原生迷雾地图定位到攻略地图的楼层与局部区域；未晋级模型只展示证据，不会改变传统候选顺序。"
-                            + "只有人工选择或纠错会成为本机训练标签。",
+                        Text = "主程序不包含模型训练或推理运行时。"
+                            + "只有人工选择或纠错会保存为脱敏样本；"
+                            + "模型训练由用户自行准备的外部组件完成。",
                         TextWrapping = TextWrapping.Wrap
                     },
-                    _candidateDecisionMode,
                     _continuousLearningToggle,
-                    _automaticModelTrainingToggle,
                     _mapLearningState,
-                    _gpuSidecarState,
-                    _mapLearningProgressText,
-                    _mapLearningProgress,
                     actions
                 }
             }
@@ -332,6 +320,17 @@ public sealed partial class MapStatusPage
 
     private static string FormatMapLearningStatus(MapLearningStatus status)
     {
+        if (string.Equals(status.ComputeDevice, "样本提供模式",
+                StringComparison.Ordinal))
+        {
+            return $"已保存脱敏样本：{status.HumanSelectionCount} 场"
+                + $" · 地图身份 {status.DistinctMapCount} 个"
+                + $" · 独立验证 {status.ValidationMatchCount} 场"
+                + (status.LegacyHumanSelectionCount > 0
+                    ? $"\n旧格式样本：{status.LegacyHumanSelectionCount} 场"
+                    : string.Empty)
+                + "\n主程序仅提供样本，不执行模型训练或推理。";
+        }
         var version = string.IsNullOrWhiteSpace(status.CurrentVersion)
             ? "无"
             : status.CurrentVersion;

@@ -25,6 +25,12 @@ internal static partial class MapCvAlignmentService
             ["referenceCacheMs"] = referenceCacheMilliseconds,
             ["imageWidth"] = frame.Image.Width,
             ["imageHeight"] = frame.Image.Height,
+            ["computationWidth"] = frame.ComputationImage.Width,
+            ["computationHeight"] = frame.ComputationImage.Height,
+            ["preparedWidth"] = features.Edges.Width,
+            ["preparedHeight"] = features.Edges.Height,
+            ["physicalPixelsPerComputationPixel"] =
+                frame.PhysicalPixelsPerComputationPixel,
             ["requestedPreprocessingProfile"] =
                 (requestedProfile ?? timing.Profile).ToString(),
             ["preprocessingProfile"] = timing.Profile.ToString(),

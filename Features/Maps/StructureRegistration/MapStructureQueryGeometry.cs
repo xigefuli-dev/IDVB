@@ -11,7 +11,8 @@ internal sealed class QueryGeometry : IDisposable
         Mat edges,
         Rect bounds,
         Point[] edgePoints,
-        Mat? visibleMask = null)
+        Mat? visibleMask = null,
+        Mat? appearance = null)
     {
         Scale = scale;
         Structure = structure;
@@ -19,6 +20,7 @@ internal sealed class QueryGeometry : IDisposable
         Bounds = bounds;
         EdgePoints = edgePoints;
         VisibleMask = visibleMask;
+        Appearance = appearance;
     }
 
     public double Scale { get; }
@@ -28,6 +30,7 @@ internal sealed class QueryGeometry : IDisposable
     public Point[] EdgePoints { get; }
     public int EdgeCount => EdgePoints.Length;
     public Mat? VisibleMask { get; }
+    public Mat? Appearance { get; }
 
     internal Mat GetOrCreateEdgeDistanceMap()
     {
@@ -54,13 +57,15 @@ internal sealed class QueryGeometry : IDisposable
         Edges.Clone(),
         Bounds,
         EdgePoints,
-        VisibleMask?.Clone());
+        VisibleMask?.Clone(),
+        Appearance?.Clone());
 
     public void Dispose()
     {
         Structure.Dispose();
         Edges.Dispose();
         VisibleMask?.Dispose();
+        Appearance?.Dispose();
         _edgeDistanceMap?.Dispose();
     }
 }

@@ -26,7 +26,7 @@ public sealed partial class MapCandidateLearningEngine : IMapCandidateLearningEn
         ObjectDisposedException.ThrowIf(_disposed, this);
         _repository.EnsureCreated();
         await _repository.MigrateLegacySamplesAsync(cancellationToken);
-        var samples = ApplyLatestMatchCorrections(
+        var samples = MapLearningSampleRules.LatestPerMatch(
             await _repository.LoadSamplesAsync(cancellationToken));
         var state = await _repository.LoadStateAsync(cancellationToken);
         var current = _repository.ReadCurrentVersion();
@@ -62,7 +62,8 @@ public sealed partial class MapCandidateLearningEngine : IMapCandidateLearningEn
                     cancellationToken);
         }
 
-        var compatibleSamples = samples.Where(IsSpatialSample).ToArray();
+        var compatibleSamples = samples.Where(
+            MapLearningSampleRules.IsSpatialSample).ToArray();
         var partition = PartitionSpatialSamples(compatibleSamples);
         var maps = compatibleSamples.Select(item => item.SelectedMapId)
             .Distinct().Count();
@@ -160,9 +161,10 @@ public sealed partial class MapCandidateLearningEngine : IMapCandidateLearningEn
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _repository.SaveHumanSelectionAsync(matchId, liveViewport, choices,
             selectedMapId, cancellationToken, viewportBounds);
-        var samples = ApplyLatestMatchCorrections(
+        var samples = MapLearningSampleRules.LatestPerMatch(
             await _repository.LoadSamplesAsync(cancellationToken));
-        var compatibleSamples = samples.Where(IsSpatialSample).ToArray();
+        var compatibleSamples = samples.Where(
+            MapLearningSampleRules.IsSpatialSample).ToArray();
         var partition = PartitionSpatialSamples(compatibleSamples);
         SetStatus(Status with
         {
@@ -209,11 +211,12 @@ public sealed partial class MapCandidateLearningEngine : IMapCandidateLearningEn
                 LastFailureReason = string.Empty
             });
             var rawSamples = await _repository.LoadSamplesAsync(cancellationToken);
-            var samples = ApplyLatestMatchCorrections(rawSamples);
+            var samples = MapLearningSampleRules.LatestPerMatch(rawSamples);
             if (samples.Count == 0)
                 return await FinishWithoutTrainingAsync("尚无人工标注样本。",
                     cancellationToken);
-            var compatibleSamples = samples.Where(IsSpatialSample).ToArray();
+            var compatibleSamples = samples.Where(
+                MapLearningSampleRules.IsSpatialSample).ToArray();
             if (compatibleSamples.Length == 0)
             {
                 return await FinishWithoutTrainingAsync(

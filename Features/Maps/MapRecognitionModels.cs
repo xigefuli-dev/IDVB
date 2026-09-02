@@ -2,7 +2,6 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-/// <summary>A rectangle in physical screen pixels.</summary>
 public readonly record struct MapScreenRect(double X, double Y, double Width, double Height)
 {
     public double CenterX => X + (Width / 2d);
@@ -12,8 +11,7 @@ public readonly record struct MapScreenRect(double X, double Y, double Width, do
 
 public readonly record struct MapNormalizedPoint(double X, double Y);
 
-/// <summary>A frozen alignment input frame: viewport pixels plus the capture context.</summary>
-public sealed class CapturedGameFrame : IDisposable
+public sealed partial class CapturedGameFrame : IDisposable
 {
     private readonly object _derivedFeaturesGate = new();
     private MapStructureFeatures? _defaultLiveStructureFeatures;
@@ -35,18 +33,11 @@ public sealed class CapturedGameFrame : IDisposable
         WindowHandle = windowHandle;
     }
 
-    /// <summary>The frozen viewport pixels; calibration captures use the whole client area.</summary>
     public Mat Image { get; }
     public MapScreenRect ClientBounds { get; }
     public MapScreenRect ViewportBounds { get; }
     public IntPtr WindowHandle { get; }
 
-    /// <summary>
-    /// Extracts the immutable live structure once for this frozen frame.
-    /// Structure retries, expanded searches and scale recovery all operate on
-    /// the same pixels, so recomputing AKAZE and connected components for each
-    /// attempt is both wasteful and capable of dominating alignment latency.
-    /// </summary>
     internal MapStructureFeatures GetOrCreateDefaultLiveStructureFeatures(
         MapStructurePreprocessor preprocessor,
         out bool cacheHit,
@@ -131,7 +122,7 @@ public sealed class CapturedGameFrame : IDisposable
 
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var created = preprocessor.ProcessLiveRoiDiagnostic(
-                Image,
+                ComputationImage,
                 null,
                 null,
                 out var createdTiming,
@@ -164,6 +155,8 @@ public sealed class CapturedGameFrame : IDisposable
             _defaultLiveStructureFeatures = null;
             _defaultLiveStructureTiming = null;
             _defaultLiveStructureGenerationFingerprint = string.Empty;
+            _ownedComputationImage?.Dispose();
+            _ownedComputationImage = null;
             Image.Dispose();
         }
     }

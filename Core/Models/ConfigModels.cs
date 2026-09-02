@@ -231,7 +231,7 @@ public sealed class LowStructureConfig
     public double MinimumProjectionCorrelation { get; init; } = 0.75;
     public double MinimumCandidateMargin { get; init; } = 0.08;
     public int MinimumConsistentPartitions { get; init; } = 1;
-    public int TopCandidateCount { get; init; } = 3;
+    public int TopCandidateCount { get; init; } = 5;
     public double EdgeCoverageWeight { get; init; } = 5.0;
     public double ChamferWeight { get; init; } = 1.0;
     public double OccupancyCoverageWeight { get; init; } = 0.75;

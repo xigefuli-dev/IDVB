@@ -7,7 +7,7 @@ namespace IDVBuff.Features.Maps;
 internal sealed class SiameseMapNetwork : IDisposable
 {
     public const string ArchitectureVersion =
-        "idvb-spatial-cross-domain-matcher-128-v3";
+        MapLearningModelContract.ArchitectureVersion;
     public const int EmbeddingSize = 128;
     public static readonly string[] WeightFileNames =
         ["live-adapter.dat", "reference-adapter.dat", "shared-tower.dat",

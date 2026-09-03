@@ -67,11 +67,15 @@ public sealed partial class MapStructureRegistrar
                 {
                     fastResult = TryFastCoarseAlign(request);
                 }
+                var fallbackToLegacy = tuning.Mode ==
+                    MapStructureRegistrationMode.ScanVerification
+                        ? ShouldRunScanLegacyFallback(fastResult)
+                        : tuning.FastFallbackToLegacy;
                 MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration,
                     fastResult.Accepted ? MapLogLevel.Info : MapLogLevel.Warning,
                     fastResult.Accepted
                         ? "快速粗搜索通过"
-                        : tuning.FastFallbackToLegacy
+                        : fallbackToLegacy
                             ? "快速粗搜索未早停，将进入完整搜索"
                             : "快速粗搜索未通过",
                     elapsedMs: fastResult.PreprocessMilliseconds
@@ -81,11 +85,13 @@ public sealed partial class MapStructureRegistrar
                     {
                         ["usedFastStrategy"] = true, ["accepted"] = fastResult.Accepted,
                         ["fallbackToLegacy"] =
-                            !fastResult.Accepted && tuning.FastFallbackToLegacy,
+                            !fastResult.Accepted && fallbackToLegacy,
                         ["preprocessMs"] = fastResult.PreprocessMilliseconds,
                         ["fastCoarseMs"] = fastResult.FastCoarseSearchMilliseconds,
                         ["fastCandidates"] = fastResult.FastCoarseCandidateCount,
                         ["rejection"] = fastResult.RejectionReason.ToString(),
+                        ["fallbackReasonAllowed"] =
+                            ShouldRunScanLegacyFallback(fastResult),
                         ["lockedScale"] = fastResult.LockedScale,
                         ["referenceWidth"] = fastResult.ReferenceWidth,
                         ["referenceHeight"] = fastResult.ReferenceHeight,
@@ -96,16 +102,18 @@ public sealed partial class MapStructureRegistrar
                         ["queryBoundsHeight"] = fastResult.QueryBoundsHeight
                     });
                 if (fastResult.Accepted) return fastResult;
-                if (!tuning.FastFallbackToLegacy) return fastResult;
+                if (!fallbackToLegacy) return fastResult;
             }
             catch (Exception ex)
             {
                 MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration,
                     MapLogLevel.Error,
                     tuning.FastFallbackToLegacy
+                        && tuning.Mode != MapStructureRegistrationMode.ScanVerification
                         ? $"快速粗搜索异常，回退 Legacy：{ex.Message}"
                         : $"快速粗搜索异常，固定路径结束：{ex.Message}");
-                if (!tuning.FastFallbackToLegacy)
+                if (!tuning.FastFallbackToLegacy
+                    || tuning.Mode == MapStructureRegistrationMode.ScanVerification)
                 {
                     return MapStructureValidator.BuildResult(
                         MapStructureRejectionReason.NoCandidate,
@@ -118,4 +126,12 @@ public sealed partial class MapStructureRegistrar
 
         return RegisterLegacy(request);
     }
+
+    internal static bool ShouldRunScanLegacyFallback(
+        MapStructureRegistrationResult fast) =>
+        fast.RejectionReason is
+            MapStructureRejectionReason.NoCandidate
+            or MapStructureRejectionReason.AmbiguousCandidates
+            or MapStructureRejectionReason.WeakAbsoluteScore
+            or MapStructureRejectionReason.RefinementFailed;
 }

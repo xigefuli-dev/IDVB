@@ -265,6 +265,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 diagnostics.ScanCandidate0StructureMilliseconds,
             ["cheap_reject_count"] = diagnostics.ScanCheapRejectCount,
             ["cheap_reject_ms"] = diagnostics.ScanCheapRejectMilliseconds,
+            ["scan_formal_structure_attempt_count"] =
+                diagnostics.ScanFormalStructureAttemptCount,
             ["scan_total_verification_ms"] =
                 diagnostics.ScanTotalVerificationMilliseconds,
             ["scan_vpsg_attempt_count"] = diagnostics.ScanVpsgAttemptCount,

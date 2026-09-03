@@ -138,6 +138,7 @@ public sealed partial class SessionOrchestrator
             var scanVerificationTimedOut = false;
             var scanCheapRejectCount = 0;
             var scanCheapRejectMilliseconds = 0d;
+            var scanFormalStructureAttemptCount = 0;
             var scanVpsgAttemptCount = 0;
             var scanTemplateValidationMilliseconds = 0d;
             var scanVpsgMilliseconds = 0d;
@@ -153,6 +154,8 @@ public sealed partial class SessionOrchestrator
                 diagnostics.ScanCheapRejectCount = scanCheapRejectCount;
                 diagnostics.ScanCheapRejectMilliseconds =
                     scanCheapRejectMilliseconds;
+                diagnostics.ScanFormalStructureAttemptCount =
+                    scanFormalStructureAttemptCount;
                 diagnostics.ScanVpsgAttemptCount = scanVpsgAttemptCount;
                 diagnostics.ScanFullRecoveryCount = 0;
                 diagnostics.ScanTotalVerificationMilliseconds =
@@ -220,6 +223,8 @@ public sealed partial class SessionOrchestrator
                         : 0;
                     scanCheapRejectMilliseconds +=
                         attempt.Diagnostics.ScanCheapRejectMilliseconds;
+                    scanFormalStructureAttemptCount += attempt.Diagnostics
+                        .ScanFormalStructureAttemptCount;
                     scanVpsgAttemptCount += attempt.Diagnostics.ScanVpsgAttempted
                         ? 1
                         : 0;
@@ -293,6 +298,8 @@ public sealed partial class SessionOrchestrator
                         candidate0StructureMilliseconds,
                     ["cheap_reject_count"] = scanCheapRejectCount,
                     ["cheap_reject_ms"] = scanCheapRejectMilliseconds,
+                    ["scan_formal_structure_attempt_count"] =
+                        scanFormalStructureAttemptCount,
                     ["scan_total_verification_ms"] =
                         _lastDiagnostics.ScanTotalVerificationMilliseconds,
                     ["template_validation_ms"] =

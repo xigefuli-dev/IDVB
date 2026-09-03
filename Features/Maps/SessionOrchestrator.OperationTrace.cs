@@ -299,6 +299,8 @@ public sealed partial class SessionOrchestrator
                 alignmentDiagnostics.ScanCheapRejectCount;
             traceDetails["cheap_reject_ms"] =
                 alignmentDiagnostics.ScanCheapRejectMilliseconds;
+            traceDetails["scan_formal_structure_attempt_count"] =
+                alignmentDiagnostics.ScanFormalStructureAttemptCount;
             traceDetails["scan_total_verification_ms"] =
                 alignmentDiagnostics.ScanTotalVerificationMilliseconds;
             traceDetails["scan_vpsg_attempt_count"] =

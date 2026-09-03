@@ -115,10 +115,12 @@ public sealed partial class SessionOrchestrator
         tuning.EnableEccRefinement = false;
         tuning.EnableFastAlignment = true;
         tuning.FastFallbackToLegacy = false;
+        tuning.FastAlignmentShadowMode = false;
         tuning.FastCoarseTopK = 2;
         tuning.MaximumTranslationCandidates = 2;
         tuning.TopCandidateCount = 2;
         tuning.PreviousAlignmentSearchRadiusPixels = 48;
+        tuning.DisableScaleEarlyTermination = false;
         tuning.EnableVisibleMask = false;
         tuning.EnableVisibleAwareShadow = false;
         tuning.EnableVisibleAwareInjection = false;

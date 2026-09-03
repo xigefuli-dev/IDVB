@@ -196,7 +196,8 @@ internal static partial class MapCvAlignmentService
                 : isSideEntranceStructureRoute
                     ? MapScaleSearchPolicy.Search
                 : MapScaleSearchPolicy.Fixed,
-            RestrictSearchToLockedTransform = restrictStructureSearch,
+            RestrictSearchToLockedTransform = isScanVerification
+                || restrictStructureSearch,
             // 侧门初次配准的 seed 是扫描种子（不可靠），不应卡在 tracking 窄窗
             // （±0.5% scale / 48px）。非 tracking 改用 ScaleSearchRadius / 96px，
             // 给 seed 的尺度偏差更多纠正空间；非侧门路由仍保持 tracking。
@@ -248,6 +249,7 @@ internal static partial class MapCvAlignmentService
                 ["restrictedSearch"] = structureRequest.RestrictSearchToLockedTransform
             });
         if (isScanVerification
+            && structureSearchTuning.EnableScanCheapReject
             && MapStructureCheapReject.TryReject(
                 structureRequest,
                 preparedReference,
@@ -292,6 +294,8 @@ internal static partial class MapCvAlignmentService
                 gateResult,
                 AlignmentSearchStage.StructureFallback);
         }
+        if (isScanVerification)
+            diagnostics.ScanFormalStructureAttemptCount++;
         var structure = service.StructureRegistrar.Register(structureRequest);
         if (isSideEntranceStructureRoute
             && restrictStructureSearch
@@ -375,6 +379,9 @@ internal static partial class MapCvAlignmentService
                 }
             }
         }
+
+        Debug.Assert(
+            !isScanVerification || !diagnostics.ScanFullRecoveryAttempted);
 
         MapCvRecognitionDiagnostics.WriteStructureDebugResult(
             fingerprint.Map,

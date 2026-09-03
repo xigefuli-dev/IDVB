@@ -232,6 +232,36 @@ public sealed class MapOpenAlignmentRouteTests
         Assert.Equal(99.01d, MapOpenAlignmentRouteRules.Percentile(samples, 0.99d), 10);
     }
 
+    [Theory]
+    [InlineData(MapStructureRejectionReason.NoCandidate, true)]
+    [InlineData(MapStructureRejectionReason.AmbiguousCandidates, true)]
+    [InlineData(MapStructureRejectionReason.WeakAbsoluteScore, true)]
+    [InlineData(MapStructureRejectionReason.RefinementFailed, true)]
+    [InlineData(MapStructureRejectionReason.InsufficientStructure, false)]
+    [InlineData(MapStructureRejectionReason.QueryLargerThanReference, false)]
+    public void ScanFastFallbackOnlyAllowsBoundaryFailures(
+        MapStructureRejectionReason reason,
+        bool expected)
+    {
+        var result = MapStructureRegistrationResult.Reject(reason);
+
+        Assert.Equal(
+            expected,
+            MapStructureRegistrar.ShouldRunScanLegacyFallback(result));
+    }
+
+    [Fact]
+    public void ScanCheapRejectIsDisabledByDefaultAndCloned()
+    {
+        var tuning = new MapStructureRegistrationTuning
+        {
+            Mode = MapStructureRegistrationMode.ScanVerification
+        };
+
+        Assert.False(tuning.EnableScanCheapReject);
+        Assert.False(tuning.Clone().EnableScanCheapReject);
+    }
+
     [Fact]
     public void SteadyGlobalRecoveryExpandsTranslationWithoutChangingScale()
     {

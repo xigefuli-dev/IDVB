@@ -148,7 +148,7 @@ public sealed partial class SessionOrchestrator
             var candidate0VpsgMilliseconds = 0d;
             var candidate0StructureMilliseconds = 0d;
             var scanShadowCollectionEnabled = requireStrictStructureRegistration
-                && !_settings.StructureRegistrationTuning.EnableScanCheapReject;
+                && _settings.StructureRegistrationTuning.EnableScanCheapRejectShadowCollection;
             var scanEffectiveBudgetMilliseconds = scanShadowCollectionEnabled
                 ? MapOpenAlignmentRouteRules
                     .ScanVerificationShadowCollectionBudgetMilliseconds
@@ -201,7 +201,7 @@ public sealed partial class SessionOrchestrator
                     || remaining < MapOpenAlignmentRouteRules
                         .ScanVerificationMinimumCandidateBudgetMilliseconds)
                 {
-                    scanVerificationTimedOut = true;
+                    scanVerificationTimedOut = reliable.Count == 0;
                     break;
                 }
                 LogScanVerificationCandidateSelected(candidate, candidateIndex);
@@ -249,7 +249,7 @@ public sealed partial class SessionOrchestrator
                         candidateSeed,
                         sideAlignmentTuning,
                         sideStructureTuning,
-                        SideEntranceCandidateEvidence.ShouldAttemptVpsgRescue(verificationCandidates, candidateIndex),
+                        allowVpsgRescue: true,
                         out candidateSeed);
                     scanCheapRejectCount += attempt.Diagnostics.ScanCheapRejected
                         ? 1
@@ -496,6 +496,5 @@ public sealed partial class SessionOrchestrator
         {
             failureReason = $"侧门对齐失败：{sideAttempt.FailureReason}";
         }
-        return;
     }
 }

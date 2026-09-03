@@ -94,6 +94,8 @@ public sealed partial class SessionOrchestrator
             }
             rejectionChain.Add(
                 $"side-template:{DescribeAttemptFailure(templateAttempt)}");
+            if (templateAttempt.Diagnostics.ScanCheapRejected)
+                return templateAttempt;
             if (!allowVpsgRescue)
                 return templateAttempt;
             if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is { } templateRemaining

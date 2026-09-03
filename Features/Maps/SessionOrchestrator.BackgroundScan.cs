@@ -70,6 +70,15 @@ public sealed partial class SessionOrchestrator
         // 开图热键提前进入仍在计算的候选消费路径。
         _backgroundScanStatus = BackgroundScanStatus.Idle;
 
+        if (_pendingBackgroundChoices is { Count: > 0 })
+        {
+            _pendingBackgroundCandidateFrame = new CapturedGameFrame(
+                frame.Image.Clone(),
+                frame.ClientBounds,
+                frame.ViewportBounds,
+                frame.WindowHandle);
+        }
+
         // 候选界面依赖的目录补齐此前被放在「开图后」才执行，使第一次开图
         // 仍有后台准备工作。预扫描到 100% 前完成它，开图事件即可直接弹窗。
         if (_pendingBackgroundChoices is { Count: > 0 }
@@ -123,17 +132,12 @@ public sealed partial class SessionOrchestrator
                 await MapManualCandidateWindow.PrepareChoicePreviewsAsync(
                     _pendingBackgroundChoices,
                     _mapRepository);
-            _pendingBackgroundCandidateFrame?.Dispose();
-            _pendingBackgroundCandidateFrame = new CapturedGameFrame(
-                frame.Image.Clone(),
-                frame.ClientBounds,
-                frame.ViewportBounds,
-                frame.WindowHandle);
+            var backgroundCandidateFrame = _pendingBackgroundCandidateFrame!;
             _pendingBackgroundLivePreview =
                 await MapManualCandidateWindow.PrepareLivePreviewAsync(
-                    _pendingBackgroundCandidateFrame,
+                    backgroundCandidateFrame,
                     _pendingBackgroundChoices,
-                    _pendingBackgroundCandidateFrame.ViewportBounds);
+                    backgroundCandidateFrame.ViewportBounds);
             _pendingBackgroundChoicesAreDisplayReady = true;
             _scanProgressOverlay.Report(0.99d, "候选结果已就绪...");
         }

@@ -191,6 +191,8 @@ public sealed partial class MapCvRecognitionService
                     ["rejection"] = attempt.FailureReason
                 });
             attempts.Add((attempt, candidateFit, index));
+            if (attempt.Recognition is not null)
+                break;
         }
 
         var selected = attempts

@@ -124,6 +124,7 @@ public sealed partial class SessionOrchestrator
     {
         // ── 候选确认：仅歧义 / 强制候选场景需要玩家从候选列表选择 ──
         RuntimeMapRecognition? locked = null;
+        RuntimeMapRecognition? verifiedAlignment = null;
         CapturedGameFrame? candidateFrame = null;
         if (_pendingBackgroundChoices is { Count: > 0 })
         {
@@ -202,6 +203,7 @@ public sealed partial class SessionOrchestrator
                 return;
             }
             locked = resolution.Recognition;
+            verifiedAlignment = resolution.VerifiedAlignment;
             if (locked is null)
             {
                 ActiveOperationTrace?.SetTerminal("failed", "candidate-not-confirmed");
@@ -273,7 +275,7 @@ public sealed partial class SessionOrchestrator
         // translation registration below.
         var validatedStructureScaleSeed =
             BackgroundScanRules.BuildValidatedStructureScaleSeed(
-                locked,
+                verifiedAlignment ?? locked,
                 sideEntranceSeed,
                 targetFloorKey);
         var selectedIdentitySource = validatedStructureScaleSeed is not null

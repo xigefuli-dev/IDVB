@@ -230,6 +230,14 @@ public sealed partial class MapCvRecognitionService
                 "The locked floor did not produce reliable feature geometry.");
         }
 
+        // Once a bounded scan VPSG stage has started and produced scale basins,
+        // its formal validation owns the stage budget. The outer scan clock
+        // still decides whether this stage starts and whether another map runs.
+        using var scanValidationBudget = structureTuning.Mode
+                == MapStructureRegistrationMode.ScanVerification
+            ? MapNoDoorAlignmentBudgetContext.Enter(
+                () => structureTuning.StructureFallbackBudgetMilliseconds)
+            : null;
         return ValidateVpsgScaleCandidates(
             frame,
             selectedMapId,

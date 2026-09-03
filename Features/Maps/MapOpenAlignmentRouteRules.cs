@@ -13,15 +13,15 @@ internal static class MapOpenAlignmentRouteRules
     internal const int MaximumNoDoorAlignmentBudgetMilliseconds = InitialAlignmentMaximumMilliseconds;
     internal const int VpsgStageBudgetMilliseconds = 600;
     internal const int MinimumVpsgStageBudgetMilliseconds = 450;
-    internal const int ScanVerificationBudgetMilliseconds = 150;
+    internal const int ScanVerificationBudgetMilliseconds = 1000;
     internal const int ScanVerificationShadowCollectionBudgetMilliseconds = 450;
     internal const int ScanVerificationMinimumCandidateBudgetMilliseconds = 30;
     internal const int ScanVerificationMinimumVpsgBudgetMilliseconds = 50;
     internal const int ScanVerificationFormalStructureBudgetMilliseconds = 100;
-    internal const int ScanVerificationVpsgBudgetMilliseconds = 80;
+    internal const int ScanVerificationVpsgBudgetMilliseconds = 120;
     internal const int ScanVerificationP50Milliseconds = 100;
     internal const int ScanVerificationP90Milliseconds = 200;
-    internal const int ScanVerificationP99Milliseconds = 350;
+    internal const int ScanVerificationP99Milliseconds = 1000;
     internal const double TargetReliableAlignmentRate = 0.95d;
     internal const double TargetTranslationJitterP95Pixels = 3d;
 

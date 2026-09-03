@@ -4,7 +4,8 @@ public sealed partial class SessionOrchestrator
 {
     private readonly record struct CandidateSelectionResolution(
         RuntimeMapRecognition? Recognition,
-        bool StartSurvey);
+        bool StartSurvey,
+        RuntimeMapRecognition? VerifiedAlignment = null);
 
     private IMapCandidateSelector? _activeCandidateSelector;
     private IReadOnlyList<MapRecognitionChoice> _lastCandidateChoices = [];
@@ -88,7 +89,7 @@ public sealed partial class SessionOrchestrator
                 recognition,
                 frame,
                 userConfirmed: false);
-            return new CandidateSelectionResolution(identityLock, false);
+            return new CandidateSelectionResolution(identityLock, false, recognition);
         }
         if (_activeCandidateSelector is not null)
         {
@@ -127,7 +128,7 @@ public sealed partial class SessionOrchestrator
                 recognition,
                 frame,
                 userConfirmed: false);
-            return new CandidateSelectionResolution(identityLock, false);
+            return new CandidateSelectionResolution(identityLock, false, recognition);
         }
 
         try
@@ -182,7 +183,7 @@ public sealed partial class SessionOrchestrator
                     ["choiceCount"] = displayChoices.Count,
                     ["mapId"] = recognition.Map.Id
                 });
-            return new CandidateSelectionResolution(identityLock, false);
+            return new CandidateSelectionResolution(identityLock, false, recognition);
         }
         catch (OperationCanceledException)
         {
@@ -277,7 +278,7 @@ public sealed partial class SessionOrchestrator
                 ["mapId"] = recognition.Map.Id,
                 ["confidence"] = recognition.Result.Confidence
             });
-        return new CandidateSelectionResolution(identityLock, false);
+        return new CandidateSelectionResolution(identityLock, false, recognition);
     }
 
     private bool CanAcceptModelTopOne(

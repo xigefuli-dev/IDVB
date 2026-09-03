@@ -256,7 +256,7 @@ public sealed partial class MapOpenAlignmentRouteTests
     [Fact]
     public void ScanVerificationUsesExplicitBudgetAndPercentileTargets()
     {
-        Assert.Equal(150, MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds);
+        Assert.Equal(1000, MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds);
         Assert.Equal(
             30,
             MapOpenAlignmentRouteRules.ScanVerificationMinimumCandidateBudgetMilliseconds);
@@ -266,10 +266,10 @@ public sealed partial class MapOpenAlignmentRouteTests
         Assert.Equal(
             100,
             MapOpenAlignmentRouteRules.ScanVerificationFormalStructureBudgetMilliseconds);
-        Assert.Equal(80, MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds);
+        Assert.Equal(120, MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds);
         Assert.Equal(100, MapOpenAlignmentRouteRules.ScanVerificationP50Milliseconds);
         Assert.Equal(200, MapOpenAlignmentRouteRules.ScanVerificationP90Milliseconds);
-        Assert.Equal(350, MapOpenAlignmentRouteRules.ScanVerificationP99Milliseconds);
+        Assert.Equal(1000, MapOpenAlignmentRouteRules.ScanVerificationP99Milliseconds);
 
         var samples = Enumerable.Range(1, 100).Select(value => (double)value);
         Assert.Equal(50.5d, MapOpenAlignmentRouteRules.Percentile(samples, 0.50d));
@@ -296,17 +296,17 @@ public sealed partial class MapOpenAlignmentRouteTests
     }
 
     [Fact]
-    public void ScanCheapRejectIsDisabledByDefaultAndCloned()
+    public void ScanCheapRejectSettingsAreCloned()
     {
         var tuning = new MapStructureRegistrationTuning
         {
             Mode = MapStructureRegistrationMode.ScanVerification
         };
 
-        Assert.False(tuning.EnableScanCheapReject);
-        tuning.EnableScanCheapRejectShadowCollection = true;
-        Assert.False(tuning.Clone().EnableScanCheapReject);
-        Assert.True(tuning.Clone().EnableScanCheapRejectShadowCollection);
+        tuning.EnableScanCheapReject = true;
+        tuning.EnableScanCheapRejectShadowCollection = false;
+        Assert.True(tuning.Clone().EnableScanCheapReject);
+        Assert.False(tuning.Clone().EnableScanCheapRejectShadowCollection);
         Assert.Equal(
             450,
             MapOpenAlignmentRouteRules

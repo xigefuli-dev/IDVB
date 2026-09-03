@@ -200,14 +200,6 @@ internal static class SideEntranceCandidateEvidence
         return ordered.Take(count).ToArray();
     }
 
-    public static bool ShouldAttemptVpsgRescue(
-        IReadOnlyList<SideEntranceScanCandidate> candidates,
-        int candidateIndex) =>
-        candidateIndex == 0
-        || candidateIndex == 1
-            && candidates.Count > 1
-            && candidates[0].MatchScore - candidates[1].MatchScore <= 0.05d;
-
     public static double ResolveRawChamferPixels(
         MapStructureRegistrationResult? structure)
     {

@@ -123,13 +123,76 @@ public sealed class BackgroundScanPreparationSourceTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "return new CandidateSelectionResolution(identityLock, false);",
+            "return new CandidateSelectionResolution(identityLock, false, recognition);",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
             "IdentityConfidence = 1d",
             source,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "RuntimeMapRecognition? VerifiedAlignment = null",
+            source,
+            StringComparison.Ordinal);
+
+        var consumeSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.BackgroundScan.Consume.cs"));
+        Assert.Contains(
+            "verifiedAlignment ?? locked",
+            consumeSource,
+            StringComparison.Ordinal);
+
+        var tuningSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.ResolutionTuning.cs"));
+        Assert.Contains(
+            "tuning.EnableScanCheapReject = true;",
+            tuningSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "tuning.EnableScanCheapRejectShadowCollection = false;",
+            tuningSource,
+            StringComparison.Ordinal);
+
+        var sideEntranceSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps", "AdaptiveScaleAlignment",
+            "SessionOrchestrator.AdaptiveScaleSideEntrance.cs"));
+        Assert.Contains(
+            "if (templateAttempt.Diagnostics.ScanCheapRejected)",
+            sideEntranceSource,
+            StringComparison.Ordinal);
+
+        var lockedFloorSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "MapCvRecognitionService.LockedFloorFeature.cs"));
+        Assert.Contains(
+            "using var scanValidationBudget = structureTuning.Mode",
+            lockedFloorSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "() => structureTuning.StructureFallbackBudgetMilliseconds",
+            lockedFloorSource,
+            StringComparison.Ordinal);
+
+        var vpsgModesSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "MapCvRecognitionService.VpsgModes.cs"));
+        Assert.Contains(
+            "if (attempt.Recognition is not null)",
+            vpsgModesSource,
+            StringComparison.Ordinal);
+
+        var backgroundScanSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.BackgroundScan.cs"));
+        var freezeIndex = backgroundScanSource.IndexOf(
+            "_pendingBackgroundCandidateFrame = new CapturedGameFrame(",
+            StringComparison.Ordinal);
+        var nativeUiIndex = backgroundScanSource.IndexOf(
+            "&& !_headless",
+            StringComparison.Ordinal);
+        Assert.True(freezeIndex >= 0 && freezeIndex < nativeUiIndex);
     }
 
     [Fact]

@@ -41,8 +41,8 @@ public sealed partial class SessionOrchestrator
 
         MapRecognitionAttempt VpsgThenFallback(bool tryDirectSideFeature)
         {
-            // 无会话、无缓存时的 scale bootstrap：VPSG 用 AKAZE 描述符几何
-            // 独立估算本楼层 scale，成功则短路，失败再进入常规 fallback。
+            // 无会话、无缓存时的 scale bootstrap：VPSG 用本楼层边缘结构
+            // 独立估算 scale，成功则短路，失败再进入常规 fallback。
             if (TryAlignFloorWithVpsg(
                     frame,
                     locked,

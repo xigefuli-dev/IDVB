@@ -114,6 +114,9 @@
     <Compile Include="..\Features\Maps\MapVpsgScaleGraphCache.cs" Link="Production\MapVpsgScaleGraphCache.cs" />
     <Compile Include="..\Features\Maps\MapVpsgScaleEstimator.cs" Link="Production\MapVpsgScaleEstimator.cs" />
     <Compile Include="..\Features\Maps\MapVpsgScaleEstimator.Part*.cs" />
+    <Compile Include="..\Features\Maps\LowStructureScaleSelection.cs" Link="Production\LowStructureScaleSelection.cs" />
+    <Compile Include="..\Features\Maps\MapVpsgStructureScaleEstimator.cs" Link="Production\MapVpsgStructureScaleEstimator.cs" />
+    <Compile Include="..\Features\Maps\MapStructureScaleHintEstimator.cs" Link="Production\MapStructureScaleHintEstimator.cs" />
     <Compile Include="..\Features\Maps\MapOverlayStatusCoordinator.cs" Link="Production\MapOverlayStatusCoordinator.cs" />
     <Compile Include="..\Features\Maps\IMapCandidateSelector.cs" Link="Production\IMapCandidateSelector.cs" />
     <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\RealCliCandidateSelector.cs" />
@@ -129,6 +132,7 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionService.SideEntranceTracking.cs" Link="Production\MapCvRecognitionService.SideEntranceTracking.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.cs" Link="Production\MapCvRecognitionService.LockedFloorFeature.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.Part*.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.VpsgModes.cs" Link="Production\MapCvRecognitionService.VpsgModes.cs" />
     <Compile Include="..\Features\Maps\AlignmentSearchContext.cs" Link="Production\AlignmentSearchContext.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentSearchPolicy.cs" Link="Production\MapAlignmentSearchPolicy.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.cs" Link="Production\MapCvAlignmentService.AlignSelected.cs" />
@@ -178,7 +182,10 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureQueryGeometry.cs" Link="Production\MapStructureQueryGeometry.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.cs" Link="Production\MapStructureScaleSearch.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.Part*.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCheapReject.cs" Link="Production\MapStructureCheapReject.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.cs" Link="Production\MapStructureLowScaleSelector.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.Refinement.cs" Link="Production\MapStructureLowScaleSelector.Refinement.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.Compatibility.cs" Link="Production\MapStructureLowScaleSelector.Compatibility.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.cs" Link="Production\MapStructureCandidateCollector.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureProjectionScorer.cs" Link="Production\MapStructureProjectionScorer.cs" />

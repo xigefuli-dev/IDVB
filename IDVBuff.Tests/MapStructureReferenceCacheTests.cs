@@ -33,13 +33,14 @@ public sealed class MapStructureReferenceCacheTests
             var version = MapStructurePreprocessor.AlgorithmVersion;
             var generationFingerprint =
                 new MapStructureGenerationTuning().CacheFingerprint;
+            var profile = MapStructurePreprocessingProfile.EdgesAndFeatures;
             var mapDirectory = Path.Combine(root, mapId.ToString("N"));
             var firstDirectory = Path.Combine(
                 mapDirectory,
-                $"{updatedAt.UtcTicks}-1f-{version}-{generationFingerprint}");
+                $"{updatedAt.UtcTicks}-1f-{version}-{generationFingerprint}-{profile}");
             var secondDirectory = Path.Combine(
                 mapDirectory,
-                $"{updatedAt.UtcTicks}-2f-{version}-{generationFingerprint}");
+                $"{updatedAt.UtcTicks}-2f-{version}-{generationFingerprint}-{profile}");
 
             Assert.True(Directory.Exists(firstDirectory));
             Assert.True(Directory.Exists(secondDirectory));

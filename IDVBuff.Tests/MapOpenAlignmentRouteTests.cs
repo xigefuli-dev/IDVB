@@ -212,6 +212,27 @@ public sealed class MapOpenAlignmentRouteTests
     }
 
     [Fact]
+    public void ScanVerificationUsesExplicitBudgetAndPercentileTargets()
+    {
+        Assert.Equal(150, MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds);
+        Assert.Equal(
+            30,
+            MapOpenAlignmentRouteRules.ScanVerificationMinimumCandidateBudgetMilliseconds);
+        Assert.Equal(
+            50,
+            MapOpenAlignmentRouteRules.ScanVerificationMinimumVpsgBudgetMilliseconds);
+        Assert.Equal(80, MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds);
+        Assert.Equal(100, MapOpenAlignmentRouteRules.ScanVerificationP50Milliseconds);
+        Assert.Equal(200, MapOpenAlignmentRouteRules.ScanVerificationP90Milliseconds);
+        Assert.Equal(350, MapOpenAlignmentRouteRules.ScanVerificationP99Milliseconds);
+
+        var samples = Enumerable.Range(1, 100).Select(value => (double)value);
+        Assert.Equal(50.5d, MapOpenAlignmentRouteRules.Percentile(samples, 0.50d));
+        Assert.Equal(90.1d, MapOpenAlignmentRouteRules.Percentile(samples, 0.90d), 10);
+        Assert.Equal(99.01d, MapOpenAlignmentRouteRules.Percentile(samples, 0.99d), 10);
+    }
+
+    [Fact]
     public void SteadyGlobalRecoveryExpandsTranslationWithoutChangingScale()
     {
         var tuning = new MapStructureRegistrationTuning

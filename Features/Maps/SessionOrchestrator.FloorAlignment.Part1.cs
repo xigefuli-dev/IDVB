@@ -193,7 +193,7 @@ public sealed partial class SessionOrchestrator
                 sparseSeedAttempt.StructureResult,
                 config.MinimumScale));
 
-        var recoveryGrid = MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
+        var recoveryGrid = MapStructureScaleEstimator.BuildCoarseGrid(
             recoveryMinimumScale,
             config.MaximumScale,
             config.ScaleHypothesisCount,

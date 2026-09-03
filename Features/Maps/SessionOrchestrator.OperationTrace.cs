@@ -285,6 +285,26 @@ public sealed partial class SessionOrchestrator
             traceDetails["structurePreprocessCount"] =
                 alignmentDiagnostics.StructurePreprocessCount;
             traceDetails["vpsgAttempted"] = alignmentDiagnostics.VpsgAttempted;
+            traceDetails["scan_candidate_count"] =
+                alignmentDiagnostics.ScanCandidateCount;
+            traceDetails["scan_verification_candidate_count"] =
+                alignmentDiagnostics.ScanVerificationCandidateCount;
+            traceDetails["candidate_0_template_validation_ms"] =
+                alignmentDiagnostics.ScanCandidate0TemplateValidationMilliseconds;
+            traceDetails["candidate_0_vpsg_ms"] =
+                alignmentDiagnostics.ScanCandidate0VpsgMilliseconds;
+            traceDetails["candidate_0_structure_ms"] =
+                alignmentDiagnostics.ScanCandidate0StructureMilliseconds;
+            traceDetails["cheap_reject_count"] =
+                alignmentDiagnostics.ScanCheapRejectCount;
+            traceDetails["cheap_reject_ms"] =
+                alignmentDiagnostics.ScanCheapRejectMilliseconds;
+            traceDetails["scan_total_verification_ms"] =
+                alignmentDiagnostics.ScanTotalVerificationMilliseconds;
+            traceDetails["scan_vpsg_attempt_count"] =
+                alignmentDiagnostics.ScanVpsgAttemptCount;
+            traceDetails["scan_full_recovery_count"] =
+                alignmentDiagnostics.ScanFullRecoveryCount;
             traceDetails["gateDetectionAttempted"] =
                 alignmentDiagnostics.GateDetectionAttempted;
             traceDetails["umatAttempted"] = alignmentDiagnostics.UmatAttempted;

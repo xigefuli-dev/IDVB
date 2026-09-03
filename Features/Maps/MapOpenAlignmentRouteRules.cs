@@ -13,6 +13,13 @@ internal static class MapOpenAlignmentRouteRules
     internal const int MaximumNoDoorAlignmentBudgetMilliseconds = InitialAlignmentMaximumMilliseconds;
     internal const int VpsgStageBudgetMilliseconds = 600;
     internal const int MinimumVpsgStageBudgetMilliseconds = 450;
+    internal const int ScanVerificationBudgetMilliseconds = 150;
+    internal const int ScanVerificationMinimumCandidateBudgetMilliseconds = 30;
+    internal const int ScanVerificationMinimumVpsgBudgetMilliseconds = 50;
+    internal const int ScanVerificationVpsgBudgetMilliseconds = 80;
+    internal const int ScanVerificationP50Milliseconds = 100;
+    internal const int ScanVerificationP90Milliseconds = 200;
+    internal const int ScanVerificationP99Milliseconds = 350;
     internal const double TargetReliableAlignmentRate = 0.95d;
     internal const double TargetTranslationJitterP95Pixels = 3d;
     // cached-scale 固定验证失败后的极小半径 Search 兜底：救缓存 scale 的小漂移，
@@ -27,6 +34,27 @@ internal static class MapOpenAlignmentRouteRules
     // 的跟踪恢复机会，避免把注定失败的跟踪帧跑成最慢路径。首次身份对齐不受
     // 这个门槛限制，因为它尚没有可信的局部平移盆地，必须完成一次全局恢复。
     internal const double GlobalRecoveryMinimumLocalConfidence = 0.52d;
+
+    internal static double Percentile(
+        IEnumerable<double> samples,
+        double percentile)
+    {
+        var ordered = samples
+            .Where(double.IsFinite)
+            .OrderBy(value => value)
+            .ToArray();
+        if (ordered.Length == 0)
+            return double.NaN;
+        var position = (ordered.Length - 1)
+            * Math.Clamp(percentile, 0d, 1d);
+        var lower = (int)Math.Floor(position);
+        var upper = (int)Math.Ceiling(position);
+        if (lower == upper)
+            return ordered[lower];
+        var fraction = position - lower;
+        return ordered[lower]
+            + ((ordered[upper] - ordered[lower]) * fraction);
+    }
 
     internal static void ApplyCachedScaleRepairSearchPolicy(
         MapStructureRegistrationTuning tuning)

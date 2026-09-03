@@ -155,7 +155,9 @@ public sealed partial class MapStructurePreprocessor
     public MapStructureFeatures ProcessReference(
         Mat source,
         IReadOnlyList<NormalizedRectangle>? ignoreRegions,
-        MapStructureGenerationTuning? generationTuning = null)
+        MapStructureGenerationTuning? generationTuning = null,
+        MapStructurePreprocessingProfile profile =
+            MapStructurePreprocessingProfile.EdgesAndFeatures)
     {
         using var referencePreprocess = MapOperationTraceAmbient.StartChild(
             "reference_preprocess",
@@ -167,7 +169,7 @@ public sealed partial class MapStructurePreprocessor
             dynamicIgnoreRegions: null,
             new PreprocessTiming(),
             useOrb: false,
-            profile: MapStructurePreprocessingProfile.EdgesAndFeatures,
+            profile: profile,
             generationTuning: generationTuning);
     }
 

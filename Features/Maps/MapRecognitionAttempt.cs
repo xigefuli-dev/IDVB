@@ -187,11 +187,26 @@ internal static class SideEntranceCandidateEvidence
             IEnumerable<SideEntranceScanCandidate> candidates)
     {
         ArgumentNullException.ThrowIfNull(candidates);
-        return candidates
+        var ordered = candidates
             .Where(candidate => candidate.MatchScore >=
                 SideEntranceScanRules.MinimumVerificationSimilarity)
+            .OrderByDescending(candidate => candidate.MatchScore)
             .ToArray();
+        if (ordered.Length <= 1)
+            return ordered;
+
+        var margin = ordered[0].MatchScore - ordered[1].MatchScore;
+        var count = margin > 0.10d ? 1 : margin > 0.05d ? 2 : 3;
+        return ordered.Take(count).ToArray();
     }
+
+    public static bool ShouldAttemptVpsgRescue(
+        IReadOnlyList<SideEntranceScanCandidate> candidates,
+        int candidateIndex) =>
+        candidateIndex == 0
+        || candidateIndex == 1
+            && candidates.Count > 1
+            && candidates[0].MatchScore - candidates[1].MatchScore <= 0.05d;
 
     public static double ResolveRawChamferPixels(
         MapStructureRegistrationResult? structure)

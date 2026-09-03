@@ -105,6 +105,8 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Result.cs" Link="Production\MapStructureRegistrationModels.Result.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrationModels.Detail.cs" Link="Production\MapStructureRegistrationModels.Detail.cs" />
     <Compile Include="..\Features\Maps\LowStructureAlignmentPlan.cs" Link="Production\LowStructureAlignmentPlan.cs" />
+    <Compile Include="..\Features\Maps\LowStructureScaleSelection.cs" Link="Production\LowStructureScaleSelection.cs" />
+    <Compile Include="..\Features\Maps\MapStructureScaleHintEstimator.cs" Link="Production\MapStructureScaleHintEstimator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationConfig.cs" Link="Production\StructureRegistrationConfig.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\StructureRegistrationRules.cs" Link="Production\StructureRegistrationRules.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePreprocessor.cs" Link="Production\MapStructurePreprocessor.cs" />
@@ -121,6 +123,9 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureQueryGeometry.cs" Link="Production\MapStructureQueryGeometry.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.cs" Link="Production\MapStructureScaleSearch.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureScaleSearch.Part*.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.cs" Link="Production\MapStructureLowScaleSelector.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.Refinement.cs" Link="Production\MapStructureLowScaleSelector.Refinement.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.Compatibility.cs" Link="Production\MapStructureLowScaleSelector.Compatibility.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.cs" Link="Production\MapStructureCandidateCollector.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureProjectionScorer.cs" Link="Production\MapStructureProjectionScorer.cs" />

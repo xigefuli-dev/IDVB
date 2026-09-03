@@ -255,6 +255,20 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             ["structure_preprocess"] = diagnostics.StructurePreprocessMilliseconds,
             ["structure_search"] = diagnostics.StructureSearchMilliseconds,
             ["structure_refine"] = diagnostics.StructureRefineMilliseconds,
+            ["scan_candidate_count"] = diagnostics.ScanCandidateCount,
+            ["scan_verification_candidate_count"] =
+                diagnostics.ScanVerificationCandidateCount,
+            ["candidate_0_template_validation_ms"] =
+                diagnostics.ScanCandidate0TemplateValidationMilliseconds,
+            ["candidate_0_vpsg_ms"] = diagnostics.ScanCandidate0VpsgMilliseconds,
+            ["candidate_0_structure_ms"] =
+                diagnostics.ScanCandidate0StructureMilliseconds,
+            ["cheap_reject_count"] = diagnostics.ScanCheapRejectCount,
+            ["cheap_reject_ms"] = diagnostics.ScanCheapRejectMilliseconds,
+            ["scan_total_verification_ms"] =
+                diagnostics.ScanTotalVerificationMilliseconds,
+            ["scan_vpsg_attempt_count"] = diagnostics.ScanVpsgAttemptCount,
+            ["scan_full_recovery_count"] = diagnostics.ScanFullRecoveryCount,
             ["session_commit"] = diagnostics.SessionCommitMilliseconds,
             ["overlay"] = diagnostics.OverlayMilliseconds,
             ["alignment_pipeline"] = diagnostics.AlignmentPipelineMilliseconds,

@@ -43,7 +43,7 @@ public sealed partial class MapStructureRegistrar
         if (request.Channel == MapAlignmentChannel.LowStructure
             && request.ScaleSearchPolicy == MapScaleSearchPolicy.Search)
         {
-            return MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
+            return MapStructureScaleEstimator.BuildCoarseGrid(
                 tuning.LowStructureMinimumScale,
                 tuning.LowStructureMaximumScale,
                 tuning.LowStructureScaleHypothesisCount,

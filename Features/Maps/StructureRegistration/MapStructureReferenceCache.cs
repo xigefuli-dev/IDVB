@@ -62,7 +62,9 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         Guid mapId,
         DateTimeOffset updatedAt,
         string floor = "1f",
-        MapStructureGenerationTuning? generationTuning = null)
+        MapStructureGenerationTuning? generationTuning = null,
+        MapStructurePreprocessingProfile profile =
+            MapStructurePreprocessingProfile.EdgesAndFeatures)
     {
         var generationFingerprint = NormalizeGeneration(generationTuning)
             .CacheFingerprint;
@@ -71,7 +73,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             updatedAt.UtcTicks,
             MapStructurePreprocessor.AlgorithmVersion,
             floor,
-            generationFingerprint);
+            generationFingerprint,
+            profile);
         lock (_memoryGate)
         {
             if (!_memoryCache.TryGetValue(key, out var cached))
@@ -141,7 +144,9 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         Mat referenceImage,
         IReadOnlyList<NormalizedRectangle>? ignoreRegions = null,
         string floor = "1f",
-        MapStructureGenerationTuning? generationTuning = null)
+        MapStructureGenerationTuning? generationTuning = null,
+        MapStructurePreprocessingProfile profile =
+            MapStructurePreprocessingProfile.EdgesAndFeatures)
     {
         using var cacheRoute = MapOperationTraceAmbient.StartChild(
             "reference_cache_route",
@@ -155,7 +160,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             updatedAt.UtcTicks,
             MapStructurePreprocessor.AlgorithmVersion,
             floor,
-            generationFingerprint);
+            generationFingerprint,
+            profile);
 
         using var memoryLookup = MapOperationTraceAmbient.StartChild(
             "reference_cache_memory_lookup",
@@ -180,7 +186,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         var directory = Path.Combine(
             _rootDirectory,
             mapId.ToString("N"),
-            $"{updatedAt.UtcTicks}-{floor}-{MapStructurePreprocessor.AlgorithmVersion}-{generationFingerprint}");
+            $"{updatedAt.UtcTicks}-{floor}-{MapStructurePreprocessor.AlgorithmVersion}-{generationFingerprint}-{profile}");
         var nuisancePath = Path.Combine(directory, "nuisance-mask.png");
         var structurePath = Path.Combine(directory, "structure-mask.png");
         var edgesPath = Path.Combine(directory, "edges.png");
@@ -198,14 +204,16 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             mapId: mapId.ToString("D"),
             floorKey: floor);
         var diskLoadTimer = System.Diagnostics.Stopwatch.StartNew();
+        var requiresDescriptors = profile.IncludesDescriptors();
         if (File.Exists(nuisancePath)
             && File.Exists(structurePath)
             && File.Exists(edgesPath)
             && File.Exists(grayPath)
             && File.Exists(halfEdgesPath)
             && File.Exists(quarterEdgesPath)
-            && File.Exists(descriptorsPath)
-            && File.Exists(keyPointsPath)
+            && (!requiresDescriptors
+                || (File.Exists(descriptorsPath)
+                    && File.Exists(keyPointsPath)))
             && File.Exists(repeatedPath)
             && File.Exists(distancePath))
         {
@@ -217,21 +225,23 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             var quarterEdges = Cv2.ImRead(
                 quarterEdgesPath,
                 ImreadModes.Grayscale);
-            var descriptors = Cv2.ImRead(
-                descriptorsPath,
-                ImreadModes.Grayscale);
+            var descriptors = requiresDescriptors
+                ? Cv2.ImRead(descriptorsPath, ImreadModes.Grayscale)
+                : new Mat();
             var repeated = Cv2.ImRead(repeatedPath, ImreadModes.Grayscale);
             var distance = Cv2.ImRead(
                 distancePath,
                 ImreadModes.AnyDepth | ImreadModes.Grayscale);
-            var keyPoints = ReadKeyPoints(keyPointsPath);
+            var keyPoints = requiresDescriptors
+                ? ReadKeyPoints(keyPointsPath)
+                : [];
             if (!nuisance.Empty()
                 && !structure.Empty()
                 && !edges.Empty()
                 && !gray.Empty()
                 && !halfEdges.Empty()
                 && !quarterEdges.Empty()
-                && !descriptors.Empty()
+                && (!requiresDescriptors || !descriptors.Empty())
                 && !repeated.Empty()
                 && !distance.Empty()
                 && structure.Size() == referenceImage.Size()
@@ -292,7 +302,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         var generated = _preprocessor.ProcessReference(
             referenceImage,
             ignoreRegions,
-            generationTuning);
+            generationTuning,
+            profile);
         preprocessTimer.Stop();
 
         MapLogCollector.Instance.Append(
@@ -321,9 +332,9 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             Cv2.ImWrite(grayPath, generated.NormalizedGray);
             Cv2.ImWrite(halfEdgesPath, generated.EdgePyramid[1]);
             Cv2.ImWrite(quarterEdgesPath, generated.EdgePyramid[2]);
-            if (!generated.Descriptors.Empty())
+            if (profile.IncludesDescriptors() && !generated.Descriptors.Empty())
                 Cv2.ImWrite(descriptorsPath, generated.Descriptors);
-            else
+            else if (profile.IncludesDescriptors())
             {
                 using var emptyDescriptors =
                     Mat.Zeros(1, 1, MatType.CV_8UC1).ToMat();
@@ -349,6 +360,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
                         MapUpdatedAt = updatedAt,
                         AlgorithmVersion = MapStructurePreprocessor.AlgorithmVersion,
                         GenerationFingerprint = generationFingerprint,
+                        Profile = profile.ToString(),
                         Floor = floor,
                         Width = referenceImage.Width,
                         Height = referenceImage.Height
@@ -471,7 +483,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         long UpdatedAtUtcTicks,
         int AlgorithmVersion,
         string Floor,
-        string GenerationFingerprint);
+        string GenerationFingerprint,
+        MapStructurePreprocessingProfile Profile);
 }
 /*
  * 文件职责：MapStructureReferenceCache。

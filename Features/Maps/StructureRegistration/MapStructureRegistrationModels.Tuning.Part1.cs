@@ -45,13 +45,17 @@ public sealed partial class MapStructureRegistrationTuning
             AuxiliaryAnchorMode =
                 MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
         }
+        if (!Enum.IsDefined(VpsgScaleMode))
+            VpsgScaleMode = VpsgScaleMode.Structure;
+        if (!Enum.IsDefined(Mode))
+            Mode = MapStructureRegistrationMode.Standard;
         MaximumAuxiliaryTemplates = Math.Clamp(
             MaximumAuxiliaryTemplates,
             1,
             8);
         StructureFallbackBudgetMilliseconds = Math.Clamp(
             StructureFallbackBudgetMilliseconds,
-            250,
+            Mode == MapStructureRegistrationMode.ScanVerification ? 50 : 250,
             5000);
         PreviousAlignmentSearchRadiusPixels = Math.Clamp(
             PreviousAlignmentSearchRadiusPixels,

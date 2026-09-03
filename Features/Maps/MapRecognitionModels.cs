@@ -394,6 +394,14 @@ public sealed partial class MapScanDiagnostics
     public bool ScaleBootstrapValidated { get; set; }
     public double ScaleBootstrapScale { get; set; }
     public double ScaleBootstrapConfidence { get; set; }
+    public double? ScaleBootstrapHintScale { get; set; }
+    public double ScaleBootstrapHintConfidence { get; set; }
+    public double ScaleBootstrapSearchMinimum { get; set; }
+    public double ScaleBootstrapSearchMaximum { get; set; }
+    public string ScaleBootstrapMethod { get; set; } = string.Empty;
+    public double ScaleBootstrapCost { get; set; }
+    public double ScaleBootstrapMargin { get; set; }
+    public int ScaleBootstrapTestedScaleCount { get; set; }
 }
 
 /// <summary>Result from WaitForStableViewportAsync with per-capture timing.</summary>

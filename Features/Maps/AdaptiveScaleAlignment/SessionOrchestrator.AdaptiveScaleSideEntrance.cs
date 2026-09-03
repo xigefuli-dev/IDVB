@@ -1,3 +1,6 @@
+using IDVBuff.Features.Maps.AdaptiveScaleAlignment;
+using System.Diagnostics;
+
 namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
@@ -8,6 +11,7 @@ public sealed partial class SessionOrchestrator
         MapAlignmentSession templateSeed,
         MapRecognitionTuning alignmentTuning,
         MapStructureRegistrationTuning structureTuning,
+        bool allowVpsgRescue,
         out MapAlignmentSession usedSeed)
     {
         usedSeed = templateSeed;
@@ -39,16 +43,70 @@ public sealed partial class SessionOrchestrator
         }
         var targetResolution = GetResolution(frame);
         var rejectionChain = new List<string>();
-        var hasAdaptiveSeed = TryAlignWithAdaptiveCalibrationSeed(
-            frame,
-            candidate.Map,
-            candidate.FloorKey,
-            _settings!.OverlayAlignmentMode,
-            alignmentTuning,
-            structureTuning,
-            candidate.MatchScore,
-            out var adaptiveSeed,
-            out var adaptiveAttempt);
+        var isScanVerification = structureTuning.Mode ==
+            MapStructureRegistrationMode.ScanVerification;
+        MapRecognitionAttempt? templateAttempt = null;
+        MapRecognitionAttempt? lastScanAttempt = null;
+        if (isScanVerification)
+        {
+            var templateTimer = Stopwatch.StartNew();
+            templateAttempt = AlignSideEntranceFromSeed(
+                frame,
+                candidate,
+                templateSeed,
+                alignmentTuning,
+                structureTuning);
+            templateTimer.Stop();
+            lastScanAttempt = templateAttempt;
+            PopulateScanAttemptTiming(
+                templateAttempt,
+                templateTimer.Elapsed.TotalMilliseconds,
+                vpsgMilliseconds: 0d,
+                vpsgAttempted: false);
+            LogScaleSeedDecision(
+                candidate,
+                "side-template",
+                templateSeed.LockedTransform.ScaleX,
+                null,
+                targetResolution,
+                templateAttempt,
+                string.Empty);
+            if (templateAttempt.StructureAccepted
+                && templateAttempt.Recognition is not null
+                && IsAdaptiveInitialScaleQualified(
+                    templateAttempt,
+                    structureTuning))
+            {
+                return templateAttempt;
+            }
+            rejectionChain.Add(
+                $"side-template:{DescribeAttemptFailure(templateAttempt)}");
+            if (!allowVpsgRescue)
+                return templateAttempt;
+            if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is { } templateRemaining
+                && templateRemaining < MapOpenAlignmentRouteRules
+                    .ScanVerificationMinimumVpsgBudgetMilliseconds)
+            {
+                return templateAttempt;
+            }
+        }
+
+        AdaptiveScaleSeedDecision? adaptiveSeed = null;
+        MapRecognitionAttempt? adaptiveAttempt = null;
+        var hasAdaptiveSeed = false;
+        if (!isScanVerification)
+        {
+            hasAdaptiveSeed = TryAlignWithAdaptiveCalibrationSeed(
+                frame,
+                candidate.Map,
+                candidate.FloorKey,
+                _settings!.OverlayAlignmentMode,
+                alignmentTuning,
+                structureTuning,
+                candidate.MatchScore,
+                out adaptiveSeed,
+                out adaptiveAttempt);
+        }
         if (hasAdaptiveSeed && adaptiveSeed is not null)
         {
             var adaptiveSession = templateSeed.WithUniformScale(adaptiveSeed.Scale);
@@ -92,7 +150,7 @@ public sealed partial class SessionOrchestrator
                 fingerprint,
                 candidate.FloorKey,
                 targetResolution,
-                _settings.SessionTuning.HighConfidence,
+                _settings!.SessionTuning.HighConfidence,
                 structureTuning.MinimumCandidateMargin,
                 out cacheSeed,
                 out cacheRejection);
@@ -107,6 +165,14 @@ public sealed partial class SessionOrchestrator
                 exactSeed,
                 alignmentTuning,
                 structureTuning);
+            lastScanAttempt = cacheAttempt;
+            PopulateScanAttemptTiming(
+                cacheAttempt,
+                templateAttempt is null
+                    ? 0d
+                    : templateAttempt.Diagnostics.ScanTemplateValidationMilliseconds,
+                vpsgMilliseconds: 0d,
+                vpsgAttempted: false);
             SetScaleSeedDiagnostics(cacheAttempt, cacheSeed, cacheRejection);
             LogScaleSeedDecision(
                 candidate,
@@ -142,17 +208,52 @@ public sealed partial class SessionOrchestrator
                 cacheRejection);
         }
 
+        if (isScanVerification
+            && MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is { } remaining
+            && remaining < MapOpenAlignmentRouteRules
+                .ScanVerificationMinimumVpsgBudgetMilliseconds)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                "扫描 VPSG rescue 因剩余预算不足而跳过",
+                details: new()
+                {
+                    ["remainingMs"] = remaining,
+                    ["minimumVpsgMs"] = MapOpenAlignmentRouteRules
+                        .ScanVerificationMinimumVpsgBudgetMilliseconds
+                });
+            return lastScanAttempt ?? templateAttempt!;
+        }
+
         var strictVpsgTuning = MapScaleSeedResolver
             .CreateStrictVpsgValidationTuning(structureTuning);
+        if (isScanVerification)
+        {
+            strictVpsgTuning.StructureFallbackBudgetMilliseconds = Math.Min(
+                MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds,
+                MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
+                    ?? MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds);
+            strictVpsgTuning.Normalize();
+        }
+        var vpsgTimer = Stopwatch.StartNew();
         var vpsgAttempt = _recognition.AlignLockedFloorFeature(
             frame,
             candidate.Map.Id,
             candidate.FloorKey,
             templateSeed.LockedTransform,
-            _settings.OverlayAlignmentMode,
+            _settings!.OverlayAlignmentMode,
             alignmentTuning,
             strictVpsgTuning,
             candidate.MatchScore);
+        vpsgTimer.Stop();
+        PopulateScanAttemptTiming(
+            vpsgAttempt,
+            templateAttempt is null
+                ? 0d
+                : templateAttempt.Diagnostics.ScanTemplateValidationMilliseconds,
+            vpsgTimer.Elapsed.TotalMilliseconds,
+            vpsgAttempted: true);
         SetScaleSeedDiagnostics(
             vpsgAttempt,
             MapScaleSeedSource.Vpsg,
@@ -177,6 +278,9 @@ public sealed partial class SessionOrchestrator
             return vpsgAttempt;
         rejectionChain.Add($"vpsg:{DescribeAttemptFailure(vpsgAttempt)}");
 
+        if (isScanVerification)
+            return vpsgAttempt;
+
         var fallbackSeed = templateSeed;
         var vpsgScale = vpsgAttempt.Diagnostics.ScaleBootstrapScale;
         var hasVpsgScale = double.IsFinite(vpsgScale) && vpsgScale > 0.05d;
@@ -189,7 +293,7 @@ public sealed partial class SessionOrchestrator
             fallbackSeed = templateSeed.WithUniformScale(vpsgScale);
         }
 
-        var templateAttempt = AlignSideEntranceFromSeed(
+        var finalTemplateAttempt = AlignSideEntranceFromSeed(
             frame,
             candidate,
             fallbackSeed,
@@ -197,7 +301,7 @@ public sealed partial class SessionOrchestrator
             structureTuning);
         usedSeed = fallbackSeed;
         SetScaleSeedDiagnostics(
-            templateAttempt,
+            finalTemplateAttempt,
             hasVpsgScale
                 ? MapScaleSeedSource.Vpsg
                 : MapScaleSeedSource.SideTemplate,
@@ -214,9 +318,26 @@ public sealed partial class SessionOrchestrator
             fallbackSeed.LockedTransform.ScaleX,
             null,
             targetResolution,
-            templateAttempt,
+            finalTemplateAttempt,
             string.Join(";", rejectionChain));
-        return templateAttempt;
+        return finalTemplateAttempt;
+    }
+
+    private static void PopulateScanAttemptTiming(
+        MapRecognitionAttempt attempt,
+        double templateMilliseconds,
+        double vpsgMilliseconds,
+        bool vpsgAttempted)
+    {
+        var diagnostics = attempt.Diagnostics;
+        diagnostics.ScanTemplateValidationMilliseconds = templateMilliseconds;
+        diagnostics.ScanVpsgMilliseconds = vpsgMilliseconds;
+        diagnostics.ScanVpsgAttempted = vpsgAttempted;
+        diagnostics.ScanFullRecoveryAttempted = false;
+        diagnostics.ScanStructureMilliseconds =
+            diagnostics.StructurePreprocessMilliseconds
+            + diagnostics.StructureSearchMilliseconds
+            + diagnostics.StructureRefineMilliseconds;
     }
 }
 /*

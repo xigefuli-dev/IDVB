@@ -44,13 +44,21 @@ internal static partial class MapCvAlignmentService
             fingerprint.Map,
             fingerprint.FloorKey)
             ?? fingerprint.Map.Recognition.FirstFloor;
+        var vpsgMode = Enum.IsDefined(structureTuning.VpsgScaleMode)
+            ? structureTuning.VpsgScaleMode
+            : VpsgScaleMode.Structure;
+        var structurePreprocessingProfile = route == SelectedAlignmentRoute.SideEntrance
+            && vpsgMode == VpsgScaleMode.Structure
+                ? MapStructurePreprocessingProfile.EdgesOnly
+                : MapStructurePreprocessingProfile.EdgesAndFeatures;
 
         stopwatch.Restart();
         using var residentReferenceLease = service.StructureCache.TryRentResident(
             fingerprint.Map.Id,
             fingerprint.Map.UpdatedAt,
             fingerprint.FloorKey,
-            structureTuning.Generation);
+            structureTuning.Generation,
+            structurePreprocessingProfile);
         MapStructureFeatures? ownedPreparedReference = null;
         if (residentReferenceLease is null)
         {
@@ -60,7 +68,8 @@ internal static partial class MapCvAlignmentService
                 reference,
                 primaryProfile.WholeImageIgnoreRegions,
                 fingerprint.FloorKey,
-                structureTuning.Generation);
+                structureTuning.Generation,
+                structurePreprocessingProfile);
         }
         using var ownedPreparedReferenceScope = ownedPreparedReference;
         var preparedReference = residentReferenceLease?.Features
@@ -77,9 +86,7 @@ internal static partial class MapCvAlignmentService
             liveIgnoreRegions,
             dynamicIgnoreRegions.Select(frame.ToComputationRect).ToArray(),
                 out var liveStructureTiming,
-                profile: route == SelectedAlignmentRoute.SideEntrance
-                ? MapStructurePreprocessingProfile.EdgesOnly
-                : MapStructurePreprocessingProfile.EdgesAndFeatures,
+                profile: structurePreprocessingProfile,
             generateVisibleMask: structureTuning.EnableVisibleMask,
             generationTuning: structureTuning.Generation);
         stopwatch.Stop();
@@ -117,6 +124,8 @@ internal static partial class MapCvAlignmentService
         var isSideEntranceStructureRoute = route == SelectedAlignmentRoute.SideEntrance
             && (singleGateProposal is not null
                 || searchCtx?.UseRestrictedStructureFallback == true);
+        var isScanVerification = structureTuning.Mode ==
+            MapStructureRegistrationMode.ScanVerification;
         var isInitialSideEntranceSeed = isSideEntranceStructureRoute
             && searchCtx?.UseInitialHighPrecisionRecovery == true;
         if (route == SelectedAlignmentRoute.SideEntrance
@@ -182,15 +191,17 @@ internal static partial class MapCvAlignmentService
             ViewportBounds = frame.ViewportBounds,
             LockedTransform = structureSeed,
             Tuning = structureSearchTuning,
-            ScaleSearchPolicy = isSideEntranceStructureRoute
-                ? MapScaleSearchPolicy.Search
+            ScaleSearchPolicy = isScanVerification
+                ? MapScaleSearchPolicy.Fixed
+                : isSideEntranceStructureRoute
+                    ? MapScaleSearchPolicy.Search
                 : MapScaleSearchPolicy.Fixed,
             RestrictSearchToLockedTransform = restrictStructureSearch,
             // 侧门初次配准的 seed 是扫描种子（不可靠），不应卡在 tracking 窄窗
             // （±0.5% scale / 48px）。非 tracking 改用 ScaleSearchRadius / 96px，
             // 给 seed 的尺度偏差更多纠正空间；非侧门路由仍保持 tracking。
-            TrackingMode = MapAlignmentSearchPolicy
-                .UseTrackingForStructureValidation(
+            TrackingMode = !isScanVerification
+                && MapAlignmentSearchPolicy.UseTrackingForStructureValidation(
                     isSideEntranceStructureRoute,
                     searchCtx),
             ForceBestCandidate = false,
@@ -208,8 +219,10 @@ internal static partial class MapCvAlignmentService
         MapLogCollector.Instance.Append(
             MapLogCategory.StructureRegistration,
             MapLogLevel.Info,
-            $"侧门结构验证路线 · {(isInitialSideEntranceSeed
-                ? "initial-seed"
+            $"侧门结构验证路线 · {(isScanVerification
+                ? "scan-verification"
+                : isInitialSideEntranceSeed
+                    ? "initial-seed"
                 : isSideEntranceStructureRoute
                     ? "tracking-repair"
                     : route == SelectedAlignmentRoute.SideEntrance
@@ -219,8 +232,10 @@ internal static partial class MapCvAlignmentService
                         : "standard")}",
             details: new()
             {
-                ["route"] = isInitialSideEntranceSeed
-                    ? "initial-seed"
+                ["route"] = isScanVerification
+                    ? "scan-verification"
+                    : isInitialSideEntranceSeed
+                        ? "initial-seed"
                     : isSideEntranceStructureRoute
                         ? "tracking-repair"
                         : route == SelectedAlignmentRoute.SideEntrance
@@ -232,9 +247,55 @@ internal static partial class MapCvAlignmentService
                 ["trackingMode"] = structureRequest.TrackingMode,
                 ["restrictedSearch"] = structureRequest.RestrictSearchToLockedTransform
             });
+        if (isScanVerification
+            && MapStructureCheapReject.TryReject(
+                structureRequest,
+                preparedReference,
+                preparedLive,
+                out var cheapRejectMilliseconds,
+                out var cheapRejectReason))
+        {
+            diagnostics.ScanCheapRejected = true;
+            diagnostics.ScanCheapRejectMilliseconds = cheapRejectMilliseconds;
+            diagnostics.ScanCheapRejectCount = 1;
+            diagnostics.StructureAttempted = true;
+            diagnostics.StructureAccepted = false;
+            diagnostics.StructureRejectionReason =
+                MapStructureRejectionReason.WeakAbsoluteScore;
+            diagnostics.StructureDisposition =
+                MapStructureEvidenceDisposition.Inconclusive;
+            var rejected = MapStructureRegistrationResult.Reject(
+                MapStructureRejectionReason.WeakAbsoluteScore,
+                cheapRejectReason,
+                preprocessMilliseconds: diagnostics.StructurePreprocessMilliseconds,
+                searchMilliseconds: cheapRejectMilliseconds,
+                lockedScale: structureRequest.LockedTransform.ScaleX,
+                referenceWidth: preparedReference.Edges.Width,
+                referenceHeight: preparedReference.Edges.Height,
+                usedRestrictedSearch: structureRequest.RestrictSearchToLockedTransform);
+            MapLogCollector.Instance.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                "扫描结构 cheap reject",
+                elapsedMs: cheapRejectMilliseconds,
+                details: new()
+                {
+                    ["route"] = "scan-verification",
+                    ["cheapReject"] = true,
+                    ["cheapRejectMs"] = cheapRejectMilliseconds,
+                    ["reason"] = cheapRejectReason
+                });
+            return MapCvRecognitionBuilders.BuildStructureRejectedAttempt(
+                diagnostics,
+                rejected,
+                cheapRejectReason,
+                gateResult,
+                AlignmentSearchStage.StructureFallback);
+        }
         var structure = service.StructureRegistrar.Register(structureRequest);
         if (isSideEntranceStructureRoute
             && restrictStructureSearch
+            && !isScanVerification
             && MapOpenAlignmentRouteRules.ShouldAttemptSideEntranceGlobalRecovery(
                 isInitialSideEntranceSeed,
                 structure.Accepted,

@@ -3,8 +3,8 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
     /// <summary>
-    /// VPSG 缩放引导阶段：用 AKAZE 描述符几何独立估算本楼层 scale（不信任
-    /// 跨楼层 seed），再做固定 scale 结构验证。成功短路返回；失败返回 null，
+    /// VPSG 缩放引导阶段：用本楼层边缘结构独立估算 scale（不信任跨楼层
+    /// seed），再做固定 scale 结构验证。成功短路返回；失败返回 null，
     /// 由调用方继续现有回退链。
     /// </summary>
     private MapRecognitionAttempt? TryAlignFloorWithVpsg(
@@ -61,10 +61,37 @@ public sealed partial class SessionOrchestrator
             new Dictionary<string, object?>
             {
                 ["scale"] = attempt.Diagnostics.ScaleBootstrapScale,
+                ["finalScale"] =
+                    attempt.Recognition?.Result.OverlayTransform?.ScaleX,
                 ["scaleBootstrapSucceeded"] =
                     attempt.Diagnostics.ScaleBootstrapSucceeded,
                 ["scaleBootstrapValidated"] =
                     attempt.Diagnostics.ScaleBootstrapValidated,
+                ["method"] = attempt.Diagnostics.ScaleBootstrapMethod,
+                ["cost"] = attempt.Diagnostics.ScaleBootstrapCost,
+                ["margin"] = attempt.Diagnostics.ScaleBootstrapMargin,
+                ["hintScale"] = attempt.Diagnostics.ScaleBootstrapHintScale,
+                ["hintConfidence"] =
+                    attempt.Diagnostics.ScaleBootstrapHintConfidence,
+                ["searchMinimumScale"] =
+                    attempt.Diagnostics.ScaleBootstrapSearchMinimum,
+                ["searchMaximumScale"] =
+                    attempt.Diagnostics.ScaleBootstrapSearchMaximum,
+                ["mode"] = attempt.Diagnostics.ScaleBootstrapMode,
+                ["legacyScale"] =
+                    attempt.Diagnostics.ScaleBootstrapLegacyScale,
+                ["legacyConfidence"] =
+                    attempt.Diagnostics.ScaleBootstrapLegacyConfidence,
+                ["legacyMilliseconds"] =
+                    attempt.Diagnostics.ScaleBootstrapLegacyMilliseconds,
+                ["structureMilliseconds"] =
+                    attempt.Diagnostics.ScaleBootstrapStructureMilliseconds,
+                ["candidateCount"] =
+                    attempt.Diagnostics.ScaleBootstrapCandidateCount,
+                ["selectedCandidateIndex"] =
+                    attempt.Diagnostics.ScaleBootstrapSelectedCandidateIndex,
+                ["testedScaleCount"] =
+                    attempt.Diagnostics.ScaleBootstrapTestedScaleCount,
                 ["uniqueMatches"] =
                     attempt.Diagnostics.ScaleBootstrapUniqueMatches,
                 ["pairVotes"] = attempt.Diagnostics.ScaleBootstrapPairVotes,

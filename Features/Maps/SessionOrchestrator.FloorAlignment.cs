@@ -251,8 +251,8 @@ public sealed partial class SessionOrchestrator
             }
         }
 
-        // VPSG 缩放引导：不信任跨楼层 scale seed，用 AKAZE 描述符几何直接
-        // 估计本楼层 scale 并做固定 scale 结构验证。成功则短路返回。
+        // VPSG 缩放引导：不信任跨楼层 scale seed，用本楼层边缘结构直接
+        // 估计 scale 并做固定 scale 结构验证。成功则短路返回。
         if (!skipVpsgForDistrustedCache
             && TryAlignFloorWithVpsg(
                 frame,

@@ -251,6 +251,7 @@ public sealed class UpdateReleasePolicyTests
     public void UpdateWorkflowSeparatesTestStableAndExternalPublication()
     {
         var workflow = Read("release", "Invoke-IDVBUpdateWorkflow.ps1");
+        var codeOnlyPush = Read("release", "Invoke-IDVBCodeOnlyPush.ps1");
         var releaseRunner = Read("release", "Invoke-IDVBRelease.ps1");
 
         Assert.Contains("[ValidateSet('Source', 'Test', 'Stable', 'GitHub', 'Audit', 'Status')]", workflow);
@@ -279,6 +280,11 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("does not match GitHub target", workflow);
         Assert.Contains("Create GitHub Release from $channel assets", workflow);
         Assert.Contains("--prerelease", workflow);
+        Assert.Contains("[switch]$Publish", codeOnlyPush);
+        Assert.Contains("Test-PublicCodeOnlyPath", codeOnlyPush);
+        Assert.Contains("Preview complete. Re-run with -Publish", codeOnlyPush);
+        Assert.Contains("git -C $snapshotRoot push origin", codeOnlyPush);
+        Assert.Contains("refs/heads/master", codeOnlyPush);
         Assert.DoesNotContain("Build-RemoteRelease.ps1", workflow);
         Assert.Contains("IDVB-Setup-$($manifest.PublicVersion)-x64.exe", workflow);
         Assert.Contains("feed-envelope.json", workflow);

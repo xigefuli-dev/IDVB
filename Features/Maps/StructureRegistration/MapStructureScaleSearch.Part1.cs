@@ -409,6 +409,51 @@ namespace IDVBuff.Features.Maps;internal static partial class MapStructureScaleS
         Cv2.Multiply(scores, 1d / edgePixelCount, scores);
         var actualDownsampleX = (double)matchingReferenceEdges.Width / refTargetWidth;
         var actualDownsampleY = (double)matchingReferenceEdges.Height / refTargetHeight;
+        if (request.RestrictSearchToLockedTransform)
+        {
+            var expected = ExpectedReferenceLocation(
+                request,
+                scale,
+                query.Bounds);
+            var radiusX = Math.Max(
+                8d,
+                (request.TrackingMode
+                    ? tuning.TrackingSearchRadiusPixels
+                    : tuning.PreviousAlignmentSearchRadiusPixels)
+                / Math.Max(0.0001d, scale))
+                / Math.Max(0.0001d, actualDownsampleX);
+            var radiusY = Math.Max(
+                8d,
+                (request.TrackingMode
+                    ? tuning.TrackingSearchRadiusPixels
+                    : tuning.PreviousAlignmentSearchRadiusPixels)
+                / Math.Max(0.0001d, scale))
+                / Math.Max(0.0001d, actualDownsampleY);
+            var restrictedDomain = CenteredSearchRect(
+                scores.Size(),
+                (int)Math.Round(expected.X / actualDownsampleX),
+                (int)Math.Round(expected.Y / actualDownsampleY),
+                (int)Math.Ceiling(Math.Max(radiusX, radiusY)));
+            var outside = Scalar.All(double.PositiveInfinity);
+            if (restrictedDomain.X > 0)
+                Cv2.Rectangle(scores,
+                    new Rect(0, 0, restrictedDomain.X, scores.Height),
+                    outside, -1);
+            if (restrictedDomain.Y > 0)
+                Cv2.Rectangle(scores,
+                    new Rect(0, 0, scores.Width, restrictedDomain.Y),
+                    outside, -1);
+            var right = restrictedDomain.X + restrictedDomain.Width;
+            if (right < scores.Width)
+                Cv2.Rectangle(scores,
+                    new Rect(right, 0, scores.Width - right, scores.Height),
+                    outside, -1);
+            var bottom = restrictedDomain.Y + restrictedDomain.Height;
+            if (bottom < scores.Height)
+                Cv2.Rectangle(scores,
+                    new Rect(0, bottom, scores.Width, scores.Height - bottom),
+                    outside, -1);
+        }
         var suppression = Math.Max(2, tuning.FastCoarseNmsRadius);
         for (var index = 0; index < tuning.FastCoarseTopK; index++)
         {
@@ -448,4 +493,5 @@ namespace IDVBuff.Features.Maps;internal static partial class MapStructureScaleS
                 Scalar.All(double.PositiveInfinity), -1);
         }
     }
+
 }

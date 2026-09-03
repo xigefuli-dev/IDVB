@@ -11,24 +11,6 @@ internal enum LowStructureAlignmentRoute
     IncrementalRecovery
 }
 
-internal sealed record LowStructureScaleSelection(
-    IReadOnlyList<double> Scales,
-    double RelativeResolution,
-    int BasinCount,
-    bool Ambiguous,
-    double ElapsedMilliseconds = 0d);
-
-internal static class LowStructureScaleSelectionContext
-{
-    private static readonly AsyncLocal<LowStructureScaleSelection?> CurrentSelection = new();
-
-    public static LowStructureScaleSelection? Current
-    {
-        get => CurrentSelection.Value;
-        set => CurrentSelection.Value = value;
-    }
-}
-
 internal static class LowStructureScaleEvidenceRules
 {
     public const int MinimumIndependentScaleConfirmations = 5;

@@ -129,8 +129,12 @@ public sealed partial class SessionOrchestrator
                     ScaleBootstrapValidated: true,
                     StructureAccepted: true
                 }
-            || diagnostics.ScaleBootstrapUniqueMatches
-                < MapVpsgScaleEstimator.MinimumUniqueMatches
+            || (!string.Equals(
+                    diagnostics.ScaleBootstrapMethod,
+                    "structure",
+                    StringComparison.Ordinal)
+                && diagnostics.ScaleBootstrapUniqueMatches
+                    < MapVpsgScaleEstimator.MinimumUniqueMatches)
             || diagnostics.ScaleBootstrapConfidence
                 < _settings.SessionTuning.HighConfidence
             || recognition.Result.OverlayTransform is not { } transform

@@ -3,6 +3,14 @@ using OpenCvSharp;
 namespace IDVBuff.Features.Maps;
 public sealed partial class MapScanDiagnostics
 {
+    public string ScaleBootstrapMode { get; set; } = string.Empty;
+    public double? ScaleBootstrapLegacyScale { get; set; }
+    public double ScaleBootstrapLegacyConfidence { get; set; }
+    public double ScaleBootstrapLegacyMilliseconds { get; set; }
+    public double ScaleBootstrapStructureMilliseconds { get; set; }
+    public int ScaleBootstrapCandidateCount { get; set; }
+    public int ScaleBootstrapSelectedCandidateIndex { get; set; }
+
     public double InputToLockedMilliseconds { get; set; }
     public double VisibleMaskMs { get; set; }
     public double VisibleFraction { get; set; }
@@ -30,6 +38,24 @@ public sealed partial class MapScanDiagnostics
     public bool StructureFastStrategyUsed { get; set; }
     public double StructureCoarseSearchMs { get; set; }
     public int StructureCoarseCandidateCount { get; set; }
+
+    // Scan verification diagnostics
+    public int ScanCandidateCount { get; set; }
+    public int ScanVerificationCandidateCount { get; set; }
+    public int ScanCheapRejectCount { get; set; }
+    public double ScanCheapRejectMilliseconds { get; set; }
+    public int ScanVpsgAttemptCount { get; set; }
+    public int ScanFullRecoveryCount { get; set; }
+    public double ScanTotalVerificationMilliseconds { get; set; }
+    public double ScanCandidate0TemplateValidationMilliseconds { get; set; }
+    public double ScanCandidate0VpsgMilliseconds { get; set; }
+    public double ScanCandidate0StructureMilliseconds { get; set; }
+    public bool ScanCheapRejected { get; set; }
+    public bool ScanVpsgAttempted { get; set; }
+    public bool ScanFullRecoveryAttempted { get; set; }
+    public double ScanTemplateValidationMilliseconds { get; set; }
+    public double ScanVpsgMilliseconds { get; set; }
+    public double ScanStructureMilliseconds { get; set; }
 
     public string ToStatusText() =>
         $"地图 {_ReadyText()}"

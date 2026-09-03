@@ -15,8 +15,12 @@ internal static partial class MapCvAlignmentService
         {
             return null;
         }
-        if (remaining
-            < MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds)
+        var minimumStageBudget = tuning.Mode ==
+            MapStructureRegistrationMode.ScanVerification
+                ? MapOpenAlignmentRouteRules
+                    .ScanVerificationMinimumVpsgBudgetMilliseconds
+                : MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds;
+        if (remaining < minimumStageBudget)
         {
             const string reason =
                 "无门对齐预处理后已无足够的结构搜索预算，请保持地图打开并重试。";

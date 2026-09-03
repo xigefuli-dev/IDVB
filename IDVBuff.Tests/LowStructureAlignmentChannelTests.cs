@@ -202,6 +202,13 @@ public sealed class LowStructureAlignmentChannelTests
         Assert.True(scales.SequenceEqual(scales.OrderBy(value => value)));
         Assert.InRange(scales[1], 0.44d, 0.46d);
         Assert.InRange(scales[8], 1.00d, 1.02d);
+        var geometricRatio = scales[1] / scales[0];
+        Assert.All(
+            scales.Zip(scales.Skip(1)),
+            pair => Assert.InRange(
+                Math.Abs(Math.Log((pair.Second / pair.First) / geometricRatio)),
+                0d,
+                1e-12d));
     }
 
     [Fact]

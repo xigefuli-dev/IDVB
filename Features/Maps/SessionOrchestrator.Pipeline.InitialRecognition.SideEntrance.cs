@@ -70,7 +70,8 @@ public sealed partial class SessionOrchestrator
                 SideEntranceReadyMapCount = sideScan.ReadyMapCount,
                 SideEntranceEligibleMapCount = sideScan.EligibleMapCount,
                 SideEntranceRejectedCandidateCount =
-                    sideScan.RejectedCandidateCount
+                    sideScan.RejectedCandidateCount,
+                ScanCandidateCount = sideScan.Candidates.Count
             };
             var candidates = sideScan.Candidates;
             sideTimings["side_entrance_scan"] = sideSw.Elapsed.TotalMilliseconds;
@@ -123,6 +124,8 @@ public sealed partial class SessionOrchestrator
             var verificationCandidates = requireStrictStructureRegistration
                 ? SideEntranceCandidateEvidence.SelectVerificationCandidates(candidates)
                 : [];
+            _lastDiagnostics.ScanVerificationCandidateCount =
+                verificationCandidates.Count;
             if (!requireStrictStructureRegistration)
                 _logCollector.Append(
                     MapLogCategory.StructureRegistration,
@@ -131,9 +134,53 @@ public sealed partial class SessionOrchestrator
 
             initialPostProcess.Complete();
             var verifiedCount = 0;
+            var scanVerificationStopwatch = Stopwatch.StartNew();
+            var scanVerificationTimedOut = false;
+            var scanCheapRejectCount = 0;
+            var scanCheapRejectMilliseconds = 0d;
+            var scanVpsgAttemptCount = 0;
+            var scanTemplateValidationMilliseconds = 0d;
+            var scanVpsgMilliseconds = 0d;
+            var scanStructureMilliseconds = 0d;
+            var candidate0TemplateMilliseconds = 0d;
+            var candidate0VpsgMilliseconds = 0d;
+            var candidate0StructureMilliseconds = 0d;
+            void ApplyScanDiagnostics(MapScanDiagnostics diagnostics)
+            {
+                diagnostics.ScanCandidateCount = candidates.Count;
+                diagnostics.ScanVerificationCandidateCount =
+                    verificationCandidates.Count;
+                diagnostics.ScanCheapRejectCount = scanCheapRejectCount;
+                diagnostics.ScanCheapRejectMilliseconds =
+                    scanCheapRejectMilliseconds;
+                diagnostics.ScanVpsgAttemptCount = scanVpsgAttemptCount;
+                diagnostics.ScanFullRecoveryCount = 0;
+                diagnostics.ScanTotalVerificationMilliseconds =
+                    scanVerificationStopwatch.Elapsed.TotalMilliseconds;
+                diagnostics.ScanCandidate0TemplateValidationMilliseconds =
+                    candidate0TemplateMilliseconds;
+                diagnostics.ScanCandidate0VpsgMilliseconds =
+                    candidate0VpsgMilliseconds;
+                diagnostics.ScanCandidate0StructureMilliseconds =
+                    candidate0StructureMilliseconds;
+            }
+            using var scanBudgetLease = MapNoDoorAlignmentBudgetContext.Enter(
+                () => Math.Max(
+                    0,
+                    MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds
+                    - (int)Math.Ceiling(
+                        scanVerificationStopwatch.Elapsed.TotalMilliseconds)));
             foreach (var (candidate, candidateIndex) in verificationCandidates
                 .Select((candidate, index) => (candidate, index)))
             {
+                if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
+                        is not { } remaining
+                    || remaining < MapOpenAlignmentRouteRules
+                        .ScanVerificationMinimumCandidateBudgetMilliseconds)
+                {
+                    scanVerificationTimedOut = true;
+                    break;
+                }
                 var candidateAlignment = MapOperationTraceAmbient.StartTopLevel(
                     "selected_candidate_alignment",
                     MapOperationWaitKind.Compute,
@@ -154,19 +201,43 @@ public sealed partial class SessionOrchestrator
                         continue;
                     }
 
-                    var sideStructureTuning =
+                    var sideStructureTuning = CreateScanVerificationTuning(
                         MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
                             CreateStructureTuningForFloor(
                                 candidate.Map,
                                 candidate.FloorKey,
-                                CreateInitialAlignmentStructureTuning()));
+                                CreateInitialAlignmentStructureTuning())));
                     var attempt = AlignSideEntranceWithScaleFallback(
                         frame,
                         candidate,
                         candidateSeed,
                         sideAlignmentTuning,
                         sideStructureTuning,
+                        SideEntranceCandidateEvidence.ShouldAttemptVpsgRescue(verificationCandidates, candidateIndex),
                         out candidateSeed);
+                    scanCheapRejectCount += attempt.Diagnostics.ScanCheapRejected
+                        ? 1
+                        : 0;
+                    scanCheapRejectMilliseconds +=
+                        attempt.Diagnostics.ScanCheapRejectMilliseconds;
+                    scanVpsgAttemptCount += attempt.Diagnostics.ScanVpsgAttempted
+                        ? 1
+                        : 0;
+                    scanTemplateValidationMilliseconds += attempt.Diagnostics
+                        .ScanTemplateValidationMilliseconds;
+                    scanVpsgMilliseconds += attempt.Diagnostics
+                        .ScanVpsgMilliseconds;
+                    scanStructureMilliseconds += attempt.Diagnostics
+                        .ScanStructureMilliseconds;
+                    if (candidateIndex == 0)
+                    {
+                        candidate0TemplateMilliseconds = attempt.Diagnostics
+                            .ScanTemplateValidationMilliseconds;
+                        candidate0VpsgMilliseconds = attempt.Diagnostics
+                            .ScanVpsgMilliseconds;
+                        candidate0StructureMilliseconds = attempt.Diagnostics
+                            .ScanStructureMilliseconds;
+                    }
                     if (SideEntranceCandidateEvidence.ApplyStructureAttempt(
                             candidate,
                             attempt))
@@ -193,6 +264,53 @@ public sealed partial class SessionOrchestrator
                     candidateAlignment.Complete();
                 }
             }
+            scanVerificationStopwatch.Stop();
+            sideTimings["scan_verification"] =
+                scanVerificationStopwatch.Elapsed.TotalMilliseconds;
+            sideTimings["scan_template_validation"] =
+                scanTemplateValidationMilliseconds;
+            sideTimings["scan_vpsg"] = scanVpsgMilliseconds;
+            sideTimings["scan_structure"] = scanStructureMilliseconds;
+            ApplyScanDiagnostics(_lastDiagnostics);
+            _logCollector.Append(
+                MapLogCategory.ScanLifecycle,
+                scanVerificationTimedOut
+                    ? MapLogLevel.Warning
+                    : MapLogLevel.Info,
+                scanVerificationTimedOut
+                    ? "扫描结构验证达到硬预算，停止继续验证"
+                    : "扫描结构验证完成",
+                elapsedMs: _lastDiagnostics.ScanTotalVerificationMilliseconds,
+                details: new()
+                {
+                    ["scan_candidate_count"] = candidates.Count,
+                    ["scan_verification_candidate_count"] =
+                        verificationCandidates.Count,
+                    ["candidate_0_template_validation_ms"] =
+                        candidate0TemplateMilliseconds,
+                    ["candidate_0_vpsg_ms"] = candidate0VpsgMilliseconds,
+                    ["candidate_0_structure_ms"] =
+                        candidate0StructureMilliseconds,
+                    ["cheap_reject_count"] = scanCheapRejectCount,
+                    ["cheap_reject_ms"] = scanCheapRejectMilliseconds,
+                    ["scan_total_verification_ms"] =
+                        _lastDiagnostics.ScanTotalVerificationMilliseconds,
+                    ["template_validation_ms"] =
+                        scanTemplateValidationMilliseconds,
+                    ["vpsg_ms"] = scanVpsgMilliseconds,
+                    ["structure_ms"] = scanStructureMilliseconds,
+                    ["scan_vpsg_attempt_count"] = scanVpsgAttemptCount,
+                    ["scan_full_recovery_count"] = 0,
+                    ["timed_out"] = scanVerificationTimedOut,
+                    ["budget_ms"] = MapOpenAlignmentRouteRules
+                        .ScanVerificationBudgetMilliseconds,
+                    ["target_p50_ms"] = MapOpenAlignmentRouteRules
+                        .ScanVerificationP50Milliseconds,
+                    ["target_p90_ms"] = MapOpenAlignmentRouteRules
+                        .ScanVerificationP90Milliseconds,
+                    ["target_p99_ms"] = MapOpenAlignmentRouteRules
+                        .ScanVerificationP99Milliseconds
+                });
 
             var orderedReliable = SideEntranceCandidateEvidence.OrderVerified(
                     reliable,
@@ -275,6 +393,7 @@ public sealed partial class SessionOrchestrator
 
             var selected = orderedReliable[0];
             var best = selected.Candidate;
+            ApplyScanDiagnostics(selected.Attempt.Diagnostics);
             sideAttempt = selected.Attempt;
             seed = selected.Seed;
             displayName = best.Map.DisplayName;

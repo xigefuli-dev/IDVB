@@ -12,6 +12,19 @@ public enum MapAuxiliaryAnchorRecognitionMode
     Always = 2
 }
 
+public enum VpsgScaleMode
+{
+    Structure = 0,
+    LegacyAkaze = 1,
+    Both = 2
+}
+
+public enum MapStructureRegistrationMode
+{
+    Standard = 0,
+    ScanVerification = 1
+}
+
 public enum MapStructureEdgeComposition
 {
     CannyOnly = 0,
@@ -149,6 +162,9 @@ public sealed partial class MapStructureRegistrationTuning
     public int SchemaVersion { get; set; }
     [JsonIgnore]
     public MapAlignmentChannel Channel { get; set; } = MapAlignmentChannel.Standard;
+    public MapStructureRegistrationMode Mode { get; set; } =
+        MapStructureRegistrationMode.Standard;
+    public VpsgScaleMode VpsgScaleMode { get; set; } = VpsgScaleMode.Structure;
     public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
         MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
 
@@ -338,6 +354,7 @@ public sealed partial class MapStructureRegistrationTuning
     public MapStructureRegistrationTuning Clone() => new()
     {
         SchemaVersion = SchemaVersion,
+        Mode = Mode,
         AuxiliaryAnchorMode = AuxiliaryAnchorMode,
         ReusePreviousAlignmentResult = ReusePreviousAlignmentResult,
         MaximumAuxiliaryTemplates = MaximumAuxiliaryTemplates,
@@ -434,7 +451,8 @@ public sealed partial class MapStructureRegistrationTuning
         SpatialDuplicateTolerance = SpatialDuplicateTolerance,
         CandidateDuplicateRadius = CandidateDuplicateRadius,
         RefinementWorsenTolerance = RefinementWorsenTolerance,
-        Channel = Channel
+        Channel = Channel,
+        VpsgScaleMode = VpsgScaleMode
     };
 }
 /*

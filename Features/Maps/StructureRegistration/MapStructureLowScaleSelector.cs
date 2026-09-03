@@ -2,7 +2,7 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-internal static class MapStructureLowScaleSelector
+internal static partial class MapStructureScaleEstimator
 {
     private sealed record ScaleScore(double Scale, double Cost);
 
@@ -22,21 +22,60 @@ internal static class MapStructureLowScaleSelector
     internal static LowStructureScaleSelection Analyze(
         MapStructureFeatures live,
         MapStructureFeatures reference,
-        MapStructureRegistrationTuning tuning)
+        MapStructureRegistrationTuning tuning,
+        bool includeAppearanceScale = true,
+        double? preferredScale = null,
+        bool useScaleHint = false)
     {
+        var minimumScale = tuning.LowStructureMinimumScale;
+        var maximumScale = tuning.LowStructureMaximumScale;
+        MapStructureScaleHint? hint = null;
+        if (useScaleHint
+            && MapStructureScaleHintEstimator.TryEstimate(
+                reference,
+                live,
+                minimumScale,
+                maximumScale,
+                out var estimatedHint)
+            && estimatedHint.Confidence >= 0.70d)
+        {
+            hint = estimatedHint;
+            var relativeRadius = estimatedHint.Confidence >= 0.82d
+                ? 0.05d
+                : 0.10d;
+            minimumScale = Math.Max(
+                minimumScale,
+                estimatedHint.Scale * (1d - relativeRadius));
+            maximumScale = Math.Min(
+                maximumScale,
+                estimatedHint.Scale * (1d + relativeRadius));
+            if (maximumScale <= minimumScale)
+            {
+                minimumScale = tuning.LowStructureMinimumScale;
+                maximumScale = tuning.LowStructureMaximumScale;
+            }
+        }
         var coarseGrid = MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
-                tuning.LowStructureMinimumScale,
-                tuning.LowStructureMaximumScale,
+                minimumScale,
+                maximumScale,
                 tuning.LowStructureScaleHypothesisCount,
                 tuning.MinimumUsableScale)
             .OrderBy(scale => scale)
             .ToArray();
         var points = MapStructureScaleSearch.FindNonZeroPoints(live.Edges);
         if (points.Length < tuning.MinimumEdgePixels)
-            return new([], 0d, coarseGrid.Length, true);
+            return new([], 0d, coarseGrid.Length, true,
+                HintScale: hint?.Scale,
+                HintConfidence: hint?.Confidence ?? 0d,
+                SearchMinimumScale: minimumScale,
+                SearchMaximumScale: maximumScale);
         var bounds = MapStructureScaleSearch.FindTemplateBounds(live.Edges);
         if (bounds.Width < tuning.MinimumSpanPixels || bounds.Height < tuning.MinimumSpanPixels)
-            return new([], 0d, coarseGrid.Length, true);
+            return new([], 0d, coarseGrid.Length, true,
+                HintScale: hint?.Scale,
+                HintConfidence: hint?.Confidence ?? 0d,
+                SearchMinimumScale: minimumScale,
+                SearchMaximumScale: maximumScale);
 
         using var livePatch = new Mat(live.Edges, bounds);
         var referenceDistance = reference.GetOrCreateClippedReferenceDistanceMap(
@@ -52,10 +91,19 @@ internal static class MapStructureLowScaleSelector
                 livePatch,
                 tuning.DistanceClipPixels)
             .OrderBy(item => item.Cost)
-            .ThenBy(item => Math.Abs(Math.Log(item.Scale)))
+            .ThenBy(item => PreferredScaleDistance(item.Scale, preferredScale))
+            .ToArray();
+        var topBasinScales = coarse
+            .Take(2)
+            .Select(item => item.Scale)
             .ToArray();
         if (coarse.Length == 0)
-            return new([], 0d, coarseGrid.Length, true);
+            return new([], 0d, coarseGrid.Length, true,
+                HintScale: hint?.Scale,
+                HintConfidence: hint?.Confidence ?? 0d,
+                SearchMinimumScale: minimumScale,
+                SearchMaximumScale: maximumScale,
+                TopBasinScales: topBasinScales);
 
         var ambiguous = IsAmbiguous(coarse);
         var fineFactor = Math.Max(2, tuning.FastCoarseDownsampleFactor);
@@ -75,7 +123,16 @@ internal static class MapStructureLowScaleSelector
             .OrderBy(item => item.Cost)
             .ToArray();
         if (firstScores.Length == 0)
-            return new([coarse[0].Scale], AdjacentResolution(coarseGrid, coarse[0].Scale), coarseGrid.Length, false);
+            return new(
+                [coarse[0].Scale],
+                AdjacentResolution(coarseGrid, coarse[0].Scale),
+                coarseGrid.Length,
+                false,
+                HintScale: hint?.Scale,
+                HintConfidence: hint?.Confidence ?? 0d,
+                SearchMinimumScale: minimumScale,
+                SearchMaximumScale: maximumScale,
+                TopBasinScales: topBasinScales);
 
         var firstOrdered = firstRound.OrderBy(scale => scale).ToArray();
         var firstWinnerIndex = Array.FindIndex(
@@ -90,7 +147,7 @@ internal static class MapStructureLowScaleSelector
                 livePatch,
                 tuning.DistanceClipPixels)
             .OrderBy(item => item.Cost)
-            .ThenBy(item => Math.Abs(Math.Log(item.Scale)))
+            .ThenBy(item => PreferredScaleDistance(item.Scale, preferredScale))
             .ToArray();
         var finalGrid = secondRound.OrderBy(scale => scale).ToArray();
         if (finalScores.Length == 0)
@@ -99,12 +156,15 @@ internal static class MapStructureLowScaleSelector
             finalGrid = firstOrdered;
         }
 
-        var winner = finalScores[0].Scale;
-        var appearanceWinner = FindAppearanceScale(
-            live,
-            reference,
-            bounds,
-            coarseGrid);
+        var coarseWinner = finalScores[0].Scale;
+        var fittedWinner = FitLogScaleMinimum(
+            finalScores,
+            finalGrid,
+            coarseWinner);
+        var winner = fittedWinner.Scale;
+        var appearanceWinner = includeAppearanceScale
+            ? FindAppearanceScale(live, reference, bounds, coarseGrid)
+            : null;
         var selected = SelectExactCandidates(
             winner,
             finalGrid,
@@ -118,10 +178,40 @@ internal static class MapStructureLowScaleSelector
             .ToArray();
         return new(
             selected,
-            AdjacentResolution(finalGrid, winner),
+            AdjacentResolution(finalGrid, coarseWinner),
             coarseGrid.Length,
-            ambiguous);
+            ambiguous,
+            BestCost: fittedWinner.Cost,
+            SecondCost: finalScores.ElementAtOrDefault(1)?.Cost
+                ?? double.PositiveInfinity,
+            HintScale: hint?.Scale,
+            HintConfidence: hint?.Confidence ?? 0d,
+            SearchMinimumScale: minimumScale,
+            SearchMaximumScale: maximumScale,
+            TopBasinScales: topBasinScales);
     }
+
+    internal static IReadOnlyList<double> BuildCoarseGrid(
+        double minimumScale,
+        double maximumScale,
+        int count,
+        double minimumUsableScale = 0.05d,
+        double? preferredScale = null) =>
+        MapStructureScaleSearch.BuildLowStructureScaleHypotheses(
+            minimumScale,
+            maximumScale,
+            count,
+            minimumUsableScale,
+            preferredScale);
+
+    private static double PreferredScaleDistance(
+        double scale,
+        double? preferredScale) =>
+        preferredScale is { } preferred
+            && double.IsFinite(preferred)
+            && preferred > 0d
+            ? Math.Abs(Math.Log(scale / preferred))
+            : Math.Abs(Math.Log(scale));
 
     private static double? FindAppearanceScale(
         MapStructureFeatures live,

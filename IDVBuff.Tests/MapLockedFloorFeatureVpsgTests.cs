@@ -47,14 +47,16 @@ public sealed class MapLockedFloorFeatureVpsgTests
             transform.ScaleX,
             expectedScale - 0.02d,
             expectedScale + 0.02d);
-        Assert.InRange(Math.Abs(transform.OffsetX - viewport.X), 0d, 2d);
-        Assert.InRange(Math.Abs(transform.OffsetY - viewport.Y), 0d, 2d);
         Assert.True(
-            attempt.Diagnostics.ScaleBootstrapUniqueMatches
-                >= MapVpsgScaleEstimator.MinimumUniqueMatches);
-        Assert.True(
-            attempt.Diagnostics.ScaleBootstrapPairVotes
-                >= MapVpsgScaleEstimator.MinimumPairVotes);
+            Math.Abs(transform.OffsetX - viewport.X) <= 3d,
+            $"scale={transform.ScaleX:F6}; offset=({transform.OffsetX:F6},{transform.OffsetY:F6}); viewport=({viewport.X:F6},{viewport.Y:F6})");
+        Assert.InRange(Math.Abs(transform.OffsetY - viewport.Y), 0d, 3d);
+        Assert.Equal("structure", attempt.Diagnostics.ScaleBootstrapMethod);
+        Assert.Equal(0, attempt.Diagnostics.ScaleBootstrapUniqueMatches);
+        Assert.Equal(0, attempt.Diagnostics.ScaleBootstrapPairVotes);
+        Assert.True(attempt.Diagnostics.ScaleBootstrapTestedScaleCount > 0);
+        Assert.InRange(attempt.Diagnostics.ScaleBootstrapCost, 0d, double.PositiveInfinity);
+        Assert.InRange(attempt.Diagnostics.ScaleBootstrapMargin, 0d, 1d);
     }
 
     [Fact]

@@ -30,7 +30,7 @@ public sealed partial class MapCvRecognitionService
         double AverageDescriptorDistance,
         double Confidence);
 
-    /// <summary>Estimates locked-floor VPSG scale, then validates structure.</summary>
+    /// <summary>Estimates locked-floor structure scale, then validates it.</summary>
     public MapRecognitionAttempt AlignLockedFloorFeature(
         CapturedGameFrame frame,
         Guid selectedMapId,
@@ -77,33 +77,72 @@ public sealed partial class MapCvRecognitionService
                 allowPrimaryFloor: true);
         }
 
-        var referencePath = Repository.GetFloorRecognitionPath(map, floorKey);
-        using var reference = Cv2.ImRead(referencePath, ImreadModes.Grayscale);
-        if (reference.Empty())
-        {
-            return MapCvRecognitionDiagnostics.Failure(
-                diagnostics,
-                "The locked floor recognition image could not be read.");
-        }
         var stopwatch = Stopwatch.StartNew();
         LockedFloorFeatureFit? fit = null;
-        MapScaleEstimationEvidence? scaleEvidence = null;
         var usedVpsg = false;
+        VpsgBootstrapResult? vpsgBootstrap = null;
         var liveFrameCacheHit = false;
         var liveStructureExtractionMilliseconds = 0d;
+        var preparedReferenceWidth = 0;
+        var preparedReferenceHeight = 0;
         string rejectionReason;
         try
         {
-            using var preparedReference = _structureCache.GetOrCreate(
+            var vpsgMode = Enum.IsDefined(structureTuning.VpsgScaleMode)
+                ? structureTuning.VpsgScaleMode
+                : VpsgScaleMode.Structure;
+            var preprocessingProfile = vpsgMode == VpsgScaleMode.Structure
+                ? MapStructurePreprocessingProfile.EdgesOnly
+                : MapStructurePreprocessingProfile.EdgesAndFeatures;
+            using var residentReferenceLease = _structureCache.TryRentResident(
                 map.Id,
                 map.UpdatedAt,
-                reference,
-                profile.WholeImageIgnoreRegions,
                 floorKey,
-                structureTuning.Generation);
+                structureTuning.Generation,
+                preprocessingProfile);
+            MapStructureFeatures? ownedPreparedReference = null;
+            Mat? decodedReference = null;
+            var referenceLoadMilliseconds = 0d;
+            if (residentReferenceLease is null)
+            {
+                var referencePath = Repository.GetFloorRecognitionPath(
+                    map,
+                    floorKey);
+                var referenceLoadTimer = Stopwatch.StartNew();
+                decodedReference = Cv2.ImRead(
+                    referencePath,
+                    ImreadModes.Grayscale);
+                referenceLoadTimer.Stop();
+                referenceLoadMilliseconds =
+                    referenceLoadTimer.Elapsed.TotalMilliseconds;
+                if (decodedReference.Empty())
+                {
+                    decodedReference.Dispose();
+                    return MapCvRecognitionDiagnostics.Failure(
+                        diagnostics,
+                        "The locked floor recognition image could not be read.");
+                }
+
+                ownedPreparedReference = _structureCache.GetOrCreate(
+                    map.Id,
+                    map.UpdatedAt,
+                    decodedReference,
+                    profile.WholeImageIgnoreRegions,
+                    floorKey,
+                    structureTuning.Generation,
+                    preprocessingProfile);
+            }
+            using var decodedReferenceScope = decodedReference;
+            using var ownedPreparedReferenceScope = ownedPreparedReference;
+            var preparedReference = residentReferenceLease?.Features
+                ?? ownedPreparedReference!;
+            preparedReferenceWidth = preparedReference.Edges.Width;
+            preparedReferenceHeight = preparedReference.Edges.Height;
+            diagnostics.ReferenceImageLoadMilliseconds = referenceLoadMilliseconds;
+            diagnostics.ReferenceDiskReadCount = decodedReference is null ? 0 : 1;
             var preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
                 _structurePreprocessor,
-                MapStructurePreprocessingProfile.EdgesAndFeatures,
+                preprocessingProfile,
                 out liveFrameCacheHit,
                 out var originalLiveStructureExtractionMilliseconds,
                 out _,
@@ -112,46 +151,25 @@ public sealed partial class MapCvRecognitionService
             liveStructureExtractionMilliseconds = liveFrameCacheHit
                 ? 0d
                 : originalLiveStructureExtractionMilliseconds;
-            var scaleGraph = _vpsgScaleGraphCache.GetOrCreate(
+            var physicalPixelsPerComputationPixel =
+                Math.Max(0.0001d, frame.PhysicalPixelsPerComputationPixel);
+            vpsgBootstrap = EstimateVpsgScales(
                 map,
                 floorKey,
-                reference.Size(),
-                preparedReference.KeyPoints);
-            if (_vpsgScaleEstimator.TryEstimate(
-                    preparedReference,
-                    preparedLive,
-                    scaleGraph,
-                    scaleSeed.ScaleX,
-                    out var estimate,
-                    out var vpsgRejection)
-                && estimate is not null)
+                preparedReference,
+                preparedLive,
+                vpsgMode,
+                structurePriorScale: scaleSeed.ScaleX
+                    / physicalPixelsPerComputationPixel,
+                legacyPriorScale: scaleSeed.ScaleX
+                    / physicalPixelsPerComputationPixel);
+            var vpsgFit = CreateVpsgFit(
+                vpsgBootstrap,
+                physicalPixelsPerComputationPixel);
+            if (vpsgFit is { } estimateFit)
             {
                 usedVpsg = true;
-                scaleEvidence = new MapScaleEstimationEvidence
-                {
-                    UniqueMatches = estimate.Evidence.UniqueMatches,
-                    PairVotes = estimate.Evidence.PairVotes,
-                    ReferenceSpan = estimate.Evidence.ReferenceSpan,
-                    LiveSpan = estimate.Evidence.LiveSpan
-                        * frame.PhysicalPixelsPerComputationPixel,
-                    ResidualPixels = estimate.Evidence.ResidualPixels
-                        * frame.PhysicalPixelsPerComputationPixel,
-                    RotationDegrees = estimate.Evidence.RotationDegrees,
-                    RelativeMedianAbsoluteDeviation =
-                        estimate.Evidence.RelativeMedianAbsoluteDeviation
-                };
-                fit = new LockedFloorFeatureFit(
-                    estimate.Scale * frame.PhysicalPixelsPerComputationPixel,
-                    estimate.OffsetX * frame.PhysicalPixelsPerComputationPixel,
-                    estimate.OffsetY * frame.PhysicalPixelsPerComputationPixel,
-                    estimate.Evidence.UniqueMatches,
-                    estimate.Evidence.ResidualPixels
-                        * frame.PhysicalPixelsPerComputationPixel,
-                    estimate.Evidence.ReferenceSpan,
-                    estimate.Evidence.LiveSpan
-                        * frame.PhysicalPixelsPerComputationPixel,
-                    0d,
-                    estimate.Confidence);
+                fit = estimateFit;
                 rejectionReason = string.Empty;
             }
             else if (includeSiftFallback)
@@ -163,16 +181,20 @@ public sealed partial class MapCvRecognitionService
                 // SIFT + O(n^2) clustering) and the pipeline already has a
                 // structured fallback chain (global recovery).
                 fit = TryFitLockedFloorFeature(
-                    reference,
+                    preparedReference.NormalizedGray,
                     frame.Image,
                     double.NaN,
                     out var siftRejection);
-                rejectionReason = $"VPSG: {vpsgRejection}; SIFT: {siftRejection}";
+                rejectionReason = $"VPSG: {vpsgBootstrap.StructureRejection}; "
+                    + $"Legacy AKAZE: {vpsgBootstrap.LegacyRejection}; "
+                    + $"SIFT: {siftRejection}";
             }
             else
             {
                 fit = null;
-                rejectionReason = vpsgRejection;
+                rejectionReason = vpsgBootstrap.StructureRejection;
+                if (vpsgMode == VpsgScaleMode.LegacyAkaze)
+                    rejectionReason = vpsgBootstrap.LegacyRejection;
             }
         }
         catch (OpenCVException exception)
@@ -194,8 +216,8 @@ public sealed partial class MapCvRecognitionService
                     ["mapId"] = map.Id,
                     ["floor"] = floorKey,
                     ["priorScale"] = scaleSeed.ScaleX,
-                    ["referenceWidth"] = reference.Width,
-                    ["referenceHeight"] = reference.Height,
+                    ["referenceWidth"] = preparedReferenceWidth,
+                    ["referenceHeight"] = preparedReferenceHeight,
                     ["liveWidth"] = frame.Image.Width,
                     ["liveHeight"] = frame.Image.Height,
                     ["liveFrameCacheHit"] = liveFrameCacheHit,
@@ -208,73 +230,21 @@ public sealed partial class MapCvRecognitionService
                 "The locked floor did not produce reliable feature geometry.");
         }
 
-        var validationSeed = MapFeatureCacheRules.CreateScaleSeed(
-            map,
-            floorKey,
-            fit.Scale,
-            frame.ViewportBounds.X + fit.OffsetX,
-            frame.ViewportBounds.Y + fit.OffsetY);
-        var validation = AlignWithCachedScale(
+        return ValidateVpsgScaleCandidates(
             frame,
             selectedMapId,
+            map,
             floorKey,
-            validationSeed,
             alignmentMode,
             tuning,
             structureTuning,
-            identityPriorConfidence);
-        validation.Diagnostics.ScaleBootstrapAttempted = true;
-        validation.Diagnostics.ScaleBootstrapSucceeded = usedVpsg;
-        validation.Diagnostics.ScaleBootstrapValidated =
-            usedVpsg && validation.Recognition is not null;
-        validation.Diagnostics.ScaleBootstrapScale = fit.Scale;
-        validation.Diagnostics.ScaleBootstrapConfidence = fit.Confidence;
-        validation.Diagnostics.ScaleBootstrapUniqueMatches = fit.InlierCount;
-        validation.Diagnostics.ScaleBootstrapPairVotes =
-            scaleEvidence?.PairVotes ?? 0;
-        validation.Diagnostics.ScaleBootstrapResidualPixels = fit.Residual;
-        validation.Diagnostics.ScaleBootstrapRelativeMad =
-            scaleEvidence?.RelativeMedianAbsoluteDeviation ?? 0d;
-        validation.Diagnostics.LiveStructurePreprocessMilliseconds +=
-            liveStructureExtractionMilliseconds;
-        validation.Diagnostics.StructurePreprocessMilliseconds +=
-            liveStructureExtractionMilliseconds;
-        MapLogCollector.Instance.Append(
-            MapLogCategory.StructureRegistration,
-            validation.Recognition is null
-                ? MapLogLevel.Warning
-                : MapLogLevel.Info,
-            $"VPSG 缩放预处理{(usedVpsg ? string.Empty : "兼容回退")} "
-            + $"· map={map.SequenceNumber}#{floorKey} · scale={fit.Scale:F5} "
-            + $"· matches={fit.InlierCount} · residual={fit.Residual:F2}px "
-            + $"· confidence={fit.Confidence:P0} "
-            + $"· structureValidation={(validation.Recognition is null ? "rejected" : "accepted")}",
-            elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
-            details: new()
-            {
-                ["mapId"] = map.Id,
-                ["floor"] = floorKey,
-                ["scale"] = fit.Scale,
-                ["inliers"] = fit.InlierCount,
-                ["residual"] = fit.Residual,
-                ["referenceSpan"] = fit.ReferenceSpan,
-                ["liveSpan"] = fit.LiveSpan,
-                ["averageDescriptorDistance"] =
-                    fit.AverageDescriptorDistance,
-                ["featureConfidence"] = fit.Confidence,
-                ["identityPriorConfidence"] = identityPriorConfidence,
-                ["vpsg"] = usedVpsg,
-                ["pairVotes"] = scaleEvidence?.PairVotes ?? 0,
-                ["relativeMad"] =
-                    scaleEvidence?.RelativeMedianAbsoluteDeviation ?? 0d,
-                ["liveFrameCacheHit"] = liveFrameCacheHit,
-                ["liveStructureExtractionMs"] =
-                    liveStructureExtractionMilliseconds,
-                ["structureValidationAccepted"] =
-                    validation.Recognition is not null,
-                ["structureValidationFailure"] = validation.FailureReason
-            });
-        return validation;
+            identityPriorConfidence,
+            fit,
+            vpsgBootstrap!,
+            usedVpsg,
+            liveFrameCacheHit,
+            liveStructureExtractionMilliseconds,
+            stopwatch.Elapsed.TotalMilliseconds);
     }
 
     private static LockedFloorFeatureFit? TryFitLockedFloorFeature(
@@ -490,10 +460,3 @@ public sealed partial class MapCvRecognitionService
         return fit;
     }
 }
-/*
- * 文件职责：MapCvRecognitionService.LockedFloorFeature。
- * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
- * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
- * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
- * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
- */

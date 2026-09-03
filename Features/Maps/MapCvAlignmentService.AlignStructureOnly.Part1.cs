@@ -40,7 +40,7 @@ internal static partial class MapCvAlignmentService
             var selectorTuning = structureTuning.Clone();
             selectorTuning.LowStructureMinimumScale /= ratio;
             selectorTuning.LowStructureMaximumScale /= ratio;
-            var rankedScales = MapStructureLowScaleSelector
+            var rankedScales = MapStructureScaleEstimator
                 .Rank(preparedLive, preparedReference, selectorTuning)
                 .Select(scale => scale * ratio)
                 .ToArray();

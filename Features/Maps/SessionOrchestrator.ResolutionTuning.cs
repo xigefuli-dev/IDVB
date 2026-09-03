@@ -105,6 +105,28 @@ public sealed partial class SessionOrchestrator
         return tuning;
     }
 
+    private static MapStructureRegistrationTuning CreateScanVerificationTuning(
+        MapStructureRegistrationTuning source)
+    {
+        var tuning = source.Clone();
+        tuning.Mode = MapStructureRegistrationMode.ScanVerification;
+        tuning.StructureFallbackBudgetMilliseconds = 100;
+        tuning.EnableFeatureVoting = false;
+        tuning.EnableEccRefinement = false;
+        tuning.EnableFastAlignment = true;
+        tuning.FastFallbackToLegacy = false;
+        tuning.FastCoarseTopK = 2;
+        tuning.MaximumTranslationCandidates = 2;
+        tuning.TopCandidateCount = 2;
+        tuning.PreviousAlignmentSearchRadiusPixels = 48;
+        tuning.EnableVisibleMask = false;
+        tuning.EnableVisibleAwareShadow = false;
+        tuning.EnableVisibleAwareInjection = false;
+        tuning.EnableVisibleAwareEarlyExit = false;
+        tuning.Normalize();
+        return tuning;
+    }
+
     private MapRecognitionTuning CreateInitialAlignmentRecognitionTuning()
     {
         var tuning = _settings!.RecognitionTuning.Clone();

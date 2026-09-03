@@ -6,6 +6,40 @@ namespace IDVBuff.Tests;
 public sealed class MapStructurePreprocessorProfileTests
 {
     [Fact]
+    public void EdgePairScaleHintTracksLiveToReferenceScale()
+    {
+        using var referenceEdges = new Mat(180, 240, MatType.CV_8UC1, Scalar.Black);
+        Cv2.Line(referenceEdges, new Point(20, 24), new Point(210, 24), Scalar.White, 2);
+        Cv2.Line(referenceEdges, new Point(32, 30), new Point(32, 150), Scalar.White, 2);
+        Cv2.Rectangle(referenceEdges, new Rect(72, 58, 76, 62), Scalar.White, 2);
+        Cv2.Line(referenceEdges, new Point(150, 42), new Point(205, 150), Scalar.White, 2);
+        using var liveEdges = new Mat();
+        Cv2.Resize(
+            referenceEdges,
+            liveEdges,
+            new Size(288, 216),
+            interpolation: InterpolationFlags.Nearest);
+        using var reference = CreateEdgeFeatures(referenceEdges);
+        using var live = CreateEdgeFeatures(liveEdges);
+
+        Assert.True(
+            MapStructureScaleHintEstimator.TryEstimate(
+                reference,
+                live,
+                0.30d,
+                1.70d,
+                out var hint));
+        Assert.InRange(hint.Scale, 1.12d, 1.28d);
+        Assert.InRange(hint.Confidence, 0d, 0.98d);
+    }
+
+    private static MapStructureFeatures CreateEdgeFeatures(Mat edges) =>
+        new(
+            new Mat(edges.Size(), MatType.CV_8UC1, Scalar.Black),
+            edges.Clone(),
+            edges.Clone());
+
+    [Fact]
     public void EdgesOnlySkipsDescriptorsWithoutChangingStructureCoordinates()
     {
         using var source = CreateFeatureRichImage();

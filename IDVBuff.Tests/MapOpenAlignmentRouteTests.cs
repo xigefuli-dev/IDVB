@@ -262,7 +262,13 @@ public sealed class MapOpenAlignmentRouteTests
         };
 
         Assert.False(tuning.EnableScanCheapReject);
+        tuning.EnableScanCheapRejectShadowCollection = true;
         Assert.False(tuning.Clone().EnableScanCheapReject);
+        Assert.True(tuning.Clone().EnableScanCheapRejectShadowCollection);
+        Assert.Equal(
+            450,
+            MapOpenAlignmentRouteRules
+                .ScanVerificationShadowCollectionBudgetMilliseconds);
     }
 
     [Fact]

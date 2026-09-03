@@ -166,6 +166,10 @@ public sealed partial class SessionOrchestrator
                 alignmentTuning,
                 structureTuning);
             lastScanAttempt = cacheAttempt;
+            if (isScanVerification && templateAttempt is not null)
+                MergeScanVerificationCounters(
+                    cacheAttempt.Diagnostics,
+                    templateAttempt.Diagnostics);
             PopulateScanAttemptTiming(
                 cacheAttempt,
                 templateAttempt is null
@@ -247,6 +251,10 @@ public sealed partial class SessionOrchestrator
             strictVpsgTuning,
             candidate.MatchScore);
         vpsgTimer.Stop();
+        if (isScanVerification && lastScanAttempt is not null)
+            MergeScanVerificationCounters(
+                vpsgAttempt.Diagnostics,
+                lastScanAttempt.Diagnostics);
         PopulateScanAttemptTiming(
             vpsgAttempt,
             templateAttempt is null
@@ -321,6 +329,23 @@ public sealed partial class SessionOrchestrator
             finalTemplateAttempt,
             string.Join(";", rejectionChain));
         return finalTemplateAttempt;
+    }
+
+    private static void MergeScanVerificationCounters(
+        MapScanDiagnostics target,
+        MapScanDiagnostics source)
+    {
+        target.ScanFormalStructureAttemptCount +=
+            source.ScanFormalStructureAttemptCount;
+        target.ScanShadowPairCount += source.ScanShadowPairCount;
+        target.ScanShadowTrueFormalFalseCount +=
+            source.ScanShadowTrueFormalFalseCount;
+        target.ScanShadowFalseFormalTrueCount +=
+            source.ScanShadowFalseFormalTrueCount;
+        target.ScanShadowTrueFormalTrueCount +=
+            source.ScanShadowTrueFormalTrueCount;
+        target.ScanShadowFalseFormalFalseCount +=
+            source.ScanShadowFalseFormalFalseCount;
     }
 
     private static void PopulateScanAttemptTiming(

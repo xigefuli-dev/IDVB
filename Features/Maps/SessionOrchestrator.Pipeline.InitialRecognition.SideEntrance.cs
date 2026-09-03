@@ -139,6 +139,11 @@ public sealed partial class SessionOrchestrator
             var scanCheapRejectCount = 0;
             var scanCheapRejectMilliseconds = 0d;
             var scanFormalStructureAttemptCount = 0;
+            var scanShadowPairCount = 0;
+            var scanShadowTrueFormalFalseCount = 0;
+            var scanShadowFalseFormalTrueCount = 0;
+            var scanShadowTrueFormalTrueCount = 0;
+            var scanShadowFalseFormalFalseCount = 0;
             var scanVpsgAttemptCount = 0;
             var scanTemplateValidationMilliseconds = 0d;
             var scanVpsgMilliseconds = 0d;
@@ -146,6 +151,12 @@ public sealed partial class SessionOrchestrator
             var candidate0TemplateMilliseconds = 0d;
             var candidate0VpsgMilliseconds = 0d;
             var candidate0StructureMilliseconds = 0d;
+            var scanShadowCollectionEnabled = requireStrictStructureRegistration
+                && !_settings.StructureRegistrationTuning.EnableScanCheapReject;
+            var scanEffectiveBudgetMilliseconds = scanShadowCollectionEnabled
+                ? MapOpenAlignmentRouteRules
+                    .ScanVerificationShadowCollectionBudgetMilliseconds
+                : MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds;
             void ApplyScanDiagnostics(MapScanDiagnostics diagnostics)
             {
                 diagnostics.ScanCandidateCount = candidates.Count;
@@ -156,6 +167,19 @@ public sealed partial class SessionOrchestrator
                     scanCheapRejectMilliseconds;
                 diagnostics.ScanFormalStructureAttemptCount =
                     scanFormalStructureAttemptCount;
+                diagnostics.ScanShadowPairCount = scanShadowPairCount;
+                diagnostics.ScanShadowTrueFormalFalseCount =
+                    scanShadowTrueFormalFalseCount;
+                diagnostics.ScanShadowFalseFormalTrueCount =
+                    scanShadowFalseFormalTrueCount;
+                diagnostics.ScanShadowTrueFormalTrueCount =
+                    scanShadowTrueFormalTrueCount;
+                diagnostics.ScanShadowFalseFormalFalseCount =
+                    scanShadowFalseFormalFalseCount;
+                diagnostics.ScanShadowCollectionEnabled =
+                    scanShadowCollectionEnabled;
+                diagnostics.ScanEffectiveBudgetMilliseconds =
+                    scanEffectiveBudgetMilliseconds;
                 diagnostics.ScanVpsgAttemptCount = scanVpsgAttemptCount;
                 diagnostics.ScanFullRecoveryCount = 0;
                 diagnostics.ScanTotalVerificationMilliseconds =
@@ -170,7 +194,7 @@ public sealed partial class SessionOrchestrator
             using var scanBudgetLease = MapNoDoorAlignmentBudgetContext.Enter(
                 () => Math.Max(
                     0,
-                    MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds
+                    scanEffectiveBudgetMilliseconds
                     - (int)Math.Ceiling(
                         scanVerificationStopwatch.Elapsed.TotalMilliseconds)));
             foreach (var (candidate, candidateIndex) in verificationCandidates
@@ -225,6 +249,15 @@ public sealed partial class SessionOrchestrator
                         attempt.Diagnostics.ScanCheapRejectMilliseconds;
                     scanFormalStructureAttemptCount += attempt.Diagnostics
                         .ScanFormalStructureAttemptCount;
+                    scanShadowPairCount += attempt.Diagnostics.ScanShadowPairCount;
+                    scanShadowTrueFormalFalseCount += attempt.Diagnostics
+                        .ScanShadowTrueFormalFalseCount;
+                    scanShadowFalseFormalTrueCount += attempt.Diagnostics
+                        .ScanShadowFalseFormalTrueCount;
+                    scanShadowTrueFormalTrueCount += attempt.Diagnostics
+                        .ScanShadowTrueFormalTrueCount;
+                    scanShadowFalseFormalFalseCount += attempt.Diagnostics
+                        .ScanShadowFalseFormalFalseCount;
                     scanVpsgAttemptCount += attempt.Diagnostics.ScanVpsgAttempted
                         ? 1
                         : 0;
@@ -300,6 +333,15 @@ public sealed partial class SessionOrchestrator
                     ["cheap_reject_ms"] = scanCheapRejectMilliseconds,
                     ["scan_formal_structure_attempt_count"] =
                         scanFormalStructureAttemptCount,
+                    ["shadow_pair_count"] = scanShadowPairCount,
+                    ["shadow_true_formal_false"] =
+                        scanShadowTrueFormalFalseCount,
+                    ["shadow_false_formal_true"] =
+                        scanShadowFalseFormalTrueCount,
+                    ["shadow_true_formal_true"] =
+                        scanShadowTrueFormalTrueCount,
+                    ["shadow_false_formal_false"] =
+                        scanShadowFalseFormalFalseCount,
                     ["scan_total_verification_ms"] =
                         _lastDiagnostics.ScanTotalVerificationMilliseconds,
                     ["template_validation_ms"] =
@@ -311,6 +353,8 @@ public sealed partial class SessionOrchestrator
                     ["timed_out"] = scanVerificationTimedOut,
                     ["budget_ms"] = MapOpenAlignmentRouteRules
                         .ScanVerificationBudgetMilliseconds,
+                    ["effective_budget_ms"] = scanEffectiveBudgetMilliseconds,
+                    ["shadow_collection"] = scanShadowCollectionEnabled,
                     ["target_p50_ms"] = MapOpenAlignmentRouteRules
                         .ScanVerificationP50Milliseconds,
                     ["target_p90_ms"] = MapOpenAlignmentRouteRules

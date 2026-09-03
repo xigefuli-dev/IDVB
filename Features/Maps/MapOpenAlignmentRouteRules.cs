@@ -14,6 +14,7 @@ internal static class MapOpenAlignmentRouteRules
     internal const int VpsgStageBudgetMilliseconds = 600;
     internal const int MinimumVpsgStageBudgetMilliseconds = 450;
     internal const int ScanVerificationBudgetMilliseconds = 150;
+    internal const int ScanVerificationShadowCollectionBudgetMilliseconds = 450;
     internal const int ScanVerificationMinimumCandidateBudgetMilliseconds = 30;
     internal const int ScanVerificationMinimumVpsgBudgetMilliseconds = 50;
     internal const int ScanVerificationFormalStructureBudgetMilliseconds = 100;

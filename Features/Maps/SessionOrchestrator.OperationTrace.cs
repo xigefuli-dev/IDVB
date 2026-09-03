@@ -301,6 +301,20 @@ public sealed partial class SessionOrchestrator
                 alignmentDiagnostics.ScanCheapRejectMilliseconds;
             traceDetails["scan_formal_structure_attempt_count"] =
                 alignmentDiagnostics.ScanFormalStructureAttemptCount;
+            traceDetails["shadow_pair_count"] =
+                alignmentDiagnostics.ScanShadowPairCount;
+            traceDetails["shadow_true_formal_false"] =
+                alignmentDiagnostics.ScanShadowTrueFormalFalseCount;
+            traceDetails["shadow_false_formal_true"] =
+                alignmentDiagnostics.ScanShadowFalseFormalTrueCount;
+            traceDetails["shadow_true_formal_true"] =
+                alignmentDiagnostics.ScanShadowTrueFormalTrueCount;
+            traceDetails["shadow_false_formal_false"] =
+                alignmentDiagnostics.ScanShadowFalseFormalFalseCount;
+            traceDetails["shadow_collection"] =
+                alignmentDiagnostics.ScanShadowCollectionEnabled;
+            traceDetails["effective_budget_ms"] =
+                alignmentDiagnostics.ScanEffectiveBudgetMilliseconds;
             traceDetails["scan_total_verification_ms"] =
                 alignmentDiagnostics.ScanTotalVerificationMilliseconds;
             traceDetails["scan_vpsg_attempt_count"] =

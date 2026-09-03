@@ -267,6 +267,18 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             ["cheap_reject_ms"] = diagnostics.ScanCheapRejectMilliseconds,
             ["scan_formal_structure_attempt_count"] =
                 diagnostics.ScanFormalStructureAttemptCount,
+            ["shadow_pair_count"] = diagnostics.ScanShadowPairCount,
+            ["shadow_true_formal_false"] =
+                diagnostics.ScanShadowTrueFormalFalseCount,
+            ["shadow_false_formal_true"] =
+                diagnostics.ScanShadowFalseFormalTrueCount,
+            ["shadow_true_formal_true"] =
+                diagnostics.ScanShadowTrueFormalTrueCount,
+            ["shadow_false_formal_false"] =
+                diagnostics.ScanShadowFalseFormalFalseCount,
+            ["shadow_collection"] = diagnostics.ScanShadowCollectionEnabled ? 1d : 0d,
+            ["effective_budget_ms"] =
+                diagnostics.ScanEffectiveBudgetMilliseconds,
             ["scan_total_verification_ms"] =
                 diagnostics.ScanTotalVerificationMilliseconds,
             ["scan_vpsg_attempt_count"] = diagnostics.ScanVpsgAttemptCount,

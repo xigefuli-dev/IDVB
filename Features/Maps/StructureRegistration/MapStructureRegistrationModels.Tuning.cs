@@ -165,6 +165,8 @@ public sealed partial class MapStructureRegistrationTuning
     public MapStructureRegistrationMode Mode { get; set; } =
         MapStructureRegistrationMode.Standard;
     public bool EnableScanCheapReject { get; set; } = false;
+    [JsonIgnore]
+    internal bool EnableScanCheapRejectShadowCollection { get; set; }
     public VpsgScaleMode VpsgScaleMode { get; set; } = VpsgScaleMode.Structure;
     public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
         MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
@@ -357,6 +359,8 @@ public sealed partial class MapStructureRegistrationTuning
         SchemaVersion = SchemaVersion,
         Mode = Mode,
         EnableScanCheapReject = EnableScanCheapReject,
+        EnableScanCheapRejectShadowCollection =
+            EnableScanCheapRejectShadowCollection,
         AuxiliaryAnchorMode = AuxiliaryAnchorMode,
         ReusePreviousAlignmentResult = ReusePreviousAlignmentResult,
         MaximumAuxiliaryTemplates = MaximumAuxiliaryTemplates,

@@ -251,7 +251,13 @@ internal static partial class MapCvAlignmentService
         var scanCheapRejectWouldReject = false;
         var scanCheapRejectMilliseconds = 0d;
         var scanCheapRejectReason = string.Empty;
-        if (isScanVerification
+        var scanCheapRejectShadowCollection = isScanVerification
+            && !structureSearchTuning.EnableScanCheapReject
+            && structureSearchTuning.EnableScanCheapRejectShadowCollection;
+        var runScanCheapReject = isScanVerification
+            && (structureSearchTuning.EnableScanCheapReject
+                || scanCheapRejectShadowCollection);
+        if (runScanCheapReject
             && MapStructureCheapReject.TryReject(
                 structureRequest,
                 preparedReference,
@@ -261,7 +267,7 @@ internal static partial class MapCvAlignmentService
         {
             scanCheapRejectWouldReject = true;
         }
-        if (isScanVerification)
+        if (scanCheapRejectShadowCollection)
         {
             MapLogCollector.Instance.Append(
                 MapLogCategory.StructureRegistration,
@@ -272,6 +278,7 @@ internal static partial class MapCvAlignmentService
                 {
                     ["route"] = "scan-verification",
                     ["shadow"] = true,
+                    ["shadowCollection"] = true,
                     ["wouldReject"] = scanCheapRejectWouldReject,
                     ["enforced"] = structureSearchTuning.EnableScanCheapReject,
                     ["cheapRejectMs"] = scanCheapRejectMilliseconds,
@@ -321,8 +328,24 @@ internal static partial class MapCvAlignmentService
         if (isScanVerification)
             diagnostics.ScanFormalStructureAttemptCount++;
         var structure = service.StructureRegistrar.Register(structureRequest);
-        if (isScanVerification)
+        if (scanCheapRejectShadowCollection)
         {
+            diagnostics.ScanShadowPairCount = 1;
+            if (scanCheapRejectWouldReject)
+            {
+                if (structure.Accepted)
+                    diagnostics.ScanShadowTrueFormalTrueCount = 1;
+                else
+                    diagnostics.ScanShadowTrueFormalFalseCount = 1;
+            }
+            else if (structure.Accepted)
+            {
+                diagnostics.ScanShadowFalseFormalTrueCount = 1;
+            }
+            else
+            {
+                diagnostics.ScanShadowFalseFormalFalseCount = 1;
+            }
             MapLogCollector.Instance.Append(
                 MapLogCategory.StructureRegistration,
                 MapLogLevel.Info,
@@ -330,6 +353,8 @@ internal static partial class MapCvAlignmentService
                 details: new()
                 {
                     ["route"] = "scan-verification",
+                    ["shadowCollection"] = true,
+                    ["pair"] = true,
                     ["shadowWouldReject"] = scanCheapRejectWouldReject,
                     ["formalAccepted"] = structure.Accepted,
                     ["formalRejection"] = structure.RejectionReason.ToString(),

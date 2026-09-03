@@ -40,6 +40,31 @@ public sealed partial class MapOpenAlignmentRouteTests
                 hasSideEntranceSeed));
     }
 
+    [Fact]
+    public void ScanAcceptedFormalMustShortCircuitFurtherScaleFallback()
+    {
+        var map = new MapRecord { Id = Guid.NewGuid() };
+        var accepted = new MapRecognitionAttempt
+        {
+            StructureAccepted = true,
+            Recognition = new RuntimeMapRecognition
+            {
+                Map = map,
+                Result = new MapRecognitionResult
+                {
+                    MapId = map.Id,
+                    IdentityConfidence = 0.70d,
+                    LocalizationConfidence = 0.10d,
+                    StructureCandidateMargin = 0d
+                }
+            }
+        };
+
+        Assert.True(
+            MapOpenAlignmentRouteRules
+                .ShouldShortCircuitScanVerification(accepted));
+    }
+
     [Theory]
     [InlineData(0d, false, 0)]
     [InlineData(0.85d, true, 0)]

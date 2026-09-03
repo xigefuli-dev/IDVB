@@ -71,11 +71,24 @@ public sealed partial class SessionOrchestrator
                 targetResolution,
                 templateAttempt,
                 string.Empty);
-            if (templateAttempt.StructureAccepted
-                && templateAttempt.Recognition is not null
-                && IsAdaptiveInitialScaleQualified(
-                    templateAttempt,
-                    structureTuning))
+            var templateAdaptiveQualified = IsAdaptiveInitialScaleQualified(
+                templateAttempt,
+                structureTuning);
+            var templateFormalAccepted = MapOpenAlignmentRouteRules
+                .ShouldShortCircuitScanVerification(templateAttempt);
+            LogScanVerificationStage(
+                "scan_template_formal",
+                candidate,
+                templateAttempt,
+                templateAdaptiveQualified,
+                shortCircuited: false);
+            LogScanVerificationStage(
+                "scan_template_acceptance",
+                candidate,
+                templateAttempt,
+                templateAdaptiveQualified,
+                shortCircuited: templateFormalAccepted);
+            if (templateFormalAccepted)
             {
                 return templateAttempt;
             }
@@ -186,9 +199,33 @@ public sealed partial class SessionOrchestrator
                 targetResolution,
                 cacheAttempt,
                 cacheRejection);
-            if (cacheAttempt.StructureAccepted
-                && cacheAttempt.Recognition is { } cacheRecognition
-                && IsAdaptiveInitialScaleQualified(cacheAttempt, structureTuning))
+            var cacheAdaptiveQualified = IsAdaptiveInitialScaleQualified(
+                cacheAttempt,
+                structureTuning);
+            var cacheFormalAccepted = MapOpenAlignmentRouteRules
+                .ShouldShortCircuitScanVerification(cacheAttempt);
+            LogScanVerificationStage(
+                "scan_cache_formal",
+                candidate,
+                cacheAttempt,
+                cacheAdaptiveQualified,
+                shortCircuited: false);
+            LogScanVerificationStage(
+                "scan_cache_acceptance",
+                candidate,
+                cacheAttempt,
+                cacheAdaptiveQualified,
+                shortCircuited: isScanVerification && cacheFormalAccepted);
+            if (isScanVerification && cacheFormalAccepted)
+            {
+                usedSeed = exactSeed;
+                cacheAttempt = CopyAttempt(
+                    cacheAttempt,
+                    MarkUsedCachedScale(cacheAttempt.Recognition!));
+                return cacheAttempt;
+            }
+            if (cacheAdaptiveQualified
+                && cacheAttempt.Recognition is { } cacheRecognition)
             {
                 usedSeed = exactSeed;
                 cacheAttempt = CopyAttempt(
@@ -241,6 +278,18 @@ public sealed partial class SessionOrchestrator
             strictVpsgTuning.Normalize();
         }
         var vpsgTimer = Stopwatch.StartNew();
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "扫描 VPSG rescue 开始",
+            details: new()
+            {
+                ["scan_vpsg_started"] = true,
+                ["map"] = candidate.Map.DisplayName,
+                ["mapId"] = candidate.Map.Id,
+                ["floor"] = candidate.FloorKey,
+                ["reason"] = string.Join(";", rejectionChain)
+            });
         var vpsgAttempt = _recognition.AlignLockedFloorFeature(
             frame,
             candidate.Map.Id,
@@ -280,9 +329,19 @@ public sealed partial class SessionOrchestrator
             targetResolution,
             vpsgAttempt,
             string.Join(";", rejectionChain));
-        if (vpsgAttempt.StructureAccepted
-            && vpsgAttempt.Recognition is not null
-            && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
+        var vpsgAdaptiveQualified = IsAdaptiveInitialScaleQualified(
+            vpsgAttempt,
+            structureTuning);
+        var vpsgFormalAccepted = MapOpenAlignmentRouteRules
+            .ShouldShortCircuitScanVerification(vpsgAttempt);
+        LogScanVerificationStage(
+            "scan_vpsg_formal",
+            candidate,
+            vpsgAttempt,
+            vpsgAdaptiveQualified,
+            shortCircuited: isScanVerification && vpsgFormalAccepted);
+        if ((isScanVerification && vpsgFormalAccepted)
+            || vpsgAdaptiveQualified)
             return vpsgAttempt;
         rejectionChain.Add($"vpsg:{DescribeAttemptFailure(vpsgAttempt)}");
 
@@ -346,6 +405,40 @@ public sealed partial class SessionOrchestrator
             source.ScanShadowTrueFormalTrueCount;
         target.ScanShadowFalseFormalFalseCount +=
             source.ScanShadowFalseFormalFalseCount;
+    }
+
+    private void LogScanVerificationStage(
+        string stage,
+        SideEntranceScanCandidate candidate,
+        MapRecognitionAttempt? attempt,
+        bool adaptiveQualified,
+        bool shortCircuited)
+    {
+        var rawChamfer = SideEntranceCandidateEvidence.ResolveRawChamferPixels(
+            attempt?.StructureResult);
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            stage,
+            details: new()
+            {
+                ["map"] = candidate.Map.DisplayName,
+                ["mapId"] = candidate.Map.Id,
+                ["floor"] = candidate.FloorKey,
+                ["structureAttempted"] = attempt?.StructureAttempted ?? false,
+                ["structureAccepted"] = attempt?.StructureAccepted ?? false,
+                ["hasRecognition"] = attempt?.Recognition is not null,
+                ["confidence"] = attempt?.Recognition?.Result.Confidence,
+                ["chamfer"] = double.IsFinite(rawChamfer)
+                    ? rawChamfer
+                    : null,
+                ["candidateMargin"] = attempt?.Recognition?
+                    .Result.StructureCandidateMargin
+                    ?? attempt?.StructureResult?.CandidateMargin,
+                ["adaptiveQualified"] = adaptiveQualified,
+                ["shortCircuited"] = shortCircuited,
+                ["failureReason"] = attempt?.FailureReason
+            });
     }
 
     private static void PopulateScanAttemptTiming(

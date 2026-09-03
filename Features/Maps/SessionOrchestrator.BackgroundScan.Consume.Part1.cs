@@ -138,9 +138,9 @@ public sealed partial class SessionOrchestrator
                 }
                 if (_recognition.TryGetMap(mapId) is not { } selectedMap)
                 {
-                    var attempt = Align();
+                    var missingMapFallbackAttempt = Align();
                     repair = fallbackRepair;
-                    return attempt;
+                    return missingMapFallbackAttempt;
                 }
 
                 if (MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
@@ -181,17 +181,9 @@ public sealed partial class SessionOrchestrator
                         });
                 }
 
-                var cachedAttempt = AlignUsingScaleCache(
-                    frame,
-                    selectedMap,
-                    targetFloorKey,
-                    alignmentTuning,
-                    structureTuning,
-                    0d,
-                    Align,
-                    out var cachedRepair);
-                repair = cachedRepair ?? fallbackRepair;
-                return cachedAttempt;
+                var selectedMapFallbackAttempt = Align();
+                repair = fallbackRepair;
+                return selectedMapFallbackAttempt;
             }
 
             MapFeatureCacheKey? repairCacheKey = null;

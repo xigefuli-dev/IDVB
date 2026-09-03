@@ -107,6 +107,50 @@ public sealed partial class SessionOrchestrator
             projectedScale: 0d);
     }
 
+    private void LogScanVerificationCandidateSelected(
+        SideEntranceScanCandidate candidate,
+        int candidateIndex)
+    {
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "扫描验证候选已选中",
+            details: new()
+            {
+                ["scan_verify_selected"] = true,
+                ["map"] = candidate.Map.DisplayName,
+                ["mapId"] = candidate.Map.Id,
+                ["floor"] = candidate.FloorKey,
+                ["score"] = candidate.MatchScore,
+                ["index"] = candidateIndex
+            });
+    }
+
+    private void LogScanVerificationSeedCreated(
+        SideEntranceScanCandidate candidate,
+        int candidateIndex,
+        bool success,
+        MapAlignmentSession? seed,
+        string seedReason)
+    {
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            success ? MapLogLevel.Info : MapLogLevel.Warning,
+            success
+                ? "扫描验证种子已创建"
+                : "扫描验证种子创建失败",
+            details: new()
+            {
+                ["scan_seed_created"] = success,
+                ["map"] = candidate.Map.DisplayName,
+                ["mapId"] = candidate.Map.Id,
+                ["floor"] = candidate.FloorKey,
+                ["index"] = candidateIndex,
+                ["scale"] = seed?.LockedTransform.ScaleX,
+                ["failureReason"] = success ? null : seedReason
+            });
+    }
+
     private static void SetScaleSeedDiagnostics(
         MapRecognitionAttempt attempt,
         MapScaleSeedSource source,

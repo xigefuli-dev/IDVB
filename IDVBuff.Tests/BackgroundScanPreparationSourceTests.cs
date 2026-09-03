@@ -62,6 +62,27 @@ public sealed class BackgroundScanPreparationSourceTests
             "session: null",
             source,
             StringComparison.Ordinal);
+
+        var alignForStart = source.IndexOf(
+            "MapRecognitionAttempt AlignFor(",
+            StringComparison.Ordinal);
+        var alignForEnd = source.IndexOf(
+            "MapFeatureCacheKey? repairCacheKey",
+            alignForStart,
+            StringComparison.Ordinal);
+        Assert.True(alignForStart >= 0);
+        Assert.True(alignForEnd > alignForStart);
+        var alignForSource = source.Substring(
+            alignForStart,
+            alignForEnd - alignForStart);
+        Assert.DoesNotContain(
+            "AlignUsingScaleCache(",
+            alignForSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "= Align();",
+            alignForSource,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -34,6 +34,11 @@ internal static class MapOpenAlignmentRouteRules
                 ? "side-entrance"
                 : "exact-floor-vpsg";
 
+    internal static bool ShouldShortCircuitScanVerification(
+        MapRecognitionAttempt? attempt) =>
+        attempt?.StructureAccepted == true
+        && attempt.Recognition is not null;
+
     // cached-scale 固定验证失败后的极小半径 Search 兜底：救缓存 scale 的小漂移，
     // 并为信任降级提供"成功→重置 / 失败→计数+1"的验证证据。
     internal const int CachedScaleRepairSearchBudgetMilliseconds = 300;

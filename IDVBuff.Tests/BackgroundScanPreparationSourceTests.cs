@@ -43,6 +43,75 @@ public sealed class BackgroundScanPreparationSourceTests
     }
 
     [Fact]
+    public void CatalogOnlySelectedMapMustReachFormalStructureRegistration()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.BackgroundScan.Consume.Part1.cs"));
+
+        Assert.Contains(
+            "return AlignExactManualFloor(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MapFloorScaleSeedRules.CreateIndependentFloorSeed(",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "session: null",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReferenceScanCandidateMustRebuildSideSeedAndReachFormal()
+    {
+        var root = FindRepositoryRoot();
+        var consumeSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.BackgroundScan.Consume.cs"));
+        var alignmentSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.BackgroundScan.Consume.Part1.cs"));
+
+        Assert.Contains(
+            "TryCreateSideEntranceAlignmentSeed(",
+            consumeSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_pendingBackgroundSeed = rebuiltSeed",
+            consumeSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AlignSideEntrance(",
+            alignmentSource,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UserConfirmedIdentityMustRemainConfidenceOneDuringFirstAlignment()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps",
+            "SessionOrchestrator.CandidateSelection.cs"));
+
+        Assert.Contains(
+            "var identityLock = LockSelectedMapIdentity(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return new CandidateSelectionResolution(identityLock, false);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IdentityConfidence = 1d",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SuccessfulBackgroundConsumeIsNotImmediatelyRealigned()
     {
         var root = FindRepositoryRoot();

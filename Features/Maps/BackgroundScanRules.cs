@@ -152,7 +152,7 @@ internal static class BackgroundScanRules
     /// 从后台扫描保存的候选种子中挑选与待对齐地图匹配的侧门种子。
     /// 只有「侧门扫描先验置信度 &gt; 0」的真实侧门种子才会命中——KEEP-1.0
     /// 兜底种子（SideEntranceScanPriorConfidence == 0）不满足，返回 null，
-    /// 消费路径将回退到现有 Default 路由（session: null）行为。
+    /// 消费路径将回退到独立楼层种子与精确楼层路线。
     /// 纯函数，供单测驱动；不执行对齐。
     /// </summary>
     public static MapAlignmentSession? PickSideEntranceSeed(

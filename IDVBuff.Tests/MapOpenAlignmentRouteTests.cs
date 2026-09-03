@@ -24,6 +24,23 @@ public sealed partial class MapOpenAlignmentRouteTests
     }
 
     [Theory]
+    [InlineData(false, false, "exact-floor-vpsg")]
+    [InlineData(true, false, "validated-fixed-scale")]
+    [InlineData(false, true, "side-entrance")]
+    [InlineData(true, true, "validated-fixed-scale")]
+    public void SelectedMapInitialAlignmentPrefersRealEvidence(
+        bool hasValidatedStructureScaleSeed,
+        bool hasSideEntranceSeed,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            MapOpenAlignmentRouteRules.ResolveInitialAlignmentRoute(
+                hasValidatedStructureScaleSeed,
+                hasSideEntranceSeed));
+    }
+
+    [Theory]
     [InlineData(0d, false, 0)]
     [InlineData(0.85d, true, 0)]
     [InlineData(0.85d, false, 1)]

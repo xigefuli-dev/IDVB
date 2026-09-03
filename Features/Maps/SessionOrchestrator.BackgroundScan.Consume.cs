@@ -276,6 +276,28 @@ public sealed partial class SessionOrchestrator
                 locked,
                 sideEntranceSeed,
                 targetFloorKey);
+        var selectedIdentitySource = validatedStructureScaleSeed is not null
+            ? "verified-structure"
+            : sideEntranceSeed is not null
+                ? "scan-side-seed"
+                : "catalog-identity-only";
+        _logCollector.Append(
+            MapLogCategory.Session,
+            MapLogLevel.Info,
+            "后台消费首次对齐路由已确定",
+            details: new()
+            {
+                ["selected_identity_source"] = selectedIdentitySource,
+                ["initial_alignment_route"] = MapOpenAlignmentRouteRules
+                    .ResolveInitialAlignmentRoute(
+                        validatedStructureScaleSeed is not null,
+                        sideEntranceSeed is not null),
+                ["mapId"] = locked.Map.Id,
+                ["floor"] = targetFloorKey,
+                ["hasValidatedStructureScaleSeed"] =
+                    validatedStructureScaleSeed is not null,
+                ["hasSideEntranceSeed"] = sideEntranceSeed is not null
+            });
         _pendingAlignmentIdentity = locked;
         _currentFloorKey = targetFloorKey;
         _mapLease.Bind(_matchSession.Snapshot, locked.Map.Id);

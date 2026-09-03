@@ -84,8 +84,11 @@ public sealed partial class SessionOrchestrator
                 $"空间模型高置信度建议：{recognition.Map.DisplayName}"
                 + $" · {orderedCandidates[0].ModelMatchedFloorKey.ToUpperInvariant()}；"
                 + "等待严格结构对齐。";
-            LockSelectedMapIdentity(recognition, frame, userConfirmed: false);
-            return new CandidateSelectionResolution(recognition, false);
+            var identityLock = LockSelectedMapIdentity(
+                recognition,
+                frame,
+                userConfirmed: false);
+            return new CandidateSelectionResolution(identityLock, false);
         }
         if (_activeCandidateSelector is not null)
         {
@@ -120,7 +123,11 @@ public sealed partial class SessionOrchestrator
                     ["confidence"] = recognition.Result.Confidence,
                     ["choiceCount"] = orderedCandidates.Length
                 });
-            return new CandidateSelectionResolution(recognition, false);
+            var identityLock = LockSelectedMapIdentity(
+                recognition,
+                frame,
+                userConfirmed: false);
+            return new CandidateSelectionResolution(identityLock, false);
         }
 
         try
@@ -161,7 +168,10 @@ public sealed partial class SessionOrchestrator
             _statusMessage = displayChoices[index].IsReferenceOnly
                 ? $"正在严格复核参考线索：{recognition.Map.DisplayName}……"
                 : $"用户选择了可靠候选：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
-            LockSelectedMapIdentity(recognition, frame, userConfirmed: true);
+            var identityLock = LockSelectedMapIdentity(
+                recognition,
+                frame,
+                userConfirmed: true);
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
@@ -172,7 +182,7 @@ public sealed partial class SessionOrchestrator
                     ["choiceCount"] = displayChoices.Count,
                     ["mapId"] = recognition.Map.Id
                 });
-            return new CandidateSelectionResolution(recognition, false);
+            return new CandidateSelectionResolution(identityLock, false);
         }
         catch (OperationCanceledException)
         {
@@ -251,7 +261,10 @@ public sealed partial class SessionOrchestrator
             recognition.Map.Id);
         _statusMessage =
             $"候选地图接口已选择：{recognition.Map.DisplayName} · 置信度 {recognition.Result.Confidence:P0}";
-        LockSelectedMapIdentity(recognition, frame, userConfirmed: true);
+        var identityLock = LockSelectedMapIdentity(
+            recognition,
+            frame,
+            userConfirmed: true);
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
@@ -264,7 +277,7 @@ public sealed partial class SessionOrchestrator
                 ["mapId"] = recognition.Map.Id,
                 ["confidence"] = recognition.Result.Confidence
             });
-        return new CandidateSelectionResolution(recognition, false);
+        return new CandidateSelectionResolution(identityLock, false);
     }
 
     private bool CanAcceptModelTopOne(
@@ -289,7 +302,7 @@ public sealed partial class SessionOrchestrator
         return !second.HasValue || top - second.Value >= 0.15d;
     }
 
-    private void LockSelectedMapIdentity(
+    private RuntimeMapRecognition LockSelectedMapIdentity(
         RuntimeMapRecognition selected,
         CapturedGameFrame frame,
         bool userConfirmed)
@@ -345,6 +358,8 @@ public sealed partial class SessionOrchestrator
                 ["identityLocked"] = true,
                 ["alignmentPending"] = true
             });
+
+        return identityLock;
     }
 }
 /*

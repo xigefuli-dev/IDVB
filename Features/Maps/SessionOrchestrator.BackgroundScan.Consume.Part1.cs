@@ -71,6 +71,7 @@ public sealed partial class SessionOrchestrator
                 out MapFeatureCacheKey? repair)
             {
                 repair = null;
+                MapFeatureCacheKey? fallbackRepair = null;
                 var mapId = identity.Map.Id;
                 var structureTuning = CreateStructureTuningForFloor(
                     identity.Map,
@@ -122,21 +123,25 @@ public sealed partial class SessionOrchestrator
                             allowPrimaryFloor: false);
                     }
 
-                    return MapCvAlignmentService.AlignSelectedCore(
-                        _recognition, frame, mapId,
-                        session: null,
-                        alignmentMode: _settings!.OverlayAlignmentMode,
-                        tuning: alignmentTuning,
-                        structureTuning: structureTuning,
-                        playerPrior: null, predictedViewportOrigin: null,
-                        liveIgnoreRegions: null, candidateHistory: null,
-                        alignmentSearchContext: null,
-                        nativeScaleChangeRatio: 1.0,
-                        mapClass: null,
-                        route: SelectedAlignmentRoute.Default);
+                    return AlignExactManualFloor(
+                        frame,
+                        identity,
+                        targetFloorKey,
+                        MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                            identity.Map,
+                            targetFloorKey),
+                        _settings!.OverlayAlignmentMode,
+                        alignmentTuning,
+                        structureTuning,
+                        identity.Result.IdentityConfidence,
+                        out fallbackRepair);
                 }
                 if (_recognition.TryGetMap(mapId) is not { } selectedMap)
-                    return Align();
+                {
+                    var attempt = Align();
+                    repair = fallbackRepair;
+                    return attempt;
+                }
 
                 if (MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
                         validatedStructureScaleSeed,
@@ -176,7 +181,7 @@ public sealed partial class SessionOrchestrator
                         });
                 }
 
-                return AlignUsingScaleCache(
+                var cachedAttempt = AlignUsingScaleCache(
                     frame,
                     selectedMap,
                     targetFloorKey,
@@ -184,7 +189,9 @@ public sealed partial class SessionOrchestrator
                     structureTuning,
                     0d,
                     Align,
-                    out repair);
+                    out var cachedRepair);
+                repair = cachedRepair ?? fallbackRepair;
+                return cachedAttempt;
             }
 
             MapFeatureCacheKey? repairCacheKey = null;

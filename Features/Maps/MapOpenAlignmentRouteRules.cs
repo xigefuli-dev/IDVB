@@ -24,6 +24,16 @@ internal static class MapOpenAlignmentRouteRules
     internal const int ScanVerificationP99Milliseconds = 350;
     internal const double TargetReliableAlignmentRate = 0.95d;
     internal const double TargetTranslationJitterP95Pixels = 3d;
+
+    internal static string ResolveInitialAlignmentRoute(
+        bool hasValidatedStructureScaleSeed,
+        bool hasSideEntranceSeed) =>
+        hasValidatedStructureScaleSeed
+            ? "validated-fixed-scale"
+            : hasSideEntranceSeed
+                ? "side-entrance"
+                : "exact-floor-vpsg";
+
     // cached-scale 固定验证失败后的极小半径 Search 兜底：救缓存 scale 的小漂移，
     // 并为信任降级提供"成功→重置 / 失败→计数+1"的验证证据。
     internal const int CachedScaleRepairSearchBudgetMilliseconds = 300;

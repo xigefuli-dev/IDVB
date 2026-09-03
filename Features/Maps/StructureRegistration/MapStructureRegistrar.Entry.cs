@@ -68,7 +68,8 @@ public sealed partial class MapStructureRegistrar
 
                 var ratio = request.PhysicalPixelsPerLivePixel;
                 var totalTimer = Stopwatch.StartNew();
-                var computationRequest = ToComputationRequest(request, ratio);
+                var computationRequest =
+                    MapStructureRequestSpace.ToComputationSpace(request, ratio);
                 var coarse = RegisterInternal(computationRequest, tuning);
                 if (!coarse.Accepted || coarse.Transform is null)
                 {
@@ -149,7 +150,8 @@ public sealed partial class MapStructureRegistrar
                 fineTuning.StructureFallbackBudgetMilliseconds = Math.Min(
                     fineTuning.StructureFallbackBudgetMilliseconds,
                     Math.Max(1, remainingBudget));
-                var coarseTransform = ToPhysicalTransform(coarse.Transform, ratio);
+                var coarseTransform = MapStructureRequestSpace.ToPhysicalTransform(
+                    coarse.Transform, ratio);
                 var fine = RegisterInternal(ToOriginalFineRequest(
                     request,
                     coarseTransform,
@@ -201,33 +203,6 @@ public sealed partial class MapStructureRegistrar
         PreparedReference = source.PreparedReference,
         PreparedLive = source.PreparedLive,
         LowStructurePlan = source.LowStructurePlan,
-        SideEntrancePrior = source.SideEntrancePrior
-    };
-
-    private static MapStructureRegistrationRequest ToComputationRequest(
-        MapStructureRegistrationRequest source, double ratio) => new()
-    {
-        ReferenceImage = source.ReferenceImage,
-        Channel = source.Channel,
-        LiveRoi = source.LiveRoi,
-        ViewportBounds = Scale(source.ViewportBounds, 1d / ratio),
-        LockedTransform = Scale(source.LockedTransform, 1d / ratio),
-        Tuning = source.Tuning,
-        ScaleSearchPolicy = source.ScaleSearchPolicy,
-        RestrictSearchToLockedTransform = source.RestrictSearchToLockedTransform,
-        TrackingMode = source.TrackingMode,
-        ForceBestCandidate = source.ForceBestCandidate,
-        FixedRotationDegrees = source.FixedRotationDegrees,
-        ValidMapBounds = source.ValidMapBounds,
-        PredictedViewportOrigin = source.PredictedViewportOrigin,
-        PlayerPrior = source.PlayerPrior,
-        CandidateHistory = source.CandidateHistory.Select(x => Scale(x, 1d / ratio)).ToArray(),
-        LiveIgnoreRegions = source.LiveIgnoreRegions,
-        DynamicIgnoreRegions = source.DynamicIgnoreRegions.Select(x => Scale(x, 1d / ratio)).ToArray(),
-        DebugOutputDirectory = source.DebugOutputDirectory,
-        PreparedReference = source.PreparedReference,
-        PreparedLive = source.PreparedLive,
-        LowStructurePlan = ToComputationPlan(source.LowStructurePlan, ratio),
         SideEntrancePrior = source.SideEntrancePrior
     };
 
@@ -356,52 +331,5 @@ public sealed partial class MapStructureRegistrar
                     result.LowStructureBudgetTerminationReason
             });
     }
-
-    private static MapScreenRect Scale(MapScreenRect value, double scale) =>
-        new(value.X * scale, value.Y * scale, value.Width * scale, value.Height * scale);
-
-    private static Rect Scale(Rect value, double scale) => new(
-        (int)Math.Round(value.X * scale), (int)Math.Round(value.Y * scale),
-        Math.Max(1, (int)Math.Round(value.Width * scale)),
-        Math.Max(1, (int)Math.Round(value.Height * scale)));
-
-    private static MapOverlayTransform Scale(MapOverlayTransform value, double scale) => new()
-    {
-        ScaleX = value.ScaleX * scale, ScaleY = value.ScaleY * scale,
-        OffsetX = value.OffsetX * scale, OffsetY = value.OffsetY * scale,
-        ReferenceCenterX = value.ReferenceCenterX,
-        ReferenceCenterY = value.ReferenceCenterY,
-        ScreenCenterX = value.ScreenCenterX * scale,
-        ScreenCenterY = value.ScreenCenterY * scale,
-        ReferenceWidth = value.ReferenceWidth, ReferenceHeight = value.ReferenceHeight,
-        OrientationDegrees = value.OrientationDegrees,
-        AlignmentMode = value.AlignmentMode,
-        MaximumResidualPixels = value.MaximumResidualPixels * scale,
-        UsedDegenerateAxisFallback = value.UsedDegenerateAxisFallback
-    };
-
-    private static MapOverlayTransform ToPhysicalTransform(
-        MapOverlayTransform value, double ratio) => Scale(value, ratio);
-
-    private static LowStructureAlignmentPlan? ToComputationPlan(
-        LowStructureAlignmentPlan? plan,
-        double ratio)
-    {
-        if (plan is null)
-            return plan;
-        return plan with
-        {
-            Scales = plan.Scales.Select(scale => scale / ratio).ToArray()
-        };
-    }
-
-    private static MapSimilarityTransform Scale(MapSimilarityTransform value, double scale) =>
-        new()
-        {
-            Scale = value.Scale * scale,
-            RotationDegrees = value.RotationDegrees,
-            TranslationX = value.TranslationX * scale,
-            TranslationY = value.TranslationY * scale
-        };
 
 }

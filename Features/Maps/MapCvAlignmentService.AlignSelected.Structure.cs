@@ -248,17 +248,41 @@ internal static partial class MapCvAlignmentService
                 ["trackingMode"] = structureRequest.TrackingMode,
                 ["restrictedSearch"] = structureRequest.RestrictSearchToLockedTransform
             });
+        var scanCheapRejectWouldReject = false;
+        var scanCheapRejectMilliseconds = 0d;
+        var scanCheapRejectReason = string.Empty;
         if (isScanVerification
-            && structureSearchTuning.EnableScanCheapReject
             && MapStructureCheapReject.TryReject(
                 structureRequest,
                 preparedReference,
                 preparedLive,
-                out var cheapRejectMilliseconds,
-                out var cheapRejectReason))
+                out scanCheapRejectMilliseconds,
+                out scanCheapRejectReason))
+        {
+            scanCheapRejectWouldReject = true;
+        }
+        if (isScanVerification)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                "扫描结构 cheap reject shadow",
+                elapsedMs: scanCheapRejectMilliseconds,
+                details: new()
+                {
+                    ["route"] = "scan-verification",
+                    ["shadow"] = true,
+                    ["wouldReject"] = scanCheapRejectWouldReject,
+                    ["enforced"] = structureSearchTuning.EnableScanCheapReject,
+                    ["cheapRejectMs"] = scanCheapRejectMilliseconds,
+                    ["reason"] = scanCheapRejectReason
+                });
+        }
+        if (scanCheapRejectWouldReject
+            && structureSearchTuning.EnableScanCheapReject)
         {
             diagnostics.ScanCheapRejected = true;
-            diagnostics.ScanCheapRejectMilliseconds = cheapRejectMilliseconds;
+            diagnostics.ScanCheapRejectMilliseconds = scanCheapRejectMilliseconds;
             diagnostics.ScanCheapRejectCount = 1;
             diagnostics.StructureAttempted = true;
             diagnostics.StructureAccepted = false;
@@ -268,9 +292,9 @@ internal static partial class MapCvAlignmentService
                 MapStructureEvidenceDisposition.Inconclusive;
             var rejected = MapStructureRegistrationResult.Reject(
                 MapStructureRejectionReason.WeakAbsoluteScore,
-                cheapRejectReason,
+                scanCheapRejectReason,
                 preprocessMilliseconds: diagnostics.StructurePreprocessMilliseconds,
-                searchMilliseconds: cheapRejectMilliseconds,
+                searchMilliseconds: scanCheapRejectMilliseconds,
                 lockedScale: structureRequest.LockedTransform.ScaleX,
                 referenceWidth: preparedReference.Edges.Width,
                 referenceHeight: preparedReference.Edges.Height,
@@ -279,24 +303,40 @@ internal static partial class MapCvAlignmentService
                 MapLogCategory.StructureRegistration,
                 MapLogLevel.Info,
                 "扫描结构 cheap reject",
-                elapsedMs: cheapRejectMilliseconds,
+                elapsedMs: scanCheapRejectMilliseconds,
                 details: new()
                 {
                     ["route"] = "scan-verification",
                     ["cheapReject"] = true,
-                    ["cheapRejectMs"] = cheapRejectMilliseconds,
-                    ["reason"] = cheapRejectReason
+                    ["cheapRejectMs"] = scanCheapRejectMilliseconds,
+                    ["reason"] = scanCheapRejectReason
                 });
             return MapCvRecognitionBuilders.BuildStructureRejectedAttempt(
                 diagnostics,
                 rejected,
-                cheapRejectReason,
+                scanCheapRejectReason,
                 gateResult,
                 AlignmentSearchStage.StructureFallback);
         }
         if (isScanVerification)
             diagnostics.ScanFormalStructureAttemptCount++;
         var structure = service.StructureRegistrar.Register(structureRequest);
+        if (isScanVerification)
+        {
+            MapLogCollector.Instance.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                "扫描结构 cheap reject shadow 对照",
+                details: new()
+                {
+                    ["route"] = "scan-verification",
+                    ["shadowWouldReject"] = scanCheapRejectWouldReject,
+                    ["formalAccepted"] = structure.Accepted,
+                    ["formalRejection"] = structure.RejectionReason.ToString(),
+                    ["formalBestScore"] = structure.BestScore,
+                    ["formalConfidence"] = structure.Confidence
+                });
+        }
         if (isSideEntranceStructureRoute
             && restrictStructureSearch
             && !isScanVerification

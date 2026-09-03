@@ -10,17 +10,20 @@ internal static partial class MapCvAlignmentService
     {
         if (tuning.Channel == MapAlignmentChannel.LowStructure)
             return null;
+        if (tuning.Mode == MapStructureRegistrationMode.ScanVerification)
+        {
+            tuning.StructureFallbackBudgetMilliseconds = Math.Min(
+                tuning.StructureFallbackBudgetMilliseconds,
+                MapOpenAlignmentRouteRules
+                    .ScanVerificationFormalStructureBudgetMilliseconds);
+            return null;
+        }
         if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
                 is not { } remaining)
         {
             return null;
         }
-        var minimumStageBudget = tuning.Mode ==
-            MapStructureRegistrationMode.ScanVerification
-                ? MapOpenAlignmentRouteRules
-                    .ScanVerificationMinimumVpsgBudgetMilliseconds
-                : MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds;
-        if (remaining < minimumStageBudget)
+        if (remaining < MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds)
         {
             const string reason =
                 "无门对齐预处理后已无足够的结构搜索预算，请保持地图打开并重试。";

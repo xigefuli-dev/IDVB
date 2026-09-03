@@ -221,6 +221,9 @@ public sealed class MapOpenAlignmentRouteTests
         Assert.Equal(
             50,
             MapOpenAlignmentRouteRules.ScanVerificationMinimumVpsgBudgetMilliseconds);
+        Assert.Equal(
+            100,
+            MapOpenAlignmentRouteRules.ScanVerificationFormalStructureBudgetMilliseconds);
         Assert.Equal(80, MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds);
         Assert.Equal(100, MapOpenAlignmentRouteRules.ScanVerificationP50Milliseconds);
         Assert.Equal(200, MapOpenAlignmentRouteRules.ScanVerificationP90Milliseconds);

@@ -66,31 +66,40 @@ internal static class MapStructureCheapReject
                 return true;
             }
 
-            using var referenceEdges = new Mat();
+            using var referenceBinary = new Mat();
             using var queryEdges = new Mat(query.Edges, query.Bounds);
+            using var queryBinary = new Mat();
+            Cv2.Threshold(
+                reference.Edges,
+                referenceBinary,
+                0d,
+                255d,
+                ThresholdTypes.Binary);
+            Cv2.Threshold(
+                queryEdges,
+                queryBinary,
+                0d,
+                255d,
+                ThresholdTypes.Binary);
+            using var edgeKernel = Cv2.GetStructuringElement(
+                MorphShapes.Rect,
+                new Size(3, 3));
+            using var referenceDilated = new Mat();
+            using var queryDilated = new Mat();
+            Cv2.Dilate(referenceBinary, referenceDilated, edgeKernel);
+            Cv2.Dilate(queryBinary, queryDilated, edgeKernel);
+            using var referenceEdges = new Mat();
             using var querySmall = new Mat();
             Cv2.Resize(
-                reference.Edges,
+                referenceDilated,
                 referenceEdges,
                 new Size(referenceWidth, referenceHeight),
-                interpolation: InterpolationFlags.Area);
+                interpolation: InterpolationFlags.Nearest);
             Cv2.Resize(
-                queryEdges,
+                queryDilated,
                 querySmall,
                 new Size(queryWidth, queryHeight),
-                interpolation: InterpolationFlags.Area);
-            Cv2.Threshold(
-                referenceEdges,
-                referenceEdges,
-                127d,
-                255d,
-                ThresholdTypes.Binary);
-            Cv2.Threshold(
-                querySmall,
-                querySmall,
-                127d,
-                255d,
-                ThresholdTypes.Binary);
+                interpolation: InterpolationFlags.Nearest);
 
             var searchRadius = Math.Max(
                 DownsampleFactor,
@@ -167,8 +176,8 @@ internal static class MapStructureCheapReject
             // This is a reject-only gate. Keep it materially looser than the
             // physical 3px acceptance gate so quarter-scale quantization can
             // never reject a candidate that formal validation could explain.
-            var maximumChamfer = request.Tuning.MaximumChamferPixels * 2.50d;
-            var minimumCoverage = request.Tuning.MinimumEdgeCoverage * 0.50d;
+            var maximumChamfer = request.Tuning.MaximumChamferPixels * 4d;
+            var minimumCoverage = request.Tuning.MinimumEdgeCoverage * 0.25d;
             if (chamfer > maximumChamfer || coverage < minimumCoverage)
             {
                 reason = $"cheap-reject: chamfer={chamfer:F2}px, "

@@ -231,33 +231,22 @@ internal static partial class MapStructureValidator
 
         return true;
     }
-
     internal static MapOverlayTransform BuildTransform(
         MapStructureCandidate candidate,
         MapStructureRegistrationRequest request,
         MapStructureFeatures reference)
     {
-        var referenceCenterX = reference.Edges.Width / 2d;
-        var referenceCenterY = reference.Edges.Height / 2d;
-        return new MapOverlayTransform
-        {
-            ScaleX = candidate.Scale,
-            ScaleY = candidate.Scale,
-            OffsetX = candidate.OffsetX,
-            OffsetY = candidate.OffsetY,
-            ReferenceCenterX = referenceCenterX,
-            ReferenceCenterY = referenceCenterY,
-            ScreenCenterX = (referenceCenterX * candidate.Scale) + candidate.OffsetX,
-            ScreenCenterY = (referenceCenterY * candidate.Scale) + candidate.OffsetY,
-            ReferenceWidth = reference.Edges.Width,
-            ReferenceHeight = reference.Edges.Height,
-            OrientationDegrees = 0,
-            AlignmentMode = MapOverlayAlignmentMode.Uniform,
-            MaximumResidualPixels = request.Channel ==
-                MapAlignmentChannel.LowStructure
-                    ? candidate.ChamferPixels
-                    : candidate.ChamferPixels * candidate.Scale
-        };
+        var residual = request.Channel == MapAlignmentChannel.LowStructure
+            ? candidate.ChamferPixels
+            : candidate.ChamferPixels * candidate.Scale;
+        return MapCanonicalTransformMath.BuildOverlayTransform(
+            candidate.Scale,
+            candidate.Scale,
+            candidate.OffsetX,
+            candidate.OffsetY,
+            reference.Edges.Width,
+            reference.Edges.Height,
+            residual);
     }
 
     // ═══════════════════════════════════════════════════════════════

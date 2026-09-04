@@ -251,12 +251,14 @@ internal static class MapStructureEvaluator
                 tuning.MinimumConsistentPartitions - consistentPartitions)
                 * partitionPenaltyWeight);
         // offset 在匹配空间中计算：匹配空间里 query 和降采样参考图都是 1:1 对屏幕像素
-        var offsetX = request.ViewportBounds.X
-            + (query.Bounds.X * scale)
-            - (logicalReferenceX * scale);
-        var offsetY = request.ViewportBounds.Y
-            + (query.Bounds.Y * scale)
-            - (logicalReferenceY * scale);
+        var (offsetX, offsetY) = MapCanonicalTransformMath.ComputeScreenOffset(
+            request.ViewportBounds.X,
+            request.ViewportBounds.Y,
+            query.Bounds.X,
+            query.Bounds.Y,
+            logicalReferenceX,
+            logicalReferenceY,
+            scale);
         // 原始参考图尺寸（降采样前）
         var originalRefWidth = (int)Math.Round(reference.Edges.Width / referenceScale);
         var originalRefHeight = (int)Math.Round(reference.Edges.Height / referenceScale);
@@ -265,9 +267,12 @@ internal static class MapStructureEvaluator
             : MapReferenceBounds.FullImage(
                 originalRefWidth,
                 originalRefHeight);
-        var viewportOrigin = new MapViewportOrigin(
-            (request.ViewportBounds.X - offsetX) / actualScale,
-            (request.ViewportBounds.Y - offsetY) / actualScale);
+        var viewportOrigin = MapCanonicalTransformMath.ComputeViewportOrigin(
+            request.ViewportBounds.X,
+            request.ViewportBounds.Y,
+            offsetX,
+            offsetY,
+            actualScale);
         var boundsTolerance = 2d / actualScale;
         // 用原始参考图坐标做边界检查
         var isWithinBounds = isLowStructure

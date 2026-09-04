@@ -177,7 +177,12 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.cs" Link="Production\MapStructureRegistrar.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.Part*.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.Entry.cs" Link="Production\MapStructureRegistrar.Entry.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapCanonicalTransformMath.cs" Link="Production\MapCanonicalTransformMath.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRequestSpace.cs" Link="Production\MapStructureRequestSpace.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3PreparedIndexModels.cs" Link="Production\Vpsg3\Vpsg3PreparedIndexModels.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\IVpsg3PreparedIndexRegistry.cs" Link="Production\Vpsg3\IVpsg3PreparedIndexRegistry.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3PreparedIndexRegistry.cs" Link="Production\Vpsg3\Vpsg3PreparedIndexRegistry.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3PreparedIndexBuilder.cs" Link="Production\Vpsg3\Vpsg3PreparedIndexBuilder.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.FastPath.cs" Link="Production\MapStructureRegistrar.FastPath.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.LowStructure.cs" Link="Production\MapStructureRegistrar.LowStructure.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ScalePolicy.cs" Link="Production\MapStructureRegistrar.ScalePolicy.cs" />

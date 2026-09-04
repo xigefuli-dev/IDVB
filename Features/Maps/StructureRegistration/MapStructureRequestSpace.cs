@@ -61,23 +61,8 @@ internal static class MapStructureRequestSpace
 
     private static MapOverlayTransform Scale(
         MapOverlayTransform value,
-        double scale) => new()
-    {
-        ScaleX = value.ScaleX * scale,
-        ScaleY = value.ScaleY * scale,
-        OffsetX = value.OffsetX * scale,
-        OffsetY = value.OffsetY * scale,
-        ReferenceCenterX = value.ReferenceCenterX,
-        ReferenceCenterY = value.ReferenceCenterY,
-        ScreenCenterX = value.ScreenCenterX * scale,
-        ScreenCenterY = value.ScreenCenterY * scale,
-        ReferenceWidth = value.ReferenceWidth,
-        ReferenceHeight = value.ReferenceHeight,
-        OrientationDegrees = value.OrientationDegrees,
-        AlignmentMode = value.AlignmentMode,
-        MaximumResidualPixels = value.MaximumResidualPixels * scale,
-        UsedDegenerateAxisFallback = value.UsedDegenerateAxisFallback
-    };
+        double scale) =>
+        MapCanonicalTransformMath.ToPhysicalTransform(value, scale);
 
     private static LowStructureAlignmentPlan? ToComputationPlan(
         LowStructureAlignmentPlan? plan,

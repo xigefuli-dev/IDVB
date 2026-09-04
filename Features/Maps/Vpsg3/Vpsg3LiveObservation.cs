@@ -47,11 +47,32 @@ public sealed class Vpsg3LiveObservation : IDisposable
     /// <summary>Screen viewport bounding rectangle where this observation was captured from.</summary>
     public MapScreenRect ViewportBounds { get; }
 
+    private Point[]? _sparseEdgePoints;
+    private readonly int _maxSparsePoints;
+    private readonly object _sparseLock = new();
+
     /// <summary>
     /// Pre-sampled sparse edge points in LocalViewport coordinates for O(1) bit-test verification.
-    /// Generated during extraction with zero additional runtime allocation.
+    /// Evaluated lazily on first access with fast native pointer scanning, incurring zero cost if unused.
     /// </summary>
-    public IReadOnlyList<Point> SparseEdgePoints { get; }
+    public IReadOnlyList<Point> SparseEdgePoints
+    {
+        get
+        {
+            if (IsDisposed) throw new ObjectDisposedException(nameof(Vpsg3LiveObservation));
+            if (_sparseEdgePoints is not null)
+                return _sparseEdgePoints;
+
+            lock (_sparseLock)
+            {
+                if (_sparseEdgePoints is null)
+                {
+                    _sparseEdgePoints = SampleSparseEdgePointsFast(_observedEdges!, EdgePixelCount, _maxSparsePoints);
+                }
+                return _sparseEdgePoints;
+            }
+        }
+    }
 
     /// <summary>Total extraction time in milliseconds.</summary>
     public double ExtractionMilliseconds { get; }
@@ -66,8 +87,9 @@ public sealed class Vpsg3LiveObservation : IDisposable
         int edgePixelCount,
         int validStructurePixelCount,
         MapScreenRect viewportBounds,
-        Point[] sparseEdgePoints,
-        double extractionMilliseconds)
+        int maxSparsePoints = 150,
+        Point[]? sparseEdgePoints = null,
+        double extractionMilliseconds = 0)
     {
         _observedEdges = observedEdges ?? throw new ArgumentNullException(nameof(observedEdges));
         _validMask = validMask ?? throw new ArgumentNullException(nameof(validMask));
@@ -76,8 +98,34 @@ public sealed class Vpsg3LiveObservation : IDisposable
         EdgePixelCount = edgePixelCount;
         ValidStructurePixelCount = validStructurePixelCount;
         ViewportBounds = viewportBounds;
-        SparseEdgePoints = sparseEdgePoints ?? [];
+        _maxSparsePoints = maxSparsePoints;
+        _sparseEdgePoints = sparseEdgePoints;
         ExtractionMilliseconds = extractionMilliseconds;
+    }
+
+    private static Point[] SampleSparseEdgePointsFast(Mat edges, int edgeCount, int maxPts)
+    {
+        if (maxPts <= 0 || edgeCount <= 0 || edges.Empty())
+            return [];
+
+        using var nonZero = new Mat();
+        Cv2.FindNonZero(edges, nonZero);
+
+        var total = nonZero.Rows * nonZero.Cols;
+        if (total == 0)
+            return [];
+
+        var sampleCount = Math.Min(maxPts, total);
+        var result = new Point[sampleCount];
+        var step = (double)total / sampleCount;
+
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var idx = (int)(i * step);
+            result[i] = nonZero.At<Point>(idx, 0);
+        }
+
+        return result;
     }
 
     public void Dispose()

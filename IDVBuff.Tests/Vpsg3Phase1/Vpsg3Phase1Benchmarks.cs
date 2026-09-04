@@ -60,8 +60,9 @@ public sealed class Vpsg3Phase1Benchmarks
                 "gen1",
                 SchemaVersion: 1);
 
+            registry.TryBeginBuild(cacheKey);
             var prepared = Vpsg3PreparedIndexBuilder.BuildFromMat(syntheticEdge, cacheKey);
-            registry.PublishFloor(prepared);
+            registry.TryPublishFloor(cacheKey, prepared);
         }
 
         sw.Stop();
@@ -127,8 +128,9 @@ public sealed class Vpsg3Phase1Benchmarks
                 var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = workers };
                 Parallel.ForEach(mats, parallelOptions, item =>
                 {
+                    registry.TryBeginBuild(item.Key);
                     var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(item.EdgeMat, item.Key);
-                    registry.PublishFloor(floor);
+                    registry.TryPublishFloor(item.Key, floor);
                 });
 
                 sw.Stop();

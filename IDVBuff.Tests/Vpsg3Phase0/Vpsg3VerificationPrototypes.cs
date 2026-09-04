@@ -85,13 +85,14 @@ public static class Vpsg3VerificationPrototypes
         double estOffsetX,
         double estOffsetY,
         GroundTruthSample sample,
-        double threshold = 0.52d)
+        double threshold = 0.52d,
+        int kernelSize = 5)
     {
         var sw = Stopwatch.StartNew();
 
         using var refDilated = new Mat();
-        using var k5 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
-        Cv2.Dilate(refEdges, refDilated, k5);
+        using var k = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(kernelSize, kernelSize));
+        Cv2.Dilate(refEdges, refDilated, k);
 
         var pts = SamplePoints(queryEdges, maxPts: 150);
         if (pts.Count == 0)

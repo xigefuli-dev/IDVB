@@ -32,15 +32,17 @@ public interface IVpsg3PreparedIndexRegistry : IDisposable
     bool TryBeginBuild(Vpsg3IndexCacheKey expectedKey);
 
     /// <summary>
-    /// Atomically publishes a successfully built immutable prepared floor into its slot.
-    /// Replaces old floor (which is scheduled for disposal once active leases release).
+    /// Attempts to publish a successfully built immutable prepared floor into its slot.
+    /// Only succeeds if the current slot is in Building state and its ExpectedKey exactly matches floor.CacheKey and expectedKey.
+    /// If rejected (superseded, Stale, Missing, or Disposed), returns false and disposes the newly-built floor.
     /// </summary>
-    void PublishFloor(Vpsg3PreparedFloor floor);
+    bool TryPublishFloor(Vpsg3IndexCacheKey expectedKey, Vpsg3PreparedFloor floor);
 
     /// <summary>
     /// Atomically marks a slot as Failed with an error reason.
+    /// Only succeeds if the slot is currently Building for this exact expectedKey.
     /// </summary>
-    void RecordBuildFailure(Vpsg3IndexCacheKey expectedKey, string failureReason);
+    bool RecordBuildFailure(Vpsg3IndexCacheKey expectedKey, string failureReason);
 
     /// <summary>
     /// Checks whether an index exists and is ready for the specified floor.

@@ -139,4 +139,43 @@ public sealed class Vpsg3PreparedIndexBuilderTests
         Assert.False(prior.FastPathEligible);
         Assert.Contains("EdgePixelCountBelowThreshold", prior.RejectReason);
     }
+
+    [Fact]
+    public async Task BuildFromMatAsync_TokenAlreadyCancelledBeforeCall_ReturnsCanceledAndDoesNotLeak()
+    {
+        using var edgeMat = new Mat(100, 100, MatType.CV_8UC1, Scalar.All(255));
+        var key = new Vpsg3IndexCacheKey(Guid.NewGuid(), "1f", "fp", DateTimeOffset.UtcNow, "gen1");
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled
+
+        var result = await Vpsg3PreparedIndexBuilder.BuildFromMatAsync(edgeMat, key, cancellationToken: cts.Token);
+        Assert.False(result.Success);
+        Assert.Null(result.Floor);
+        Assert.Contains("canceled", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.False(edgeMat.IsDisposed);
+    }
+
+    [Fact]
+    public async Task BuildFromMatAsync_TokenCancelledImmediatelyAfterClone_GuaranteesDisposal()
+    {
+        using var edgeMat = new Mat(100, 100, MatType.CV_8UC1, Scalar.All(255));
+        var key = new Vpsg3IndexCacheKey(Guid.NewGuid(), "1f", "fp", DateTimeOffset.UtcNow, "gen1");
+
+        // Concurrent loop triggering cancellation right at dispatch boundary
+        for (var i = 0; i < 50; i++)
+        {
+            using var cts = new CancellationTokenSource();
+            var task = Vpsg3PreparedIndexBuilder.BuildFromMatAsync(edgeMat, key, cancellationToken: cts.Token);
+            cts.Cancel();
+
+            var result = await task;
+            if (result.Success && result.Floor is not null)
+            {
+                result.Floor.Dispose();
+            }
+        }
+
+        Assert.False(edgeMat.IsDisposed);
+    }
 }

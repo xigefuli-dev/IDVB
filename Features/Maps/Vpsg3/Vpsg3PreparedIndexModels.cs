@@ -29,6 +29,19 @@ public readonly record struct Vpsg3IndexCacheKey(
     public string NormalizeFloorKey() =>
         string.IsNullOrWhiteSpace(FloorKey) ? string.Empty : FloorKey.Trim().ToLowerInvariant();
 
+    /// <summary>
+    /// Computes the generation identity for a prebuilt structure line asset,
+    /// binding line Sha256, algorithm Sha256, algorithm schema version, and VPSG3 schema version.
+    /// Any upstream IDVA change immediately invalidates the prepared index.
+    /// </summary>
+    public static string CreatePrebuiltGenerationIdentity(
+        PrebuiltStructureLineAsset prebuilt,
+        int schemaVersion = 1)
+    {
+        ArgumentNullException.ThrowIfNull(prebuilt);
+        return $"{prebuilt.Sha256}_{prebuilt.AlgorithmSha256}_{prebuilt.AlgorithmSchemaVersion}_v{schemaVersion}";
+    }
+
     public override string ToString() =>
         $"map={MapId:D};floor={NormalizeFloorKey()};v={SchemaVersion};fp={ContentFingerprint};gen={StructureGeneration};updated={UpdatedAt:O}";
 }
@@ -66,6 +79,12 @@ public sealed class Vpsg3FloorSlot
 public sealed class Vpsg3TuningConfig
 {
     public static Vpsg3TuningConfig Default { get; } = new();
+
+    /// <summary>
+    /// Morphological dilation kernel size for the prepared bitset.
+    /// Defaults to 5 (i.e. 5x5 window, +/-2px tolerance) matching the approved V-A Verification Benchmark.
+    /// </summary>
+    public int DilationKernelSize { get; init; } = 5;
 
     /// <summary>Minimum scale supported by the fast registration path.</summary>
     public double MinSupportedScale { get; init; } = 0.70d;

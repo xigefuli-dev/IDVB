@@ -36,9 +36,9 @@ public static class Vpsg3PreparedIndexBuilder
         // 2. Compute reference scale prior via normalized autocorrelation
         var scalePrior = ComputeReferenceScalePrior(edgeImage, edgePixelCount, cfg);
 
-        // 3. 3x3 Morphological dilation for structural matching tolerance
+        // 3. Morphological dilation for structural matching tolerance (defaults to 5x5 / +/-2px matching V-A gate)
         using var dilated = new Mat();
-        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(cfg.DilationKernelSize, cfg.DilationKernelSize));
         Cv2.Dilate(edgeImage, dilated, kernel);
 
         // 4. Pack into 64-bit row-major bitset
@@ -76,6 +76,7 @@ public static class Vpsg3PreparedIndexBuilder
     /// <summary>
     /// Builds a prepared VPSG 3.0 floor index asynchronously with execution timing.
     /// Synchronously clones the input Mat before background dispatch to guarantee caller lifecycle isolation.
+    /// Outer lifecycle ensures ownedMat is always disposed even if cancellation occurs before task dispatch.
     /// </summary>
     public static async Task<Vpsg3IndexBuildResult> BuildFromMatAsync(
         Mat edgeImage,
@@ -87,12 +88,24 @@ public static class Vpsg3PreparedIndexBuilder
         if (edgeImage.Empty())
             throw new ArgumentException("Edge image cannot be empty.", nameof(edgeImage));
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return new Vpsg3IndexBuildResult(
+                Success: false,
+                Floor: null,
+                ErrorMessage: "Operation was canceled.",
+                BuildMilliseconds: 0);
+        }
+
         var ownedMat = edgeImage.Clone();
         var sw = Stopwatch.StartNew();
+        var taskExecuted = false;
+
         try
         {
             return await Task.Run(() =>
             {
+                taskExecuted = true;
                 try
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -108,9 +121,18 @@ public static class Vpsg3PreparedIndexBuilder
                 {
                     ownedMat.Dispose();
                 }
-            }, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            sw.Stop();
+            return new Vpsg3IndexBuildResult(
+                Success: false,
+                Floor: null,
+                ErrorMessage: "Operation was canceled.",
+                BuildMilliseconds: sw.Elapsed.TotalMilliseconds);
+        }
+        catch (Exception ex)
         {
             sw.Stop();
             return new Vpsg3IndexBuildResult(
@@ -118,6 +140,13 @@ public static class Vpsg3PreparedIndexBuilder
                 Floor: null,
                 ErrorMessage: ex.Message,
                 BuildMilliseconds: sw.Elapsed.TotalMilliseconds);
+        }
+        finally
+        {
+            if (!taskExecuted && !ownedMat.IsDisposed)
+            {
+                ownedMat.Dispose();
+            }
         }
     }
 

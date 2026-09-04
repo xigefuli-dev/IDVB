@@ -7,12 +7,13 @@ public sealed class Vpsg3PreparedIndexRegistryTests
 {
     private static Vpsg3PreparedFloor CreateDummyFloor(
         Guid mapId,
-        string floorKey = "1f",
-        string fingerprint = "fp123",
+        string floorKey,
+        int width = 800,
+        int height = 600,
+        string fingerprint = "dummy_fp",
         DateTimeOffset? updatedAt = null,
         string generation = "gen1",
-        int width = 800,
-        int height = 600)
+        int schemaVersion = 1)
     {
         var key = new Vpsg3IndexCacheKey(
             mapId,
@@ -20,38 +21,42 @@ public sealed class Vpsg3PreparedIndexRegistryTests
             fingerprint,
             updatedAt ?? DateTimeOffset.UtcNow,
             generation,
-            SchemaVersion: 1);
+            schemaVersion);
 
         var wordsPerRow = (width + 63) / 64;
         var bitset = new ulong[height * wordsPerRow];
-        var scalePrior = new Vpsg3ScalePrior(
-            SeedScale: 1.0d,
-            PeakRatio: 2.5d,
-            FastPathEligible: true,
-            RejectReason: string.Empty,
-            ReferencePitch: 50.0d,
-            ReferencePeakRatio: 2.5d);
+        bitset[0] = 0x123456789ABCDEF0UL;
 
         return new Vpsg3PreparedFloor(
             key,
             width,
             height,
             edgePixelCount: 1500,
-            scalePrior,
+            scalePrior: new Vpsg3ScalePrior(1.0, 3.5, true, string.Empty, 32.0, 3.5),
             wordsPerRow,
             bitset,
             memoryBytes: 50000);
     }
 
+    private static void PublishToRegistry(Vpsg3PreparedIndexRegistry registry, Vpsg3PreparedFloor floor)
+    {
+        Assert.True(registry.TryBeginBuild(floor.CacheKey));
+        Assert.True(registry.TryPublishFloor(floor.CacheKey, floor));
+    }
+
     [Fact]
-    public void TryGet_NonBlocking_ReturnsFalseWhenAbsent()
+    public void InitialRegistry_IsEmpty_AndNonBlockingQueriesReturnFalse()
     {
         using var registry = new Vpsg3PreparedIndexRegistry();
         var absentId = Guid.NewGuid();
 
-        var success = registry.TryGet(absentId, "1f", out var lease);
+        Assert.Equal(0, registry.Count);
+        Assert.Equal(0, registry.ReadyCount);
+        Assert.Equal(0, registry.TotalMemoryBytes);
+        Assert.False(registry.Contains(absentId, "1f"));
 
-        Assert.False(success);
+        var got = registry.TryGet(absentId, "1f", out var lease);
+        Assert.False(got);
         Assert.Null(lease);
         Assert.Equal(Vpsg3IndexStatus.Missing, registry.GetStatus(absentId, "1f"));
     }
@@ -63,7 +68,7 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         var mapId = Guid.NewGuid();
         var floor = CreateDummyFloor(mapId, "1f");
 
-        registry.PublishFloor(floor);
+        PublishToRegistry(registry, floor);
 
         Assert.True(registry.Contains(mapId, "1f"));
         Assert.Equal(1, registry.Count);
@@ -103,13 +108,14 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         Assert.False(registry.TryBeginBuild(key));
 
         // 4. RecordBuildFailure transitions to Failed
-        registry.RecordBuildFailure(key, "Disk decode error");
+        Assert.True(registry.RecordBuildFailure(key, "Disk decode error"));
         Assert.Equal(Vpsg3IndexStatus.Failed, registry.GetStatus(mapId, "1f"));
         Assert.False(registry.TryGet(mapId, "1f", out _));
 
         // 5. Successful build and publish transitions to Ready
-        var floor = CreateDummyFloor(mapId, "1f");
-        registry.PublishFloor(floor);
+        Assert.True(registry.TryBeginBuild(key));
+        var floor = CreateDummyFloor(mapId, "1f", fingerprint: "fp1", updatedAt: key.UpdatedAt, generation: "gen1");
+        Assert.True(registry.TryPublishFloor(key, floor));
         Assert.Equal(Vpsg3IndexStatus.Ready, registry.GetStatus(mapId, "1f"));
         Assert.True(registry.TryGet(mapId, "1f", out var lease));
         lease?.Dispose();
@@ -118,6 +124,83 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         registry.InvalidateMaps(new HashSet<Guid> { mapId });
         Assert.Equal(Vpsg3IndexStatus.Stale, registry.GetStatus(mapId, "1f"));
         Assert.False(registry.TryGet(mapId, "1f", out _));
+    }
+
+    [Fact]
+    public void StaleBackgroundBuild_RejectedAndDisposed_WhenSlotSuperseded()
+    {
+        // Deterministic race test: K1 Building -> K2 Building -> K2 Publish -> K1 Late Publish
+        using var registry = new Vpsg3PreparedIndexRegistry();
+        var mapId = Guid.NewGuid();
+        var k1 = new Vpsg3IndexCacheKey(mapId, "1f", "fp_old", DateTimeOffset.UtcNow, "gen_old");
+        var k2 = new Vpsg3IndexCacheKey(mapId, "1f", "fp_new", DateTimeOffset.UtcNow.AddMinutes(1), "gen_new");
+
+        // K1 begins build
+        Assert.True(registry.TryBeginBuild(k1));
+        Assert.Equal(Vpsg3IndexStatus.Building, registry.GetStatus(mapId, "1f"));
+
+        // Newer invalidation/update triggers K2 build
+        Assert.True(registry.TryBeginBuild(k2));
+        Assert.Equal(Vpsg3IndexStatus.Building, registry.GetStatus(mapId, "1f"));
+
+        // K2 finishes and publishes
+        var f2 = CreateDummyFloor(mapId, "1f", fingerprint: "fp_new", updatedAt: k2.UpdatedAt, generation: "gen_new");
+        Assert.True(registry.TryPublishFloor(k2, f2));
+        Assert.Equal(Vpsg3IndexStatus.Ready, registry.GetStatus(mapId, "1f", k2));
+
+        // K1 late publish arrives -> must be rejected, and f1 disposed!
+        var f1 = CreateDummyFloor(mapId, "1f", fingerprint: "fp_old", updatedAt: k1.UpdatedAt, generation: "gen_old");
+        Assert.False(registry.TryPublishFloor(k1, f1));
+        Assert.True(f1.IsDisposed);
+
+        // K2 slot remains ready and untouched
+        Assert.Equal(Vpsg3IndexStatus.Ready, registry.GetStatus(mapId, "1f", k2));
+        Assert.True(registry.TryGet(k2, out var lease));
+        using (lease)
+        {
+            Assert.Equal("fp_new", lease.Floor.CacheKey.ContentFingerprint);
+        }
+    }
+
+    [Fact]
+    public void StaleBuildFailure_Rejected_WhenSlotSuperseded()
+    {
+        // Deterministic race test: K1 Building -> K2 Building -> K1 Late Failure
+        using var registry = new Vpsg3PreparedIndexRegistry();
+        var mapId = Guid.NewGuid();
+        var k1 = new Vpsg3IndexCacheKey(mapId, "1f", "fp_old", DateTimeOffset.UtcNow, "gen_old");
+        var k2 = new Vpsg3IndexCacheKey(mapId, "1f", "fp_new", DateTimeOffset.UtcNow.AddMinutes(1), "gen_new");
+
+        Assert.True(registry.TryBeginBuild(k1));
+        Assert.True(registry.TryBeginBuild(k2));
+
+        // Late failure for K1 must be rejected and must NOT mark K2 as failed
+        Assert.False(registry.RecordBuildFailure(k1, "Old failure"));
+        Assert.Equal(Vpsg3IndexStatus.Building, registry.GetStatus(mapId, "1f", k2));
+    }
+
+    [Fact]
+    public void InvalidateMaps_CorrectlyTransitionsBuildingAndFailedSlotsToStale()
+    {
+        using var registry = new Vpsg3PreparedIndexRegistry();
+        var map1 = Guid.NewGuid();
+        var map2 = Guid.NewGuid();
+
+        var kBuilding = new Vpsg3IndexCacheKey(map1, "1f", "fp1", DateTimeOffset.UtcNow, "gen1");
+        var kFailed = new Vpsg3IndexCacheKey(map1, "2f", "fp1", DateTimeOffset.UtcNow, "gen1");
+        var kOther = new Vpsg3IndexCacheKey(map2, "1f", "fp2", DateTimeOffset.UtcNow, "gen2");
+
+        Assert.True(registry.TryBeginBuild(kBuilding));
+        Assert.True(registry.TryBeginBuild(kFailed));
+        Assert.True(registry.RecordBuildFailure(kFailed, "Simulated failure"));
+        Assert.True(registry.TryBeginBuild(kOther));
+
+        // Even though Building and Failed slots have Floor == null, InvalidateMaps must transition them to Stale!
+        registry.InvalidateMaps(new HashSet<Guid> { map1 });
+
+        Assert.Equal(Vpsg3IndexStatus.Stale, registry.GetStatus(map1, "1f"));
+        Assert.Equal(Vpsg3IndexStatus.Stale, registry.GetStatus(map1, "2f"));
+        Assert.Equal(Vpsg3IndexStatus.Building, registry.GetStatus(map2, "1f"));
     }
 
     [Fact]
@@ -133,7 +216,7 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         var key5NewSchema = new Vpsg3IndexCacheKey(mapId, "1f", "fp_v1", time1, "gen1", 2);
 
         var floor = CreateDummyFloor(mapId, "1f", fingerprint: "fp_v1", updatedAt: time1, generation: "gen1");
-        registry.PublishFloor(floor);
+        PublishToRegistry(registry, floor);
 
         // Matching exact key succeeds
         Assert.True(registry.TryGet(key1, out var lease1));
@@ -156,9 +239,9 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         var map1 = Guid.NewGuid();
         var map2 = Guid.NewGuid();
 
-        registry.PublishFloor(CreateDummyFloor(map1, "1f"));
-        registry.PublishFloor(CreateDummyFloor(map1, "2f"));
-        registry.PublishFloor(CreateDummyFloor(map2, "1f"));
+        PublishToRegistry(registry, CreateDummyFloor(map1, "1f"));
+        PublishToRegistry(registry, CreateDummyFloor(map1, "2f"));
+        PublishToRegistry(registry, CreateDummyFloor(map2, "1f"));
 
         Assert.Equal(3, registry.ReadyCount);
 
@@ -176,7 +259,7 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         using var registry = new Vpsg3PreparedIndexRegistry();
         var mapId = Guid.NewGuid();
         var originalFloor = CreateDummyFloor(mapId, "1f");
-        registry.PublishFloor(originalFloor);
+        PublishToRegistry(registry, originalFloor);
 
         // 1. Check out lease
         var got = registry.TryGet(mapId, "1f", out var lease);
@@ -263,7 +346,7 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         var registry = new Vpsg3PreparedIndexRegistry();
         var mapId = Guid.NewGuid();
         var floor = CreateDummyFloor(mapId, "1f");
-        registry.PublishFloor(floor);
+        PublishToRegistry(registry, floor);
 
         Assert.True(registry.TryGet(mapId, "1f", out var lease));
         Assert.NotNull(lease);
@@ -315,7 +398,7 @@ public sealed class Vpsg3PreparedIndexRegistryTests
         var mapIds = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
         foreach (var id in mapIds)
         {
-            registry.PublishFloor(CreateDummyFloor(id, "1f"));
+            PublishToRegistry(registry, CreateDummyFloor(id, "1f"));
         }
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -344,7 +427,15 @@ public sealed class Vpsg3PreparedIndexRegistryTests
             while (!token.IsCancellationRequested)
             {
                 var id = mapIds[rnd.Next(mapIds.Length)];
-                registry.PublishFloor(CreateDummyFloor(id, "1f"));
+                var floor = CreateDummyFloor(id, "1f");
+                if (registry.TryBeginBuild(floor.CacheKey))
+                {
+                    registry.TryPublishFloor(floor.CacheKey, floor);
+                }
+                else
+                {
+                    floor.Dispose();
+                }
                 Thread.Sleep(5);
             }
         })).ToArray();

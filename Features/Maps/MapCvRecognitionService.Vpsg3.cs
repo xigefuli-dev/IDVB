@@ -4,6 +4,8 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCvRecognitionService : IDisposable
 {
+    private const int Vpsg3RebuildWorkerCount = 3;
+
     private readonly Vpsg3PreparedIndexRegistry _vpsg3Registry = new();
     private readonly CancellationTokenSource _vpsg3RebuildCts = new();
 
@@ -14,8 +16,9 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
     /// <summary>
     /// Synchronously invalidates changed maps in the VPSG3 registry, then triggers
-    /// background asynchronous rebuilding for the invalidated floors.
+    /// background asynchronous rebuilding for the invalidated floors using bounded parallelism (3 workers).
     /// Alignment never waits for rebuild to complete.
+    /// Only floors with complete, valid PrebuiltStructureLine are eligible for VPSG3 index building.
     /// </summary>
     internal void InvalidateAndTriggerVpsg3Rebuild(
         IReadOnlyList<MapRecord> maps,
@@ -36,66 +39,119 @@ public sealed partial class MapCvRecognitionService : IDisposable
         if (targets.Length == 0)
             return;
 
-        _ = Task.Run(() =>
+        // Collect all eligible prebuilt tasks
+        var buildTasks = new List<(MapRecord Map, FloorDefinition Floor, string LinePath, Vpsg3IndexCacheKey CacheKey)>();
+        foreach (var map in targets)
         {
-            foreach (var map in targets)
+            var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(map);
+
+            foreach (var floor in map.Floors)
             {
-                if (token.IsCancellationRequested)
-                    break;
+                // Strict PrebuiltStructureLine contract: ineligible floors never get a VPSG3 index
+                if (!TryGetEligiblePrebuiltPath(map, floor, out var linePath) || linePath is null)
+                    continue;
 
-                var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(map);
-                var tuning = new MapStructureRegistrationTuning();
-                var structureGen = tuning.Generation.CacheFingerprint;
+                var structureGen = Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(
+                    floor.PrebuiltStructureLine!,
+                    schemaVersion: 1);
 
-                foreach (var floor in map.Floors)
+                var cacheKey = new Vpsg3IndexCacheKey(
+                    map.Id,
+                    floor.Key,
+                    fingerprint,
+                    map.UpdatedAt,
+                    structureGen,
+                    SchemaVersion: 1);
+
+                buildTasks.Add((map, floor, linePath, cacheKey));
+            }
+        }
+
+        if (buildTasks.Count == 0)
+            return;
+
+        // Dispatch background bounded parallel execution (3 workers)
+        _ = Task.Run(async () =>
+        {
+            var options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Vpsg3RebuildWorkerCount,
+                CancellationToken = token
+            };
+
+            try
+            {
+                await Parallel.ForEachAsync(buildTasks, options, (taskItem, ct) =>
                 {
-                    if (token.IsCancellationRequested)
-                        break;
+                    if (ct.IsCancellationRequested)
+                        return ValueTask.CompletedTask;
 
-                    var cacheKey = new Vpsg3IndexCacheKey(
-                        map.Id,
-                        floor.Key,
-                        fingerprint,
-                        map.UpdatedAt,
-                        structureGen,
-                        SchemaVersion: 1);
-
-                    if (!_vpsg3Registry.TryBeginBuild(cacheKey))
-                        continue;
+                    // Prevent duplicate parallel builds for the same key
+                    if (!_vpsg3Registry.TryBeginBuild(taskItem.CacheKey))
+                        return ValueTask.CompletedTask;
 
                     try
                     {
-                        var floorProfile = MapFloorRules.GetFloorProfile(map, floor.Key);
-                        if (floorProfile is null)
-                        {
-                            _vpsg3Registry.RecordBuildFailure(cacheKey, "Floor profile missing.");
-                            continue;
-                        }
-
-                        var path = GetAlignmentReferencePath(map, floor.Key, tuning);
-                        if (!File.Exists(path))
-                        {
-                            _vpsg3Registry.RecordBuildFailure(cacheKey, $"Reference image not found: {path}");
-                            continue;
-                        }
-
-                        using var image = Cv2.ImRead(path, ImreadModes.Grayscale);
+                        ct.ThrowIfCancellationRequested();
+                        using var image = Cv2.ImRead(taskItem.LinePath, ImreadModes.Grayscale);
                         if (image.Empty())
                         {
-                            _vpsg3Registry.RecordBuildFailure(cacheKey, "Decoded image is empty.");
-                            continue;
+                            _vpsg3Registry.RecordBuildFailure(taskItem.CacheKey, "Decoded prebuilt line image is empty.");
+                            return ValueTask.CompletedTask;
                         }
 
-                        var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, cacheKey);
-                        _vpsg3Registry.PublishFloor(preparedFloor);
+                        var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, taskItem.CacheKey);
+                        _vpsg3Registry.TryPublishFloor(taskItem.CacheKey, preparedFloor);
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (OperationCanceledException)
                     {
-                        _vpsg3Registry.RecordBuildFailure(cacheKey, ex.Message);
+                        // Background task cancelled
                     }
-                }
+                    catch (Exception ex)
+                    {
+                        _vpsg3Registry.RecordBuildFailure(taskItem.CacheKey, ex.Message);
+                    }
+
+                    return ValueTask.CompletedTask;
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // Service being disposed or rebuild cancelled
             }
         }, token);
+    }
+
+    private bool TryGetEligiblePrebuiltPath(
+        MapRecord map,
+        FloorDefinition floor,
+        out string? prebuiltPath)
+    {
+        prebuiltPath = null;
+        if (floor.PrebuiltStructureLine?.IsComplete is not true)
+            return false;
+
+        if (!string.Equals(
+                floor.PrebuiltStructureLine.SourceSha256,
+                floor.RecognitionSha256,
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        try
+        {
+            var path = _repository.GetPrebuiltStructureLinePath(map, floor.Key);
+            if (File.Exists(path))
+            {
+                prebuiltPath = path;
+                return true;
+            }
+        }
+        catch
+        {
+            // Corrupted or missing prebuilt line file
+        }
+
+        return false;
     }
 
     private void DisposeVpsg3()

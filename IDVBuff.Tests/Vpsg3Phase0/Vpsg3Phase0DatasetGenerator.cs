@@ -245,7 +245,7 @@ public static class Vpsg3Phase0DatasetGenerator
         }
     }
 
-    private static (Mat Color, Mat Line) BuildSyntheticReference(int width, int height)
+    public static (Mat Color, Mat Line) BuildSyntheticReference(int width, int height)
     {
         var color = new Mat(new Size(width, height), MatType.CV_8UC3, Scalar.Black);
         var line = new Mat(new Size(width, height), MatType.CV_8UC1, Scalar.Black);

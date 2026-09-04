@@ -139,52 +139,81 @@ public sealed class Vpsg3PreparedIndexRegistry : IVpsg3PreparedIndexRegistry
     }
 
     /// <inheritdoc />
-    public void PublishFloor(Vpsg3PreparedFloor floor)
+    public bool TryPublishFloor(Vpsg3IndexCacheKey expectedKey, Vpsg3PreparedFloor floor)
     {
         ArgumentNullException.ThrowIfNull(floor);
-        if (Volatile.Read(ref _disposed) != 0)
+
+        if (floor.CacheKey != expectedKey || Volatile.Read(ref _disposed) != 0)
         {
             floor.Dispose();
-            return;
+            return false;
         }
-
-        var key = (floor.CacheKey.MapId, floor.CacheKey.NormalizeFloorKey());
-        Vpsg3PreparedFloor? displacedFloor = null;
-
-        while (true)
-        {
-            var current = _slots;
-            current.TryGetValue(key, out var existing);
-            displacedFloor = existing?.Floor;
-
-            var updatedSlot = new Vpsg3FloorSlot(
-                floor.CacheKey,
-                Vpsg3IndexStatus.Ready,
-                floor: floor);
-
-            var updatedDict = current.SetItem(key, updatedSlot);
-            if (ReferenceEquals(Interlocked.CompareExchange(ref _slots, updatedDict, current), current))
-                break;
-        }
-
-        displacedFloor?.Dispose();
-    }
-
-    /// <inheritdoc />
-    public void RecordBuildFailure(Vpsg3IndexCacheKey expectedKey, string failureReason)
-    {
-        if (Volatile.Read(ref _disposed) != 0)
-            return;
 
         var key = (expectedKey.MapId, expectedKey.NormalizeFloorKey());
         Vpsg3PreparedFloor? displacedFloor = null;
 
         while (true)
         {
-            var current = _slots;
-            current.TryGetValue(key, out var existing);
-            displacedFloor = existing?.Floor;
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                floor.Dispose();
+                return false;
+            }
 
+            var current = _slots;
+            if (!current.TryGetValue(key, out var existing))
+            {
+                // Slot does not exist, reject stale build
+                floor.Dispose();
+                return false;
+            }
+
+            // Only transition to Ready if the slot is currently Building and its expected key matches
+            if (existing.Status != Vpsg3IndexStatus.Building || existing.ExpectedKey != expectedKey)
+            {
+                // Stale background build or superseded slot: reject and dispose floor
+                floor.Dispose();
+                return false;
+            }
+
+            displacedFloor = existing.Floor;
+            var updatedSlot = new Vpsg3FloorSlot(
+                expectedKey,
+                Vpsg3IndexStatus.Ready,
+                floor: floor);
+
+            var updatedDict = current.SetItem(key, updatedSlot);
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _slots, updatedDict, current), current))
+            {
+                displacedFloor?.Dispose();
+                return true;
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public bool RecordBuildFailure(Vpsg3IndexCacheKey expectedKey, string failureReason)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            return false;
+
+        var key = (expectedKey.MapId, expectedKey.NormalizeFloorKey());
+        Vpsg3PreparedFloor? displacedFloor = null;
+
+        while (true)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return false;
+
+            var current = _slots;
+            if (!current.TryGetValue(key, out var existing))
+                return false;
+
+            // Only mark as Failed if still Building for this exact expectedKey
+            if (existing.Status != Vpsg3IndexStatus.Building || existing.ExpectedKey != expectedKey)
+                return false;
+
+            displacedFloor = existing.Floor;
             var updatedSlot = new Vpsg3FloorSlot(
                 expectedKey,
                 Vpsg3IndexStatus.Failed,
@@ -192,10 +221,11 @@ public sealed class Vpsg3PreparedIndexRegistry : IVpsg3PreparedIndexRegistry
 
             var updatedDict = current.SetItem(key, updatedSlot);
             if (ReferenceEquals(Interlocked.CompareExchange(ref _slots, updatedDict, current), current))
-                break;
+            {
+                displacedFloor?.Dispose();
+                return true;
+            }
         }
-
-        displacedFloor?.Dispose();
     }
 
     /// <inheritdoc />
@@ -218,24 +248,32 @@ public sealed class Vpsg3PreparedIndexRegistry : IVpsg3PreparedIndexRegistry
 
         while (true)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
             var current = _slots;
             var builder = current.ToBuilder();
             displacedFloors?.Clear();
             displacedFloors ??= new List<Vpsg3PreparedFloor>();
+            var matchedAnySlot = false;
 
             foreach (var (key, slot) in current)
             {
                 if (mapIds.Contains(key.MapId))
                 {
-                    // Transition to Stale and remove floor reference
-                    var staleSlot = new Vpsg3FloorSlot(slot.ExpectedKey, Vpsg3IndexStatus.Stale);
-                    builder[key] = staleSlot;
-                    if (slot.Floor is not null)
-                        displacedFloors.Add(slot.Floor);
+                    matchedAnySlot = true;
+                    // Transition to Stale if not already (Stale && Floor == null)
+                    if (slot.Status != Vpsg3IndexStatus.Stale || slot.Floor is not null)
+                    {
+                        var staleSlot = new Vpsg3FloorSlot(slot.ExpectedKey, Vpsg3IndexStatus.Stale);
+                        builder[key] = staleSlot;
+                        if (slot.Floor is not null)
+                            displacedFloors.Add(slot.Floor);
+                    }
                 }
             }
 
-            if (displacedFloors.Count == 0)
+            if (!matchedAnySlot)
                 return;
 
             var updated = builder.ToImmutable();
@@ -260,8 +298,14 @@ public sealed class Vpsg3PreparedIndexRegistry : IVpsg3PreparedIndexRegistry
 
         while (true)
         {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+
             var current = _slots;
             if (!current.TryGetValue(key, out var existing))
+                return;
+
+            if (existing.Status == Vpsg3IndexStatus.Stale && existing.Floor is null)
                 return;
 
             displaced = existing.Floor;

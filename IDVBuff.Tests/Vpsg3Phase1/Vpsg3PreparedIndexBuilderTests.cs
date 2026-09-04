@@ -38,12 +38,69 @@ public sealed class Vpsg3PreparedIndexBuilderTests
 
         // Words per row for width 300: (300 + 63) / 64 = 5
         Assert.Equal(5, floor.WordsPerRow);
-        Assert.NotNull(floor.UnsafeDilatedBitset);
-        Assert.Equal(200 * 5, floor.UnsafeDilatedBitset.Length);
+        Assert.Equal(200 * 5, floor.BitsetWordCount);
+        Assert.Equal(200 * 5, floor.DilatedBitsetSpan.Length);
+        Assert.False(floor.DilatedBitsetMemory.IsEmpty);
 
         // Memory footprint: object overhead (128) + bitset (1000 * 8 + 24) = ~8152 bytes
         Assert.True(floor.MemoryBytes > 8000);
         Assert.False(floor.IsDisposed);
+    }
+
+    [Fact]
+    public async Task BuildFromMatAsync_ClonesMat_SafeEvenIfCallerDisposesInputSynchronously()
+    {
+        var key = new Vpsg3IndexCacheKey(Guid.NewGuid(), "1f", "fp1", DateTimeOffset.UtcNow, "gen1");
+
+        Task<Vpsg3IndexBuildResult> task;
+        using (var callerMat = new Mat(100, 100, MatType.CV_8UC1, Scalar.All(0)))
+        {
+            Cv2.Line(callerMat, new Point(10, 10), new Point(90, 90), Scalar.All(255), 2);
+            // Initiate async build
+            task = Vpsg3PreparedIndexBuilder.BuildFromMatAsync(callerMat, key);
+            // callerMat is immediately disposed upon exiting this block!
+        }
+
+        var result = await task;
+        Assert.True(result.Success);
+        Assert.NotNull(result.Floor);
+
+        using (result.Floor)
+        {
+            Assert.Equal(100, result.Floor.ReferenceWidth);
+            Assert.Equal(100, result.Floor.ReferenceHeight);
+            Assert.False(result.Floor.IsDisposed);
+        }
+    }
+
+    [Fact]
+    public async Task BuildFromFileAsync_LoadsImageAndBuildsCleanly()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"vpsg3-test-{Guid.NewGuid():N}.png");
+        try
+        {
+            using (var mat = new Mat(120, 150, MatType.CV_8UC1, Scalar.All(0)))
+            {
+                Cv2.Line(mat, new Point(20, 20), new Point(130, 20), Scalar.All(255), 2);
+                Cv2.ImWrite(tempFile, mat);
+            }
+
+            var key = new Vpsg3IndexCacheKey(Guid.NewGuid(), "1f", "fp_file", DateTimeOffset.UtcNow, "gen1");
+            var result = await Vpsg3PreparedIndexBuilder.BuildFromFileAsync(tempFile, key);
+
+            Assert.True(result.Success);
+            Assert.NotNull(result.Floor);
+            using (result.Floor)
+            {
+                Assert.Equal(150, result.Floor.ReferenceWidth);
+                Assert.Equal(120, result.Floor.ReferenceHeight);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
     }
 
     [Fact]

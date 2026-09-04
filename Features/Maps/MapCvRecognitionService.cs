@@ -212,8 +212,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
             _catalogRevision = _repository.GetCatalogRevision();
             _cacheInitialized = true;
             _structureCache.InvalidateMaps(cache.ChangedMapIds);
-            // MapRepository may overwrite an image without changing its
-            // path. The overlay bitmap cache must not retain that old image.
+            InvalidateAndTriggerVpsg3Rebuild(cache.Maps, cache.ChangedMapIds);
+            // MapRepository may overwrite an image without changing its path.
             MapOverlayBitmapRenderer.InvalidateImageCache();
 
             // 刷新侧门特征缓存

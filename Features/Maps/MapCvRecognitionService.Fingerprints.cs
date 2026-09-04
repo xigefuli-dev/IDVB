@@ -395,6 +395,7 @@ public sealed partial class MapCvRecognitionService
         _disposed = true;
         _gateDetector.Dispose();
         _structureCache.Dispose();
+        DisposeVpsg3();
         _auxiliaryTemplateCache.Dispose();
         _cacheGate.Dispose();
         foreach (var mat in _sideEntranceFeatureCache.Values)

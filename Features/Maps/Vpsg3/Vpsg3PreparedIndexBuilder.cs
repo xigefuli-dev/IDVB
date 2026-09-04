@@ -75,9 +75,58 @@ public static class Vpsg3PreparedIndexBuilder
 
     /// <summary>
     /// Builds a prepared VPSG 3.0 floor index asynchronously with execution timing.
+    /// Synchronously clones the input Mat before background dispatch to guarantee caller lifecycle isolation.
     /// </summary>
     public static async Task<Vpsg3IndexBuildResult> BuildFromMatAsync(
         Mat edgeImage,
+        Vpsg3IndexCacheKey cacheKey,
+        Vpsg3TuningConfig? tuning = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(edgeImage);
+        if (edgeImage.Empty())
+            throw new ArgumentException("Edge image cannot be empty.", nameof(edgeImage));
+
+        var ownedMat = edgeImage.Clone();
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var floor = BuildFromMat(ownedMat, cacheKey, tuning);
+                    sw.Stop();
+                    return new Vpsg3IndexBuildResult(
+                        Success: true,
+                        Floor: floor,
+                        ErrorMessage: null,
+                        BuildMilliseconds: sw.Elapsed.TotalMilliseconds);
+                }
+                finally
+                {
+                    ownedMat.Dispose();
+                }
+            }, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            sw.Stop();
+            return new Vpsg3IndexBuildResult(
+                Success: false,
+                Floor: null,
+                ErrorMessage: ex.Message,
+                BuildMilliseconds: sw.Elapsed.TotalMilliseconds);
+        }
+    }
+
+    /// <summary>
+    /// Decodes a reference image from disk in the background and constructs a prepared floor index.
+    /// Manages the full lifecycle of the loaded Mat entirely within the background task.
+    /// </summary>
+    public static async Task<Vpsg3IndexBuildResult> BuildFromFileAsync(
+        string imagePath,
         Vpsg3IndexCacheKey cacheKey,
         Vpsg3TuningConfig? tuning = null,
         CancellationToken cancellationToken = default)
@@ -88,7 +137,18 @@ public static class Vpsg3PreparedIndexBuilder
             return await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var floor = BuildFromMat(edgeImage, cacheKey, tuning);
+                using var image = Cv2.ImRead(imagePath, ImreadModes.Grayscale);
+                if (image.Empty())
+                {
+                    sw.Stop();
+                    return new Vpsg3IndexBuildResult(
+                        Success: false,
+                        Floor: null,
+                        ErrorMessage: $"Failed to decode reference image from '{imagePath}'.",
+                        BuildMilliseconds: sw.Elapsed.TotalMilliseconds);
+                }
+
+                var floor = BuildFromMat(image, cacheKey, tuning);
                 sw.Stop();
                 return new Vpsg3IndexBuildResult(
                     Success: true,

@@ -61,7 +61,7 @@ public sealed class Vpsg3Phase1Benchmarks
                 SchemaVersion: 1);
 
             var prepared = Vpsg3PreparedIndexBuilder.BuildFromMat(syntheticEdge, cacheKey);
-            registry.RegisterFloor(prepared);
+            registry.PublishFloor(prepared);
         }
 
         sw.Stop();
@@ -128,7 +128,7 @@ public sealed class Vpsg3Phase1Benchmarks
                 Parallel.ForEach(mats, parallelOptions, item =>
                 {
                     var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(item.EdgeMat, item.Key);
-                    registry.RegisterFloor(floor);
+                    registry.PublishFloor(floor);
                 });
 
                 sw.Stop();

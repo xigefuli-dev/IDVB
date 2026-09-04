@@ -3,6 +3,18 @@ using System.Diagnostics.CodeAnalysis;
 namespace IDVBuff.Features.Maps;
 
 /// <summary>
+/// Status of a floor index in the VPSG 3.0 registry.
+/// </summary>
+public enum Vpsg3IndexStatus
+{
+    Missing,
+    Building,
+    Ready,
+    Failed,
+    Stale
+}
+
+/// <summary>
 /// Cache identity for a prepared VPSG3 floor index.
 /// Guaranteed to uniquely identify map content, floor, update timestamp, generation, and schema.
 /// </summary>
@@ -19,6 +31,33 @@ public readonly record struct Vpsg3IndexCacheKey(
 
     public override string ToString() =>
         $"map={MapId:D};floor={NormalizeFloorKey()};v={SchemaVersion};fp={ContentFingerprint};gen={StructureGeneration};updated={UpdatedAt:O}";
+}
+
+/// <summary>
+/// A slot in the VPSG3 registry representing the lifecycle state of a specific (MapId, FloorKey).
+/// </summary>
+public sealed class Vpsg3FloorSlot
+{
+    public Vpsg3IndexCacheKey ExpectedKey { get; }
+    public Vpsg3IndexStatus Status { get; }
+    public Vpsg3PreparedFloor? Floor { get; }
+    public string? FailureReason { get; }
+    public DateTimeOffset StatusChangedAt { get; }
+
+    public bool IsReady => Status == Vpsg3IndexStatus.Ready && Floor is not null && !Floor.IsDisposed;
+
+    public Vpsg3FloorSlot(
+        Vpsg3IndexCacheKey expectedKey,
+        Vpsg3IndexStatus status,
+        Vpsg3PreparedFloor? floor = null,
+        string? failureReason = null)
+    {
+        ExpectedKey = expectedKey;
+        Status = status;
+        Floor = floor;
+        FailureReason = failureReason;
+        StatusChangedAt = DateTimeOffset.UtcNow;
+    }
 }
 
 /// <summary>
@@ -69,6 +108,7 @@ public sealed record Vpsg3ScalePrior(
 /// <summary>
 /// Immutable prepared floor representation resident in memory for VPSG 3.0.
 /// Supports ref-counted delayed disposal so active lease holders are never invalidated during background swaps.
+/// Prohibits 0->1 resurrection via CAS TryRetain.
 /// </summary>
 public sealed class Vpsg3PreparedFloor : IDisposable
 {
@@ -89,7 +129,18 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     public ReadOnlySpan<ulong> DilatedBitsetSpan =>
         _dilatedBitset is not null ? _dilatedBitset.AsSpan() : ReadOnlySpan<ulong>.Empty;
 
-    public ulong[]? UnsafeDilatedBitset => _dilatedBitset;
+    public ReadOnlyMemory<ulong> DilatedBitsetMemory =>
+        _dilatedBitset is not null ? _dilatedBitset.AsMemory() : ReadOnlyMemory<ulong>.Empty;
+
+    public int BitsetWordCount => _dilatedBitset?.Length ?? 0;
+
+    public ulong GetBitsetWord(int index)
+    {
+        var bitset = _dilatedBitset;
+        if (bitset is null || (uint)index >= (uint)bitset.Length)
+            throw new IndexOutOfRangeException($"Bitset word index {index} out of range.");
+        return bitset[index];
+    }
 
     public Vpsg3PreparedFloor(
         Vpsg3IndexCacheKey cacheKey,
@@ -111,17 +162,40 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         MemoryBytes = memoryBytes;
     }
 
-    internal void Retain()
+    /// <summary>
+    /// Atomically increments reference count from a positive value.
+    /// Returns false if refCount is &lt;= 0 or object has been disposed, strictly preventing 0->1 resurrection.
+    /// </summary>
+    internal bool TryRetain()
     {
-        ObjectDisposedException.ThrowIf(IsDisposed, this);
-        Interlocked.Increment(ref _refCount);
+        while (true)
+        {
+            var current = Volatile.Read(ref _refCount);
+            if (current <= 0 || Volatile.Read(ref _disposed) != 0)
+                return false;
+
+            if (Interlocked.CompareExchange(ref _refCount, current + 1, current) == current)
+                return true;
+        }
     }
 
     internal void Release()
     {
-        if (Interlocked.Decrement(ref _refCount) == 0)
+        while (true)
         {
-            Cleanup();
+            var current = Volatile.Read(ref _refCount);
+            if (current <= 0)
+                return;
+
+            var next = current - 1;
+            if (Interlocked.CompareExchange(ref _refCount, next, current) == current)
+            {
+                if (next == 0)
+                {
+                    Cleanup();
+                }
+                return;
+            }
         }
     }
 
@@ -147,11 +221,25 @@ public sealed class Vpsg3FloorIndexLease : IDisposable
 {
     private Vpsg3PreparedFloor? _floor;
 
-    internal Vpsg3FloorIndexLease(Vpsg3PreparedFloor floor)
+    private Vpsg3FloorIndexLease(Vpsg3PreparedFloor floor)
+    {
+        _floor = floor;
+    }
+
+    /// <summary>
+    /// Safely attempts to construct a lease. Fails if the floor cannot be retained (e.g. 0-ref or disposed).
+    /// </summary>
+    internal static bool TryCreate(Vpsg3PreparedFloor floor, [NotNullWhen(true)] out Vpsg3FloorIndexLease? lease)
     {
         ArgumentNullException.ThrowIfNull(floor);
-        _floor = floor;
-        _floor.Retain();
+        if (floor.TryRetain())
+        {
+            lease = new Vpsg3FloorIndexLease(floor);
+            return true;
+        }
+
+        lease = null;
+        return false;
     }
 
     public Vpsg3PreparedFloor Floor =>

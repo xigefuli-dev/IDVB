@@ -134,6 +134,7 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.cs" Link="Production\MapCvRecognitionService.LockedFloorFeature.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.Part*.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.VpsgModes.cs" Link="Production\MapCvRecognitionService.VpsgModes.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.Vpsg3.cs" Link="Production\MapCvRecognitionService.Vpsg3.cs" />
     <Compile Include="..\Features\Maps\AlignmentSearchContext.cs" Link="Production\AlignmentSearchContext.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentSearchPolicy.cs" Link="Production\MapAlignmentSearchPolicy.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.cs" Link="Production\MapCvAlignmentService.AlignSelected.cs" />

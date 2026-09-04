@@ -147,18 +147,18 @@ public sealed class BackgroundScanPreparationSourceTests
             root, "Features", "Maps",
             "SessionOrchestrator.ResolutionTuning.cs"));
         Assert.Contains(
-            "tuning.EnableScanCheapReject = true;",
+            "tuning.EnableScanCheapReject = false;",
             tuningSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "tuning.EnableScanCheapRejectShadowCollection = false;",
+            "tuning.EnableScanCheapRejectShadowCollection = true;",
             tuningSource,
             StringComparison.Ordinal);
 
         var sideEntranceSource = File.ReadAllText(Path.Combine(
             root, "Features", "Maps", "AdaptiveScaleAlignment",
             "SessionOrchestrator.AdaptiveScaleSideEntrance.cs"));
-        Assert.Contains(
+        Assert.DoesNotContain(
             "if (templateAttempt.Diagnostics.ScanCheapRejected)",
             sideEntranceSource,
             StringComparison.Ordinal);

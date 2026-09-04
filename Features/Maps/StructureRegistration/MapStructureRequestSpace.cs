@@ -40,6 +40,7 @@ internal static class MapStructureRequestSpace
             DebugOutputDirectory = source.DebugOutputDirectory,
             PreparedReference = source.PreparedReference,
             PreparedLive = source.PreparedLive,
+            PreparedOriginalLive = source.PreparedOriginalLive,
             LowStructurePlan = ToComputationPlan(source.LowStructurePlan, ratio),
             SideEntrancePrior = source.SideEntrancePrior
         };

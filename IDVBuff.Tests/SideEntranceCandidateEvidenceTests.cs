@@ -178,68 +178,6 @@ public sealed class SideEntranceCandidateEvidenceTests
         Assert.Contains("3.0px", candidate.RejectionDetail);
     }
 
-    [Fact]
-    public void VerificationSelectionKeepsOnlyTheTopThreeNearTies()
-    {
-        var candidates = Enumerable.Range(0, 12)
-            .Select(index => new SideEntranceScanCandidate
-            {
-                Map = new MapRecord
-                {
-                    Id = Guid.NewGuid(),
-                    SequenceNumber = index + 1
-                },
-                FloorKey = "1f",
-                MatchScore = 0.90d - (index * 0.01d)
-            })
-            .ToArray();
-
-        var selected = SideEntranceCandidateEvidence
-            .SelectVerificationCandidates(candidates);
-
-        Assert.Equal(3, selected.Count);
-        Assert.Equal(
-            new[] { 1, 2, 3 },
-            selected.Select(candidate => candidate.Map.SequenceNumber));
-    }
-
-    [Theory]
-    [InlineData(0.79d, 1)]
-    [InlineData(0.84d, 2)]
-    [InlineData(0.86d, 3)]
-    public void VerificationSelectionUsesTopScoreMargin(
-        double secondScore,
-        int expectedCount)
-    {
-        var candidates = new[]
-        {
-            new SideEntranceScanCandidate
-            {
-                Map = new MapRecord { Id = Guid.NewGuid(), SequenceNumber = 1 },
-                FloorKey = "1f",
-                MatchScore = 0.90d
-            },
-            new SideEntranceScanCandidate
-            {
-                Map = new MapRecord { Id = Guid.NewGuid(), SequenceNumber = 2 },
-                FloorKey = "1f",
-                MatchScore = secondScore
-            },
-            new SideEntranceScanCandidate
-            {
-                Map = new MapRecord { Id = Guid.NewGuid(), SequenceNumber = 3 },
-                FloorKey = "1f",
-                MatchScore = 0.70d
-            }
-        };
-
-        var selected = SideEntranceCandidateEvidence
-            .SelectVerificationCandidates(candidates);
-
-        Assert.Equal(expectedCount, selected.Count);
-        Assert.Equal(0.90d, selected[0].MatchScore);
-    }
-
     private static SideEntranceScanCandidate Candidate(
         double rawChamfer,
         double edgeCoverage,

@@ -129,6 +129,8 @@ public sealed class FloorDefinition
     public int ThumbnailHeight { get; set; }
     public long ThumbnailFileLength { get; set; }
     public long ThumbnailLastWriteUtcTicks { get; set; }
+    /// <summary>Optional, portable prebuilt structure-line artifact for this floor.</summary>
+    public PrebuiltStructureLineAsset? PrebuiltStructureLine { get; set; }
 
     public void NormalizeMarkerKeys() =>
         MarkerKeys = MapFloorMarkerRules.Normalize(MarkerKeys).ToList();
@@ -442,7 +444,8 @@ public sealed partial class MapRecord
                 ThumbnailWidth = f.ThumbnailWidth,
                 ThumbnailHeight = f.ThumbnailHeight,
                 ThumbnailFileLength = f.ThumbnailFileLength,
-                ThumbnailLastWriteUtcTicks = f.ThumbnailLastWriteUtcTicks
+                ThumbnailLastWriteUtcTicks = f.ThumbnailLastWriteUtcTicks,
+                PrebuiltStructureLine = f.PrebuiltStructureLine?.Clone()
             }).ToList(),
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt
@@ -478,6 +481,8 @@ public sealed partial class MapDraft
     public MapRecognitionProfile Recognition { get; set; } = new();
     /// <summary>IDVM 导入时，各楼层侧门特征图的临时暂存路径（floorKey → 磁盘绝对路径）。</summary>
     internal Dictionary<string, string> SideEntranceFeaturePaths { get; set; } = [];
+    internal Dictionary<string, string> PrebuiltStructureLinePaths { get; set; } = [];
+    internal string? PrebuiltStructureAlgorithmPath { get; set; }
 }
 
 public sealed record MapImportClassDraft(
@@ -491,7 +496,5 @@ public sealed record MapImportVariantGroupDraft(
     int PaletteSlot,
     IReadOnlyList<Guid> SourceMapIds);
 
-public sealed record MapImportBatchResult(
-    IReadOnlyList<string> CreatedClasses,
-    IReadOnlyList<MapRecord> ImportedMaps,
-    IReadOnlyList<MapVariantGroup>? ImportedVariantGroups = null);
+public sealed record MapImportBatchResult(IReadOnlyList<string> CreatedClasses,
+    IReadOnlyList<MapRecord> ImportedMaps, IReadOnlyList<MapVariantGroup>? ImportedVariantGroups = null);

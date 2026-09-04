@@ -118,7 +118,9 @@ internal static partial class MapCvAlignmentService
                         fingerprint.Map,
                         fingerprint.FloorKey)
                         ?? fingerprint.Map.Recognition.FirstFloor)
-                        .GetEffectiveValidMapBounds(),
+                        .GetEffectiveValidMapBounds(
+                            preparedReference.Edges.Width,
+                            preparedReference.Edges.Height),
                     PlayerPrior = playerPrior,
                     PredictedViewportOrigin = predictedViewportOrigin,
                     LiveIgnoreRegions = liveIgnoreRegions ?? [],

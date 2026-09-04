@@ -168,27 +168,6 @@ public sealed partial class IdvmPackageService
         }
     }
 
-    private static void ValidateJsonShape(JsonElement element, string name)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in element.EnumerateObject())
-            {
-                if (!names.Add(property.Name))
-                    throw new InvalidDataException($"{name} 包含重复字段：{property.Name}");
-                ValidateJsonShape(property.Value, name);
-            }
-        }
-        else if (element.ValueKind == JsonValueKind.Array)
-        {
-            if (element.GetArrayLength() > 100_000)
-                throw new InvalidDataException($"{name} 包含过大的 JSON 数组。");
-            foreach (var item in element.EnumerateArray())
-                ValidateJsonShape(item, name);
-        }
-    }
-
     private static async Task<IReadOnlyList<MapImportClassDraft>> BuildImportDraftsAsync(
         string root,
         ManifestDto manifest,
@@ -226,6 +205,8 @@ public sealed partial class IdvmPackageService
             var profiles = new Dictionary<string, FloorRecognitionProfile>(StringComparer.Ordinal);
             var gates = gatesDocument.Gates.Select(ToModel).ToList();
             var sideEntranceFeaturePaths = new Dictionary<string, string>(StringComparer.Ordinal);
+            var prebuiltStructureLinePaths = new Dictionary<string, string>(StringComparer.Ordinal);
+            string? prebuiltStructureAlgorithmPath = null;
             for (var index = 0; index < metadata.Floors.Count; index++)
             {
                 var floor = metadata.Floors[index];
@@ -280,13 +261,30 @@ public sealed partial class IdvmPackageService
                         IsBuiltIn = anchor.BuiltIn
                     });
                 }
-                floorDefinitions.Add(new FloorDefinition
+                var floorDefinition = new FloorDefinition
                 {
                     Key = floor.Key,
                     DisplayName = floor.DisplayName,
                     SortOrder = floor.SortOrder,
                     MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList()
-                });
+                };
+                if (await ReadImportedPrebuiltStructureAsync(
+                        root,
+                        map,
+                        floor,
+                        cancellationToken) is { } importedPrebuilt)
+                {
+                    floorDefinition.PrebuiltStructureLine = importedPrebuilt.Asset;
+                    prebuiltStructureLinePaths[floor.Key] = importedPrebuilt.LinePath;
+                    if (prebuiltStructureAlgorithmPath is not null
+                        && !string.Equals(
+                            prebuiltStructureAlgorithmPath,
+                            importedPrebuilt.AlgorithmPath,
+                            StringComparison.Ordinal))
+                        throw new InvalidDataException("同一地图的楼层必须引用同一个 IDVA 算法文件。");
+                    prebuiltStructureAlgorithmPath = importedPrebuilt.AlgorithmPath;
+                }
+                floorDefinitions.Add(floorDefinition);
                 floorPaths.Add(floor.Key, imagePath);
                 profiles.Add(floor.Key, profile);
 
@@ -358,7 +356,9 @@ public sealed partial class IdvmPackageService
                     .Where(tag => tag.GroupId != Guid.Empty && !string.IsNullOrWhiteSpace(tag.GroupName))
                     .GroupBy(tag => tag.GroupId)
                     .ToDictionary(group => group.Key, group => group.First().GroupName.Trim()),
-                SideEntranceFeaturePaths = sideEntranceFeaturePaths
+                SideEntranceFeaturePaths = sideEntranceFeaturePaths,
+                PrebuiltStructureLinePaths = prebuiltStructureLinePaths,
+                PrebuiltStructureAlgorithmPath = prebuiltStructureAlgorithmPath
             };
             draftsByClass[map.ClassId].Add(draft);
         }

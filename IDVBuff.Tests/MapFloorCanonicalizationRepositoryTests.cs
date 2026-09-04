@@ -113,7 +113,7 @@ public sealed class MapFloorCanonicalizationRepositoryTests
             Assert.Contains("\"Floor\": 2", await File.ReadAllTextAsync($"{catalogPath}.bak-v14"));
 
             using var current = JsonDocument.Parse(await File.ReadAllTextAsync(catalogPath));
-            Assert.Equal(17, current.RootElement.GetProperty("StorageSchemaVersion").GetInt32());
+            Assert.Equal(18, current.RootElement.GetProperty("StorageSchemaVersion").GetInt32());
             Assert.Equal(
                 1,
                 current.RootElement

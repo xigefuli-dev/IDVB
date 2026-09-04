@@ -182,24 +182,6 @@ internal static class SideEntranceCandidateEvidence
                 candidateSelector(item).MatchScore));
     }
 
-    public static IReadOnlyList<SideEntranceScanCandidate>
-        SelectVerificationCandidates(
-            IEnumerable<SideEntranceScanCandidate> candidates)
-    {
-        ArgumentNullException.ThrowIfNull(candidates);
-        var ordered = candidates
-            .Where(candidate => candidate.MatchScore >=
-                SideEntranceScanRules.MinimumVerificationSimilarity)
-            .OrderByDescending(candidate => candidate.MatchScore)
-            .ToArray();
-        if (ordered.Length <= 1)
-            return ordered;
-
-        var margin = ordered[0].MatchScore - ordered[1].MatchScore;
-        var count = margin > 0.10d ? 1 : margin > 0.05d ? 2 : 3;
-        return ordered.Take(count).ToArray();
-    }
-
     public static double ResolveRawChamferPixels(
         MapStructureRegistrationResult? structure)
     {

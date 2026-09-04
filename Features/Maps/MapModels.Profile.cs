@@ -64,12 +64,8 @@ public sealed class FloorRecognitionProfile
             ? RecognitionRegion.Clone()
             : new NormalizedRectangle { Width = 1d, Height = 1d };
 
-    public MapReferenceBounds GetEffectiveValidMapBounds() =>
-        ValidMapBounds?.IsValid is true
-            ? ValidMapBounds.Clone()
-            : MapReferenceBounds.FullImage(
-                RecognitionPixelWidth,
-                RecognitionPixelHeight);
+    public MapReferenceBounds GetEffectiveValidMapBounds(int? referenceWidth = null, int? referenceHeight = null) =>
+        MapRecognitionProfile.ResolveEffectiveValidMapBounds(this, referenceWidth, referenceHeight);
 
     public FloorRecognitionProfile Clone() => new()
     {

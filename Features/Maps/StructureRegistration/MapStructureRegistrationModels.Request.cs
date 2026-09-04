@@ -48,6 +48,7 @@ public sealed class MapStructureRegistrationRequest
     public string? DebugOutputDirectory { get; init; }
     public MapStructureFeatures? PreparedReference { get; init; }
     public MapStructureFeatures? PreparedLive { get; init; }
+    public MapStructureFeatures? PreparedOriginalLive { get; init; }
     /// <summary>
     /// Low-structure callers provide an explicit bounded plan. Standard
     /// registration leaves this null and keeps its established policy.

@@ -129,7 +129,10 @@ public sealed partial class IdvmPackageService
                 Capabilities = new CapabilitiesDto
                 {
                     FloorMarkerKeys = true,
-                    MapTags = true
+                    MapTags = true,
+                    PrebuiltStructureLines = selectedMaps.Any(map =>
+                        MapFloorRules.GetOrderedFloors(map).Any(floor =>
+                            floor.PrebuiltStructureLine?.IsComplete is true))
                 }
             };
 
@@ -347,6 +350,7 @@ public sealed partial class IdvmPackageService
         public bool VariantGroups { get; set; } = true;
         public bool FloorMarkerKeys { get; set; }
         public bool MapTags { get; set; }
+        public bool PrebuiltStructureLines { get; set; }
     }
 
     private sealed class MetadataDto
@@ -394,6 +398,7 @@ public sealed partial class IdvmPackageService
         public RectangleDto ValidMapBounds { get; set; } = new() { Width = 1d, Height = 1d };
         /// <summary>侧门特征图元数据（可选，旧版 IDVM 包不含此字段）。</summary>
         public SideEntranceFeatureDto? SideEntranceFeature { get; set; }
+        public PrebuiltStructureLineDto? PrebuiltStructureLine { get; set; }
     }
 
     /// <summary>侧门特征图的可移植元数据，写入 metadata.json。</summary>

@@ -1,4 +1,5 @@
 using IDVBuff.Features.Maps;
+using OpenCvSharp;
 using System.Text.Json;
 
 namespace IDVBuff.Tests;
@@ -187,6 +188,52 @@ public sealed class MapStructureValidatorTests
                 tuning,
                 restrictedSearch: true,
                 request));
+    }
+
+    [Fact]
+    public void NativeObservedLowStructureDoesNotRequireUnobservedReferenceCoverage()
+    {
+        using var line = Mat.Ones(8, 8, MatType.CV_8UC1).ToMat();
+        using var valid = Mat.Ones(8, 8, MatType.CV_8UC1).ToMat();
+        using var live = MapStructurePreprocessor.UseNativeObservedStructureLine(
+            line,
+            valid);
+        var tuning = new MapStructureRegistrationTuning
+        {
+            Channel = MapAlignmentChannel.LowStructure
+        };
+        var candidate = new MapStructureCandidate
+        {
+            Scale = 0.55d,
+            ChamferPixels = 2.0d,
+            EdgeCoverage = 0.67d,
+            OccupancyCoverage = 0.67d,
+            ReferenceCoverage = 0.18d,
+            ProjectionCorrelation = 1d,
+            ConsistentPartitions = 4,
+            PriorAgreement = 1d,
+            IsWithinValidBounds = true
+        };
+        var request = new MapStructureRegistrationRequest
+        {
+            Channel = MapAlignmentChannel.LowStructure,
+            PreparedLive = live,
+            LockedTransform = new MapOverlayTransform
+            {
+                ScaleX = 0.55d,
+                ScaleY = 0.55d
+            },
+            ScaleSearchPolicy = MapScaleSearchPolicy.Fixed
+        };
+
+        Assert.Equal(
+            MapStructureRejectionReason.None,
+            MapStructureValidator.Validate(
+                candidate,
+                margin: 1d,
+                requiredMargin: 0d,
+                tuning,
+                request: request));
     }
 
 

@@ -78,6 +78,9 @@ internal static partial class MapStructureScaleEstimator
                 SearchMaximumScale: maximumScale);
 
         using var livePatch = new Mat(live.Edges, bounds);
+        var asymmetricObserved = live.RawVisibleMask is not null
+            && live.DiagnosticTiming?.Profile ==
+                MapStructurePreprocessingProfile.NativeObservedStructureLine;
         var referenceDistance = reference.GetOrCreateClippedReferenceDistanceMap(
             tuning.DistanceClipPixels);
         var coarseFactor = Math.Max(4, tuning.FastCoarseDownsampleFactor * 2);
@@ -89,7 +92,8 @@ internal static partial class MapStructureScaleEstimator
                 coarseDistance,
                 coarseEdges,
                 livePatch,
-                tuning.DistanceClipPixels)
+                tuning.DistanceClipPixels,
+                asymmetricObserved)
             .OrderBy(item => item.Cost)
             .ThenBy(item => PreferredScaleDistance(item.Scale, preferredScale))
             .ToArray();
@@ -119,7 +123,8 @@ internal static partial class MapStructureScaleEstimator
                 fineDistance,
                 fineEdges,
                 livePatch,
-                tuning.DistanceClipPixels)
+                tuning.DistanceClipPixels,
+                asymmetricObserved)
             .OrderBy(item => item.Cost)
             .ToArray();
         if (firstScores.Length == 0)
@@ -145,7 +150,8 @@ internal static partial class MapStructureScaleEstimator
                 fineDistance,
                 fineEdges,
                 livePatch,
-                tuning.DistanceClipPixels)
+                tuning.DistanceClipPixels,
+                asymmetricObserved)
             .OrderBy(item => item.Cost)
             .ThenBy(item => PreferredScaleDistance(item.Scale, preferredScale))
             .ToArray();
@@ -348,7 +354,8 @@ internal static partial class MapStructureScaleEstimator
         Mat referenceDistance,
         Mat referenceEdges,
         Mat livePatch,
-        double distanceClipPixels)
+        double distanceClipPixels,
+        bool asymmetricObserved)
     {
         var scores = new List<ScaleScore>();
         foreach (var scale in candidates)
@@ -393,9 +400,9 @@ internal static partial class MapStructureScaleEstimator
             var reverse = referenceMass < 1d
                 ? distanceClipPixels
                 : Cv2.Sum(templateDistance.Mul(referenceFloat)).Val0 / referenceMass;
-            scores.Add(new(
-                scale,
-                ((minimum / mass) * 0.95d) + (reverse * 0.05d)));
+            scores.Add(new(scale, asymmetricObserved
+                ? minimum / mass
+                : ((minimum / mass) * 0.95d) + (reverse * 0.05d)));
         }
         return scores;
     }

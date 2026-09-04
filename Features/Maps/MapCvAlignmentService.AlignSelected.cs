@@ -108,6 +108,12 @@ internal static partial class MapCvAlignmentService
                 ? session
                 : null;
 
+        if (structureTuning.UsePrebuiltStructureLine)
+            return AlignPrebuiltStructureLine(
+                service, frame, selectedMapId, fingerprint, compatibleSession,
+                alignmentMode, tuning, structureTuning, playerPrior,
+                predictedViewportOrigin, liveIgnoreRegions, candidateHistory);
+
         // Low-structure floors have no gate evidence. This is a defensive
         // boundary guard for generic callers: even if they request Default or
         // SideEntrance, the floor is aligned only by the structure route.

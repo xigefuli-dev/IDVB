@@ -69,6 +69,7 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapModels.PrebuiltStructure.cs" Link="Production\MapModels.PrebuiltStructure.cs" />
     <Compile Include="..\Features\Maps\MapModels.Provenance.cs" Link="Production\MapModels.Provenance.cs" />
     <Compile Include="..\Features\Maps\MapTagTemplateStore.cs" Link="Production\MapTagTemplateStore.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
@@ -136,6 +137,7 @@
     <Compile Include="..\Features\Maps\AlignmentSearchContext.cs" Link="Production\AlignmentSearchContext.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentSearchPolicy.cs" Link="Production\MapAlignmentSearchPolicy.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.cs" Link="Production\MapCvAlignmentService.AlignSelected.cs" />
+    <Compile Include="..\Features\Maps\MapCvAlignmentService.ExperimentalAlgorithms.cs" Link="Production\MapCvAlignmentService.ExperimentalAlgorithms.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.GatePair.cs" Link="Production\MapCvAlignmentService.AlignSelected.GatePair.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.SingleGate.cs" Link="Production\MapCvAlignmentService.AlignSelected.SingleGate.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.Structure.cs" Link="Production\MapCvAlignmentService.AlignSelected.Structure.cs" />
@@ -237,6 +239,11 @@
     <Compile Include="..\Features\Maps\MapFloorRecognitionModels.cs" Link="Production\MapFloorRecognitionModels.cs" />
     <Compile Include="..\Features\Maps\MapRepository.cs" Link="Production\MapRepository.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Part*.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.PrebuiltStructure.cs" Link="Production\MapRepository.PrebuiltStructure.cs" />
+    <Compile Include="..\Features\Maps\IdvaStructureLineEngine.cs" Link="Production\IdvaStructureLineEngine.cs" />
+    <Compile Include="..\Features\Maps\IdvaStructureLineEngine.Operations.cs" Link="Production\IdvaStructureLineEngine.Operations.cs" />
+    <Compile Include="..\Features\Maps\IdvaStructureLineEngine.Validation.cs" Link="Production\IdvaStructureLineEngine.Validation.cs" />
+    <Compile Include="..\Features\Maps\IdvaNativeObservedExtractor.cs" Link="Production\IdvaNativeObservedExtractor.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Subscriptions.cs" Link="Production\MapRepository.Subscriptions.cs" />
@@ -280,6 +287,9 @@
 
   <ItemGroup>
     <None Include="..\Assets\Gate.png" Link="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Assets\Algorithms\structure-native-observed-v2.idva"
+          Link="Assets\Algorithms\structure-native-observed-v2.idva"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Assets\1F.png" Link="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Assets\2F.png" Link="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Assets\player_01.png" Link="Assets\player_01.png" CopyToOutputDirectory="PreserveNewest" />

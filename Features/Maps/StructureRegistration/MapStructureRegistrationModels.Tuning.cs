@@ -168,6 +168,7 @@ public sealed partial class MapStructureRegistrationTuning
     [JsonIgnore]
     internal bool EnableScanCheapRejectShadowCollection { get; set; }
     public VpsgScaleMode VpsgScaleMode { get; set; } = VpsgScaleMode.Structure;
+    public bool UsePrebuiltStructureLine { get; set; }
     public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
         MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
 
@@ -458,7 +459,8 @@ public sealed partial class MapStructureRegistrationTuning
         CandidateDuplicateRadius = CandidateDuplicateRadius,
         RefinementWorsenTolerance = RefinementWorsenTolerance,
         Channel = Channel,
-        VpsgScaleMode = VpsgScaleMode
+        VpsgScaleMode = VpsgScaleMode,
+        UsePrebuiltStructureLine = UsePrebuiltStructureLine
     };
 }
 /*

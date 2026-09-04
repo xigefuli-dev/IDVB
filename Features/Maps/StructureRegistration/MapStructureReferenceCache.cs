@@ -18,13 +18,13 @@ public sealed partial class MapStructureReferenceCache : IDisposable
     // slots therefore guaranteed disk churn between scans. Keep the cache
     // bounded, but large enough for the observed complete verification set.
     internal const int MaxCacheSlots = 16;
+    internal const int MaxPrebuiltCacheSlots = 1;
     private readonly LinkedList<CacheKey> _lruList = new();
     private readonly Dictionary<CacheKey, (MapStructureFeatures Features, LinkedListNode<CacheKey> Node)> _memoryCache = new();
     // 借出中的条目计数，以及淘汰时仍被借用、需延后释放的条目。
     private readonly Dictionary<CacheKey, int> _leaseCounts = new();
     private readonly Dictionary<CacheKey, MapStructureFeatures> _evictedWhileLeased = new();
 
-    // 性能统计
     private long _cacheHits;
     private long _cacheMisses;
     private long _diskLoads;
@@ -182,6 +182,9 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             _cacheMisses++;
         }
         memoryLookup.Complete();
+
+        if (profile == MapStructurePreprocessingProfile.PrebuiltStructureLine)
+            return Remember(key, MapStructurePreprocessor.UsePrebuiltStructureLine(referenceImage));
 
         var directory = Path.Combine(
             _rootDirectory,
@@ -397,7 +400,6 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             return [];
         }
     }
-
     private MapStructureFeatures Remember(
         CacheKey key,
         MapStructureFeatures features)
@@ -422,8 +424,13 @@ public sealed partial class MapStructureReferenceCache : IDisposable
                 return existing.Features.Clone();
             }
 
-            // 如果缓存已满，移除最旧的条目（LRU 尾部）
-            if (_memoryCache.Count >= MaxCacheSlots && _lruList.Last is not null)
+            // 预制线图含两张全尺寸 CV_32F 距离图，只保留当前候选供 VPSG 复用。
+            var maxCacheSlots = key.Profile ==
+                MapStructurePreprocessingProfile.PrebuiltStructureLine
+                    ? MaxPrebuiltCacheSlots
+                    : MaxCacheSlots;
+            while (_memoryCache.Count >= maxCacheSlots
+                && _lruList.Last is not null)
             {
                 var evictKey = _lruList.Last.Value;
                 if (_memoryCache.TryGetValue(evictKey, out var evicted))
@@ -435,8 +442,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
                     else
                         evicted.Features.Dispose();
                     _memoryCache.Remove(evictKey);
-                    _lruList.RemoveLast();
                 }
+                _lruList.RemoveLast();
             }
 
             // 添加到 LRU 头部
@@ -476,8 +483,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         }
     }
 
-    // internal（而非 private）：借用凭据的构造器要接收它，可访问性必须一致。
-    // 嵌套在公开类型里但本身 internal，不会进入对外 API。
+    // 借用凭据的构造器要接收它，所以保持 internal。
     internal readonly record struct CacheKey(
         Guid MapId,
         long UpdatedAtUtcTicks,
@@ -487,7 +493,6 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         MapStructurePreprocessingProfile Profile);
 }
 /*
- * 文件职责：MapStructureReferenceCache。
  * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
  * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
  * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。

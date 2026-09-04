@@ -5,6 +5,75 @@ namespace IDVBuff.Tests;
 
 public sealed class MapModelsTests
 {
+    [Fact]
+    public void NormalizeRecognitionRepairsLegacyHalfSizedValidBounds()
+    {
+        var recognition = new MapRecognitionProfile();
+        recognition.EnsureStandardAnchors();
+        recognition.FirstFloor.RecognitionPixelWidth = 1064;
+        recognition.FirstFloor.RecognitionPixelHeight = 1199;
+        recognition.FirstFloor.ValidMapBounds = new MapReferenceBounds
+        {
+            Width = 532,
+            Height = 600
+        };
+        recognition.SecondFloor.RecognitionPixelWidth = 1133;
+        recognition.SecondFloor.RecognitionPixelHeight = 1054;
+        recognition.SecondFloor.ValidMapBounds = new MapReferenceBounds
+        {
+            Width = 567,
+            Height = 528
+        };
+
+        recognition.EnsureStandardAnchors();
+
+        var bounds1F = recognition.FirstFloor.GetEffectiveValidMapBounds();
+        Assert.Equal(1064, bounds1F.Width);
+        Assert.Equal(1199, bounds1F.Height);
+
+        var bounds2F = recognition.SecondFloor.GetEffectiveValidMapBounds();
+        Assert.Equal(1133, bounds2F.Width);
+        Assert.Equal(1054, bounds2F.Height);
+
+        var basementProfile = new FloorRecognitionProfile
+        {
+            FloorKey = "b1f",
+            RecognitionPixelWidth = 801,
+            RecognitionPixelHeight = 724,
+            ValidMapBounds = new MapReferenceBounds
+            {
+                Width = 401,
+                Height = 362
+            }
+        };
+        var basementBounds = basementProfile.GetEffectiveValidMapBounds(801, 724);
+        Assert.Equal(801, basementBounds.Width);
+        Assert.Equal(724, basementBounds.Height);
+    }
+
+    [Fact]
+    public void GetEffectiveValidMapBoundsScalesWhenRecognitionSizeChanges()
+    {
+        var profile = new FloorRecognitionProfile
+        {
+            RecognitionPixelWidth = 1000,
+            RecognitionPixelHeight = 800,
+            ValidMapBounds = new MapReferenceBounds
+            {
+                X = 100,
+                Y = 80,
+                Width = 500,
+                Height = 400
+            }
+        };
+
+        var scaled = profile.GetEffectiveValidMapBounds(2000, 1600);
+        Assert.Equal(200, scaled.X);
+        Assert.Equal(160, scaled.Y);
+        Assert.Equal(1000, scaled.Width);
+        Assert.Equal(800, scaled.Height);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

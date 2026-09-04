@@ -12,7 +12,7 @@ public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Le
 /// </summary>
 public sealed partial class MapRepository
 {
-    private const int CurrentStorageSchemaVersion = 17;
+    private const int CurrentStorageSchemaVersion = 18;
     private const string FloorOneRecognitionFileName = "floor-1-recognition.png";
     private const string FloorTwoRecognitionFileName = "floor-2-recognition.png";
     private const string FloorOneOverlayFileName = "floor-1-overlay.png";
@@ -104,7 +104,8 @@ public sealed partial class MapRepository
                     Key = f.Key,
                     DisplayName = f.DisplayName,
                     SortOrder = f.SortOrder,
-                    MarkerKeys = MapFloorMarkerRules.Normalize(f.MarkerKeys).ToList()
+                    MarkerKeys = MapFloorMarkerRules.Normalize(f.MarkerKeys).ToList(),
+                    PrebuiltStructureLine = f.PrebuiltStructureLine?.Clone()
                 }).ToList(),
                 Class = record.Class,
                 ClassProperties = GetClassProperties(catalog, record.Class),
@@ -124,7 +125,18 @@ public sealed partial class MapRepository
                 SourceStructureSha256 = record.SourceStructureSha256,
                 PortableGates = record.PortableGates.Select(gate => gate.Clone()).ToList(),
                 Tags = new Dictionary<Guid, string>(record.Tags),
-                Recognition = record.Recognition.Clone()
+                Recognition = record.Recognition.Clone(),
+                PrebuiltStructureLinePaths = record.Floors
+                    .Where(floor => floor.PrebuiltStructureLine?.IsComplete is true)
+                    .ToDictionary(
+                        floor => floor.Key,
+                        floor => GetPrebuiltStructureLinePath(record, floor.Key),
+                        StringComparer.Ordinal),
+                PrebuiltStructureAlgorithmPath = record.Floors
+                    .FirstOrDefault(floor => floor.PrebuiltStructureLine?.IsComplete is true)
+                    is { } algorithmFloor
+                        ? GetPrebuiltStructureAlgorithmPath(record, algorithmFloor.Key)
+                        : null
             };
         }
         finally
@@ -210,7 +222,8 @@ public sealed partial class MapRepository
                         Key = floor.Key,
                         DisplayName = floor.DisplayName,
                         SortOrder = index + 1,
-                        MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList()
+                        MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList(),
+                        PrebuiltStructureLine = floor.PrebuiltStructureLine?.Clone()
                     })
                     .ToList();
             record.Recognition = draft.Recognition.Clone();
@@ -333,6 +346,7 @@ public sealed partial class MapRepository
                     overlayPath,
                     profile,
                     forceRecognitionPath: hasSurveyStructure || needsIndependentRecognition);
+                await ImportPrebuiltStructureLineAsync(stagingDirectory, floor, key, draft);
 
                 // 侧门特征预处理：若侧门锚点已标注，生成特征图
                 // IDVM 导入时优先复制包内预计算特征；普通编辑时重新生成

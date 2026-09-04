@@ -184,7 +184,9 @@ public sealed partial class IdvmPackageService
                     profile.RecognitionPixelWidth,
                     profile.RecognitionPixelHeight),
                 SideEntranceFeature = await TryExportSideEntranceFeatureAsync(
-                    staging, root, index + 1, map, floor.Key, profile, cancellationToken)
+                    staging, root, index + 1, map, floor.Key, profile, cancellationToken),
+                PrebuiltStructureLine = await TryExportPrebuiltStructureLineAsync(
+                    staging, root, index + 1, map, floor, cancellationToken)
             });
         }
 
@@ -266,6 +268,49 @@ public sealed partial class IdvmPackageService
         await WriteJsonAsync(Path.Combine(dataDirectory, "gates.json"), gatesDocument, cancellationToken);
         await WriteJsonAsync(Path.Combine(dataDirectory, "anchors.json"), anchorsDocument, cancellationToken);
         return manifestMap;
+    }
+
+    private async Task<PrebuiltStructureLineDto?> TryExportPrebuiltStructureLineAsync(
+        string staging,
+        string root,
+        int floorIndex,
+        MapRecord map,
+        FloorDefinition floor,
+        CancellationToken cancellationToken)
+    {
+        var asset = floor.PrebuiltStructureLine;
+        if (asset is null)
+            return null;
+        if (!asset.IsComplete
+            || !string.Equals(asset.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{map.DisplayName} 的楼层“{floor.DisplayName}”预制线图已失效，请重新生成。");
+        var lineSource = _repository.GetPrebuiltStructureLinePath(map, floor.Key);
+        var algorithmSource = _repository.GetPrebuiltStructureAlgorithmPath(map, floor.Key);
+        if (!File.Exists(lineSource) || !File.Exists(algorithmSource))
+            throw new FileNotFoundException($"{map.DisplayName} 的预制线图或 IDVA 算法文件不存在。");
+        var lineLogical = $"{root}/data/floor-{floorIndex:D3}-prebuilt-structure.png";
+        var algorithmLogical = $"{root}/data/prebuilt-structure.idva";
+        await CopyFileAsync(
+            lineSource,
+            Path.Combine(staging, lineLogical.Replace('/', Path.DirectorySeparatorChar)),
+            cancellationToken);
+        await CopyFileAsync(
+            algorithmSource,
+            Path.Combine(staging, algorithmLogical.Replace('/', Path.DirectorySeparatorChar)),
+            cancellationToken);
+        return new PrebuiltStructureLineDto
+        {
+            File = lineLogical,
+            Sha256 = asset.Sha256,
+            SourceSha256 = asset.SourceSha256,
+            Width = asset.Width,
+            Height = asset.Height,
+            FileLength = asset.FileLength,
+            AlgorithmId = asset.AlgorithmId,
+            AlgorithmFile = algorithmLogical,
+            AlgorithmSha256 = asset.AlgorithmSha256,
+            AlgorithmSchemaVersion = asset.AlgorithmSchemaVersion
+        };
     }
 
     /// <summary>

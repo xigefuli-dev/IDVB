@@ -103,11 +103,9 @@ public sealed partial class SessionOrchestrator
             // pre-scan toggle state.
             scanSucceeded = true;
 
-            // Raw side-template similarity is only a retrieval clue. Strict
-            // per-candidate structure validation remains the default, while
-            // the explicit scan setting can defer it until player selection.
-            var requireStrictStructureRegistration = _settings!
-                .RequireStrictStructureRegistrationDuringScan;
+            // Template retrieval only determines which identities are worth
+            // testing. Every retained candidate has one formal structure pass.
+            const bool requireStrictStructureRegistration = true;
             var sideAlignmentTuning = CreateInitialAlignmentRecognitionTuning();
             if (sideAlignmentTuning.GateTemplateThreshold
                 > GateTemplateRules.FallbackPairThreshold)
@@ -117,16 +115,9 @@ public sealed partial class SessionOrchestrator
             }
             var reliable = new List<(SideEntranceScanCandidate Candidate,
                 MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>();
-            var verificationCandidates = requireStrictStructureRegistration
-                ? SideEntranceCandidateEvidence.SelectVerificationCandidates(candidates)
-                : [];
+            var verificationCandidates = candidates;
             _lastDiagnostics.ScanVerificationCandidateCount =
                 verificationCandidates.Count;
-            if (!requireStrictStructureRegistration)
-                _logCollector.Append(
-                    MapLogCategory.StructureRegistration,
-                    MapLogLevel.Info,
-                    "扫描已按设置跳过严格结构配准；候选将在玩家选择后对齐。");
 
             initialPostProcess.Complete();
             var verifiedCount = 0;
@@ -135,20 +126,23 @@ public sealed partial class SessionOrchestrator
             var scanCheapRejectCount = 0;
             var scanCheapRejectMilliseconds = 0d;
             var scanFormalStructureAttemptCount = 0;
+            var scanFormalStructureCompletedCount = 0;
+            var scanFormalStructureAcceptedCount = 0;
             var scanShadowPairCount = 0;
             var scanShadowTrueFormalFalseCount = 0;
             var scanShadowFalseFormalTrueCount = 0;
             var scanShadowTrueFormalTrueCount = 0;
             var scanShadowFalseFormalFalseCount = 0;
             var scanVpsgAttemptCount = 0;
+            var scanFullRecoveryCount = 0;
             var scanTemplateValidationMilliseconds = 0d;
             var scanVpsgMilliseconds = 0d;
             var scanStructureMilliseconds = 0d;
             var candidate0TemplateMilliseconds = 0d;
             var candidate0VpsgMilliseconds = 0d;
             var candidate0StructureMilliseconds = 0d;
-            var scanShadowCollectionEnabled = requireStrictStructureRegistration
-                && _settings.StructureRegistrationTuning.EnableScanCheapRejectShadowCollection;
+            var scanShadowCollectionEnabled = _settings!
+                .StructureRegistrationTuning.EnableScanCheapRejectShadowCollection;
             var scanEffectiveBudgetMilliseconds = scanShadowCollectionEnabled
                 ? MapOpenAlignmentRouteRules
                     .ScanVerificationShadowCollectionBudgetMilliseconds
@@ -163,6 +157,10 @@ public sealed partial class SessionOrchestrator
                     scanCheapRejectMilliseconds;
                 diagnostics.ScanFormalStructureAttemptCount =
                     scanFormalStructureAttemptCount;
+                diagnostics.ScanFormalStructureCompletedCount =
+                    scanFormalStructureCompletedCount;
+                diagnostics.ScanFormalStructureAcceptedCount =
+                    scanFormalStructureAcceptedCount;
                 diagnostics.ScanShadowPairCount = scanShadowPairCount;
                 diagnostics.ScanShadowTrueFormalFalseCount =
                     scanShadowTrueFormalFalseCount;
@@ -177,7 +175,7 @@ public sealed partial class SessionOrchestrator
                 diagnostics.ScanEffectiveBudgetMilliseconds =
                     scanEffectiveBudgetMilliseconds;
                 diagnostics.ScanVpsgAttemptCount = scanVpsgAttemptCount;
-                diagnostics.ScanFullRecoveryCount = 0;
+                diagnostics.ScanFullRecoveryCount = scanFullRecoveryCount;
                 diagnostics.ScanTotalVerificationMilliseconds =
                     scanVerificationStopwatch.Elapsed.TotalMilliseconds;
                 diagnostics.ScanCandidate0TemplateValidationMilliseconds =
@@ -196,14 +194,6 @@ public sealed partial class SessionOrchestrator
             foreach (var (candidate, candidateIndex) in verificationCandidates
                 .Select((candidate, index) => (candidate, index)))
             {
-                if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
-                        is not { } remaining
-                    || remaining < MapOpenAlignmentRouteRules
-                        .ScanVerificationMinimumCandidateBudgetMilliseconds)
-                {
-                    scanVerificationTimedOut = reliable.Count == 0;
-                    break;
-                }
                 LogScanVerificationCandidateSelected(candidate, candidateIndex);
                 var candidateAlignment = MapOperationTraceAmbient.StartTopLevel(
                     "selected_candidate_alignment",
@@ -219,23 +209,22 @@ public sealed partial class SessionOrchestrator
                             out var candidateSeed,
                             out var seedReason))
                     {
-                        candidate.RejectionReason =
-                            SideEntranceRejectionReason.InvalidFeatureData;
-                        candidate.RejectionDetail = seedReason;
+                        candidateSeed = CreateIndependentCandidateStructureSeed(
+                            candidate);
                         LogScanVerificationSeedCreated(
                             candidate,
                             candidateIndex,
                             success: false,
-                            seed: null,
+                            candidateSeed,
                             seedReason);
-                        continue;
                     }
-                    LogScanVerificationSeedCreated(
-                        candidate,
-                        candidateIndex,
-                        success: true,
-                        candidateSeed,
-                        seedReason: string.Empty);
+                    else
+                        LogScanVerificationSeedCreated(
+                            candidate,
+                            candidateIndex,
+                            success: true,
+                            candidateSeed,
+                            seedReason: string.Empty);
 
                     var sideStructureTuning = CreateScanVerificationTuning(
                         MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
@@ -243,13 +232,12 @@ public sealed partial class SessionOrchestrator
                                 candidate.Map,
                                 candidate.FloorKey,
                                 CreateInitialAlignmentStructureTuning())));
-                    var attempt = AlignSideEntranceWithScaleFallback(
+                    var attempt = RunMandatoryCandidateStructureRegistration(
                         frame,
                         candidate,
                         candidateSeed,
                         sideAlignmentTuning,
                         sideStructureTuning,
-                        allowVpsgRescue: true,
                         out candidateSeed);
                     scanCheapRejectCount += attempt.Diagnostics.ScanCheapRejected
                         ? 1
@@ -258,6 +246,8 @@ public sealed partial class SessionOrchestrator
                         attempt.Diagnostics.ScanCheapRejectMilliseconds;
                     scanFormalStructureAttemptCount += attempt.Diagnostics
                         .ScanFormalStructureAttemptCount;
+                    scanFormalStructureCompletedCount++;
+                    scanFormalStructureAcceptedCount += attempt.StructureAccepted ? 1 : 0;
                     scanShadowPairCount += attempt.Diagnostics.ScanShadowPairCount;
                     scanShadowTrueFormalFalseCount += attempt.Diagnostics
                         .ScanShadowTrueFormalFalseCount;
@@ -268,6 +258,9 @@ public sealed partial class SessionOrchestrator
                     scanShadowFalseFormalFalseCount += attempt.Diagnostics
                         .ScanShadowFalseFormalFalseCount;
                     scanVpsgAttemptCount += attempt.Diagnostics.ScanVpsgAttempted
+                        ? 1
+                        : 0;
+                    scanFullRecoveryCount += attempt.Diagnostics.ScanFullRecoveryAttempted
                         ? 1
                         : 0;
                     scanTemplateValidationMilliseconds += attempt.Diagnostics
@@ -319,14 +312,23 @@ public sealed partial class SessionOrchestrator
             sideTimings["scan_vpsg"] = scanVpsgMilliseconds;
             sideTimings["scan_structure"] = scanStructureMilliseconds;
             ApplyScanDiagnostics(_lastDiagnostics);
+            if (scanFormalStructureAttemptCount != candidates.Count)
+            {
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Error,
+                    "扫描候选未获得一对一正式结构配准",
+                    details: new()
+                    {
+                        ["templateCandidates"] = candidates.Count,
+                        ["formalAttempted"] = scanFormalStructureAttemptCount
+                    });
+            }
+            Debug.Assert(scanFormalStructureAttemptCount == candidates.Count);
             _logCollector.Append(
                 MapLogCategory.ScanLifecycle,
-                scanVerificationTimedOut
-                    ? MapLogLevel.Warning
-                    : MapLogLevel.Info,
-                scanVerificationTimedOut
-                    ? "扫描结构验证达到硬预算，停止继续验证"
-                    : "扫描结构验证完成",
+                MapLogLevel.Info,
+                "扫描结构验证完成",
                 elapsedMs: _lastDiagnostics.ScanTotalVerificationMilliseconds,
                 details: new()
                 {
@@ -342,6 +344,12 @@ public sealed partial class SessionOrchestrator
                     ["cheap_reject_ms"] = scanCheapRejectMilliseconds,
                     ["scan_formal_structure_attempt_count"] =
                         scanFormalStructureAttemptCount,
+                    ["templateCandidates"] = candidates.Count,
+                    ["formalAttempted"] = scanFormalStructureAttemptCount,
+                    ["formalCompleted"] = scanFormalStructureCompletedCount,
+                    ["formalAccepted"] = scanFormalStructureAcceptedCount,
+                    ["formalCoverage"] =
+                        $"{scanFormalStructureAttemptCount}/{candidates.Count}",
                     ["shadow_pair_count"] = scanShadowPairCount,
                     ["shadow_true_formal_false"] =
                         scanShadowTrueFormalFalseCount,
@@ -358,7 +366,7 @@ public sealed partial class SessionOrchestrator
                     ["vpsg_ms"] = scanVpsgMilliseconds,
                     ["structure_ms"] = scanStructureMilliseconds,
                     ["scan_vpsg_attempt_count"] = scanVpsgAttemptCount,
-                    ["scan_full_recovery_count"] = 0,
+                    ["scan_full_recovery_count"] = scanFullRecoveryCount,
                     ["timed_out"] = scanVerificationTimedOut,
                     ["budget_ms"] = MapOpenAlignmentRouteRules
                         .ScanVerificationBudgetMilliseconds,
@@ -468,29 +476,21 @@ public sealed partial class SessionOrchestrator
         if (sideAttempt.Recognition is { } sideRec)
         {
             recognition = sideRec;
-            // 后台扫描（recognizeOnly）：只产出身份 + 侧门种子，延迟到开图
-            // 消费时再提交对齐。不锁定 _lastRecognition / 不提交可靠会话，
-            // 防止劫持手动识别；_statusMessage 由 CompleteBackgroundScan 设置。
+            // 后台扫描只产出身份和侧门种子，开图时再提交对齐。
             if (recognizeOnly)
                 return;
             _lastRecognition = sideRec;
             _currentFloorKey = sideRec.Result.Floor;
             _mapLease.Bind(_matchSession.Snapshot, sideRec.Map.Id);
-            // 用侧门扫描种子（而非 null）作为 previous，保留
-            // SideEntranceScanPriorConfidence，使后续仅对齐调用
-            // 能正确识别侧门路由（AllowScaleSearch = true）。
-            _lastAlignmentSession = UpdateAlignmentSession(
-                seed,
-                sideRec);
+            // 保留侧门种子，使后续仅对齐调用继续走侧门尺度搜索。
+            _lastAlignmentSession = UpdateAlignmentSession(seed, sideRec);
             RememberPrimaryFloorSession(sideRec, _lastAlignmentSession);
-            _statusMessage =
-                $"侧门对齐成功：{displayName} · 置信度 {sideRec.Result.Confidence:P0}";
+            _statusMessage = $"侧门对齐成功：{displayName} · 置信度 {sideRec.Result.Confidence:P0}";
         }
         else if (sideAttempt.Choices.Count > 0)
         {
             pendingChoices = sideAttempt.Choices;
-            pendingChoicesReason =
-                sideAttempt.FailureReason ?? string.Empty;
+            pendingChoicesReason = sideAttempt.FailureReason ?? string.Empty;
         }
         else
         {

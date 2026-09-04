@@ -11,7 +11,9 @@ namespace IDVBuff.Features.Maps;
 public enum MapStructurePreprocessingProfile
 {
     EdgesOnly,
-    EdgesAndFeatures
+    EdgesAndFeatures,
+    PrebuiltStructureLine,
+    NativeObservedStructureLine
 }
 
 internal static class MapStructurePreprocessingProfileExtensions
@@ -171,6 +173,56 @@ public sealed partial class MapStructurePreprocessor
             useOrb: false,
             profile: profile,
             generationTuning: generationTuning);
+    }
+
+    public static MapStructureFeatures UsePrebuiltStructureLine(Mat line) =>
+        UseStructureLine(
+            line,
+            null,
+            MapStructurePreprocessingProfile.PrebuiltStructureLine);
+
+    public static MapStructureFeatures UseNativeObservedStructureLine(
+        Mat line,
+        Mat validMask)
+    {
+        if (validMask.Empty()
+            || validMask.Type() != MatType.CV_8UC1
+            || validMask.Size() != line.Size())
+        {
+            throw new InvalidDataException(
+                "实时结构 IDVA 的 ValidMask 必须是同尺寸的 8 位灰度图。");
+        }
+        return UseStructureLine(
+            line,
+            validMask,
+            MapStructurePreprocessingProfile.NativeObservedStructureLine);
+    }
+
+    private static MapStructureFeatures UseStructureLine(
+        Mat line,
+        Mat? rawVisibleMask,
+        MapStructurePreprocessingProfile profile)
+    {
+        if (line.Empty() || line.Type() != MatType.CV_8UC1)
+            throw new InvalidDataException("预制线图必须是非空的 8 位灰度图。");
+        var edges = line.Clone();
+        var half = new Mat();
+        var quarter = new Mat();
+        Cv2.Resize(edges, half, new Size(Math.Max(1, edges.Width / 2), Math.Max(1, edges.Height / 2)), 0d, 0d, InterpolationFlags.Nearest);
+        Cv2.Resize(edges, quarter, new Size(Math.Max(1, edges.Width / 4), Math.Max(1, edges.Height / 4)), 0d, 0d, InterpolationFlags.Nearest);
+        return new MapStructureFeatures(
+            Mat.Zeros(edges.Size(), MatType.CV_8UC1).ToMat(),
+            edges.Clone(),
+            edges,
+            normalizedGray: line.Clone(),
+            edgePyramid: [edges.Clone(), half, quarter],
+            repeatedRegionMask: Mat.Zeros(edges.Size(), MatType.CV_8UC1).ToMat(),
+            diagnosticTiming: new PreprocessTiming
+            {
+                Profile = profile,
+                DescriptorExtractionSkipped = true
+            },
+            rawVisibleMask: rawVisibleMask?.Clone());
     }
 
     /// <summary>

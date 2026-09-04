@@ -45,6 +45,8 @@ public sealed partial class MapScanDiagnostics
     public int ScanCheapRejectCount { get; set; }
     public double ScanCheapRejectMilliseconds { get; set; }
     public int ScanFormalStructureAttemptCount { get; set; }
+    public int ScanFormalStructureCompletedCount { get; set; }
+    public int ScanFormalStructureAcceptedCount { get; set; }
     public int ScanShadowPairCount { get; set; }
     public int ScanShadowTrueFormalFalseCount { get; set; }
     public int ScanShadowFalseFormalTrueCount { get; set; }

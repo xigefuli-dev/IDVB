@@ -112,12 +112,29 @@ public static class MapBackgroundProcessor
         }
         ClearMaskedPixels(processedFull, combinedMask);
 
+        var previousWidth = profile.RecognitionPixelWidth;
+        var previousHeight = profile.RecognitionPixelHeight;
+        var previousBounds = profile.ValidMapBounds?.Clone();
         var recognition = UsesWholeSourceImage(profile)
             ? processedFull.Clone()
             : new Mat(processedFull, GetPixelRegion(profile.GetEffectiveRecognitionRegion(), processedFull.Width, processedFull.Height)).Clone();
         profile.RecognitionPixelWidth = recognition.Width;
         profile.RecognitionPixelHeight = recognition.Height;
-        if (profile.ValidMapBounds?.IsValid is not true)
+        if (previousBounds?.IsValid is true
+            && previousWidth > 0
+            && previousHeight > 0
+            && (previousWidth != recognition.Width
+                || previousHeight != recognition.Height))
+        {
+            profile.ValidMapBounds = new MapReferenceBounds
+            {
+                X = previousBounds.X * recognition.Width / previousWidth,
+                Y = previousBounds.Y * recognition.Height / previousHeight,
+                Width = previousBounds.Width * recognition.Width / previousWidth,
+                Height = previousBounds.Height * recognition.Height / previousHeight
+            };
+        }
+        else if (profile.ValidMapBounds?.IsValid is not true)
             profile.ValidMapBounds = MapReferenceBounds.FullImage(recognition.Width, recognition.Height);
 
         var recognitionMask = UsesWholeSourceImage(profile)

@@ -209,7 +209,9 @@ internal static partial class MapCvAlignmentService
             PreparedReference = preparedReference,
             PreparedLive = preparedLive,
             FixedRotationDegrees = primaryProfile.OrientationDegrees,
-            ValidMapBounds = primaryProfile.GetEffectiveValidMapBounds(),
+            ValidMapBounds = primaryProfile.GetEffectiveValidMapBounds(
+                preparedReference.Edges.Width,
+                preparedReference.Edges.Height),
             PlayerPrior = playerPrior,
             PredictedViewportOrigin = predictedViewportOrigin,
             LiveIgnoreRegions = liveIgnoreRegions ?? [],
@@ -299,7 +301,8 @@ internal static partial class MapCvAlignmentService
                 });
         }
         if (scanCheapRejectWouldReject
-            && structureSearchTuning.EnableScanCheapReject)
+            && structureSearchTuning.EnableScanCheapReject
+            && !isScanVerification)
         {
             diagnostics.ScanCheapRejected = true;
             diagnostics.ScanCheapRejectMilliseconds = scanCheapRejectMilliseconds;
@@ -377,7 +380,6 @@ internal static partial class MapCvAlignmentService
         }
         if (isSideEntranceStructureRoute
             && restrictStructureSearch
-            && !isScanVerification
             && MapOpenAlignmentRouteRules.ShouldAttemptSideEntranceGlobalRecovery(
                 isInitialSideEntranceSeed,
                 structure.Accepted,
@@ -395,6 +397,8 @@ internal static partial class MapCvAlignmentService
                     globalRecoveryTuning,
                     structure))
             {
+                if (isScanVerification)
+                    diagnostics.ScanFullRecoveryAttempted = true;
                 var globalRecoveryRequest = new MapStructureRegistrationRequest
                 {
                     ReferenceImage = reference,
@@ -411,11 +415,15 @@ internal static partial class MapCvAlignmentService
                     TrackingMode =
                         MapAlignmentSearchPolicy.UseTrackingForGlobalRecovery(
                             searchCtx),
-                    ForceBestCandidate = false,
+                    // Computation is basin selection only. Force its best
+                    // global basin through to the original-pixel 3px gate.
+                    ForceBestCandidate = true,
                     PreparedReference = preparedReference,
                     PreparedLive = preparedLive,
                     FixedRotationDegrees = primaryProfile.OrientationDegrees,
-                    ValidMapBounds = primaryProfile.GetEffectiveValidMapBounds(),
+                    ValidMapBounds = primaryProfile.GetEffectiveValidMapBounds(
+                        preparedReference.Edges.Width,
+                        preparedReference.Edges.Height),
                     PlayerPrior = playerPrior,
                     PredictedViewportOrigin = predictedViewportOrigin,
                     LiveIgnoreRegions = liveIgnoreRegions ?? [],
@@ -459,7 +467,7 @@ internal static partial class MapCvAlignmentService
         }
 
         Debug.Assert(
-            !isScanVerification || !diagnostics.ScanFullRecoveryAttempted);
+            !isScanVerification || diagnostics.ScanFormalStructureAttemptCount == 1);
 
         MapCvRecognitionDiagnostics.WriteStructureDebugResult(
             fingerprint.Map,

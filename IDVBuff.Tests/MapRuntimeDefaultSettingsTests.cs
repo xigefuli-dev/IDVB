@@ -72,6 +72,9 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.Equal(0.40d, settings.StructureRegistrationTuning.MinimumEdgeCoverage);
         Assert.Equal(0.04d, settings.StructureRegistrationTuning.MinimumCandidateMargin);
         Assert.Equal(0.64d, settings.StructureRegistrationTuning.FeatureRatioThreshold);
+        Assert.False(settings.StructureRegistrationTuning.UsePrebuiltStructureLine);
+        settings.StructureRegistrationTuning.UsePrebuiltStructureLine = true;
+        Assert.True(settings.Clone().StructureRegistrationTuning.UsePrebuiltStructureLine);
     }
 
     [Fact]

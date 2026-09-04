@@ -8,7 +8,7 @@ using IDVBuff.PluginContracts;
 namespace IDVBuff.Views;
 
 /// <summary>The shell settings surface.</summary>
-public sealed class MainSettingsPage : Page
+public sealed partial class MainSettingsPage : Page
 {
     private readonly MainProgramPreferences _preferences = MainProgramPreferences.Load();
 
@@ -142,6 +142,8 @@ public sealed class MainSettingsPage : Page
             "开启后，重新进入配置页面可使用“地图选择与自我训练”等高级菜单",
             _preferences.DeveloperMode,
             value => SavePreferenceAsync(() => _preferences.DeveloperMode = value)));
+        if (_preferences.DeveloperMode)
+            content.Children.Add(CreateExperimentalAlgorithmsCard());
 
         content.Children.Add(new TextBlock
         {

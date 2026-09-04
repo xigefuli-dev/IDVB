@@ -50,20 +50,23 @@ public sealed partial class SessionOrchestrator
         }
 
         var cacheTimer = Stopwatch.StartNew();
+        var referenceProfile = MapCvRecognitionService.GetReferenceProfile(
+            structureTuning,
+            MapStructurePreprocessingProfile.EdgesOnly);
         var residentLease = _recognition.StructureCache.TryRentResident(
             locked.Map.Id,
             locked.Map.UpdatedAt,
             floorKey,
-            structureTuning.Generation);
+            structureTuning.Generation,
+            referenceProfile);
         cacheTimer.Stop();
         diagnostics.ReferenceCacheMilliseconds = cacheTimer.Elapsed.TotalMilliseconds;
         MapStructureFeatures? ownedPreparedReference = null;
         Mat? decodedReference = null;
         if (residentLease is null)
         {
-            var referencePath = _recognition.Repository.GetFloorRecognitionPath(
-                locked.Map,
-                floorKey);
+            var referencePath = _recognition.GetAlignmentReferencePath(
+                locked.Map, floorKey, structureTuning);
             var referenceTimer = Stopwatch.StartNew();
             decodedReference = Cv2.ImRead(referencePath, ImreadModes.Unchanged);
             referenceTimer.Stop();
@@ -86,7 +89,8 @@ public sealed partial class SessionOrchestrator
                 decodedReference,
                 profile.WholeImageIgnoreRegions,
                 floorKey,
-                structureTuning.Generation);
+                structureTuning.Generation,
+                referenceProfile);
             cacheTimer.Stop();
             diagnostics.ReferenceCacheMilliseconds += cacheTimer.Elapsed.TotalMilliseconds;
         }
@@ -96,14 +100,33 @@ public sealed partial class SessionOrchestrator
         using var emptyReference = decodedReference is null ? new Mat() : null;
         var reference = decodedReference ?? emptyReference!;
         var preparedReference = residentLease?.Features ?? ownedPreparedReference!;
-        var preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
-            _recognition.StructurePreprocessor,
-            MapStructurePreprocessingProfile.EdgesOnly,
-            out var liveCacheHit,
-            out var liveExtractionMilliseconds,
-            out _,
-            generateVisibleMask: structureTuning.EnableVisibleMask,
-            generationTuning: structureTuning.Generation);
+        MapStructureFeatures preparedLive;
+        MapStructureFeatures? ownedPreparedLive = null;
+        MapStructureFeatures? ownedPreparedOriginalLive = null;
+        var liveCacheHit = false;
+        double liveExtractionMilliseconds;
+        if (structureTuning.UsePrebuiltStructureLine)
+        {
+            _recognition.CreatePrebuiltLiveStructureFeatures(
+                frame,
+                out ownedPreparedLive,
+                out ownedPreparedOriginalLive,
+                out liveExtractionMilliseconds);
+            preparedLive = ownedPreparedLive;
+        }
+        else
+        {
+            preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
+                _recognition.StructurePreprocessor,
+                MapStructurePreprocessingProfile.EdgesOnly,
+                out liveCacheHit,
+                out liveExtractionMilliseconds,
+                out _,
+                generateVisibleMask: structureTuning.EnableVisibleMask,
+                generationTuning: structureTuning.Generation);
+        }
+        using var ownedPreparedLiveScope = ownedPreparedLive;
+        using var ownedPreparedOriginalLiveScope = ownedPreparedOriginalLive;
         diagnostics.StructurePreprocessMilliseconds = liveCacheHit
             ? 0d
             : liveExtractionMilliseconds;
@@ -173,6 +196,7 @@ public sealed partial class SessionOrchestrator
                 ForceBestCandidate = false,
                 PreparedReference = preparedReference,
                 PreparedLive = preparedLive,
+                PreparedOriginalLive = ownedPreparedOriginalLive,
                 FixedRotationDegrees = profile.OrientationDegrees,
                 ValidMapBounds = profile.GetEffectiveValidMapBounds(),
                 CandidateHistory = candidateHistory,

@@ -82,9 +82,13 @@ internal static class MapStructureEvaluator
         else
             referenceStructurePatch.CopyTo(visibleReferenceStructure);
 
+        var asymmetricObserved = request.PreparedLive?.RawVisibleMask is not null
+            && request.PreparedLive.DiagnosticTiming?.Profile ==
+                MapStructurePreprocessingProfile.NativeObservedStructureLine;
         var reverseChamfer = chamfer;
         using var visibleReferenceEdges = new Mat();
-        if (request.Channel == MapAlignmentChannel.LowStructure)
+        if (request.Channel == MapAlignmentChannel.LowStructure
+            && !asymmetricObserved)
         {
             using var referenceEdgesPatch = new Mat(
                 edgesForPatch,
@@ -131,7 +135,9 @@ internal static class MapStructureEvaluator
             occupancyOverlap);
         var queryStructureCount = Cv2.CountNonZero(queryStructure);
         var overlapCount = Cv2.CountNonZero(occupancyOverlap);
-        var occupancyCoverage = overlapCount
+        // ObservedEdges is an asymmetric line-map contract. Its occupancy uses
+        // the same physical tolerance as edge coverage, not exact pixel overlap.
+        var occupancyCoverage = (asymmetricObserved ? covered : overlapCount)
             / (double)Math.Max(1, queryStructureCount);
         // 反向覆盖：query 覆盖的参考结构 / 整个参考图结构。正向三项指标均以
         // query 归一化，query 越小越稀疏越容易拿高分，系统性偏向更大 scale
@@ -146,7 +152,9 @@ internal static class MapStructureEvaluator
         var referenceCoverage = visibleReferenceStructureCount > 0
             ? overlapCount / (double)visibleReferenceStructureCount
             : 0d;
-        var projection = projectionCorrelation ?? (request.Channel ==
+        var projection = asymmetricObserved
+            ? 1d
+            : projectionCorrelation ?? (request.Channel ==
             MapAlignmentChannel.LowStructure
                 ? MapStructureProjectionScorer.Score(
                     queryEdges,

@@ -26,7 +26,11 @@ internal static partial class MapStructureValidator
                 tuning.MaximumChamferPixels,
                 tuning.RestrictedSearchMaximumChamferPixels)
             : tuning.MaximumChamferPixels;
+        var asymmetricObserved = request?.PreparedLive?.RawVisibleMask is not null
+            && request.PreparedLive.DiagnosticTiming?.Profile ==
+                MapStructurePreprocessingProfile.NativeObservedStructureLine;
         var missesReferenceCoverage = isLowStructure
+            && !asymmetricObserved
             && best.ReferenceCoverage
                 < tuning.LowStructureMinimumReferenceCoverage;
         var missesEdgeFit = best.ChamferPixels > chamferLimit

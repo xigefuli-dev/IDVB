@@ -52,6 +52,14 @@ internal static partial class MapCvAlignmentService
     {
         if (tuning.Channel == MapAlignmentChannel.LowStructure)
             return true;
+        if (tuning.Mode == MapStructureRegistrationMode.ScanVerification)
+        {
+            tuning.StructureFallbackBudgetMilliseconds = Math.Min(
+                tuning.StructureFallbackBudgetMilliseconds,
+                MapOpenAlignmentRouteRules
+                    .ScanVerificationFormalStructureBudgetMilliseconds);
+            return true;
+        }
         if (MapNoDoorAlignmentBudgetContext.RemainingMilliseconds
                 is not { } remaining)
         {

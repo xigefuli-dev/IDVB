@@ -29,7 +29,7 @@
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
         <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
-        <IDVBProductVersion>1.6.0-unstable.2</IDVBProductVersion>
+        <IDVBProductVersion>1.6.0-unstable.3</IDVBProductVersion>
         <IDVBReleaseLine>b01.6</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
         <AssemblyVersion>1.6.0.0</AssemblyVersion>
@@ -101,6 +101,8 @@
         <Content Include="Assets\Wide310x150Logo.scale-200.png" />
         <Content Include="Assets\Icons\*.ico" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Algorithms\structure-native-observed-v2.idva"
+                 CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Guide\*.png" />
         <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="release\trust\idvb-update-2026-01.pem"

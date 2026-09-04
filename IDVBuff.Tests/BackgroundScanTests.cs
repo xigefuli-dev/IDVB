@@ -3,7 +3,7 @@ using IDVBuff.Features.Maps;
 
 namespace IDVBuff.Tests;
 
-public sealed class BackgroundScanTests
+public sealed partial class BackgroundScanTests
 {
     [Theory]
     [InlineData(false, false, true)]
@@ -251,7 +251,7 @@ public sealed class BackgroundScanTests
     }
 
     [Fact]
-    public void BackgroundSideEntranceStrictVerificationRequiresExplicitOptOut()
+    public void AllTemplateCandidatesReceiveMandatoryFormalStructureRegistration()
     {
         var sourcePath = Path.Combine(
             FindRepositoryRoot(),
@@ -260,7 +260,7 @@ public sealed class BackgroundScanTests
             "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs");
         var source = File.ReadAllText(sourcePath);
         var verificationIndex = source.IndexOf(
-            ".SelectVerificationCandidates(candidates)",
+            "var verificationCandidates = candidates;",
             StringComparison.Ordinal);
         var backgroundCompletionIndex = source.LastIndexOf(
             "if (recognizeOnly)",
@@ -268,13 +268,35 @@ public sealed class BackgroundScanTests
 
         Assert.True(verificationIndex >= 0);
         Assert.True(backgroundCompletionIndex > verificationIndex);
-        Assert.Contains(
-            "RequireStrictStructureRegistrationDuringScan",
-            source,
-            StringComparison.Ordinal);
+        Assert.Contains("RunMandatoryCandidateStructureRegistration(", source);
+        Assert.Contains("CreateIndependentCandidateStructureSeed(", source);
+        Assert.DoesNotContain("ScanVerificationMinimumCandidateBudgetMilliseconds", source);
+        Assert.DoesNotContain("SelectVerificationCandidates", source);
         Assert.DoesNotContain(
             "BuildSideEntranceChoices",
             source,
+            StringComparison.Ordinal);
+
+        var mandatorySource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "Features", "Maps", "AdaptiveScaleAlignment",
+            "SessionOrchestrator.AdaptiveScaleSideEntrance.cs"));
+        Assert.Contains("AlignLockedFloorFeature(", mandatorySource);
+        Assert.Contains("vpsgAttempted: true", mandatorySource);
+
+        var structureSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "Features", "Maps",
+            "MapCvAlignmentService.AlignSelected.Structure.cs"));
+        Assert.Contains(
+            "ScaleSearchPolicy = MapScaleSearchPolicy.Search",
+            structureSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ForceBestCandidate = true",
+            structureSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "&& !isScanVerification\n            && MapOpenAlignmentRouteRules.ShouldAttemptSideEntranceGlobalRecovery",
+            structureSource,
             StringComparison.Ordinal);
     }
 
@@ -471,17 +493,4 @@ public sealed class BackgroundScanTests
             "1f"));
     }
 
-    private static string FindRepositoryRoot()
-    {
-        var current = new DirectoryInfo(AppContext.BaseDirectory);
-        while (current is not null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "IDVBuff.csproj")))
-                return current.FullName;
-            current = current.Parent;
-        }
-
-        throw new DirectoryNotFoundException(
-            "Could not locate the repository root.");
-    }
 }

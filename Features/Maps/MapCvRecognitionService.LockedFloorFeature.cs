@@ -88,26 +88,26 @@ public sealed partial class MapCvRecognitionService
         string rejectionReason;
         try
         {
-            var vpsgMode = Enum.IsDefined(structureTuning.VpsgScaleMode)
-                ? structureTuning.VpsgScaleMode
-                : VpsgScaleMode.Structure;
+            var vpsgMode = GetVpsgMode(structureTuning);
             var preprocessingProfile = vpsgMode == VpsgScaleMode.Structure
                 ? MapStructurePreprocessingProfile.EdgesOnly
                 : MapStructurePreprocessingProfile.EdgesAndFeatures;
+            var referenceProfile = GetReferenceProfile(
+                structureTuning,
+                preprocessingProfile);
             using var residentReferenceLease = _structureCache.TryRentResident(
                 map.Id,
                 map.UpdatedAt,
                 floorKey,
                 structureTuning.Generation,
-                preprocessingProfile);
+                referenceProfile);
             MapStructureFeatures? ownedPreparedReference = null;
             Mat? decodedReference = null;
             var referenceLoadMilliseconds = 0d;
             if (residentReferenceLease is null)
             {
-                var referencePath = Repository.GetFloorRecognitionPath(
-                    map,
-                    floorKey);
+                var referencePath = GetAlignmentReferencePath(
+                    map, floorKey, structureTuning);
                 var referenceLoadTimer = Stopwatch.StartNew();
                 decodedReference = Cv2.ImRead(
                     referencePath,
@@ -130,7 +130,7 @@ public sealed partial class MapCvRecognitionService
                     profile.WholeImageIgnoreRegions,
                     floorKey,
                     structureTuning.Generation,
-                    preprocessingProfile);
+                    referenceProfile);
             }
             using var decodedReferenceScope = decodedReference;
             using var ownedPreparedReferenceScope = ownedPreparedReference;

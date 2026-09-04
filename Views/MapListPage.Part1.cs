@@ -306,7 +306,7 @@ public sealed partial class MapListPage : UserControl
         _classEditButton.MinHeight = 45;
         _classEditButton.Padding = new Thickness(12, 0, 12, 0);
         _classEditButton.IsEnabled = !_isPackageOperation;
-        _classEditButton.Click += async (_, _) => await ShowClassPropertiesDialogAsync();
+        AttachClassEditMenu(_classEditButton);
         controls.Children.Add(_classEditButton);
 
         return controls;

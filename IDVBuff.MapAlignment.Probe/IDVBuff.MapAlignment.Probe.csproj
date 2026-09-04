@@ -41,6 +41,7 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapModels.PrebuiltStructure.cs" Link="Production\MapModels.PrebuiltStructure.cs" />
     <Compile Include="..\Features\Maps\MapModels.Provenance.cs" Link="Production\MapModels.Provenance.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.Part*.cs" />
@@ -75,6 +76,10 @@
     <Compile Include="..\Features\Maps\DwrGameWindowCaptureService.cs" Link="Production\DwrGameWindowCaptureService.cs" />
     <Compile Include="..\Features\Maps\MapRepository.cs" Link="Production\MapRepository.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Part*.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.PrebuiltStructure.cs" Link="Production\MapRepository.PrebuiltStructure.cs" />
+    <Compile Include="..\Features\Maps\IdvaStructureLineEngine.cs" Link="Production\IdvaStructureLineEngine.cs" />
+    <Compile Include="..\Features\Maps\IdvaStructureLineEngine.Operations.cs" Link="Production\IdvaStructureLineEngine.Operations.cs" />
+    <Compile Include="..\Features\Maps\IdvaStructureLineEngine.Validation.cs" Link="Production\IdvaStructureLineEngine.Validation.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Catalog.cs" Link="Production\MapRepository.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Import.cs" Link="Production\MapRepository.Import.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Subscriptions.cs" Link="Production\MapRepository.Subscriptions.cs" />

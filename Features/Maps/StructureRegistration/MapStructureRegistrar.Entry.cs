@@ -115,13 +115,16 @@ public sealed partial class MapStructureRegistrar
                 using var fineSpan = MapOperationTraceAmbient.StartChild(
                     "original_narrow_refinement",
                     MapOperationWaitKind.Compute);
-                using var fineLive = _preprocessor.ProcessLiveRoi(
-                    request.OriginalLiveRoi,
-                    request.LiveIgnoreRegions,
-                    request.DynamicIgnoreRegions,
-                    generateVisibleMask: fineTuning.EnableVisibleMask,
-                    profile: MapStructurePreprocessingProfile.EdgesOnly,
-                    generationTuning: fineTuning.Generation);
+                using var ownedFineLive = request.PreparedOriginalLive is null
+                    ? _preprocessor.ProcessLiveRoi(
+                        request.OriginalLiveRoi,
+                        request.LiveIgnoreRegions,
+                        request.DynamicIgnoreRegions,
+                        generateVisibleMask: fineTuning.EnableVisibleMask,
+                        profile: MapStructurePreprocessingProfile.EdgesOnly,
+                        generationTuning: fineTuning.Generation)
+                    : null;
+                var fineLive = request.PreparedOriginalLive ?? ownedFineLive!;
                 var remainingBudget = ResolveRemainingBudget(
                     request,
                     fineTuning,
@@ -202,6 +205,7 @@ public sealed partial class MapStructureRegistrar
         DebugOutputDirectory = source.DebugOutputDirectory,
         PreparedReference = source.PreparedReference,
         PreparedLive = source.PreparedLive,
+        PreparedOriginalLive = source.PreparedOriginalLive,
         LowStructurePlan = source.LowStructurePlan,
         SideEntrancePrior = source.SideEntrancePrior
     };
@@ -237,6 +241,7 @@ public sealed partial class MapStructureRegistrar
         DebugOutputDirectory = source.DebugOutputDirectory,
         PreparedReference = source.PreparedReference,
         PreparedLive = fineLive,
+        PreparedOriginalLive = source.PreparedOriginalLive,
         // Keep the route and basin metadata from the computation stage, but
         // execute original-pixel validation at exactly the selected scale.
         LowStructurePlan = ToOriginalFinePlan(source.LowStructurePlan, seed),

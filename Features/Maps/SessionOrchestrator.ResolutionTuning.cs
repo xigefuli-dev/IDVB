@@ -110,8 +110,8 @@ public sealed partial class SessionOrchestrator
     {
         var tuning = source.Clone();
         tuning.Mode = MapStructureRegistrationMode.ScanVerification;
-        tuning.EnableScanCheapReject = true;
-        tuning.EnableScanCheapRejectShadowCollection = false;
+        tuning.EnableScanCheapReject = false;
+        tuning.EnableScanCheapRejectShadowCollection = true;
         tuning.StructureFallbackBudgetMilliseconds =
             MapOpenAlignmentRouteRules.ScanVerificationFormalStructureBudgetMilliseconds;
         tuning.EnableFeatureVoting = false;

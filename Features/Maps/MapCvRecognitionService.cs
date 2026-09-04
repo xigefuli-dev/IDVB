@@ -66,13 +66,12 @@ public sealed partial class MapCvRecognitionService : IDisposable
     internal Task WarmFloorStructureCacheAsync(
         MapRecord map,
         string floorKey,
-        MapStructureGenerationTuning generation)
+        MapStructureRegistrationTuning tuning)
     {
-        var profile = MapFloorRules.GetFloorProfile(map, floorKey);
-        if (profile is null)
-            return Task.CompletedTask;
-        var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|"
-            + generation.CacheFingerprint;
+        var floorProfile = MapFloorRules.GetFloorProfile(map, floorKey);
+        if (floorProfile is null) return Task.CompletedTask;
+        var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|{tuning.Generation.CacheFingerprint}|{tuning.UsePrebuiltStructureLine}";
+        var profile = GetReferenceProfile(tuning, MapStructurePreprocessingProfile.EdgesAndFeatures);
         lock (_floorPrewarmGate)
         {
             if (_floorPrewarmTasks.TryGetValue(key, out var existing))
@@ -80,13 +79,13 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var task = Task.Run(() =>
             {
                 if (_structureCache.TryRentResident(
-                        map.Id, map.UpdatedAt, floorKey, generation) is { } resident)
+                        map.Id, map.UpdatedAt, floorKey, tuning.Generation, profile) is { } resident)
                 {
                     resident.Dispose();
                     return;
                 }
 
-                var path = _repository.GetFloorRecognitionPath(map, floorKey);
+                var path = GetAlignmentReferencePath(map, floorKey, tuning);
                 using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
                 if (image.Empty())
                     return;
@@ -94,9 +93,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     map.Id,
                     map.UpdatedAt,
                     image,
-                    profile.WholeImageIgnoreRegions,
+                    floorProfile.WholeImageIgnoreRegions,
                     floorKey,
-                    generation);
+                    tuning.Generation,
+                    profile);
             });
             _floorPrewarmTasks[key] = task;
             _ = task.ContinueWith(

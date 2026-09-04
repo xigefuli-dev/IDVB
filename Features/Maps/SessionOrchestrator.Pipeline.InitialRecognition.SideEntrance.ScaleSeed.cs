@@ -2,6 +2,24 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private static MapAlignmentSession CreateIndependentCandidateStructureSeed(
+        SideEntranceScanCandidate candidate)
+    {
+        var transform = MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+            candidate.Map, candidate.FloorKey);
+        return new MapAlignmentSession
+        {
+            MapId = candidate.Map.Id,
+            MapUpdatedAt = candidate.Map.UpdatedAt,
+            FloorKey = candidate.FloorKey,
+            LockedTransform = transform,
+            BaselineGateScale = transform.ScaleX,
+            HasGatePairLock = false,
+            Mode = MapAlignmentTrackingMode.StructureMatched,
+            SideEntranceScanPriorConfidence = candidate.MatchScore
+        };
+    }
+
     private List<MapRecognitionChoice> BuildScanVerificationChoices(
         IReadOnlyList<(
             SideEntranceScanCandidate Candidate,

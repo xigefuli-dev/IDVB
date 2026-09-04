@@ -36,30 +36,38 @@ public static class Vpsg3PreparedIndexBuilder
         // 2. Compute reference scale prior via normalized autocorrelation
         var scalePrior = ComputeReferenceScalePrior(edgeImage, edgePixelCount, cfg);
 
-        // 3. Morphological dilation for structural matching tolerance (defaults to 5x5 / +/-2px matching V-A gate)
-        using var dilated = new Mat();
-        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(cfg.DilationKernelSize, cfg.DilationKernelSize));
-        Cv2.Dilate(edgeImage, dilated, kernel);
+        // 3. Morphological dilation for structural matching tolerance (K5 for 5x5 / +/-2px and K3 for 3x3 / +/-1px)
+        using var dilatedK5 = new Mat();
+        using var dilatedK3 = new Mat();
+        using var kernel5 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
+        using var kernel3 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
+        Cv2.Dilate(edgeImage, dilatedK5, kernel5);
+        Cv2.Dilate(edgeImage, dilatedK3, kernel3);
 
-        // 4. Pack into 64-bit row-major bitset
+        // 4. Pack into 64-bit row-major bitsets
         var wordsPerRow = (width + 63) / 64;
-        var bitset = new ulong[height * wordsPerRow];
+        var bitsetK5 = new ulong[height * wordsPerRow];
+        var bitsetK3 = new ulong[height * wordsPerRow];
 
         for (var y = 0; y < height; y++)
         {
             var rowOffset = y * wordsPerRow;
             for (var x = 0; x < width; x++)
             {
-                if (dilated.At<byte>(y, x) > 128)
+                if (dilatedK5.At<byte>(y, x) > 128)
                 {
-                    bitset[rowOffset + (x >> 6)] |= 1UL << (x & 63);
+                    bitsetK5[rowOffset + (x >> 6)] |= 1UL << (x & 63);
+                }
+                if (dilatedK3.At<byte>(y, x) > 128)
+                {
+                    bitsetK3[rowOffset + (x >> 6)] |= 1UL << (x & 63);
                 }
             }
         }
 
         // 5. Calculate memory footprint
-        var objectOverhead = 128L;
-        var bitsetBytes = (bitset.Length * 8L) + 24L;
+        var objectOverhead = 160L;
+        var bitsetBytes = ((bitsetK5.Length + bitsetK3.Length) * 8L) + 48L;
         var totalBytes = objectOverhead + bitsetBytes;
 
         return new Vpsg3PreparedFloor(
@@ -69,7 +77,8 @@ public static class Vpsg3PreparedIndexBuilder
             edgePixelCount,
             scalePrior,
             wordsPerRow,
-            bitset,
+            bitsetK5,
+            bitsetK3,
             totalBytes);
     }
 
@@ -212,31 +221,23 @@ public static class Vpsg3PreparedIndexBuilder
         }
 
         var projX = Compute1DProjection(edgeImage, axis: 0);
-        var projY = Compute1DProjection(edgeImage, axis: 1);
-
         var (pitchX, ratioX) = FindDominantPitchNormalized(projX);
-        var (pitchY, ratioY) = FindDominantPitchNormalized(projY);
 
-        // Select the axis with higher peak confidence
-        var (bestPitch, bestRatio) = ratioX >= ratioY
-            ? (pitchX, ratioX)
-            : (pitchY, ratioY);
-
-        if (bestPitch <= 5.0 || bestRatio < cfg.PeakRatioThreshold)
+        if (pitchX <= 5.0 || ratioX < cfg.PeakRatioThreshold)
         {
             return Vpsg3ScalePrior.Ineligible(
-                $"ReferencePeakRatioBelowThreshold ({bestRatio:F2} < {cfg.PeakRatioThreshold:F2})",
-                bestPitch,
-                bestRatio);
+                $"ReferencePeakRatioBelowThreshold ({ratioX:F2} < {cfg.PeakRatioThreshold:F2})",
+                pitchX,
+                ratioX);
         }
 
         return new Vpsg3ScalePrior(
             SeedScale: 1.0d,
-            PeakRatio: bestRatio,
+            PeakRatio: ratioX,
             FastPathEligible: true,
             RejectReason: string.Empty,
-            ReferencePitch: bestPitch,
-            ReferencePeakRatio: bestRatio);
+            ReferencePitch: pitchX,
+            ReferencePeakRatio: ratioX);
     }
 
     /// <summary>

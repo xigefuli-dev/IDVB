@@ -100,6 +100,10 @@ public sealed partial class SessionOrchestrator
                 ["relativeMad"] =
                     attempt.Diagnostics.ScaleBootstrapRelativeMad
             });
+        // Observe the same physical frame after VPSG2 decides. Shadow never returns
+        // a recognition, commits a transform, or changes the live fallback chain.
+        _ = _recognition.QueueVpsg3Shadow(frame, locked.Map, floorKey,
+            attempt.Recognition?.Result.OverlayTransform, _logCollector);
         return attempt;
     }
 }

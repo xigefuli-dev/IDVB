@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace IDVBuff.Features.Maps;
 
@@ -100,6 +101,36 @@ public sealed class Vpsg3TuningConfig
 
     /// <summary>Scale search radius around seed prior during refinement.</summary>
     public double CorrelationScaleTolerance { get; init; } = 0.08d;
+
+    /// <summary>Minimum global verification score required to pass.</summary>
+    public double MinVerificationScore { get; init; } = 0.60d;
+
+    /// <summary>Minimum aperture score margin over distinct runner-up required to pass.</summary>
+    public double MinApertureMargin { get; init; } = 0.09d;
+
+    /// <summary>Minimum number of 2x2 spatial quadrants that must pass the quadrant score threshold.</summary>
+    public int MinPassedPartitions { get; init; } = 3;
+
+    /// <summary>Suppression basin radius for distinct runner-up search (px in screen space).</summary>
+    public double NmsSuppressionRadius { get; init; } = 6.0d;
+
+    /// <summary>Minimum spatial distance (px in screen space) for a candidate to be considered distinct from top-1.</summary>
+    public double MinDistinctDistance { get; init; } = 6.0d;
+
+    /// <summary>Minimum points required in a 2x2 quadrant for it to be statistically valid.</summary>
+    public int MinPointsPerPartition { get; init; } = 5;
+
+    /// <summary>Individual quadrant threshold ratio required to pass that quadrant.</summary>
+    public double PartitionScoreThreshold { get; init; } = 0.50d;
+
+    /// <summary>Coarse grid stride for T-3 correlation search (px in reference space).</summary>
+    public int CoarseTranslationStride { get; init; } = 4;
+
+    /// <summary>Maximum number of raw translation candidates considered before NMS.</summary>
+    public int MaxTranslationCandidates { get; init; } = 50;
+
+    /// <summary>Maximum sparse query edge points sampled for verification.</summary>
+    public int MaxSparsePoints { get; init; } = 150;
 }
 
 /// <summary>
@@ -133,7 +164,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
 {
     private int _refCount = 1;
     private int _disposed;
-    private ulong[]? _dilatedBitset;
+    private ulong[]? _dilatedBitsetK5;
+    private ulong[]? _dilatedBitsetK3;
 
     public Vpsg3IndexCacheKey CacheKey { get; }
     public int ReferenceWidth { get; }
@@ -146,19 +178,88 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
     public ReadOnlySpan<ulong> DilatedBitsetSpan =>
-        _dilatedBitset is not null ? _dilatedBitset.AsSpan() : ReadOnlySpan<ulong>.Empty;
+        _dilatedBitsetK5 is not null ? _dilatedBitsetK5.AsSpan() : ReadOnlySpan<ulong>.Empty;
+
+    public ReadOnlySpan<ulong> DilatedBitsetK5Span =>
+        _dilatedBitsetK5 is not null ? _dilatedBitsetK5.AsSpan() : ReadOnlySpan<ulong>.Empty;
+
+    public ReadOnlySpan<ulong> DilatedBitsetK3Span =>
+        _dilatedBitsetK3 is not null ? _dilatedBitsetK3.AsSpan() : ReadOnlySpan<ulong>.Empty;
 
     public ReadOnlyMemory<ulong> DilatedBitsetMemory =>
-        _dilatedBitset is not null ? _dilatedBitset.AsMemory() : ReadOnlyMemory<ulong>.Empty;
+        _dilatedBitsetK5 is not null ? _dilatedBitsetK5.AsMemory() : ReadOnlyMemory<ulong>.Empty;
 
-    public int BitsetWordCount => _dilatedBitset?.Length ?? 0;
+    public int BitsetWordCount => _dilatedBitsetK5?.Length ?? 0;
 
     public ulong GetBitsetWord(int index)
     {
-        var bitset = _dilatedBitset;
+        var bitset = _dilatedBitsetK5;
         if (bitset is null || (uint)index >= (uint)bitset.Length)
             throw new IndexOutOfRangeException($"Bitset word index {index} out of range.");
         return bitset[index];
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsHitK5(int rx, int ry)
+    {
+        var bitset = _dilatedBitsetK5;
+        if ((uint)rx < (uint)ReferenceWidth && (uint)ry < (uint)ReferenceHeight && bitset is not null)
+        {
+            return (bitset[ry * WordsPerRow + (rx >> 6)] & (1UL << (rx & 63))) != 0;
+        }
+        return false;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsHitK3(int rx, int ry)
+    {
+        var bitset = _dilatedBitsetK3;
+        if ((uint)rx < (uint)ReferenceWidth && (uint)ry < (uint)ReferenceHeight && bitset is not null)
+        {
+            return (bitset[ry * WordsPerRow + (rx >> 6)] & (1UL << (rx & 63))) != 0;
+        }
+        return false;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void TestK3K5(int rx, int ry, out bool isK5, out bool isK3)
+    {
+        var b5 = _dilatedBitsetK5;
+        var b3 = _dilatedBitsetK3;
+        if ((uint)rx < (uint)ReferenceWidth && (uint)ry < (uint)ReferenceHeight && b5 is not null && b3 is not null)
+        {
+            var idx = ry * WordsPerRow + (rx >> 6);
+            var mask = 1UL << (rx & 63);
+            isK5 = (b5[idx] & mask) != 0;
+            isK3 = (b3[idx] & mask) != 0;
+        }
+        else
+        {
+            isK5 = false;
+            isK3 = false;
+        }
+    }
+
+    public Vpsg3PreparedFloor(
+        Vpsg3IndexCacheKey cacheKey,
+        int referenceWidth,
+        int referenceHeight,
+        int edgePixelCount,
+        Vpsg3ScalePrior scalePrior,
+        int wordsPerRow,
+        ulong[] dilatedBitsetK5,
+        ulong[] dilatedBitsetK3,
+        long memoryBytes)
+    {
+        CacheKey = cacheKey;
+        ReferenceWidth = referenceWidth;
+        ReferenceHeight = referenceHeight;
+        EdgePixelCount = edgePixelCount;
+        ScalePrior = scalePrior;
+        WordsPerRow = wordsPerRow;
+        _dilatedBitsetK5 = dilatedBitsetK5 ?? throw new ArgumentNullException(nameof(dilatedBitsetK5));
+        _dilatedBitsetK3 = dilatedBitsetK3 ?? throw new ArgumentNullException(nameof(dilatedBitsetK3));
+        MemoryBytes = memoryBytes;
     }
 
     public Vpsg3PreparedFloor(
@@ -170,15 +271,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         int wordsPerRow,
         ulong[] dilatedBitset,
         long memoryBytes)
+        : this(cacheKey, referenceWidth, referenceHeight, edgePixelCount, scalePrior, wordsPerRow, dilatedBitset, dilatedBitset, memoryBytes)
     {
-        CacheKey = cacheKey;
-        ReferenceWidth = referenceWidth;
-        ReferenceHeight = referenceHeight;
-        EdgePixelCount = edgePixelCount;
-        ScalePrior = scalePrior;
-        WordsPerRow = wordsPerRow;
-        _dilatedBitset = dilatedBitset ?? throw new ArgumentNullException(nameof(dilatedBitset));
-        MemoryBytes = memoryBytes;
     }
 
     /// <summary>
@@ -222,7 +316,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            _dilatedBitset = null;
+            _dilatedBitsetK5 = null;
+            _dilatedBitsetK3 = null;
         }
     }
 

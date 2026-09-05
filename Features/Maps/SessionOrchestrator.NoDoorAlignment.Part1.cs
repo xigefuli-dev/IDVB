@@ -245,6 +245,25 @@ public sealed partial class SessionOrchestrator
                     restrictTranslation: false,
                     trackingMode: false));
             usedGlobalTranslationRecovery = true;
+            if (structure.Accepted && structure.Transform is not null)
+            {
+                var lockedTransform = sameFloorSession.LockedTransform;
+                var dx = structure.Transform.OffsetX - lockedTransform.OffsetX;
+                var dy = structure.Transform.OffsetY - lockedTransform.OffsetY;
+                var driftDistance = Math.Sqrt((dx * dx) + (dy * dy));
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    $"Steady 全局平移恢复已接受 · drift={driftDistance:F1}px · floor={floorKey}",
+                    details: new()
+                    {
+                        ["driftDistance"] = driftDistance,
+                        ["recoveredOffsetX"] = structure.Transform.OffsetX,
+                        ["recoveredOffsetY"] = structure.Transform.OffsetY,
+                        ["lockedOffsetX"] = lockedTransform.OffsetX,
+                        ["lockedOffsetY"] = lockedTransform.OffsetY
+                    });
+            }
         }
         totalTimer.Stop();
         MapCvAlignmentService.PopulateStructureDiagnostics(

@@ -88,10 +88,10 @@ public sealed class Vpsg3TuningConfig
     public int DilationKernelSize { get; init; } = 5;
 
     /// <summary>Minimum scale supported by the fast registration path.</summary>
-    public double MinSupportedScale { get; init; } = 0.70d;
+    public double MinSupportedScale { get; init; } = 0.40d;
 
     /// <summary>Maximum scale supported by the fast registration path.</summary>
-    public double MaxSupportedScale { get; init; } = 1.50d;
+    public double MaxSupportedScale { get; init; } = 2.40d;
 
     /// <summary>Minimum peak-to-median ratio required for high-confidence scale estimation.</summary>
     public double PeakRatioThreshold { get; init; } = 2.0d;
@@ -103,19 +103,19 @@ public sealed class Vpsg3TuningConfig
     public double CorrelationScaleTolerance { get; init; } = 0.08d;
 
     /// <summary>Minimum global verification score required to pass.</summary>
-    public double MinVerificationScore { get; init; } = 0.60d;
+    public double MinVerificationScore { get; init; } = 0.50d;
 
     /// <summary>Minimum aperture score margin over distinct runner-up required to pass.</summary>
     public double MinApertureMargin { get; init; } = 0.09d;
 
     /// <summary>Minimum number of 2x2 spatial quadrants that must pass the quadrant score threshold.</summary>
-    public int MinPassedPartitions { get; init; } = 3;
+    public int MinPassedPartitions { get; init; } = 2;
 
     /// <summary>Suppression basin radius for distinct runner-up search (px in screen space).</summary>
-    public double NmsSuppressionRadius { get; init; } = 6.0d;
+    public double NmsSuppressionRadius { get; init; } = 10.0d;
 
-    /// <summary>Minimum spatial distance (px in screen space) for a candidate to be considered distinct from top-1.</summary>
-    public double MinDistinctDistance { get; init; } = 6.0d;
+    /// <summary>Minimum Euclidean distance for a runner-up candidate to be considered a distinct spatial competitor.</summary>
+    public double MinDistinctDistance { get; init; } = 10.0d;
 
     /// <summary>Minimum points required in a 2x2 quadrant for it to be statistically valid.</summary>
     public int MinPointsPerPartition { get; init; } = 5;

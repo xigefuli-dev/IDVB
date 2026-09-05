@@ -19,12 +19,12 @@ public sealed class MapOpenSteadyScaleRecoveryTests
 
         MapOpenAlignmentRouteRules.ApplySteadyScaleRecoveryPolicy(tuning);
 
-        Assert.Equal(0.70d, tuning.ScaleSearchRadius);
+        Assert.Equal(MapOpenAlignmentRouteRules.SteadyScaleRecoverySearchRadius, tuning.ScaleSearchRadius);
         Assert.Equal(0d, tuning.TrackingScaleSearchRadius);
-        Assert.True(tuning.DisableScaleEarlyTermination);
-        Assert.False(tuning.EnableFastAlignment);
+        Assert.False(tuning.DisableScaleEarlyTermination);
+        Assert.True(tuning.EnableFastAlignment);
         Assert.False(tuning.EnableFeatureVoting);
-        Assert.False(tuning.EnforceTimeBudget);
+        Assert.True(tuning.EnforceTimeBudget);
     }
 
     [Theory]

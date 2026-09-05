@@ -46,16 +46,16 @@ public static class Vpsg3LocalRefiner
         var probes = 0;
 
         // Stage 1: Coarse joint grid (5 scales x 7x7 translations = 245 probes).
-        var bestScore = -1.0d;
         var bS = seedScale;
         var bX = seedX;
         var bY = seedY;
+        var bestScore = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX, seedY, viewportBounds, -1.0d);
 
         for (var sIdx = 0; sIdx < ScaleCoarseDeltas.Length; sIdx++)
         {
             var ds = ScaleCoarseDeltas[sIdx];
             var cs = seedScale + ds;
-            if (cs < 0.65d || cs > 1.60d) continue;
+            if (cs < 0.35d || cs > 2.50d) continue;
 
             var bx = cx - rcx * cs;
             var by = cy - rcy * cs;
@@ -90,7 +90,7 @@ public static class Vpsg3LocalRefiner
         {
             var ds = ScaleScanDeltas[i];
             var cs = bS + ds;
-            if (cs < 0.65d || cs > 1.60d) continue;
+            if (cs < 0.35d || cs > 2.50d) continue;
 
             var nx = cx - rCentX * cs;
             var ny = cy - rCentY * cs;
@@ -166,20 +166,29 @@ public static class Vpsg3LocalRefiner
         var hitsK3 = 0;
         var count = sparsePoints.Count;
         var invScale = 1.0d / scale;
+        var points = sparsePoints as Point[];
+        var k5 = preparedFloor.DilatedBitsetK5Span;
+        var k3 = preparedFloor.DilatedBitsetK3Span;
+        if (k5.IsEmpty || k3.IsEmpty) return 0d;
+        var width = preparedFloor.ReferenceWidth;
+        var height = preparedFloor.ReferenceHeight;
+        var wordsPerRow = preparedFloor.WordsPerRow;
 
         for (var i = 0; i < count; i++)
         {
-            var q = sparsePoints[i];
+            var q = points is not null ? points[i] : sparsePoints[i];
             var screenX = viewportBounds.X + q.X;
             var screenY = viewportBounds.Y + q.Y;
             var rx = (int)Math.Round((screenX - offsetX) * invScale);
             var ry = (int)Math.Round((screenY - offsetY) * invScale);
 
-            preparedFloor.TestK3K5(rx, ry, out var isK5, out var isK3);
-            if (isK5)
+            if ((uint)rx < (uint)width && (uint)ry < (uint)height)
             {
-                hitsK5++;
-                if (isK3) hitsK3++;
+                var index = ry * wordsPerRow + (rx >> 6);
+                var shift = rx & 63;
+                var word5 = k5[index];
+                hitsK5 += (int)((word5 >> shift) & 1UL);
+                hitsK3 += (int)(((k3[index] & word5) >> shift) & 1UL);
             }
             // An unvisited point can contribute at most 3. Prune only when even that
             // exact upper bound cannot beat the incumbent; ties retain the first probe.

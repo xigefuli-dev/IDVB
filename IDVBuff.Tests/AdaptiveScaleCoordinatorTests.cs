@@ -5,7 +5,7 @@ using Xunit;
 
 namespace IDVBuff.Tests;
 
-public sealed class AdaptiveScaleCoordinatorTests
+public sealed partial class AdaptiveScaleCoordinatorTests
 {
     [Fact]
     public async Task DisabledAutomaticLockingKeepsFiveStrongResultsAndVpsgProvisional()

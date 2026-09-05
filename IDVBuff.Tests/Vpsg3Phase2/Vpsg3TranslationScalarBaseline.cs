@@ -52,13 +52,16 @@ internal static class Vpsg3TranslationScalarBaseline
         var refH = preparedFloor.ReferenceHeight;
         var stride = cfg.CoarseTranslationStride;
 
-        var queryWInRef = (int)Math.Round(observation.Width * invScale);
-        var queryHInRef = (int)Math.Round(observation.Height * invScale);
-
-        var minDx = 0;
-        var maxDx = Math.Max(0, refW - queryWInRef);
-        var minDy = 0;
-        var maxDy = Math.Max(0, refH - queryHInRef);
+        Span<int> xs = stackalloc int[limitPts];
+        Span<int> ys = stackalloc int[limitPts];
+        for (var i = 0; i < limitPts; i++) { xs[i] = scaledPts[i].X; ys[i] = scaledPts[i].Y; }
+        xs.Sort(); ys.Sort();
+        var misses = Math.Clamp(limitPts - (int)Math.Ceiling(cfg.MinVerificationScore * limitPts), 0, limitPts - 1);
+        var minDx = -xs[misses] - 2;
+        var maxDx = refW + 1 - xs[limitPts - 1 - misses];
+        var minDy = -ys[misses] - 2;
+        var maxDy = refH + 1 - ys[limitPts - 1 - misses];
+        if (maxDx < minDx || maxDy < minDy) return (default, null, null, false);
 
         // 2. Coarse 2D translation grid search across reference space maintaining Top-32 candidates
         Span<CoarseCand> topPool = stackalloc CoarseCand[32];
@@ -96,7 +99,7 @@ internal static class Vpsg3TranslationScalarBaseline
         for (var i = 0; i < poolCount; i++)
         {
             var (pDx, pDy, pHits) = PolishTranslationSubWindow(
-                scaledPts, preparedFloor, topPool[i].Dx, topPool[i].Dy, maxDx, maxDy);
+                scaledPts, preparedFloor, topPool[i].Dx, topPool[i].Dy, maxDx, maxDy, minDx, minDy);
             polished[i] = new CoarseCand(pDx, pDy, pHits);
         }
         SortCoarsePool(polished);
@@ -202,7 +205,7 @@ internal static class Vpsg3TranslationScalarBaseline
             if (foundRunnerUp && runnerUpHits >= 3)
             {
                 var (pDx2, pDy2, pHits2) = PolishTranslationSubWindow(
-                    scaledPts, preparedFloor, runnerUpDx, runnerUpDy, maxDx, maxDy);
+                    scaledPts, preparedFloor, runnerUpDx, runnerUpDy, maxDx, maxDy, minDx, minDy);
 
                 var pDistSq = (pDx2 - best.Dx) * (pDx2 - best.Dx) + (pDy2 - best.Dy) * (pDy2 - best.Dy);
                 if (pDistSq >= minDistinctDistSqRef)
@@ -278,7 +281,9 @@ internal static class Vpsg3TranslationScalarBaseline
         int centerDx,
         int centerDy,
         int maxDx,
-        int maxDy)
+        int maxDy,
+        int minDx = 0,
+        int minDy = 0)
     {
         var bestDx = centerDx;
         var bestDy = centerDy;
@@ -293,9 +298,9 @@ internal static class Vpsg3TranslationScalarBaseline
             }
         }
 
-        var startY = Math.Max(0, centerDy - 2);
+        var startY = Math.Max(minDy, centerDy - 2);
         var endY = Math.Min(maxDy, centerDy + 2);
-        var startX = Math.Max(0, centerDx - 2);
+        var startX = Math.Max(minDx, centerDx - 2);
         var endX = Math.Min(maxDx, centerDx + 2);
 
         for (var ldy = startY; ldy <= endY; ldy++)

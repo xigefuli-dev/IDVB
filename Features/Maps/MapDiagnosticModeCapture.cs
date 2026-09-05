@@ -53,7 +53,12 @@ internal static class MapDiagnosticModeCapture
             Directory.Delete(RootDirectory, recursive: true);
     }
 
-    internal static void BeginMapOpen(Mat viewport)
+    internal static int CurrentMapOpenId
+    {
+        get { lock (Gate) return _currentMapOpenId; }
+    }
+
+    internal static int BeginMapOpen(Mat viewport)
     {
         string? matchDirectory;
         int id;
@@ -65,6 +70,7 @@ internal static class MapDiagnosticModeCapture
         }
         if (matchDirectory is not null)
             TryWrite(Path.Combine(matchDirectory, "显示区域", $"显示区域 {id}.png"), viewport);
+        return id;
     }
 
     internal static IDisposable Suppress()
@@ -73,7 +79,7 @@ internal static class MapDiagnosticModeCapture
         return new SuppressionScope();
     }
 
-    internal static void WriteInputs(Mat viewport, Mat structure)
+    internal static void WriteInputs(Mat viewport, Mat structure, int? attemptId = null, string? tag = null)
     {
         if (SuppressionDepth.Value > 0)
             return;
@@ -82,14 +88,15 @@ internal static class MapDiagnosticModeCapture
         lock (Gate)
         {
             matchDirectory = _matchDirectory;
-            id = _currentMapOpenId;
+            id = attemptId ?? _currentMapOpenId;
         }
         if (matchDirectory is null || id <= 0)
             return;
-        TryWrite(Path.Combine(matchDirectory, "结构配准", $"结构配准 {id}.png"), structure);
+        var suffix = string.IsNullOrWhiteSpace(tag) ? string.Empty : $"_{tag}";
+        TryWrite(Path.Combine(matchDirectory, "结构配准", $"结构配准 {id}{suffix}.png"), structure);
     }
 
-    internal static void WriteFitness(Mat image)
+    internal static void WriteFitness(Mat image, int? attemptId = null, string? tag = null)
     {
         if (SuppressionDepth.Value > 0)
             return;
@@ -98,13 +105,16 @@ internal static class MapDiagnosticModeCapture
         lock (Gate)
         {
             matchDirectory = _matchDirectory;
-            id = _currentMapOpenId;
+            id = attemptId ?? _currentMapOpenId;
         }
         if (matchDirectory is not null && id > 0)
-            TryWrite(Path.Combine(matchDirectory, "贴合度", $"贴合度 {id}.png"), image);
+        {
+            var suffix = string.IsNullOrWhiteSpace(tag) ? string.Empty : $"_{tag}";
+            TryWrite(Path.Combine(matchDirectory, "贴合度", $"贴合度 {id}{suffix}.png"), image);
+        }
     }
 
-    private static void TryWrite(string path, Mat image)
+    internal static void TryWrite(string path, Mat image)
     {
         try { Cv2.ImWrite(path, image); }
         catch { /* Diagnostics must never change alignment behavior. */ }

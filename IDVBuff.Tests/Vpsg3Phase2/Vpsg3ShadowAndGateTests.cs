@@ -1,4 +1,5 @@
 using IDVBuff.Features.Maps;
+using IDVBuff.Tests.Vpsg3Phase0;
 using OpenCvSharp;
 using Xunit;
 
@@ -84,5 +85,68 @@ public sealed class Vpsg3ShadowAndGateTests
         Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow skipped: index not ready");
         await service.QueueVpsg3Shadow(frame, map, "2f", baseline, log);
         Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow skipped: prebuilt unavailable");
+    }
+
+    [Fact]
+    public void AlignLockedFloorFeature_WithPreparedVpsg3Index_DirectlyResolvesViaVpsg3()
+    {
+        var dataset = Vpsg3Phase0DatasetGenerator.GenerateDataset();
+        try
+        {
+            var sample = dataset.First(s => s.SourceType == "Synthetic" && Math.Abs(s.TrueScale - 1.0d) < 1e-4 && s.FogFraction == 0.0d);
+            var sha = new string('b', 64);
+            var asset = new PrebuiltStructureLineAsset
+            {
+                FileName = "line.png", Sha256 = sha, SourceSha256 = sha,
+                Width = sample.ReferenceStructureLine.Width,
+                Height = sample.ReferenceStructureLine.Height,
+                FileLength = 1, AlgorithmId = "test", AlgorithmFileName = "test.idva",
+                AlgorithmSha256 = sha, AlgorithmSchemaVersion = "1"
+            };
+            var map = new MapRecord
+            {
+                Id = Guid.NewGuid(),
+                UpdatedAt = DateTimeOffset.UnixEpoch,
+                Floors = [new() { Key = "1f", RecognitionSha256 = sha, PrebuiltStructureLine = asset }]
+            };
+            var key = new Vpsg3IndexCacheKey(map.Id, "1f", MapFeatureCacheRules.ComputeContentFingerprint(map),
+                map.UpdatedAt, Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(asset));
+
+            using var service = new MapCvRecognitionService(new MapRepository());
+            var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(sample.ReferenceStructureLine, key);
+            Assert.True(service.Vpsg3Registry.TryBeginBuild(key));
+            Assert.True(service.Vpsg3Registry.TryPublishFloor(key, floor));
+
+            using var frame = new CapturedGameFrame(
+                sample.LiveImage.Clone(),
+                sample.ViewportBounds,
+                sample.ViewportBounds,
+                IntPtr.Zero);
+
+            var canAlign = service.TryAlignWithVpsg3(frame, map, "1f", 1.0d, out var attempt);
+            Assert.True(canAlign);
+            Assert.NotNull(attempt);
+            Assert.NotNull(attempt.Recognition);
+            Assert.Equal("vpsg3", attempt.Diagnostics.ScaleBootstrapMethod);
+            Assert.True(attempt.Diagnostics.ScaleBootstrapValidated);
+            Assert.True(attempt.StructureAccepted);
+            Assert.Equal(AlignmentSearchStage.StructureFallback, attempt.SearchStage);
+
+            var transform = attempt.Recognition.Result.OverlayTransform;
+            Assert.NotNull(transform);
+            Assert.Equal(sample.ReferenceStructureLine.Width, transform.ReferenceWidth);
+            Assert.Equal(sample.ReferenceStructureLine.Height, transform.ReferenceHeight);
+            Assert.True(transform.ReferenceWidth * transform.ScaleX > 0);
+            Assert.True(transform.ReferenceHeight * transform.ScaleY > 0);
+
+            Assert.NotNull(attempt.StructureResult);
+            Assert.Equal(sample.ReferenceStructureLine.Width, attempt.StructureResult.ReferenceWidth);
+            Assert.Equal(sample.ReferenceStructureLine.Height, attempt.StructureResult.ReferenceHeight);
+            Assert.True(attempt.StructureResult.LockedScale > 0);
+        }
+        finally
+        {
+            foreach (var s in dataset) s.Dispose();
+        }
     }
 }

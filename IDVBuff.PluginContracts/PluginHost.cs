@@ -225,6 +225,12 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             {
                 registration.Context?.Logger.Error($"OnUnload 异常：{exception}");
             }
+            finally
+            {
+                registration.Adapter = null;
+                registration.Context = null;
+                registration.SdkContext = null;
+            }
         }
     }
 

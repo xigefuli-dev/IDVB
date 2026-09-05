@@ -46,10 +46,10 @@ internal static class Vpsg3RefinerScalarBaseline
         var probes = 0;
 
         // Stage 1: Coarse Joint Scale-Translation Grid (3 scales x 5x5 translations = 75 probes)
-        var bestScore = -1.0d;
         var bS = seedScale;
         var bX = seedX;
         var bY = seedY;
+        var bestScore = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX, seedY, viewportBounds);
 
         for (var sIdx = 0; sIdx < ScaleCoarseDeltas.Length; sIdx++)
         {

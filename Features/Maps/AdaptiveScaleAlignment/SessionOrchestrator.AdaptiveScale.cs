@@ -89,7 +89,8 @@ public sealed partial class SessionOrchestrator
                 diagnostics.ScaleBootstrapUniqueMatches,
                 diagnostics.ScaleBootstrapPairVotes,
                 diagnostics.ScaleBootstrapResidualPixels,
-                diagnostics.ScaleBootstrapRelativeMad);
+                diagnostics.ScaleBootstrapRelativeMad,
+                diagnostics.ScaleBootstrapMode);
         }
         return new AdaptiveScaleInitialEvidence(
             Interlocked.Increment(ref _adaptiveFrameId),

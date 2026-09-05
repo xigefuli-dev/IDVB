@@ -228,7 +228,11 @@ internal static partial class MapOverlayBitmapRenderer
                 nameof(lockedBackground));
         }
 
-        var bitmap = new Bitmap(lockedBackground);
+        // Clone pixels in their existing premultiplied format. Bitmap(Image)
+        // redraws the full screen into ARGB, then GetHbitmap converts it back.
+        var bitmap = lockedBackground.Clone(
+            new Rectangle(0, 0, lockedBackground.Width, lockedBackground.Height),
+            PixelFormat.Format32bppPArgb);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.CompositingMode = CompositingMode.SourceOver;
         graphics.CompositingQuality = CompositingQuality.HighQuality;
@@ -304,169 +308,6 @@ internal static partial class MapOverlayBitmapRenderer
     }
 }
 
-internal sealed partial class MapOverlayNativeWindow
-{
-    internal void Present(Bitmap bitmap, MapScreenRect bounds)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!bounds.IsValid)
-            throw new ArgumentException("Overlay bounds are invalid.", nameof(bounds));
-        EnsureWindow();
-
-        var x = (int)Math.Round(bounds.X);
-        var y = (int)Math.Round(bounds.Y);
-        var width = (int)Math.Round(bounds.Width);
-        var height = (int)Math.Round(bounds.Height);
-        if (bitmap.Width != width || bitmap.Height != height)
-            throw new ArgumentException("Overlay bitmap dimensions must match the target bounds.", nameof(bitmap));
-
-        Debug.WriteLine($"[Overlay] 开始创建窗口 - Handle: {(_handle == IntPtr.Zero ? "NULL" : _handle.ToInt64().ToString("X"))}, x: {x}, y: {y}, w: {width}, h: {height}");
-
-        ShowWindow(_handle, SwShowNoActivate);
-        SetLastError(0);
-        if (!SetWindowPos(
-                _handle,
-                HwndTopMost,
-                0,
-                0,
-                0,
-                0,
-                SwpNoActivate | SwpNoMove | SwpNoSize | SwpShowWindow))
-        {
-            var err = Marshal.GetLastWin32Error();
-            Debug.WriteLine($"[Overlay] SetWindowPos 失败！返回值: false, 错误码: {err}");
-            throw NativeFailure("Unable to place the overlay above the game window.");
-        }
-        IsVisible = true;
-        Debug.WriteLine($"[Overlay] ShowWindow + SetWindowPos 成功，窗口已置顶！");
-
-        var screenDc = GetDC(IntPtr.Zero);
-        var memoryDc = CreateCompatibleDC(screenDc);
-        if (memoryDc == IntPtr.Zero)
-        {
-            if (screenDc != IntPtr.Zero)
-                ReleaseDC(IntPtr.Zero, screenDc);
-            throw NativeFailure("Unable to create the overlay memory device context.");
-        }
-
-        var bitmapHandle = IntPtr.Zero;
-        var previousObject = IntPtr.Zero;
-        try
-        {
-            bitmapHandle = bitmap.GetHbitmap(Color.FromArgb(0));
-            if (bitmapHandle == IntPtr.Zero)
-                throw NativeFailure("Unable to create the overlay bitmap handle.");
-            previousObject = SelectObject(memoryDc, bitmapHandle);
-            if (previousObject == IntPtr.Zero || previousObject == new IntPtr(-1))
-                throw NativeFailure("Unable to select the overlay bitmap.");
-
-            var destination = new NativePoint(x, y);
-            var source = new NativePoint(0, 0);
-            var size = new NativeSize(width, height);
-            var blend = new BlendFunction
-            {
-                BlendOp = AcSrcOver,
-                SourceConstantAlpha = byte.MaxValue,
-                AlphaFormat = AcSrcAlpha
-            };
-            SetLastError(0);
-            bool ulwSuccess = UpdateLayeredWindow(
-                    _handle,
-                    screenDc,
-                    ref destination,
-                    ref size,
-                    memoryDc,
-                    ref source,
-                    0,
-                    ref blend,
-                    UlwAlpha);
-            if (!ulwSuccess)
-            {
-                var err = Marshal.GetLastWin32Error();
-                Debug.WriteLine($"[Overlay] UpdateLayeredWindow 失败！错误码: {err}");
-                throw NativeFailure("Unable to update the layered overlay window.");
-            }
-            Debug.WriteLine($"[Overlay] UpdateLayeredWindow 成功！");
-        }
-        finally
-        {
-            if (previousObject != IntPtr.Zero && previousObject != new IntPtr(-1))
-                SelectObject(memoryDc, previousObject);
-            if (bitmapHandle != IntPtr.Zero)
-                DeleteObject(bitmapHandle);
-            DeleteDC(memoryDc);
-            if (screenDc != IntPtr.Zero)
-                ReleaseDC(IntPtr.Zero, screenDc);
-        }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint(int x, int y)
-    {
-        internal int X = x;
-        internal int Y = y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeSize(int width, int height)
-    {
-        internal int Width = width;
-        internal int Height = height;
-    }
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct BlendFunction
-    {
-        internal byte BlendOp;
-        internal byte BlendFlags;
-        internal byte SourceConstantAlpha;
-        internal byte AlphaFormat;
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UpdateLayeredWindow(
-        IntPtr window,
-        IntPtr destinationDc,
-        ref NativePoint destination,
-        ref NativeSize size,
-        IntPtr sourceDc,
-        ref NativePoint source,
-        uint colorKey,
-        ref BlendFunction blend,
-        uint flags);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(
-        IntPtr window,
-        IntPtr insertAfter,
-        int x,
-        int y,
-        int width,
-        int height,
-        uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetDC(IntPtr window);
-
-    [DllImport("user32.dll")]
-    private static extern int ReleaseDC(IntPtr window, IntPtr deviceContext);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern IntPtr CreateCompatibleDC(IntPtr deviceContext);
-
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DeleteDC(IntPtr deviceContext);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    private static extern IntPtr SelectObject(IntPtr deviceContext, IntPtr graphicsObject);
-
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DeleteObject(IntPtr graphicsObject);
-}
 /*
  * 文件职责：MapOverlayNativeWindow.Rendering。
  * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。

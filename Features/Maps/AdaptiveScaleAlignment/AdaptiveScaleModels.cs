@@ -93,7 +93,8 @@ internal sealed record AdaptiveVpsgEvidence(
     int UniqueMatches,
     int PairVotes,
     double ResidualPixels,
-    double RelativeMad);
+    double RelativeMad,
+    string? Mode = null);
 
 internal sealed record AdaptiveScaleInitialEvidence(
     long FrameId,

@@ -35,7 +35,7 @@ public sealed partial class MapCvRecognitionService
         out double elapsedMilliseconds)
     {
         var timer = Stopwatch.StartNew();
-        using var nativeObserved = IdvaNativeObservedExtractor.Process(frame.Image);
+        var nativeObserved = frame.GetOrCreateNativeObservedStructure();
         using var computationEdges = new Mat();
         using var computationMask = new Mat();
         Cv2.Resize(

@@ -100,10 +100,14 @@ public sealed partial class SessionOrchestrator
                 ["relativeMad"] =
                     attempt.Diagnostics.ScaleBootstrapRelativeMad
             });
-        // Observe the same physical frame after VPSG2 decides. Shadow never returns
-        // a recognition, commits a transform, or changes the live fallback chain.
-        _ = _recognition.QueueVpsg3Shadow(frame, locked.Map, floorKey,
-            attempt.Recognition?.Result.OverlayTransform, _logCollector);
+        // If VPSG 3.0 already solved this frame on the primary path, avoid duplicate shadow work.
+        // Otherwise, observe the frame via shadow for fallback telemetry and certification.
+        if (attempt.Diagnostics.ScaleBootstrapMethod != "vpsg3")
+        {
+            var diagnosticAttemptId = MapDiagnosticModeCapture.CurrentMapOpenId;
+            _ = _recognition.QueueVpsg3Shadow(frame, locked.Map, floorKey,
+                attempt.Recognition?.Result.OverlayTransform, _logCollector, diagnosticAttemptId);
+        }
         return attempt;
     }
 }

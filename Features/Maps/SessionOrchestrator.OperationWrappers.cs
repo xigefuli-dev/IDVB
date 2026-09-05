@@ -71,10 +71,12 @@ public sealed partial class SessionOrchestrator
                 // The wrapper owns the gate and overlay transition. Keeping
                 // this span explicit prevents that orchestration time from
                 // becoming an unexplained prefix before alignment starts.
-                var canKeepPreviousResult = independentAlignment
-                    && (_overlay.IsCaptureExclusionEnabled
-                        || _overlay.TryEnableCaptureExclusion(out _));
-                if (independentAlignment)
+                var captureExclusionSupported = _overlay.IsCaptureExclusionEnabled
+                    || _overlay.TryEnableCaptureExclusion(out _);
+                var isOptimisticallyPresented = IsOptimisticPresentationActive(toggle.Version);
+                var canKeepPreviousResult = captureExclusionSupported
+                    && (independentAlignment || isOptimisticallyPresented);
+                if (independentAlignment || isOptimisticallyPresented)
                     _overlayStatus.KeepCurrent();
                 restoreMainContent = _overlay.IsVisible
                     && !canKeepPreviousResult;

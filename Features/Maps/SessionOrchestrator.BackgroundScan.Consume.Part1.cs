@@ -87,6 +87,18 @@ public sealed partial class SessionOrchestrator
                     _pendingAlignmentSeed,
                     identity,
                     targetFloorKey);
+                if (_recognition.TryGetMap(mapId) is { } targetMap
+                    && _recognition.TryAlignWithVpsg3(
+                        frame,
+                        targetMap,
+                        targetFloorKey,
+                        identity.Result.IdentityConfidence,
+                        out var fastVpsgAttempt))
+                {
+                    repair = null;
+                    return fastVpsgAttempt;
+                }
+
                 MapRecognitionAttempt Align()
                 {
                     if (sideEntranceSeed is not null)

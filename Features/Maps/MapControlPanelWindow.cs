@@ -270,18 +270,15 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
         var root = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(248, 15, 20, 28)),
+            RequestedTheme = ElementTheme.Dark,
+            Background = new SolidColorBrush(Color.FromArgb(255, 15, 20, 28)),
             BorderBrush = new SolidColorBrush(Color.FromArgb(255, 62, 72, 86)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(18),
             Child = BuildContent()
         };
-        _window = new XamlWindow
-        {
-            Content = root,
-            ExtendsContentIntoTitleBar = true
-        };
+        _window = new XamlWindow { Content = root, ExtendsContentIntoTitleBar = true };
         _window.Closed += (_, _) =>
         {
             _captureProtectionRegistration?.Dispose();

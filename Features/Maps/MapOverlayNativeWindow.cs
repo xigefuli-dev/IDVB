@@ -176,6 +176,7 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
             return;
         _disposed = true;
         Hide();
+        CleanupCachedBuffer();
         _captureProtectionRegistration?.Dispose();
         _captureProtectionRegistration = null;
         _captureExcluded = false;

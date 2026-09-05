@@ -311,17 +311,24 @@ internal sealed partial class AdaptiveScaleCoordinator
 
     private bool IsStrongVpsg(
         AdaptiveVpsgEvidence? evidence,
-        MapOverlayTransform transform) =>
-        evidence is
+        MapOverlayTransform transform)
+    {
+        if (evidence is null || !evidence.Validated)
+            return false;
+
+        if (RelativeDifference(evidence.Scale, UniformScale(transform)) > _options.FastConsensusRange)
+            return false;
+
+        if (string.Equals(evidence.Mode, "Vpsg3", StringComparison.OrdinalIgnoreCase))
         {
-            Validated: true,
-            UniqueMatches: >= MapVpsgScaleEstimator.MinimumUniqueMatches
+            return evidence.Confidence >= _options.ReliableConfidence;
         }
-        && evidence.Confidence >= _options.VpsgConfidence
-        && evidence.ResidualPixels <= MapVpsgScaleEstimator.MaximumResidualPixels
-        && evidence.RelativeMad <= MapVpsgScaleEstimator.MaximumRelativeMad
-        && RelativeDifference(evidence.Scale, UniformScale(transform))
-            <= _options.FastConsensusRange;
+
+        return evidence.UniqueMatches >= MapVpsgScaleEstimator.MinimumUniqueMatches
+            && evidence.Confidence >= _options.VpsgConfidence
+            && evidence.ResidualPixels <= MapVpsgScaleEstimator.MaximumResidualPixels
+            && evidence.RelativeMad <= MapVpsgScaleEstimator.MaximumRelativeMad;
+    }
 
     private static AdaptiveAlignmentDecision LegacyDecision(RuntimeMapRecognition recognition) =>
         new(

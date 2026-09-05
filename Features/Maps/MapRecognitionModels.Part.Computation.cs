@@ -1,9 +1,22 @@
-using OpenCvSharp;
+﻿using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
 public sealed partial class CapturedGameFrame
 {
+    private IdvaNativeObservedExtractor.Result? _nativeObservedStructure;
+
+    // One physical frame owns one immutable native observation across local,
+    // global translation and scale recovery. Callers must not dispose it.
+    internal IdvaNativeObservedExtractor.Result GetOrCreateNativeObservedStructure()
+    {
+        lock (_derivedFeaturesGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _nativeObservedStructure ??= IdvaNativeObservedExtractor.Process(Image);
+        }
+    }
+
     internal const int ComputationViewportWidth = 1003;
     private Mat? _ownedComputationImage;
 

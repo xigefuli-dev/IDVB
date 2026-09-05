@@ -22,10 +22,11 @@ public sealed partial class SessionOrchestrator
             || !_matchSession.Snapshot.IsStarted)
             return;
         if (!_captureSvc.TryGetForegroundClientBounds(
-                out var clientBoundsObj, out _, out _)
+                out var clientBoundsObj, out var windowHandleObj, out _)
             || clientBoundsObj is not MapScreenRect clientBounds)
             return;
 
+        var windowHandle = windowHandleObj is IntPtr hwnd ? hwnd : IntPtr.Zero;
         await ApplySelectedResolutionPresetAsync(clientBounds);
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
@@ -33,6 +34,9 @@ public sealed partial class SessionOrchestrator
             await EndMapDisplayAsync("game map closed");
             return;
         }
+
+        // 零延迟通道：开图瞬间若有可信基准变换，在第 1ms 内瞬间展示图层
+        TryPerformOptimisticMapOpenPresentation(toggle, clientBounds, windowHandle);
 
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
@@ -74,6 +78,7 @@ public sealed partial class SessionOrchestrator
 
     private async Task EndMapDisplayAsync(string reason)
     {
+        ClearOptimisticPresentation();
         CancelMapOpenAlignment();
         EndAdaptiveMapOpen(reason);
         CancelOrbTracking(reason);

@@ -77,6 +77,16 @@ public sealed partial class MapCvRecognitionService
                 allowPrimaryFloor: true);
         }
 
+        if (TryAlignWithVpsg3(
+                frame,
+                map,
+                floorKey,
+                identityPriorConfidence,
+                out var vpsg3Attempt))
+        {
+            return vpsg3Attempt;
+        }
+
         var stopwatch = Stopwatch.StartNew();
         LockedFloorFeatureFit? fit = null;
         var usedVpsg = false;

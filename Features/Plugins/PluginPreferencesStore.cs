@@ -33,7 +33,7 @@ public sealed class PluginPreferencesStore
 
     private readonly object _gate = new();
     private readonly string _path;
-    private HashSet<string> _disabledPluginIds;
+    private HashSet<string> _enabledPluginIds;
     private Dictionary<string, Dictionary<string, JsonElement>> _pluginSettings;
 
     public PluginPreferencesStore(string? path = null)
@@ -42,7 +42,7 @@ public sealed class PluginPreferencesStore
             global::IDVBuff.AppDataPaths.RootDirectory,
             DefaultFileName);
         var loaded = LoadDocument();
-        _disabledPluginIds = loaded.Disabled;
+        _enabledPluginIds = loaded.Enabled;
         _pluginSettings = loaded.Settings;
     }
 
@@ -50,7 +50,7 @@ public sealed class PluginPreferencesStore
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginId);
         lock (_gate)
-            return !_disabledPluginIds.Contains(pluginId);
+            return _enabledPluginIds.Contains(pluginId);
     }
 
     public void SetEnabled(string pluginId, bool enabled)
@@ -60,18 +60,18 @@ public sealed class PluginPreferencesStore
         lock (_gate)
         {
             var next = new HashSet<string>(
-                _disabledPluginIds,
+                _enabledPluginIds,
                 StringComparer.OrdinalIgnoreCase);
             if (enabled)
-                next.Remove(pluginId);
-            else
                 next.Add(pluginId);
+            else
+                next.Remove(pluginId);
 
-            if (next.SetEquals(_disabledPluginIds))
+            if (next.SetEquals(_enabledPluginIds))
                 return;
 
             SaveDocument(next, _pluginSettings);
-            _disabledPluginIds = next;
+            _enabledPluginIds = next;
         }
     }
 
@@ -135,7 +135,7 @@ public sealed class PluginPreferencesStore
             }
 
             pluginSettings[normalizedKey] = value;
-            SaveDocument(_disabledPluginIds, nextSettings);
+            SaveDocument(_enabledPluginIds, nextSettings);
             _pluginSettings = nextSettings;
         }
     }
@@ -227,7 +227,7 @@ public sealed class PluginPreferencesStore
         }
     }
 
-    private (HashSet<string> Disabled, Dictionary<string, Dictionary<string, JsonElement>> Settings)
+    private (HashSet<string> Enabled, Dictionary<string, Dictionary<string, JsonElement>> Settings)
         LoadDocument()
     {
         try
@@ -241,11 +241,11 @@ public sealed class PluginPreferencesStore
             if (document is null)
                 return (CreateSet(), CreateSettings());
 
-            var disabled = CreateSet(document.DisabledPluginIds);
+            var enabled = CreateSet(document.EnabledPluginIds);
             var settings = document.SchemaVersion > CurrentSchemaVersion
                 ? CreateSettings() // 未来格式：保留启用状态，设置忽略，下次显式写入时升级回当前版本。
                 : SanitizeSettings(document.PluginSettings);
-            return (disabled, settings);
+            return (enabled, settings);
         }
         catch
         {
@@ -300,7 +300,7 @@ public sealed class PluginPreferencesStore
     }
 
     private void SaveDocument(
-        HashSet<string> disabledPluginIds,
+        HashSet<string> enabledPluginIds,
         Dictionary<string, Dictionary<string, JsonElement>> pluginSettings)
     {
         var directory = Path.GetDirectoryName(_path);
@@ -311,7 +311,7 @@ public sealed class PluginPreferencesStore
         var document = new PluginPreferencesDocument
         {
             SchemaVersion = CurrentSchemaVersion,
-            DisabledPluginIds = disabledPluginIds
+            EnabledPluginIds = enabledPluginIds
                 .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
             PluginSettings = new Dictionary<string, Dictionary<string, JsonElement>>(
@@ -396,7 +396,7 @@ public sealed class PluginPreferencesStore
         /// <summary>旧文件缺省为 0，视为 legacy：只读启用状态。</summary>
         public int SchemaVersion { get; set; }
 
-        public string[] DisabledPluginIds { get; set; } = [];
+        public string[] EnabledPluginIds { get; set; } = [];
 
         public Dictionary<string, Dictionary<string, JsonElement>> PluginSettings { get; set; } =
             new(StringComparer.OrdinalIgnoreCase);

@@ -80,7 +80,7 @@ public static class Vpsg3ScaleSolver
         }
 
         // 2. Find dominant query pitch on X axis
-        var (pitchX, ratioX) = FindDominantPitch(projX, sc);
+        var (pitchX, ratioX) = FindDominantPitch(projX, sc, refPrior.ReferencePitch * cfg.MinSupportedScale, refPrior.ReferencePitch * cfg.MaxSupportedScale);
 
         // 3. PeakRatio Gating: effective peak ratio is min(live, reference)
         var peakRatio = Math.Min(ratioX, refPrior.ReferencePeakRatio);
@@ -114,7 +114,7 @@ public static class Vpsg3ScaleSolver
 
     private static (double Pitch, double PeakRatio) FindDominantPitch(
         ReadOnlySpan<double> signal,
-        Vpsg3SolverScratch scratch)
+        Vpsg3SolverScratch scratch, double minPitch, double maxPitch)
     {
         var n = signal.Length;
         if (n < 40) return (0.0d, 0.0d);
@@ -156,7 +156,7 @@ public static class Vpsg3ScaleSolver
             var r = dot / variance;
             autocorr[rCount++] = Math.Abs(r);
 
-            if (r > maxR)
+            if (r > maxR && lag >= minPitch && lag <= maxPitch)
             {
                 maxR = r;
                 bestLag = lag;

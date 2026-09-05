@@ -176,9 +176,11 @@
         <Compile Remove="artifacts\**\*.cs" />
         <Compile Remove=".verify\**\*.cs" />
         <Compile Remove=".claude\**\*.cs" />
+        <Compile Remove="scratch\**\*.cs" />
         <Page Remove="artifacts\**\*.xaml" />
         <Page Remove=".verify\**\*.xaml" />
         <Page Remove=".claude\**\*.xaml" />
+        <Page Remove="scratch\**\*.xaml" />
         <None Remove="IDVBuff.slnx" />
     </ItemGroup>
 

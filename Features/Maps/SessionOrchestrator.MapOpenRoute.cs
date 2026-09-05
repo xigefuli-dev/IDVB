@@ -99,6 +99,40 @@ public sealed partial class SessionOrchestrator
             frame,
             locked.Map,
             targetFloorKey);
+
+        // 无论是否存在缩放种子，第一优先级优先尝试 VPSG 3.0 极速对齐（~30ms 轮廓几何求解）。
+        // 成功则直接短路返回，避免白白耗费 200ms+ 执行侧门模板扫描与全量结构配准。
+        if (TryAlignFloorWithVpsg(
+                frame,
+                locked,
+                targetFloorKey,
+                alignmentSession.LockedTransform,
+                alignmentMode,
+                tuning,
+                structureTuning,
+                alignmentSession.SideEntranceScanPriorConfidence)
+            is { } fastVpsgAttempt
+            && fastVpsgAttempt.Recognition is not null
+            && IsAdaptiveInitialScaleQualified(fastVpsgAttempt, structureTuning))
+        {
+            var isVpsg3 = string.Equals(
+                fastVpsgAttempt.Diagnostics.ScaleBootstrapMode,
+                "Vpsg3",
+                StringComparison.OrdinalIgnoreCase);
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Info,
+                isVpsg3 ? "VPSG 3.0 首选快速对齐成功" : "VPSG 2.0 兜底对齐成功",
+                details: new()
+                {
+                    ["route"] = isVpsg3 ? "preferred-vpsg3" : "vpsg2-fallback",
+                    ["mapId"] = locked.Map.Id,
+                    ["floor"] = targetFloorKey,
+                    ["scale"] = fastVpsgAttempt.Recognition.Result.OverlayTransform?.ScaleX,
+                    ["elapsedMs"] = fastVpsgAttempt.Diagnostics.TotalMilliseconds
+                });
+            return fastVpsgAttempt;
+        }
         if (MapOpenAlignmentRouteRules.ShouldPreferLockedSideFeature(
                 isOtherFloor,
                 recoveringSelectedIdentity,

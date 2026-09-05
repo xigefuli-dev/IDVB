@@ -151,6 +151,7 @@ public sealed partial class SessionOrchestrator
     {
         // 对局结束：作废尚未消费的后台扫描结果，下一局重新开始。
         ClearPendingBackgroundScan();
+        ClearOptimisticPresentation();
         _lowStructureRecoveryCursor.Reset();
         EndAdaptiveMapOpen("match transient state reset");
         _overlayStatus.Clear();

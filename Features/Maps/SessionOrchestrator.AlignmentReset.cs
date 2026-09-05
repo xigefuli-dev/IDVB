@@ -113,6 +113,7 @@ public sealed partial class SessionOrchestrator
         string floorKey,
         string contentFingerprint)
     {
+        ClearOptimisticPresentation();
         _recognition.ResetMatchState();
         _alignmentCommitGuard.Invalidate();
         _lowStructureRecoveryCursor.Reset();

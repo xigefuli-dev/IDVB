@@ -56,6 +56,13 @@ public sealed class Vpsg3ProductionSolverTests
                         $"Scale mismatch on {sample.Id}: prod={prodScale.SeedScale:F4}, proto={protoScale.EstimatedScale:F4}");
                     matchCount++;
                 }
+                else if (prodScale.Success)
+                {
+                    // Bounded pitch search in production successfully avoided out-of-domain harmonics where unconstrained prototype failed
+                    Assert.True(Math.Abs(prodScale.SeedScale - sample.TrueScale) <= 0.05d,
+                        $"Production recovered scale {prodScale.SeedScale:F4} on {sample.Id} deviates too much from true scale {sample.TrueScale:F4}.");
+                    matchCount++;
+                }
                 else
                 {
                     Assert.False(prodScale.Success, $"Sample {sample.Id} expected failure due to PeakRatio < 2.0.");
@@ -269,7 +276,7 @@ public sealed class Vpsg3ProductionSolverTests
             sb.AppendLine($"| 1. Live Extraction | {Percentile(latExtract, 0.50):F2} | {Percentile(latExtract, 0.95):F2} | {Percentile(latExtract, 0.99):F2} | {latExtract.Max():F2} |");
             sb.AppendLine($"| 2. Scale Solver (S-B) | {Percentile(latScale, 0.50):F2} | {Percentile(latScale, 0.95):F2} | {Percentile(latScale, 0.99):F2} | {latScale.Max():F2} |");
             sb.AppendLine($"| 3. Translation Solver (T-3) | {Percentile(latTrans, 0.50):F2} | {Percentile(latTrans, 0.95):F2} | {Percentile(latTrans, 0.99):F2} | {latTrans.Max():F2} |");
-            sb.AppendLine($"| 4. Local Refiner (up to 277 probes) | {Percentile(latRefine, 0.50):F2} | {Percentile(latRefine, 0.95):F2} | {Percentile(latRefine, 0.99):F2} | {latRefine.Max():F2} |");
+            sb.AppendLine($"| 4. Local Refiner (277 probes/candidate, including pool refill) | {Percentile(latRefine, 0.50):F2} | {Percentile(latRefine, 0.95):F2} | {Percentile(latRefine, 0.99):F2} | {latRefine.Max():F2} |");
             sb.AppendLine($"| 5. Spatial Verification | {Percentile(latVer, 0.50):F2} | {Percentile(latVer, 0.95):F2} | {Percentile(latVer, 0.99):F2} | {latVer.Max():F2} |");
             sb.AppendLine($"| 6. Joint Gate Decision | {Percentile(latGate, 0.50):F2} | {Percentile(latGate, 0.95):F2} | {Percentile(latGate, 0.99):F2} | {latGate.Max():F2} |");
             sb.AppendLine($"| **Pipeline Total** | **{Percentile(latTotal, 0.50):F2}** | **{Percentile(latTotal, 0.95):F2}** | **{Percentile(latTotal, 0.99):F2}** | **{latTotal.Max():F2}** |");
@@ -331,6 +338,34 @@ public sealed class Vpsg3ProductionSolverTests
         {
             foreach (var s in dataset) s.Dispose();
         }
+    }
+
+    [Fact]
+    public void MergedPeaksRecoverFromRetainedPoolWithoutRelaxingMargin()
+    {
+        var samples = Vpsg3Phase0DatasetGenerator.GenerateDataset();
+        try
+        {
+            foreach (var id in new[] { "real_049_s0.88_f40", "real_051_s1.00_f0", "real_054_s1.25_f0", "real_050_s0.88_f70" })
+            {
+                var sample = samples.Single(s => s.Id == id);
+                using var observation = Vpsg3FastLiveExtractor.Extract(sample.LiveImage, sample.ViewportBounds);
+                using var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(sample.ReferenceStructureLine, MakeKey(sample.ReferenceName));
+                var result = Vpsg3FastBootstrapSolver.TrySolve(observation, floor);
+                if (id == "real_050_s0.88_f70")
+                {
+                    Assert.False(result.IsAccepted);
+                    Assert.StartsWith("ApertureMarginBelowThreshold", result.FallbackReason);
+                    continue;
+                }
+                Assert.True(result.IsAccepted, $"{id}: {result.FallbackReason}");
+                Assert.True(result.HasDistinctRunnerUp);
+                Assert.True(result.ApertureMargin >= .09);
+                Assert.True(Math.Abs(result.Scale - sample.TrueScale) <= .035);
+                Assert.True(double.Hypot(result.OffsetX - sample.TrueOffsetX, result.OffsetY - sample.TrueOffsetY) <= 4);
+            }
+        }
+        finally { foreach (var sample in samples) sample.Dispose(); }
     }
 
     [Fact]

@@ -43,7 +43,8 @@ internal static class MapOpenAlignmentRouteRules
     // 并为信任降级提供"成功→重置 / 失败→计数+1"的验证证据。
     internal const int CachedScaleRepairSearchBudgetMilliseconds = 300;
     internal const double CachedScaleRepairSearchRadius = 0.03d; // 覆盖 ±3%
-    internal const double SteadyScaleRecoverySearchRadius = 0.70d;
+    internal const double SteadyScaleRecoverySearchRadius = 0.04d; // 稳态恢复覆盖 ±4% 微漂移，杜绝暴力穷搜
+    internal const double MaximumSteadyTranslationDriftPixels = 48d; // 稳态平移最大漂移门限，避免走位重影
     internal const double MaterialScaleChangeRatio = 0.002d;
     // 跟踪恢复（unrestricted 第二轮）的局部证据门槛：实测局部结构配准置信度
     // < 0.52（chamferQuality≈0 的"最佳候选绝对贴合度不足"）时全局第二轮 2/2
@@ -111,17 +112,17 @@ internal static class MapOpenAlignmentRouteRules
     internal static void ApplySteadyScaleRecoveryPolicy(
         MapStructureRegistrationTuning tuning)
     {
-        // A Steady fixed-scale rejection may prove that the supposedly reliable
-        // scale is stale.  Recovery is an exact-floor Initial search: expand
-        // both scale and translation, and do not let the failed warm seed or a
-        // fast single-hypothesis path terminate the search early.
         tuning.SchemaVersion = MapStructureRegistrationTuning.CurrentSchemaVersion;
         tuning.ScaleSearchRadius = SteadyScaleRecoverySearchRadius;
         tuning.TrackingScaleSearchRadius = 0d;
-        tuning.DisableScaleEarlyTermination = true;
-        tuning.EnableFastAlignment = false;
+        tuning.DisableScaleEarlyTermination = false;
+        tuning.EnableFastAlignment = true;
+        tuning.FastFallbackToLegacy = true;
         tuning.EnableFeatureVoting = false;
-        tuning.EnforceTimeBudget = false;
+        tuning.EnforceTimeBudget = true;
+        tuning.StructureFallbackBudgetMilliseconds = Math.Min(
+            tuning.StructureFallbackBudgetMilliseconds,
+            SteadyAlignmentMaximumMilliseconds);
         tuning.Normalize();
     }
 
@@ -149,7 +150,8 @@ internal static class MapOpenAlignmentRouteRules
 
     internal static bool CanUseWarmAlignmentState(
         MapAlignmentChannel channel,
-        bool isScaleReliable) => isScaleReliable;
+        bool isScaleReliable) =>
+        channel != MapAlignmentChannel.LowStructure || isScaleReliable;
 
     internal static bool ShouldAttemptSteadyScaleRecovery(
         MapAlignmentChannel channel,

@@ -70,6 +70,17 @@ public sealed partial class MapOverlayWindow
             _miniMapImageKey = null;
             return;
         }
+        if (_persistentMiniMap is not null
+            && string.Equals(_persistentMiniMap.ImagePath, imagePath, StringComparison.OrdinalIgnoreCase)
+            && Math.Abs(scaledWidth - _persistentMiniMap.Width) < 0.01f
+            && Math.Abs(scaledHeight - _persistentMiniMap.Height) < 0.01f
+            && string.Equals(_persistentMiniMap.FloorLabel, floorLabel, StringComparison.Ordinal)
+            && _miniMapScale == effectiveScale)
+        {
+            // 小地图结构和尺寸完全未改变，保持现状，严禁盲目 InvalidateLockedBackground 导致 120ms 的全屏重绘
+            return;
+        }
+
         _persistentMiniMap = new MapOverlayRenderMap(
             imagePath, 0, 0, scaledWidth, scaledHeight,
             anchors ?? (IReadOnlyList<MapOverlayRenderAnchor>)Array.Empty<MapOverlayRenderAnchor>(),

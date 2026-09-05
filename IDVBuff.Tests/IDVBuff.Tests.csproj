@@ -193,6 +193,8 @@
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3LocalRefiner.cs" Link="Production\Vpsg3\Vpsg3LocalRefiner.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3VerificationGate.cs" Link="Production\Vpsg3\Vpsg3VerificationGate.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3FastBootstrapSolver.cs" Link="Production\Vpsg3\Vpsg3FastBootstrapSolver.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3CertificationCapture.cs" Link="Production\Vpsg3\Vpsg3CertificationCapture.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3DiagnosticCapture.cs" Link="Production\Vpsg3\Vpsg3DiagnosticCapture.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.FastPath.cs" Link="Production\MapStructureRegistrar.FastPath.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.LowStructure.cs" Link="Production\MapStructureRegistrar.LowStructure.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ScalePolicy.cs" Link="Production\MapStructureRegistrar.ScalePolicy.cs" />

@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Features\Maps\IdvaNativeObservedExtractor.cs" Link="Production\IdvaNativeObservedExtractor.cs" />
+    <None Include="..\Assets\Algorithms\structure-native-observed-v2.idva" Link="Assets\Algorithms\structure-native-observed-v2.idva" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Pipeline\MapOperationTrace.cs" Link="Production\Pipeline\MapOperationTrace.cs" />
     <Compile Include="..\Pipeline\MapOperationTrace.Part*.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />

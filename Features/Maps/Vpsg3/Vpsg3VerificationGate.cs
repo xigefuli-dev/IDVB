@@ -107,7 +107,8 @@ public static class Vpsg3VerificationGate
             }
         }
 
-        var isConsistent = passedParts >= cfg.MinPassedPartitions;
+        var isConsistent = passedParts >= cfg.MinPassedPartitions
+            || (validParts > 0 && passedParts == validParts && globalScore >= cfg.PartitionScoreThreshold);
         return new Vpsg3SpatialResult(globalScore, totalValidPoints, totalHits, validParts, passedParts, isConsistent);
     }
 
@@ -166,9 +167,21 @@ public static class Vpsg3VerificationGate
             return new Vpsg3GateResult(false, 0d, false, "NoDistinctRefinedRunnerUp");
 
         var margin = bestCandidate.Spatial.GlobalScore - runnerUpScore;
-        if (margin < cfg.MinApertureMargin)
+        var effectiveMinMargin = cfg.MinApertureMargin;
+        if (bestCandidate.Spatial.GlobalScore >= 0.90d)
         {
-            return new Vpsg3GateResult(false, margin, hasValidCompetitor, $"ApertureMarginBelowThreshold: {margin:F3} < {cfg.MinApertureMargin:F3} (2ndScore={runnerUpScore:F3})");
+            // 当主峰匹配度 >= 90% 且象限一致时，由于真实离散网格相关峰具有一定空间宽度，6px 邻域次峰得分往往也较高。
+            // 此时只要具有明确的主峰优势 (>= 0.035)，即可安全采纳，防止高精度结果被误杀并引发 300ms+ 的昂贵回退。
+            effectiveMinMargin = Math.Min(effectiveMinMargin, 0.035d);
+        }
+        else if (bestCandidate.Spatial.GlobalScore >= 0.82d)
+        {
+            effectiveMinMargin = Math.Min(effectiveMinMargin, 0.050d);
+        }
+
+        if (margin < effectiveMinMargin)
+        {
+            return new Vpsg3GateResult(false, margin, hasValidCompetitor, $"ApertureMarginBelowThreshold: {margin:F3} < {effectiveMinMargin:F3} (2ndScore={runnerUpScore:F3})");
         }
 
         // Gate 4: Global Verification Score
@@ -178,18 +191,24 @@ public static class Vpsg3VerificationGate
         }
 
         // Gate 5: Spatial 2x2 Quadrant Consistency
-        if (bestCandidate.Spatial.PassedPartitions < cfg.MinPassedPartitions)
+        if (!bestCandidate.Spatial.IsSpatiallyConsistent)
         {
             return new Vpsg3GateResult(false, margin, true, $"SpatialPartitionsBelowThreshold: {bestCandidate.Spatial.PassedPartitions} < {cfg.MinPassedPartitions}");
         }
 
         // Gate 6: Canonical Transform Sanity (ensures viewport overlaps substantially with reference space)
         var invScale = 1.0d / bestCandidate.Scale;
-        var minRefX = (int)Math.Round((viewportBounds.X - bestCandidate.OffsetX) * invScale);
-        var minRefY = (int)Math.Round((viewportBounds.Y - bestCandidate.OffsetY) * invScale);
-        if (minRefX < -50 || minRefX > referenceWidth + 50 || minRefY < -50 || minRefY > referenceHeight + 50)
+        var minRefX = (viewportBounds.X - bestCandidate.OffsetX) * invScale;
+        var maxRefX = (viewportBounds.X + viewportBounds.Width - bestCandidate.OffsetX) * invScale;
+        var minRefY = (viewportBounds.Y - bestCandidate.OffsetY) * invScale;
+        var maxRefY = (viewportBounds.Y + viewportBounds.Height - bestCandidate.OffsetY) * invScale;
+
+        var overlapW = Math.Min(maxRefX, referenceWidth) - Math.Max(minRefX, 0);
+        var overlapH = Math.Min(maxRefY, referenceHeight) - Math.Max(minRefY, 0);
+
+        if (overlapW < 50 || overlapH < 50)
         {
-            return new Vpsg3GateResult(false, margin, true, $"TransformedBoundsOutOfBounds: refOrigin=({minRefX}, {minRefY})");
+            return new Vpsg3GateResult(false, margin, true, $"TransformedBoundsOutOfBounds: overlap=({overlapW:F0}x{overlapH:F0})");
         }
 
         return new Vpsg3GateResult(true, margin, true, string.Empty);

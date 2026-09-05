@@ -10,7 +10,7 @@ namespace IDVBuff.Features.Maps;
 /// "structure.native-observed.v2" (第五人格原生地图可观测结构线图).
 /// Extracts ObservedEdges and ValidMask from a captured live game viewport image.
 /// </summary>
-public sealed class IdvaNativeObservedExtractor
+public sealed class IdvaNativeObservedExtractorBaseline
 {
     private const string AlgorithmId = "structure.native-observed.v2";
     private const string PackageSha256 =
@@ -62,45 +62,33 @@ public sealed class IdvaNativeObservedExtractor
             using var candidateEdges = new Mat();
             Cv2.BitwiseOr(roomEdges, corridorEdges, candidateEdges);
 
+            using var support = StrongSourceEdgeSupport(bgr);
+
+            using var rawObserved = new Mat();
+            Cv2.BitwiseAnd(candidateEdges, support, rawObserved);
+            using var retainedEdges = RemoveSmallComponents(rawObserved, 6);
+            var observedEdges = RemoveBorderComponents(retainedEdges);
+
+            using var notSupport = new Mat();
+            Cv2.BitwiseNot(support, notSupport);
+            using var uncertainFrontier = new Mat();
+            Cv2.BitwiseAnd(candidateEdges, notSupport, uncertainFrontier);
+
+            using var frontierKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(11, 11));
             using var overlayKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
+            using var dilatedFrontier = new Mat();
+            Cv2.Dilate(uncertainFrontier, dilatedFrontier, frontierKernel);
             using var dilatedExclusion = new Mat();
             Cv2.Dilate(exclusion, dilatedExclusion, overlayKernel);
 
-            var (support, strongEdges) = StrongSourceEdgeSupport(bgr);
-            using (support)
-            using (strongEdges)
-            {
-                using var rawObserved = new Mat();
-                Cv2.BitwiseAnd(candidateEdges, support, rawObserved);
+            using var invalid = new Mat();
+            Cv2.BitwiseOr(dilatedFrontier, dilatedExclusion, invalid);
 
-                using var nonExclusion = new Mat();
-                Cv2.BitwiseNot(dilatedExclusion, nonExclusion);
-                using var physicalEdges = new Mat();
-                Cv2.BitwiseAnd(strongEdges, nonExclusion, physicalEdges);
-                using var cleanPhysicalEdges = RemoveSmallComponents(physicalEdges, 14, removeBorder: true);
+            var validMask = new Mat();
+            Cv2.BitwiseNot(invalid, validMask);
+            validMask.SetTo(Scalar.White, observedEdges);
 
-                using var combinedObserved = new Mat();
-                Cv2.BitwiseOr(rawObserved, cleanPhysicalEdges, combinedObserved);
-                var observedEdges = RemoveSmallComponents(combinedObserved, 6, removeBorder: true);
-
-                using var notSupport = new Mat();
-                Cv2.BitwiseNot(support, notSupport);
-                using var uncertainFrontier = new Mat();
-                Cv2.BitwiseAnd(candidateEdges, notSupport, uncertainFrontier);
-
-                using var frontierKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(11, 11));
-                using var dilatedFrontier = new Mat();
-                Cv2.Dilate(uncertainFrontier, dilatedFrontier, frontierKernel);
-
-                using var invalid = new Mat();
-                Cv2.BitwiseOr(dilatedFrontier, dilatedExclusion, invalid);
-
-                var validMask = new Mat();
-                Cv2.BitwiseNot(invalid, validMask);
-                validMask.SetTo(Scalar.White, observedEdges);
-
-                return new Result(observedEdges, validMask);
-            }
+            return new Result(observedEdges, validMask);
         }
     }
 
@@ -332,19 +320,19 @@ public sealed class IdvaNativeObservedExtractor
         return output;
     }
 
-    private static (Mat Support, Mat StrongEdges) StrongSourceEdgeSupport(Mat bgr)
+    private static Mat StrongSourceEdgeSupport(Mat bgr)
     {
         using var gray = new Mat();
         Cv2.CvtColor(bgr, gray, ColorConversionCodes.BGR2GRAY);
-        var strong = new Mat();
+        using var strong = new Mat();
         Cv2.Canny(gray, strong, 80d, 180d, apertureSize: 3, L2gradient: true);
         var support = new Mat();
         using var k5 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
         Cv2.Dilate(strong, support, k5);
-        return (support, strong);
+        return support;
     }
 
-    private static Mat RemoveSmallComponents(Mat mask, int minArea, bool removeBorder = false)
+    private static Mat RemoveSmallComponents(Mat mask, int minArea)
     {
         using var labels = new Mat();
         using var stats = new Mat();
@@ -354,19 +342,8 @@ public sealed class IdvaNativeObservedExtractor
             return Mat.Zeros(mask.Size(), MatType.CV_8UC1).ToMat();
 
         var keep = new bool[n];
-        var border = Math.Max(1, (int)Math.Round(Math.Min(mask.Width, mask.Height) * 0.02d));
         for (var i = 1; i < n; i++)
-        {
             keep[i] = stats.At<int>(i, (int)ConnectedComponentsTypes.Area) >= minArea;
-            if (removeBorder)
-            {
-                var left = stats.At<int>(i, (int)ConnectedComponentsTypes.Left);
-                var top = stats.At<int>(i, (int)ConnectedComponentsTypes.Top);
-                keep[i] &= left >= border && top >= border
-                    && left + stats.At<int>(i, (int)ConnectedComponentsTypes.Width) <= mask.Width - border
-                    && top + stats.At<int>(i, (int)ConnectedComponentsTypes.Height) <= mask.Height - border;
-            }
-        }
 
         var total = mask.Width * mask.Height;
         var labelArray = new int[total];
@@ -381,6 +358,45 @@ public sealed class IdvaNativeObservedExtractor
                 outputArray[i] = 255;
         }
 
+        Marshal.Copy(outputArray, 0, output.Data, total);
+        return output;
+    }
+
+    private static Mat RemoveBorderComponents(Mat mask)
+    {
+        using var labels = new Mat();
+        using var stats = new Mat();
+        using var centroids = new Mat();
+        var count = Cv2.ConnectedComponentsWithStats(
+            mask, labels, stats, centroids, PixelConnectivity.Connectivity8);
+        var border = Math.Max(
+            1,
+            (int)Math.Round(Math.Min(mask.Width, mask.Height) * 0.02d));
+        var keep = new bool[count];
+        for (var index = 1; index < count; index++)
+        {
+            var left = stats.At<int>(index, (int)ConnectedComponentsTypes.Left);
+            var top = stats.At<int>(index, (int)ConnectedComponentsTypes.Top);
+            var width = stats.At<int>(index, (int)ConnectedComponentsTypes.Width);
+            var height = stats.At<int>(index, (int)ConnectedComponentsTypes.Height);
+            keep[index] = left >= border
+                && top >= border
+                && left + width <= mask.Width - border
+                && top + height <= mask.Height - border;
+        }
+
+        var total = mask.Width * mask.Height;
+        var labelArray = new int[total];
+        Marshal.Copy(labels.Data, labelArray, 0, total);
+        var outputArray = new byte[total];
+        for (var index = 0; index < total; index++)
+        {
+            var label = labelArray[index];
+            if (label > 0 && keep[label])
+                outputArray[index] = 255;
+        }
+
+        var output = Mat.Zeros(mask.Size(), MatType.CV_8UC1).ToMat();
         Marshal.Copy(outputArray, 0, output.Data, total);
         return output;
     }
@@ -435,3 +451,4 @@ public sealed class IdvaNativeObservedExtractor
         return output;
     }
 }
+

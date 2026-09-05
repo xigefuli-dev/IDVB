@@ -184,6 +184,12 @@ public sealed partial class SessionOrchestrator
             {
                 sessionCommit?.Complete();
             }
+            var skipPresent = ShouldSkipPresentDueToOptimisticMatch(
+                aligned,
+                toggle.Version,
+                out _,
+                out _);
+
             var present = _overlay.DeferPresent();
             _overlay.SetMainContentVisible(true);
             var overlayPublish = trace?.StartTopLevel(
@@ -193,28 +199,31 @@ public sealed partial class SessionOrchestrator
                 floorKey: aligned.Result.Floor);
             try
             {
-                _overlay.UpdateMap(
-                    aligned,
-                    frame.ClientBounds,
-                    frame.WindowHandle,
-                    _settings!.ShowOverlayStatus);
-                if (adaptiveDecision.AllowReliableSession)
+                if (!skipPresent)
                 {
-                    ShowAdaptiveReliableStatus(
+                    _overlay.UpdateMap(
                         aligned,
-                        adaptiveDecision,
                         frame.ClientBounds,
-                        frame.WindowHandle);
+                        frame.WindowHandle,
+                        _settings!.ShowOverlayStatus);
+                    if (adaptiveDecision.AllowReliableSession)
+                    {
+                        ShowAdaptiveReliableStatus(
+                            aligned,
+                            adaptiveDecision,
+                            frame.ClientBounds,
+                            frame.WindowHandle);
+                    }
+                    else
+                    {
+                        ShowAdaptiveProvisionalStatus(
+                            aligned,
+                            adaptiveDecision,
+                            frame.ClientBounds,
+                            frame.WindowHandle);
+                    }
+                    _overlay.Show();
                 }
-                else
-                {
-                    ShowAdaptiveProvisionalStatus(
-                        aligned,
-                        adaptiveDecision,
-                        frame.ClientBounds,
-                        frame.WindowHandle);
-                }
-                _overlay.Show();
                 var miniMapPublish = trace?.StartChild(
                     "mini_map_publish",
                     MapOperationWaitKind.Compute,
@@ -327,18 +336,19 @@ public sealed partial class SessionOrchestrator
         try
         {
             _overlay.ClearMap();
+            var isPendingWait = pendingVariant || recoveringSelectedIdentity;
             ShowTransientOverlayStatus(
-                pendingVariant
+                isPendingWait
                     ? MapOverlayStatusLevel.Warning
                     : MapOverlayStatusLevel.Failure,
-                pendingVariant
-                    ? "目标变体等待对齐"
+                isPendingWait
+                    ? (pendingVariant ? "目标变体等待对齐" : "已选定地图，等待开图对齐")
                     : "地图重新对齐失败",
                 _statusMessage,
-                pendingVariant
-                    ? "目标地图身份和楼层已保留；本次没有复用旧变体的覆盖层或变换。"
-                    : recoveringSelectedIdentity
-                    ? "已保留所选地图身份；请保持完整地图打开并重新打开地图重试。"
+                isPendingWait
+                    ? (pendingVariant
+                        ? "目标地图身份和楼层已保留；本次没有复用旧变体的覆盖层或变换。"
+                        : "已锁定所选地图身份；请保持完整地图打开并重新打开地图以完成对齐。")
                     : "本次未复用旧变换；请保持完整地图打开，确认 IDVB 手动楼层正确后重新打开地图重试。",
                 frame.ClientBounds,
                 frame.WindowHandle);

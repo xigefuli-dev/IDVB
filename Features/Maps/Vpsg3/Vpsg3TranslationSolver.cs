@@ -27,6 +27,7 @@ public static class Vpsg3TranslationSolver
 
         var cfg = config ?? Vpsg3TuningConfig.Default;
         var sc = scratch ?? Vpsg3SolverScratch.Current;
+        sc.CandidateCount = 0;
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cfg.CoarseTranslationStride);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cfg.MaxSparsePoints);
 
@@ -54,20 +55,24 @@ public static class Vpsg3TranslationSolver
         var refH = preparedFloor.ReferenceHeight;
         var stride = cfg.CoarseTranslationStride;
 
-        var queryWInRef = (int)Math.Round(observation.Width * invScale);
-        var queryHInRef = (int)Math.Round(observation.Height * invScale);
-
-        var minDx = 0;
-        var maxDx = Math.Max(0, refW - queryWInRef);
-        var minDy = 0;
-        var maxDy = Math.Max(0, refH - queryHInRef);
-
-        var columns = maxDx / stride + 1;
-        var scoreCount = checked(columns * (maxDy / stride + 1));
+        // A passing weighted score needs at least this many in-reference points.
+        // Quantile bounds include every such transform, including padded viewports.
+        Span<int> xs = stackalloc int[limitPts];
+        Span<int> ys = stackalloc int[limitPts];
+        for (var i = 0; i < limitPts; i++) { xs[i] = scaledPts[i].X; ys[i] = scaledPts[i].Y; }
+        xs.Sort(); ys.Sort();
+        var misses = Math.Clamp(limitPts - (int)Math.Ceiling(cfg.MinVerificationScore * limitPts), 0, limitPts - 1);
+        var minDx = -xs[misses] - 2;
+        var maxDx = refW + 1 - xs[limitPts - 1 - misses];
+        var minDy = -ys[misses] - 2;
+        var maxDy = refH + 1 - ys[limitPts - 1 - misses];
+        if (maxDx < minDx || maxDy < minDy) return (default, null, null, false);
+        var columns = (maxDx - minDx) / stride + 1;
+        var scoreCount = checked(columns * ((maxDy - minDy) / stride + 1));
         if (sc.TranslationScores.Length < scoreCount)
             sc.TranslationScores = new int[scoreCount];
         var scores = sc.TranslationScores.AsSpan(0, scoreCount);
-        ScoreCoarseGrid(scaledPts, preparedFloor, maxDx, maxDy, stride, scores);
+        ScoreCoarseGrid(scaledPts, preparedFloor, maxDx, maxDy, stride, scores, minDx, minDy);
 
         // 2. Coarse 2D translation grid search across reference space maintaining Top-32 candidates
         Span<CoarseCand> topPool = stackalloc CoarseCand[32];
@@ -77,7 +82,7 @@ public static class Vpsg3TranslationSolver
         {
             for (var dx = minDx; dx <= maxDx; dx += stride)
             {
-                var hits = scores[dy / stride * columns + dx / stride];
+                var hits = scores[(dy - minDy) / stride * columns + (dx - minDx) / stride];
 
                 if (hits >= 5)
                 {
@@ -96,7 +101,7 @@ public static class Vpsg3TranslationSolver
         for (var i = 0; i < poolCount; i++)
         {
             var (pDx, pDy, pHits) = PolishTranslationSubWindow(
-                scaledPts, preparedFloor, topPool[i].Dx, topPool[i].Dy, maxDx, maxDy);
+                scaledPts, preparedFloor, topPool[i].Dx, topPool[i].Dy, maxDx, maxDy, minDx, minDy);
             polished[i] = new CoarseCand(pDx, pDy, pHits);
         }
         SortCoarsePool(polished);
@@ -126,6 +131,16 @@ public static class Vpsg3TranslationSolver
         }
 
         var best = distinctPeaks[0];
+        // Retain the already-scored pool so merged refined peaks can be replaced
+        // without correlating the reference grid again.
+        for (var i = 0; i < distinctCount; i++)
+        {
+            var c = distinctPeaks[i];
+            sc.CandidateBuffer[i] = new Vpsg3TranslationCandidate(
+                observation.ViewportBounds.X - c.Dx * estimatedScale,
+                observation.ViewportBounds.Y - c.Dy * estimatedScale, c.Hits, i + 1);
+        }
+        sc.CandidateCount = distinctCount;
         var top1Offset = new Vpsg3TranslationCandidate(
             OffsetX: observation.ViewportBounds.X - best.Dx * estimatedScale,
             OffsetY: observation.ViewportBounds.Y - best.Dy * estimatedScale,
@@ -181,7 +196,7 @@ public static class Vpsg3TranslationSolver
                     if (distSq < minDistinctDistSqRef)
                         continue;
 
-                    var hits = scores[dy / stride * columns + dx / stride];
+                    var hits = scores[(dy - minDy) / stride * columns + (dx - minDx) / stride];
 
                     if (hits > runnerUpHits)
                     {
@@ -196,7 +211,7 @@ public static class Vpsg3TranslationSolver
             if (foundRunnerUp && runnerUpHits >= 3)
             {
                 var (pDx2, pDy2, pHits2) = PolishTranslationSubWindow(
-                    scaledPts, preparedFloor, runnerUpDx, runnerUpDy, maxDx, maxDy);
+                    scaledPts, preparedFloor, runnerUpDx, runnerUpDy, maxDx, maxDy, minDx, minDy);
 
                 var pDistSq = (pDx2 - best.Dx) * (pDx2 - best.Dx) + (pDy2 - best.Dy) * (pDy2 - best.Dy);
                 if (pDistSq >= minDistinctDistSqRef)
@@ -218,28 +233,36 @@ public static class Vpsg3TranslationSolver
     // Each bit lane counts one translation. Binary addition scores 64 offsets together,
     // preserving integer scores, grid order and ties; the runner-up reuses the same grid.
     internal static void ScoreCoarseGrid(ReadOnlySpan<Point> points, Vpsg3PreparedFloor floor,
-        int maxDx, int maxDy, int stride, Span<int> scores)
+        int maxDx, int maxDy, int stride, Span<int> scores, int minDx = 0, int minDy = 0)
     {
         var words = floor.DilatedBitsetK3Span;
         var wordsPerRow = floor.WordsPerRow;
-        var columns = maxDx / stride + 1;
+        var columns = (maxDx - minDx) / stride + 1;
         Span<ulong> planes = stackalloc ulong[9]; // Up to 256 sampled points.
-        for (var dy = 0; dy <= maxDy; dy += stride)
+        for (var dy = minDy; dy <= maxDy; dy += stride)
         {
-            for (var blockX = 0; blockX <= maxDx; blockX += 64)
+            for (var blockX = minDx; blockX <= maxDx; blockX += 64)
             {
                 planes.Clear();
                 foreach (var point in points)
                 {
                     var x = point.X + blockX;
                     var y = point.Y + dy;
-                    if ((uint)y >= (uint)floor.ReferenceHeight || (uint)x >= (uint)floor.ReferenceWidth)
+                    if ((uint)y >= (uint)floor.ReferenceHeight || x >= floor.ReferenceWidth || x <= -64)
                         continue;
-                    var wordX = x >> 6;
-                    var shift = x & 63;
-                    var carry = words[y * wordsPerRow + wordX] >> shift;
-                    if (shift != 0 && wordX + 1 < wordsPerRow)
-                        carry |= words[y * wordsPerRow + wordX + 1] << (64 - shift);
+                    ulong carry;
+                    if (x < 0)
+                    {
+                        carry = words[y * wordsPerRow] << -x;
+                    }
+                    else
+                    {
+                        var wordX = x >> 6;
+                        var shift = x & 63;
+                        carry = words[y * wordsPerRow + wordX] >> shift;
+                        if (shift != 0 && wordX + 1 < wordsPerRow)
+                            carry |= words[y * wordsPerRow + wordX + 1] << (64 - shift);
+                    }
                     var remaining = floor.ReferenceWidth - x;
                     if (remaining < 64)
                         carry &= (1UL << remaining) - 1;
@@ -251,14 +274,14 @@ public static class Vpsg3TranslationSolver
                     }
                 }
 
-                var first = (stride - blockX % stride) % stride;
+                var first = (stride - (blockX - minDx) % stride) % stride;
                 var last = Math.Min(63, maxDx - blockX);
                 for (var lane = first; lane <= last; lane += stride)
                 {
                     var hits = 0;
                     for (var bit = 0; bit < planes.Length; bit++)
                         hits |= (int)((planes[bit] >> lane) & 1) << bit;
-                    scores[dy / stride * columns + (blockX + lane) / stride] = hits;
+                    scores[(dy - minDy) / stride * columns + (blockX + lane - minDx) / stride] = hits;
                 }
             }
         }
@@ -272,19 +295,8 @@ public static class Vpsg3TranslationSolver
         int dy,
         int hits)
     {
-        for (var i = 0; i < count; i++)
-        {
-            var c = pool[i];
-            if (c.Dx == dx && c.Dy == dy)
-            {
-                if (hits > c.Hits)
-                {
-                    pool[i] = new CoarseCand(dx, dy, hits);
-                    SortCoarsePool(pool.Slice(0, count));
-                }
-                return;
-            }
-        }
+        // Grid coordinates are unique. Reject noncompetitive scores before sorting.
+        if (count == pool.Length && hits <= pool[count - 1].Hits) return;
 
         if (count < pool.Length)
         {
@@ -321,7 +333,9 @@ public static class Vpsg3TranslationSolver
         int centerDx,
         int centerDy,
         int maxDx,
-        int maxDy)
+        int maxDy,
+        int minDx,
+        int minDy)
     {
         var bestDx = centerDx;
         var bestDy = centerDy;
@@ -336,9 +350,9 @@ public static class Vpsg3TranslationSolver
             }
         }
 
-        var startY = Math.Max(0, centerDy - 2);
+        var startY = Math.Max(minDy, centerDy - 2);
         var endY = Math.Min(maxDy, centerDy + 2);
-        var startX = Math.Max(0, centerDx - 2);
+        var startX = Math.Max(minDx, centerDx - 2);
         var endX = Math.Min(maxDx, centerDx + 2);
 
         for (var ldy = startY; ldy <= endY; ldy++)

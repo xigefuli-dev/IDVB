@@ -18,7 +18,8 @@ public static class Vpsg3FastBootstrapSolver
         Vpsg3LiveObservation observation,
         Vpsg3PreparedFloor preparedFloor,
         Vpsg3TuningConfig? config = null,
-        Vpsg3SolverScratch? scratch = null)
+        Vpsg3SolverScratch? scratch = null,
+        double? knownScaleSeed = null)
     {
         ArgumentNullException.ThrowIfNull(observation);
         ArgumentNullException.ThrowIfNull(preparedFloor);
@@ -30,16 +31,27 @@ public static class Vpsg3FastBootstrapSolver
         var extractionMs = observation.ExtractionMilliseconds;
 
         // Stage 1: Scale Solver (S-B Dominant Pitch Correlation)
-        var swScale = Stopwatch.StartNew();
-        var scaleResult = Vpsg3ScaleSolver.Solve(observation, preparedFloor, cfg, sc);
-        swScale.Stop();
-        var scaleMs = swScale.Elapsed.TotalMilliseconds;
-
-        if (!scaleResult.Success)
+        Vpsg3ScaleResult scaleResult;
+        double scaleMs;
+        if (knownScaleSeed is { } seed && seed >= cfg.MinSupportedScale && seed <= cfg.MaxSupportedScale)
         {
-            swTotal.Stop();
-            var timing = new Vpsg3SolverStageTiming(extractionMs, scaleMs, 0d, 0d, 0d, 0d, extractionMs + swTotal.Elapsed.TotalMilliseconds);
-            return Vpsg3BootstrapResult.Fallback($"ScaleSolverFailed: {scaleResult.RejectReason}", scaleResult, timing);
+            // 稳态路径：当前楼层已知可靠尺度种子，直接复用该先验，彻底省去 12ms 的 1D 直方图投影自相关！
+            scaleResult = new Vpsg3ScaleResult(Vpsg3ScaleStatus.Success, seed, PeakRatio: 10.0d, Axis: 0, RejectReason: string.Empty);
+            scaleMs = 0d;
+        }
+        else
+        {
+            var swScale = Stopwatch.StartNew();
+            scaleResult = Vpsg3ScaleSolver.Solve(observation, preparedFloor, cfg, sc);
+            swScale.Stop();
+            scaleMs = swScale.Elapsed.TotalMilliseconds;
+
+            if (!scaleResult.Success)
+            {
+                swTotal.Stop();
+                var timing = new Vpsg3SolverStageTiming(extractionMs, scaleMs, 0d, 0d, 0d, 0d, extractionMs + swTotal.Elapsed.TotalMilliseconds);
+                return Vpsg3BootstrapResult.Fallback($"ScaleSolverFailed: {scaleResult.RejectReason}", scaleResult, timing);
+            }
         }
 
         var estimatedScale = scaleResult.SeedScale;
@@ -137,13 +149,38 @@ public static class Vpsg3FastBootstrapSolver
             refinedCandidate2 = new Vpsg3RefinedCandidate(rfScale3, rfX3, rfY3, rfScore3, sp3.Value.GlobalScore, 0d, sp3.Value, probes3);
         }
 
+        if (refinedCandidate2 is null && sp1.IsSpatiallyConsistent
+            && (rfScore1 >= cfg.MinVerificationScore * 0.85d || sp1.GlobalScore >= cfg.MinVerificationScore * 0.85d))
+        {
+            // Exhaust the remaining retained pool only when the original competitors
+            // collapsed. An unrefined low score is not a safe rejection bound.
+            for (var i = 1; i < sc.CandidateCount; i++)
+            {
+                var candidate = sc.CandidateBuffer[i];
+                if (SameSeed(candidate, runnerUpCand1) || SameSeed(candidate, runnerUpCand2)) continue;
+                var started = Stopwatch.GetTimestamp();
+                var refined = Vpsg3LocalRefiner.Refine(sparsePoints, preparedFloor, estimatedScale,
+                    candidate.OffsetX, candidate.OffsetY, bounds, width, height);
+                refineMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                if (double.Hypot(refined.RefinedX - rfX1, refined.RefinedY - rfY1) < cfg.MinDistinctDistance)
+                    continue;
+                started = Stopwatch.GetTimestamp();
+                var spatial = Vpsg3VerificationGate.EvaluateSpatialVerification(sparsePoints, validMask,
+                    preparedFloor, refined.RefinedScale, refined.RefinedX, refined.RefinedY, bounds, width, height, cfg);
+                verMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                if (refinedCandidate2 is null || spatial.GlobalScore > refinedCandidate2.Value.Spatial.GlobalScore)
+                    refinedCandidate2 = new Vpsg3RefinedCandidate(refined.RefinedScale, refined.RefinedX,
+                        refined.RefinedY, refined.BestScore, spatial.GlobalScore, 0, spatial, refined.Probes);
+            }
+        }
+
         // Stage 5: Joint Verification Gate Decision
         var swGate = Stopwatch.StartNew();
         var gateDecision = Vpsg3VerificationGate.EvaluateDecision(
             scaleResult,
             refinedCandidate1,
             refinedCandidate2,
-            hasDistinctRunnerUp,
+            refinedCandidate2.HasValue,
             bounds,
             preparedFloor.ReferenceWidth,
             preparedFloor.ReferenceHeight,
@@ -188,6 +225,9 @@ public static class Vpsg3FastBootstrapSolver
             runnerUpCandidate: refinedCandidate2,
             timing: fullTiming);
     }
+
+    private static bool SameSeed(Vpsg3TranslationCandidate candidate, Vpsg3TranslationCandidate? other) =>
+        other.HasValue && candidate.OffsetX == other.Value.OffsetX && candidate.OffsetY == other.Value.OffsetY;
 }
 
 

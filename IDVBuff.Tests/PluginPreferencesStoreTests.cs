@@ -6,7 +6,7 @@ namespace IDVBuff.Tests;
 public sealed class PluginPreferencesStoreTests
 {
     [Fact]
-    public void DisabledPluginStateSurvivesASecondStoreInstance()
+    public void EnabledPluginStateSurvivesASecondStoreInstance()
     {
         var directory = Path.Combine(
             Path.GetTempPath(),
@@ -17,17 +17,17 @@ public sealed class PluginPreferencesStoreTests
         try
         {
             var first = new PluginPreferencesStore(path);
-            Assert.True(first.IsEnabled("AutoClicker"));
+            Assert.False(first.IsEnabled("AutoClicker"));
 
-            first.SetEnabled("AutoClicker", enabled: false);
+            first.SetEnabled("AutoClicker", enabled: true);
 
             var second = new PluginPreferencesStore(path);
-            Assert.False(second.IsEnabled("AutoClicker"));
-            Assert.False(second.IsEnabled("autoclicker"));
+            Assert.True(second.IsEnabled("AutoClicker"));
+            Assert.True(second.IsEnabled("autoclicker"));
 
-            second.SetEnabled("autoclicker", enabled: true);
+            second.SetEnabled("autoclicker", enabled: false);
             var third = new PluginPreferencesStore(path);
-            Assert.True(third.IsEnabled("AutoClicker"));
+            Assert.False(third.IsEnabled("AutoClicker"));
         }
         finally
         {
@@ -37,7 +37,7 @@ public sealed class PluginPreferencesStoreTests
     }
 
     [Fact]
-    public void InvalidPreferencesFallBackToEnabledDefaults()
+    public void InvalidPreferencesFallBackToDisabledDefaults()
     {
         var directory = Path.Combine(
             Path.GetTempPath(),
@@ -52,7 +52,7 @@ public sealed class PluginPreferencesStoreTests
 
             var store = new PluginPreferencesStore(path);
 
-            Assert.True(store.IsEnabled("AutoClicker"));
+            Assert.False(store.IsEnabled("AutoClicker"));
         }
         finally
         {
@@ -150,7 +150,7 @@ public sealed class PluginPreferencesStoreTests
             File.WriteAllText(path, """
             {
               "SchemaVersion": 2,
-              "DisabledPluginIds": ["auto-clicker"],
+              "EnabledPluginIds": ["auto-clicker"],
               "PluginSettings": {
                 "auto-clicker": {
                   "valid-int": 5,
@@ -168,7 +168,7 @@ public sealed class PluginPreferencesStoreTests
 
             var store = new PluginPreferencesStore(path);
 
-            Assert.False(store.IsEnabled("auto-clicker"));
+            Assert.True(store.IsEnabled("auto-clicker"));
             Assert.Equal(5, GetNumber(store, "auto-clicker", "valid-int"));
             Assert.True(GetBool(store, "auto-clicker", "valid-bool"));
             Assert.False(store.TryGetSetting("auto-clicker", "invalid-object", out _));
@@ -199,20 +199,20 @@ public sealed class PluginPreferencesStoreTests
             File.WriteAllText(path, """
             {
               "SchemaVersion": 99,
-              "DisabledPluginIds": ["auto-clicker"],
+              "EnabledPluginIds": ["auto-clicker"],
               "PluginSettings": { "auto-clicker": { "delay-ms": 5 } }
             }
             """);
 
             var store = new PluginPreferencesStore(path);
 
-            Assert.False(store.IsEnabled("auto-clicker"));
+            Assert.True(store.IsEnabled("auto-clicker"));
             Assert.False(store.TryGetSetting("auto-clicker", "delay-ms", out _));
 
             // 下次显式写入升级回当前 schema，且保留启用状态。
             store.SetSetting("auto-clicker", "delay-ms", JsonSerializer.SerializeToElement(7));
             var reloaded = new PluginPreferencesStore(path);
-            Assert.False(reloaded.IsEnabled("auto-clicker"));
+            Assert.True(reloaded.IsEnabled("auto-clicker"));
             Assert.Equal(7, GetNumber(reloaded, "auto-clicker", "delay-ms"));
         }
         finally
@@ -234,10 +234,10 @@ public sealed class PluginPreferencesStoreTests
         try
         {
             Directory.CreateDirectory(directory);
-            File.WriteAllText(path, """{ "DisabledPluginIds": ["auto-clicker"] }""");
+            File.WriteAllText(path, """{ "EnabledPluginIds": ["auto-clicker"] }""");
 
             var store = new PluginPreferencesStore(path);
-            Assert.False(store.IsEnabled("auto-clicker"));
+            Assert.True(store.IsEnabled("auto-clicker"));
 
             // 保存时升级到当前 schema。
             store.SetSetting("auto-clicker", "delay-ms", JsonSerializer.SerializeToElement(5));
@@ -269,6 +269,6 @@ public sealed class PluginPreferencesStoreTests
     {
         public int SchemaVersion { get; set; }
 
-        public string[] DisabledPluginIds { get; set; } = [];
+        public string[] EnabledPluginIds { get; set; } = [];
     }
 }

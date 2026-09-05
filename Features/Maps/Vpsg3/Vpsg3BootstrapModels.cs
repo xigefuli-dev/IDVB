@@ -179,6 +179,7 @@ public sealed class Vpsg3SolverScratch
     public Point[] ScaledQueryPointsBuffer { get; } = new Point[256];
     internal int[] TranslationScores = [];
     public Vpsg3TranslationCandidate[] CandidateBuffer { get; } = new Vpsg3TranslationCandidate[64];
+    internal int CandidateCount;
     public byte[] EdgeMaskBuffer { get; private set; } = new byte[1024 * 1024];
 
     internal void EnsureScaleCapacity(int width, int height)

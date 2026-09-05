@@ -190,8 +190,6 @@ public sealed partial class SessionOrchestrator
                 out _,
                 out _);
 
-            var present = _overlay.DeferPresent();
-            _overlay.SetMainContentVisible(true);
             var overlayPublish = trace?.StartTopLevel(
                 "overlay_publish",
                 MapOperationWaitKind.Compute,
@@ -199,62 +197,78 @@ public sealed partial class SessionOrchestrator
                 floorKey: aligned.Result.Floor);
             try
             {
-                if (!skipPresent)
+                if (skipPresent)
                 {
-                    _overlay.UpdateMap(
-                        aligned,
-                        frame.ClientBounds,
-                        frame.WindowHandle,
-                        _settings!.ShowOverlayStatus);
-                    if (adaptiveDecision.AllowReliableSession)
-                    {
-                        ShowAdaptiveReliableStatus(
-                            aligned,
-                            adaptiveDecision,
-                            frame.ClientBounds,
-                            frame.WindowHandle);
-                    }
-                    else
-                    {
-                        ShowAdaptiveProvisionalStatus(
-                            aligned,
-                            adaptiveDecision,
-                            frame.ClientBounds,
-                            frame.WindowHandle);
-                    }
-                    _overlay.Show();
+                    var finalPresent = trace?.StartChild(
+                        "final_present",
+                        MapOperationWaitKind.Compute,
+                        mapId: aligned.Map.Id.ToString("D"),
+                        floorKey: aligned.Result.Floor);
+                    finalPresent?.Complete(
+                        MapOperationSpanStatus.Skipped,
+                        "optimistic-exact-match");
                 }
-                var miniMapPublish = trace?.StartChild(
-                    "mini_map_publish",
-                    MapOperationWaitKind.Compute,
-                    mapId: aligned.Map.Id.ToString("D"),
-                    floorKey: aligned.Result.Floor);
-                try
+                else
                 {
-                    RefreshMiniMapForCurrentFloor();
-                }
-                finally
-                {
-                    miniMapPublish?.Complete();
+                    var present = _overlay.DeferPresent();
+                    try
+                    {
+                        _overlay.SetMainContentVisible(true);
+                        if (!_overlay.TryUpdateMapTransformOnly(
+                                aligned,
+                                frame.ClientBounds,
+                                frame.WindowHandle,
+                                frame.ViewportBounds))
+                        {
+                            _overlay.UpdateMap(
+                                aligned,
+                                frame.ClientBounds,
+                                frame.WindowHandle,
+                                _settings!.ShowOverlayStatus,
+                                frame.ViewportBounds);
+                        }
+                        if (adaptiveDecision.AllowReliableSession)
+                        {
+                            ShowAdaptiveReliableStatus(
+                                aligned,
+                                adaptiveDecision,
+                                frame.ClientBounds,
+                                frame.WindowHandle);
+                        }
+                        else
+                        {
+                            ShowAdaptiveProvisionalStatus(
+                                aligned,
+                                adaptiveDecision,
+                                frame.ClientBounds,
+                                frame.WindowHandle);
+                        }
+                        _overlay.Show();
+                    }
+                    finally
+                    {
+                        var finalPresent = trace?.StartChild(
+                            "final_present",
+                            MapOperationWaitKind.Compute,
+                            mapId: aligned.Map.Id.ToString("D"),
+                            floorKey: aligned.Result.Floor);
+                        try
+                        {
+                            present.Dispose();
+                        }
+                        finally
+                        {
+                            finalPresent?.Complete();
+                        }
+                    }
                 }
             }
             finally
             {
-                var finalPresent = trace?.StartChild(
-                    "final_present",
-                    MapOperationWaitKind.Compute,
-                    mapId: aligned.Map.Id.ToString("D"),
-                    floorKey: aligned.Result.Floor);
-                try
-                {
-                    present.Dispose();
-                }
-                finally
-                {
-                    finalPresent?.Complete();
-                }
                 overlayPublish?.Complete();
             }
+
+            PublishMiniMapAfterMainPresent(aligned, aligned.Result.Floor, false);
 
             // Rendering is the latency boundary visible to the user. Tracking
             // startup and cache I/O must not delay the final Present call.
@@ -357,19 +371,6 @@ public sealed partial class SessionOrchestrator
                 _statusMessage,
                 locked,
                 targetFloorKey);
-            var miniMapFailure = trace?.StartChild(
-                "mini_map_publish",
-                MapOperationWaitKind.Compute,
-                mapId: locked.Map.Id.ToString("D"),
-                floorKey: targetFloorKey);
-            try
-            {
-                RefreshMiniMapForCurrentFloor();
-            }
-            finally
-            {
-                miniMapFailure?.Complete();
-            }
         }
         finally
         {
@@ -388,6 +389,7 @@ public sealed partial class SessionOrchestrator
             }
             overlayPublishFailure?.Complete();
         }
+        PublishMiniMapAfterMainPresent(locked, targetFloorKey, true);
         return MapOpenAlignmentPublishOutcome.Failed;
         }
         finally

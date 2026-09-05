@@ -32,6 +32,17 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public void UpdateMapTransform(object transform, bool preservePlayer = true)
         => _window.UpdateMapTransform((MapOverlayTransform)transform, preservePlayer);
 
+    public bool TryUpdateMapTransformOnly(
+        object recognition,
+        object gameBounds,
+        IntPtr gameWindowHandle,
+        object? viewportBounds = null)
+        => _window.TryUpdateMapTransformOnly(
+            (RuntimeMapRecognition)recognition,
+            (MapScreenRect)gameBounds,
+            gameWindowHandle,
+            (MapScreenRect?)viewportBounds);
+
     public bool TrySetCaptureExclusion(bool enabled, out string failureReason)
         => _window.TrySetCaptureExclusion(enabled, out failureReason);
 

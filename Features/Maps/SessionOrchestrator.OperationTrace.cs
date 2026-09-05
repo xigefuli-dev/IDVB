@@ -268,6 +268,8 @@ public sealed partial class SessionOrchestrator
                 alignmentDiagnostics.AlignmentConfigFingerprint;
             traceDetails["warmStateHit"] = alignmentDiagnostics.WarmStateHit;
             traceDetails["warmStateMissReason"] = alignmentDiagnostics.WarmStateMissReason;
+            traceDetails["stableViewportMode"] = alignmentDiagnostics.StableViewportMode;
+            traceDetails["stableViewportFallback"] = alignmentDiagnostics.StableViewportFallback;
             traceDetails["inputToFirstCaptureMs"] =
                 alignmentDiagnostics.InputToFirstCaptureMilliseconds;
             traceDetails["gameReadyDelayMs"] = alignmentDiagnostics.GameReadyDelayMilliseconds;

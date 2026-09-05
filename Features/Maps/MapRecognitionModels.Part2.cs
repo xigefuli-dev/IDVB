@@ -16,6 +16,8 @@ public sealed partial class MapScanDiagnostics
     /// <summary>Stability loop attempt / capture counts.</summary>
     public int StableViewportAttempts { get; set; }
     public int StableViewportSuccessfulCaptures { get; set; }
+    public string StableViewportMode { get; set; } = "readiness";
+    public bool StableViewportFallback { get; set; }
 
     /// <summary>Floor: request enqueued → worker thread picks up.</summary>
     public double FloorQueueMilliseconds { get; set; }

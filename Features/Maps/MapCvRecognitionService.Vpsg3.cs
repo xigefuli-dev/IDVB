@@ -33,21 +33,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
         if (_disposed || MapAlignmentChannelRegistry.Resolve(map, floorKey).Channel == MapAlignmentChannel.LowStructure)
             return false;
 
-        var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase));
-        if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt
-            || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase))
+        if (!TryGetVpsg3IndexKey(map, floorKey, out var key))
         {
             return false;
         }
-
-        var structureGen = Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt, schemaVersion: 1);
-        var key = new Vpsg3IndexCacheKey(
-            map.Id,
-            floor.Key,
-            MapFeatureCacheRules.ComputeContentFingerprint(map),
-            map.UpdatedAt,
-            structureGen,
-            SchemaVersion: 1);
 
         if (!_vpsg3Registry.TryGet(key, out var lease))
         {
@@ -208,6 +197,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
             return true;
         }
     }
+
+    private static bool TryGetVpsg3IndexKey(MapRecord map, string floorKey, out Vpsg3IndexCacheKey key) { key = default; var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase)); if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase)) return false; key = new Vpsg3IndexCacheKey(map.Id, floor.Key, MapFeatureCacheRules.ComputeContentFingerprint(map), map.UpdatedAt, Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt, schemaVersion: 1), SchemaVersion: 1); return true; }
 
     // ponytail: one in-flight shadow, no queue; add a bounded queue only if dropped
     // observations prevent certification. Cloned pixels and a lease outlive the caller.

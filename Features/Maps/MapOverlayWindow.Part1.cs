@@ -221,6 +221,10 @@ public sealed partial class MapOverlayWindow : IDisposable
         _nativeWindow.Dispose();
         _map = null;
         _player = null;
+        _mapId = Guid.Empty;
+        _mapFloorKey = string.Empty;
+        _mapImagePath = string.Empty;
+        _mapUpdatedAt = default;
         _status = null;
     }
 

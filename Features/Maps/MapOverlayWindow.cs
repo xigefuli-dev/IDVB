@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Drawing;
 using IDVBuff.Core.Contracts;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -23,6 +24,12 @@ public sealed partial class MapOverlayWindow : IDisposable
     private MapOverlayStatus? _status;
     private IntPtr _gameWindowHandle;
     private MapScreenRect _gameBounds;
+    private Guid _mapId;
+    private string _mapFloorKey = string.Empty;
+    private string _mapImagePath = string.Empty;
+    private DateTimeOffset _mapUpdatedAt;
+    private int _mapReferenceWidth;
+    private int _mapReferenceHeight;
     private bool _showStatusPreference = true;
     private bool _reverseAlternation;
     private bool _allowExtend;
@@ -54,7 +61,6 @@ public sealed partial class MapOverlayWindow : IDisposable
     private bool _presentDirty;
     private int _presentCount;
     private bool _disposed;
-
     public MapOverlayWindow(ICaptureProtectionService? captureProtection = null)
     {
         _nativeWindow = new MapOverlayNativeWindow(captureProtection);
@@ -68,7 +74,6 @@ public sealed partial class MapOverlayWindow : IDisposable
     public double? CurrentMiniMapScale => _persistentMiniMap is not null ? _miniMapScale : null;
     public bool HasStatus => _status is not null;
     private bool HasContent => HasMap || HasStatus || _persistentMiniMap is not null;
-
     public void UpdateStatus(
         MapOverlayStatus status,
         MapScreenRect gameBounds,
@@ -93,7 +98,6 @@ public sealed partial class MapOverlayWindow : IDisposable
         if (showImmediately)
             Present();
     }
-
     public void ClearStatus()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -198,6 +202,12 @@ public sealed partial class MapOverlayWindow : IDisposable
         {
             Annotations = annotations
         };
+        _mapId = recognition.Map.Id;
+        _mapFloorKey = recognition.Result.Floor;
+        _mapImagePath = recognition.FloorImagePath;
+        _mapUpdatedAt = recognition.Map.UpdatedAt;
+        _mapReferenceWidth = transform.ReferenceWidth;
+        _mapReferenceHeight = transform.ReferenceHeight;
         if (_persistentMiniMap is not null)
         {
             _persistentMiniMap = _persistentMiniMap with
@@ -226,39 +236,6 @@ public sealed partial class MapOverlayWindow : IDisposable
             showStatusPreference,
             viewportBounds,
             preservePlayer);
-
-    public void UpdateMapTransform(
-        MapOverlayTransform transform,
-        bool preservePlayer = true)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_map is null)
-            return;
-        var overlayWidth = transform.ReferenceWidth * transform.ScaleX;
-        var overlayHeight = transform.ReferenceHeight * transform.ScaleY;
-        if (!double.IsFinite(overlayWidth)
-            || !double.IsFinite(overlayHeight)
-            || !double.IsFinite(transform.OffsetX)
-            || !double.IsFinite(transform.OffsetY)
-            || overlayWidth <= 0
-            || overlayHeight <= 0)
-        {
-            return;
-        }
-
-        _map = _map with
-        {
-            Left = ToFiniteSingle(transform.OffsetX - _gameBounds.X),
-            Top = ToFiniteSingle(transform.OffsetY - _gameBounds.Y),
-            Width = ToFiniteSingle(overlayWidth),
-            Height = ToFiniteSingle(overlayHeight)
-        };
-        InvalidateLockedBackground();
-        if (!preservePlayer)
-            _player = null;
-        if (IsVisible)
-            Present();
-    }
 
     public bool TrySetCaptureExclusion(bool enabled, out string failureReason)
     {
@@ -290,6 +267,10 @@ public sealed partial class MapOverlayWindow : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         _map = null;
         _player = null;
+        _mapId = Guid.Empty;
+        _mapFloorKey = string.Empty;
+        _mapImagePath = string.Empty;
+        _mapUpdatedAt = default;
         InvalidateLockedBackground();
         RefreshVisibleContent();
     }
@@ -299,6 +280,10 @@ public sealed partial class MapOverlayWindow : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         _map = null;
         _player = null;
+        _mapId = Guid.Empty;
+        _mapFloorKey = string.Empty;
+        _mapImagePath = string.Empty;
+        _mapUpdatedAt = default;
         InvalidateLockedBackground();
         RefreshVisibleContent();
     }
@@ -340,6 +325,10 @@ public sealed partial class MapOverlayWindow : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         _map = null;
         _player = null;
+        _mapId = Guid.Empty;
+        _mapFloorKey = string.Empty;
+        _mapImagePath = string.Empty;
+        _mapUpdatedAt = default;
         _persistentMiniMap = null;
         _miniMapScale = null;
         _miniMapBaseScale = null;
@@ -359,7 +348,6 @@ public sealed partial class MapOverlayWindow : IDisposable
             return;
         Present();
     }
-
     public void Hide() => _nativeWindow.Hide();
 
     public IDisposable DeferPresent()
@@ -454,9 +442,23 @@ public sealed partial class MapOverlayWindow : IDisposable
 
         try
         {
-            using var bitmap = RenderScene(scene);
-            _nativeWindow.Present(bitmap, _gameBounds);
-            Interlocked.Increment(ref _presentCount);
+            var renderScene = MapOperationTraceAmbient.StartChild(
+                "final_render_scene",
+                MapOperationWaitKind.Compute);
+            Bitmap bitmap;
+            try
+            {
+                bitmap = RenderScene(scene);
+            }
+            finally
+            {
+                renderScene.Complete();
+            }
+            using (bitmap)
+            {
+                _nativeWindow.Present(bitmap, _gameBounds);
+                Interlocked.Increment(ref _presentCount);
+            }
         }
         catch (Exception ex)
         {

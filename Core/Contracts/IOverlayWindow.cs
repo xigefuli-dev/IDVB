@@ -39,6 +39,13 @@ public interface IOverlayWindow : IDisposable
     {
     }
 
+    /// <summary>Updates only a transform when the loaded source state is exact.</summary>
+    bool TryUpdateMapTransformOnly(
+        object /* RuntimeMapRecognition */ recognition,
+        object /* MapScreenRect */ gameBounds,
+        IntPtr gameWindowHandle,
+        object? /* MapScreenRect? */ viewportBounds = null) => false;
+
     /// <summary>当前原生 Overlay 是否实际成功启用捕获排除。</summary>
     bool IsCaptureExclusionEnabled => false;
 

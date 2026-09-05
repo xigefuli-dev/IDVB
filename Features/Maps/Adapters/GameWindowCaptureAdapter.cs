@@ -27,6 +27,19 @@ public sealed class GameWindowCaptureAdapter : IGameWindowCapture
         frame = f;
         return result;
     }
+
+    public bool TryAcquireLatestViewportFrame(
+        object viewport,
+        TimeSpan maximumAge,
+        out object? frame)
+    {
+        var result = _capture.TryAcquireLatestViewportFrame(
+            (NormalizedRectangle)viewport,
+            maximumAge,
+            out var f);
+        frame = f;
+        return result;
+    }
 }
 /*
  * 文件职责：GameWindowCaptureAdapter。

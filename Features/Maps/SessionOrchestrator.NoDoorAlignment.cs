@@ -35,6 +35,19 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         MapRecord map,
         string floorKey)
+        => CreateAlignmentContextKey(
+            match,
+            frame.ClientBounds,
+            frame.ViewportBounds,
+            map,
+            floorKey);
+
+    private MapAlignmentContextKey CreateAlignmentContextKey(
+        MapMatchSnapshot match,
+        MapScreenRect clientBounds,
+        MapScreenRect viewportBounds,
+        MapRecord map,
+        string floorKey)
     {
         var generationFingerprint =
             _settings?.StructureRegistrationTuning.Generation
@@ -58,10 +71,10 @@ public sealed partial class SessionOrchestrator
             map.Id,
             map.UpdatedAt,
             floorKey,
-            Math.Max(0, (int)Math.Round(frame.ClientBounds.Width)),
-            Math.Max(0, (int)Math.Round(frame.ClientBounds.Height)),
-            Math.Max(0, (int)Math.Round(frame.ViewportBounds.Width)),
-            Math.Max(0, (int)Math.Round(frame.ViewportBounds.Height)),
+            Math.Max(0, (int)Math.Round(clientBounds.Width)),
+            Math.Max(0, (int)Math.Round(clientBounds.Height)),
+            Math.Max(0, (int)Math.Round(viewportBounds.Width)),
+            Math.Max(0, (int)Math.Round(viewportBounds.Height)),
             generation).Normalize();
     }
 
@@ -103,9 +116,29 @@ public sealed partial class SessionOrchestrator
         MapRecord map,
         string floorKey,
         out string missReason)
+        => TryGetReliableFloorAlignment(
+            match,
+            frame.ClientBounds,
+            frame.ViewportBounds,
+            map,
+            floorKey,
+            out missReason);
+
+    private ReliableFloorAlignmentSeed? TryGetReliableFloorAlignment(
+        MapMatchSnapshot match,
+        MapScreenRect clientBounds,
+        MapScreenRect viewportBounds,
+        MapRecord map,
+        string floorKey,
+        out string missReason)
     {
         EnsureReliableFloorAlignmentScope(match);
-        var key = CreateAlignmentContextKey(match, frame, map, floorKey);
+        var key = CreateAlignmentContextKey(
+            match,
+            clientBounds,
+            viewportBounds,
+            map,
+            floorKey);
         missReason = string.Empty;
         lock (_reliableFloorAlignmentGate)
         {

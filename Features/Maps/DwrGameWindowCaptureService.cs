@@ -19,8 +19,21 @@ public sealed class DwrGameWindowCaptureService
     // ToMat 仍每次新建 Mat 拷贝像素——CapturedGameFrame 的生命周期独立于
     // surface，绝不能共享内存。
     private readonly object _captureSurfaceGate = new();
+    private readonly object _latestViewportGate = new();
     private Bitmap? _captureSurface;
     private Graphics? _captureGraphics;
+    private LatestViewportSnapshot? _latestViewport;
+
+    private sealed class LatestViewportSnapshot : IDisposable
+    {
+        public required Mat Image { get; init; }
+        public required MapScreenRect ClientBounds { get; init; }
+        public required MapScreenRect ViewportBounds { get; init; }
+        public required IntPtr WindowHandle { get; init; }
+        public required long Timestamp { get; init; }
+
+        public void Dispose() => Image.Dispose();
+    }
 
     public bool TryGetForegroundClientBounds(
         out MapScreenRect clientBounds,
@@ -100,14 +113,87 @@ public sealed class DwrGameWindowCaptureService
                     clientBounds,
                     viewportBounds,
                     window);
+                ReplaceLatestViewportSnapshot(new LatestViewportSnapshot
+                {
+                    Image = frame.Image.Clone(),
+                    ClientBounds = clientBounds,
+                    ViewportBounds = viewportBounds,
+                    WindowHandle = window,
+                    Timestamp = Stopwatch.GetTimestamp()
+                });
                 return true;
             }
         }
         catch (Exception exception)
         {
+            frame?.Dispose();
+            frame = null;
             failureReason = $"无法捕获 dwrg.exe 游戏画面：{exception.Message}";
             return false;
         }
+    }
+
+    public bool TryAcquireLatestViewportFrame(
+        NormalizedRectangle viewport,
+        TimeSpan maximumAge,
+        out CapturedGameFrame? frame)
+    {
+        frame = null;
+        if (!viewport.IsValid || maximumAge < TimeSpan.Zero)
+            return false;
+        if (!TryGetForegroundGameWindow(out var window, out _)
+            || !TryGetClientBounds(window, out var clientBounds))
+        {
+            return false;
+        }
+
+        var viewportBounds = GetViewportBounds(clientBounds, viewport);
+        if (!viewportBounds.IsValid)
+            return false;
+
+        var maximumAgeTicks = Math.Max(
+            0L,
+            (long)Math.Ceiling(maximumAge.TotalSeconds * Stopwatch.Frequency));
+        var ageTicks = Stopwatch.GetTimestamp();
+        lock (_latestViewportGate)
+        {
+            var snapshot = _latestViewport;
+            if (snapshot is null
+                || ageTicks - snapshot.Timestamp > maximumAgeTicks
+                || snapshot.WindowHandle != window
+                || snapshot.ClientBounds != clientBounds
+                || snapshot.ViewportBounds != viewportBounds)
+            {
+                return false;
+            }
+
+            try
+            {
+                frame = new CapturedGameFrame(
+                    snapshot.Image.Clone(),
+                    snapshot.ClientBounds,
+                    snapshot.ViewportBounds,
+                    snapshot.WindowHandle);
+                return true;
+            }
+            catch
+            {
+                frame?.Dispose();
+                frame = null;
+                return false;
+            }
+        }
+    }
+
+    private void ReplaceLatestViewportSnapshot(LatestViewportSnapshot snapshot)
+    {
+        LatestViewportSnapshot? previous;
+        lock (_latestViewportGate)
+        {
+            previous = _latestViewport;
+            _latestViewport = snapshot;
+        }
+        previous?.Dispose();
     }
 
     /// <summary>

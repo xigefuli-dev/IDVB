@@ -2,12 +2,14 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
 internal sealed partial class MapOverlayNativeWindow
 {
     private IntPtr _cachedMemoryDc = IntPtr.Zero;
+    private IntPtr _cachedScreenDc = IntPtr.Zero;
     private IntPtr _cachedDIBSection = IntPtr.Zero;
     private IntPtr _cachedBitsPtr = IntPtr.Zero;
     private IntPtr _cachedOldBitmap = IntPtr.Zero;
@@ -22,6 +24,9 @@ internal sealed partial class MapOverlayNativeWindow
         CleanupCachedBuffer();
 
         var screenDc = GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero)
+            throw NativeFailure("Unable to acquire the cached overlay screen DC.");
+        _cachedScreenDc = screenDc;
         try
         {
             _cachedMemoryDc = CreateCompatibleDC(screenDc);
@@ -53,10 +58,10 @@ internal sealed partial class MapOverlayNativeWindow
             _cachedDIBWidth = width;
             _cachedDIBHeight = height;
         }
-        finally
+        catch
         {
-            if (screenDc != IntPtr.Zero)
-                ReleaseDC(IntPtr.Zero, screenDc);
+            CleanupCachedBuffer();
+            throw;
         }
     }
 
@@ -76,6 +81,11 @@ internal sealed partial class MapOverlayNativeWindow
         {
             DeleteDC(_cachedMemoryDc);
             _cachedMemoryDc = IntPtr.Zero;
+        }
+        if (_cachedScreenDc != IntPtr.Zero)
+        {
+            ReleaseDC(IntPtr.Zero, _cachedScreenDc);
+            _cachedScreenDc = IntPtr.Zero;
         }
         _cachedBitsPtr = IntPtr.Zero;
         _cachedDIBWidth = 0;
@@ -119,6 +129,9 @@ internal sealed partial class MapOverlayNativeWindow
         EnsureCachedBuffer(width, height);
 
         // 极速内存拷贝：将 32bppPArgb 像素直接拷贝到常驻 DIBSection，彻底规避 16MB 的频繁申请与 GDI+ 转换
+        var nativeCopy = MapOperationTraceAmbient.StartChild(
+            "final_native_copy",
+            MapOperationWaitKind.Compute);
         var rect = new Rectangle(0, 0, width, height);
         var bmpData = bitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppPArgb);
         try
@@ -141,6 +154,7 @@ internal sealed partial class MapOverlayNativeWindow
         finally
         {
             bitmap.UnlockBits(bmpData);
+            nativeCopy.Complete();
         }
 
         var destination = new NativePoint(x, y);
@@ -153,7 +167,12 @@ internal sealed partial class MapOverlayNativeWindow
             AlphaFormat = AcSrcAlpha
         };
         SetLastError(0);
-        var screenDc = GetDC(IntPtr.Zero);
+        var screenDc = _cachedScreenDc;
+        if (screenDc == IntPtr.Zero)
+            throw NativeFailure("The cached overlay screen DC is unavailable.");
+        var updateLayeredWindow = MapOperationTraceAmbient.StartChild(
+            "final_update_layered_window",
+            MapOperationWaitKind.Compute);
         try
         {
             bool ulwSuccess = UpdateLayeredWindow(
@@ -176,8 +195,7 @@ internal sealed partial class MapOverlayNativeWindow
         }
         finally
         {
-            if (screenDc != IntPtr.Zero)
-                ReleaseDC(IntPtr.Zero, screenDc);
+            updateLayeredWindow.Complete();
         }
     }
 

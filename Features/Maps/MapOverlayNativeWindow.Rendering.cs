@@ -228,8 +228,8 @@ internal static partial class MapOverlayBitmapRenderer
                 nameof(lockedBackground));
         }
 
-        // Clone pixels in their existing premultiplied format. Bitmap(Image)
-        // redraws the full screen into ARGB, then GetHbitmap converts it back.
+        // Clone pixels in their existing premultiplied format without a native
+        // bitmap-handle round trip.
         var bitmap = lockedBackground.Clone(
             new Rectangle(0, 0, lockedBackground.Width, lockedBackground.Height),
             PixelFormat.Format32bppPArgb);

@@ -36,4 +36,17 @@ public interface IGameWindowCapture
         /* NormalizedRectangle */ object viewport,
         out /* CapturedGameFrame? */ object? frame,
         out string failureReason);
+
+    /// <summary>
+    /// Tries to acquire a frame captured by an existing capture operation.
+    /// Implementations without a hot frame return false and do not capture.
+    /// </summary>
+    bool TryAcquireLatestViewportFrame(
+        object viewport,
+        TimeSpan maximumAge,
+        out object? frame)
+    {
+        frame = null;
+        return false;
+    }
 }

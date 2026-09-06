@@ -1,3 +1,4 @@
+using System.Reflection;
 using IDVBuff.Core.Contracts;
 using IDVBuff.Plugins.LiveMode;
 using Xunit;
@@ -60,6 +61,43 @@ public sealed class LiveModePluginTests
         using var later = service.RegisterWindow(
             new IntPtr(3), CaptureProtectionWindowCategory.DisplayLayer, "later");
         Assert.False(later.IsProtectionApplied);
+    }
+
+    [Fact]
+    public void LiveModePlugin_IsMarkedAsAlwaysActive()
+    {
+        var attribute = typeof(LiveModePlugin).GetCustomAttribute<PluginAttribute>();
+        Assert.NotNull(attribute);
+        Assert.True(attribute.AlwaysActive);
+    }
+
+    [Fact]
+    public void LiveModePlugin_UnderPluginHost_TogglesImmediatelyOutsideMatchGate()
+    {
+        var service = new FakeCaptureProtectionService();
+        var bus = new MessageBus();
+        var factory = new FakeContextFactory(service);
+        var host = new PluginHost(bus, factory);
+        var plugin = new LiveModePlugin();
+
+        // 模拟桌面宿主启动，局外门控关闭
+        host.SetActivationAllowed(false);
+        host.Register(plugin, initiallyEnabled: true);
+        host.Start();
+
+        // 即使在局外，AlwaysActive 插件也会被激活，并应用默认策略（隐藏显示层）
+        Assert.True(host.IsActive(plugin.Id));
+        Assert.Equal((true, false, true), service.Policy);
+
+        // 在局外主动关停直播模式，立即触发 OnDisable 并无条件恢复全量窗口捕获
+        host.SetEnabled(plugin.Id, false);
+        Assert.False(host.IsActive(plugin.Id));
+        Assert.Equal((false, false, false), service.Policy);
+
+        // 在局外重新启用直播模式，立即重新激活
+        host.SetEnabled(plugin.Id, true);
+        Assert.True(host.IsActive(plugin.Id));
+        Assert.Equal((true, false, true), service.Policy);
     }
 
     private sealed class FakeCaptureProtectionService : ICaptureProtectionService

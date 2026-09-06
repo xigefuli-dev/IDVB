@@ -207,6 +207,7 @@ public sealed partial class SessionOrchestrator
                     finalPresent?.Complete(
                         MapOperationSpanStatus.Skipped,
                         "optimistic-exact-match");
+                    _overlay.SetMainContentVisible(true);
                 }
                 else
                 {

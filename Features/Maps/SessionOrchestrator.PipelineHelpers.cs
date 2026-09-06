@@ -21,6 +21,16 @@ public sealed partial class SessionOrchestrator
         if (_disposed || !_settings!.IsEnabled
             || !_matchSession.Snapshot.IsStarted)
             return;
+
+        // 如果地图当前处于打开状态，用户按下切换键必然是希望立即关图。
+        // 关图享受最高优先级零延迟短路：不检查前台失焦、不等待分辨率预设解析，1ms 内立即关图并取消后台对齐！
+        if (_gameMapToggleState.IsOpen)
+        {
+            _gameMapToggleState.Toggle();
+            await EndMapDisplayAsync("game map closed");
+            return;
+        }
+
         if (!_captureSvc.TryGetForegroundClientBounds(
                 out var clientBoundsObj, out var windowHandleObj, out _)
             || clientBoundsObj is not MapScreenRect clientBounds)
@@ -34,10 +44,6 @@ public sealed partial class SessionOrchestrator
             await EndMapDisplayAsync("game map closed");
             return;
         }
-
-        // 零延迟通道：开图瞬间若有可信基准变换，在第 1ms 内瞬间展示图层
-        TryPerformOptimisticMapOpenPresentation(toggle, clientBounds, windowHandle);
-
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
         else if (_backgroundScanStatus == BackgroundScanStatus.CompletedFailed)

@@ -68,13 +68,20 @@ internal sealed class RecordingPlugin : PluginBase
 /// </summary>
 internal sealed class FakeContextFactory : IPluginContextFactory
 {
+    private readonly object? _service;
+
+    public FakeContextFactory(object? service = null)
+    {
+        _service = service;
+    }
+
     public FakeLogger Logger { get; } = new();
 
     public List<IPluginContext> Created { get; } = new();
 
     public IPluginContext Create(IPlugin plugin)
     {
-        var context = new FakeContext(plugin, Logger);
+        var context = new FakeContext(plugin, Logger, _service);
         Created.Add(context);
         return context;
     }

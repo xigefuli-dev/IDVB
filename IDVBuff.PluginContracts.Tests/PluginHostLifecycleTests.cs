@@ -270,4 +270,51 @@ public class PluginHostLifecycleTests
 
         Assert.Equal(2, host.Plugins.Count);
     }
+
+    [Plugin("always-active-plugin", AlwaysActive = true)]
+    private sealed class AlwaysActiveRecordingPlugin : PluginBase
+    {
+        public override string Id => "always-active-plugin";
+        public override string DisplayName => "Always Active";
+        public List<string> Calls { get; } = new();
+
+        public override void OnLoad(IPluginContext context) => Calls.Add("load");
+        public override void OnEnable() => Calls.Add("enable");
+        public override void OnStart() => Calls.Add("start");
+        public override void OnDisable() => Calls.Add("disable");
+        public override void OnUnload() => Calls.Add("unload");
+    }
+
+    [Fact]
+    public void AlwaysActivePlugin_StartsOutsideMatchGateAndTogglesImmediately()
+    {
+        var factory = new FakeContextFactory();
+        var host = CreateHost(factory);
+        var plugin = new AlwaysActiveRecordingPlugin();
+        host.SetActivationAllowed(false);
+        host.Register(plugin);
+
+        host.Start();
+
+        Assert.True(host.IsEnabled("always-active-plugin"));
+        Assert.True(host.IsActive("always-active-plugin"));
+        Assert.Equal(["load", "enable", "start"], plugin.Calls);
+
+        // Match activation transitions do not disable AlwaysActive plugins
+        host.SetActivationAllowed(true);
+        Assert.True(host.IsActive("always-active-plugin"));
+        host.SetActivationAllowed(false);
+        Assert.True(host.IsActive("always-active-plugin"));
+
+        // Explicit toggle outside match gate disables immediately
+        host.SetEnabled("always-active-plugin", false);
+        Assert.False(host.IsEnabled("always-active-plugin"));
+        Assert.False(host.IsActive("always-active-plugin"));
+        Assert.Contains("disable", plugin.Calls);
+
+        // Re-enable outside match gate enables immediately
+        host.SetEnabled("always-active-plugin", true);
+        Assert.True(host.IsEnabled("always-active-plugin"));
+        Assert.True(host.IsActive("always-active-plugin"));
+    }
 }

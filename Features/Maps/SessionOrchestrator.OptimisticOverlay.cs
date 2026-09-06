@@ -80,13 +80,25 @@ public sealed partial class SessionOrchestrator
             }
         };
 
+        var viewport = ResolveMapViewportForCurrentWindow();
+        MapScreenRect? viewportBounds = null;
+        if (clientBounds.IsValid && viewport.Width > 0 && viewport.Height > 0)
+        {
+            viewportBounds = new MapScreenRect(
+                clientBounds.X + (viewport.X * clientBounds.Width),
+                clientBounds.Y + (viewport.Y * clientBounds.Height),
+                viewport.Width * clientBounds.Width,
+                viewport.Height * clientBounds.Height);
+        }
+
         using (var optimisticPresent = _overlay.DeferPresent())
         {
             _overlay.UpdateMap(
                 optimistic,
                 clientBounds,
                 windowHandle,
-                _settings.ShowOverlayStatus);
+                _settings.ShowOverlayStatus,
+                viewportBounds);
             if (!_overlay.HasMap)
             {
                 return false;

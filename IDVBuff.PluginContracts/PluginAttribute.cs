@@ -23,4 +23,10 @@ public sealed class PluginAttribute : Attribute
     public string? Author { get; set; }
 
     public bool EnabledByDefault { get; set; } = true;
+
+    /// <summary>
+    /// 是否常驻/不受对局门控限制。常驻插件在宿主启动时若已启用则立即激活，
+    /// 且在局外依然保持运行；切换启用状态时立即触发生命周期回调。
+    /// </summary>
+    public bool AlwaysActive { get; set; }
 }

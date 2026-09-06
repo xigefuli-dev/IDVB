@@ -168,15 +168,11 @@ public static class Vpsg3VerificationGate
 
         var margin = bestCandidate.Spatial.GlobalScore - runnerUpScore;
         var effectiveMinMargin = cfg.MinApertureMargin;
-        if (bestCandidate.Spatial.GlobalScore >= 0.90d)
+        if (bestCandidate.Spatial.GlobalScore >= 0.90d && bestCandidate.Spatial.IsSpatiallyConsistent)
         {
-            // 当主峰匹配度 >= 90% 且象限一致时，由于真实离散网格相关峰具有一定空间宽度，6px 邻域次峰得分往往也较高。
+            // 当主峰匹配度 >= 90% 且象限一致时，由于真实离散网格相关峰具有一定空间宽度，邻域次峰得分往往也较高。
             // 此时只要具有明确的主峰优势 (>= 0.035)，即可安全采纳，防止高精度结果被误杀并引发 300ms+ 的昂贵回退。
             effectiveMinMargin = Math.Min(effectiveMinMargin, 0.035d);
-        }
-        else if (bestCandidate.Spatial.GlobalScore >= 0.82d)
-        {
-            effectiveMinMargin = Math.Min(effectiveMinMargin, 0.050d);
         }
 
         if (margin < effectiveMinMargin)

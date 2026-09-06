@@ -76,20 +76,21 @@ public static class Vpsg3FastBootstrapSolver
         var bounds = observation.ViewportBounds;
         var width = observation.Width;
         var height = observation.Height;
+        var lockScale = knownScaleSeed.HasValue;
 
         // Refine Candidate 1
         var (rfScale1, rfX1, rfY1, rfScore1, probes1) = Vpsg3LocalRefiner.Refine(
             sparsePoints, preparedFloor, estimatedScale, top1Cand.OffsetX, top1Cand.OffsetY,
-            bounds, width, height);
+            bounds, width, height, lockScale);
 
         // Refine Distinct Runner-Up 1
         var (rfScale2, rfX2, rfY2, rfScore2, probes2) = hasDistinctRunnerUp && runnerUpCand1.HasValue
-            ? Vpsg3LocalRefiner.Refine(sparsePoints, preparedFloor, estimatedScale, runnerUpCand1.Value.OffsetX, runnerUpCand1.Value.OffsetY, bounds, width, height)
+            ? Vpsg3LocalRefiner.Refine(sparsePoints, preparedFloor, estimatedScale, runnerUpCand1.Value.OffsetX, runnerUpCand1.Value.OffsetY, bounds, width, height, lockScale)
             : (estimatedScale, 0d, 0d, 0d, 0);
 
         // Refine Distinct Runner-Up 2 if present
         var (rfScale3, rfX3, rfY3, rfScore3, probes3) = runnerUpCand2.HasValue
-            ? Vpsg3LocalRefiner.Refine(sparsePoints, preparedFloor, estimatedScale, runnerUpCand2.Value.OffsetX, runnerUpCand2.Value.OffsetY, bounds, width, height)
+            ? Vpsg3LocalRefiner.Refine(sparsePoints, preparedFloor, estimatedScale, runnerUpCand2.Value.OffsetX, runnerUpCand2.Value.OffsetY, bounds, width, height, lockScale)
             : (estimatedScale, 0d, 0d, 0d, 0);
 
         swRefine.Stop();

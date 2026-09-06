@@ -99,7 +99,10 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
         Hide();
     }
 
-    internal bool IsCaptureExclusionEnabled => _captureExcluded;
+    internal bool IsCaptureExclusionEnabled =>
+        _captureProtectionRegistration is not null
+            ? _captureProtectionRegistration.IsProtectionApplied
+            : _captureExcluded;
 
     internal bool TrySetCaptureExclusion(bool enabled, out string failureReason)
     {

@@ -44,17 +44,17 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        if (!_overlay.TryEnableCaptureExclusion(out var exclusionFailure))
+        if (!_overlay.IsCaptureExclusionEnabled)
         {
             if (Interlocked.Exchange(ref _orbCaptureExclusionWarningLogged, 1) == 0)
             {
                 _logCollector.Append(
                     MapLogCategory.OrbTracking,
                     MapLogLevel.Warning,
-                    "ORB tracking disabled because the overlay cannot be excluded from capture.",
+                    "ORB tracking disabled because the overlay is not excluded from capture.",
                     details: new()
                     {
-                        ["failureReason"] = exclusionFailure
+                        ["failureReason"] = "Capture exclusion is disabled or not requested."
                     });
             }
             return;

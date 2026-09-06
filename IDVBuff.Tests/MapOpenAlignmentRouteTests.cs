@@ -106,11 +106,11 @@ public sealed partial class MapOpenAlignmentRouteTests
     }
 
     [Theory]
-    [InlineData(MapAlignmentChannel.Standard, false, false)]
+    [InlineData(MapAlignmentChannel.Standard, false, true)]
     [InlineData(MapAlignmentChannel.Standard, true, true)]
     [InlineData(MapAlignmentChannel.LowStructure, false, false)]
     [InlineData(MapAlignmentChannel.LowStructure, true, true)]
-    public void EveryWarmStateRequiresReliableSameFloorScale(
+    public void LowStructureWarmStateRequiresReliableSameFloorScale(
         MapAlignmentChannel channel,
         bool isScaleReliable,
         bool expected)
@@ -142,11 +142,12 @@ public sealed partial class MapOpenAlignmentRouteTests
     }
 
     [Theory]
-    [InlineData(false, true, 0d, false, true)]
+    [InlineData(false, true, 0d, false, false)] // 变体一楼拥有大门，绝不走无门二楼的独立楼层对齐
     [InlineData(false, true, 0.85d, false, false)]
     [InlineData(false, false, 0d, false, false)]
     [InlineData(false, true, 0d, true, false)]
     [InlineData(true, false, 0d, false, true)]
+    [InlineData(true, true, 0d, false, true)]
     public void IndependentFloorAlignmentCoversOtherFloorsAndUnalignedNeutralSessions(
         bool isOtherFloor,
         bool isPendingVariantAlignment,
@@ -436,6 +437,7 @@ public sealed partial class MapOpenAlignmentRouteTests
         Assert.Equal(400, session.LockedTransform.ReferenceHeight);
         Assert.False(session.HasGatePairLock);
         Assert.Equal(0d, session.SideEntranceScanPriorConfidence);
+        Assert.Equal(MapAlignmentTrackingMode.None, session.Mode);
     }
 
     [Fact]
@@ -486,5 +488,4 @@ public sealed partial class MapOpenAlignmentRouteTests
         Assert.Equal(1000, primarySession.LockedTransform.ReferenceWidth);
         Assert.NotSame(secondarySession, primarySession);
     }
-
 }

@@ -60,9 +60,10 @@ public sealed partial class SessionOrchestrator
                         locked.Map,
                         floorKey,
                         out _);
-                    canUseSteadyFastCapture = warmSeed is not null
-                        && channel.Channel != MapAlignmentChannel.LowStructure
-                        && _recognition.IsVpsg3Ready(locked.Map, floorKey);
+                    // 稳态开图路径：游戏按键后大地图存在展开/淡入动画（约 50-80ms），
+                    // 在第 0ms 进行单帧盲抓并强跑 VPSG 3.0 必然因画面未就绪而 100% 失败（实测 113 次全挂并平白消耗 30ms CPU）。
+                    // 前台已有 5ms 级乐观预呈现保障视觉瞬发，后台直接通过轻量签名就绪检测等待大地图展开，避免无效算力争抢与伪 fallback。
+                    canUseSteadyFastCapture = false;
                 }
             }
         }

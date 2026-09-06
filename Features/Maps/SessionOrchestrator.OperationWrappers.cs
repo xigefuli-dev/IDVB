@@ -71,15 +71,12 @@ public sealed partial class SessionOrchestrator
                 // The wrapper owns the gate and overlay transition. Keeping
                 // this span explicit prevents that orchestration time from
                 // becoming an unexplained prefix before alignment starts.
-                var captureExclusionSupported = _overlay.IsCaptureExclusionEnabled
-                    || _overlay.TryEnableCaptureExclusion(out _);
-                var isOptimisticallyPresented = IsOptimisticPresentationActive(toggle.Version);
-                var canKeepPreviousResult = captureExclusionSupported
-                    && (independentAlignment || isOptimisticallyPresented);
-                if (independentAlignment || isOptimisticallyPresented)
+                // GDI CopyFromScreen (BitBlt) 无法穿透 Layered Window 排除 Overlay。
+                // 若屏幕上保留有大地图或黄字状态面板，必定被拍入截图造成边缘暴增、超界拒选及贴合度不足。
+                // 因此截帧准备阶段必须暂时隐藏主内容，防止污染底层游戏大地图。
+                if (independentAlignment)
                     _overlayStatus.KeepCurrent();
-                restoreMainContent = _overlay.IsVisible
-                    && !canKeepPreviousResult;
+                restoreMainContent = _overlay.IsVisible;
                 if (restoreMainContent)
                     _overlay.SetMainContentVisible(false);
             }

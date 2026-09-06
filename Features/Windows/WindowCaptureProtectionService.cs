@@ -75,10 +75,12 @@ public sealed class WindowCaptureProtectionService : ICaptureProtectionService
     }
 
     private bool IsProtectionRequestedCore(CaptureProtectionWindowCategory category) =>
-        _pluginEnabled && category switch
+        category switch
         {
-            CaptureProtectionWindowCategory.MainProgram => _hideMainProgram,
-            CaptureProtectionWindowCategory.DisplayLayer => _hideDisplayLayer,
+            CaptureProtectionWindowCategory.DisplayLayer =>
+                _pluginEnabled && _hideDisplayLayer,
+            CaptureProtectionWindowCategory.MainProgram =>
+                _pluginEnabled && _hideMainProgram,
             _ => false
         };
 

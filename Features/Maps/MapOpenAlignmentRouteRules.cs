@@ -229,14 +229,14 @@ internal static class MapOpenAlignmentRouteRules
     internal static bool ShouldUseIndependentFloorAlignment(
         bool isOtherFloor,
         bool isPendingVariantAlignment,
-        MapAlignmentSession session) =>
-        isOtherFloor
-        || (session.Mode == MapAlignmentTrackingMode.StructureMatched
-            && session.SideEntranceScanPriorConfidence <= 0d
-            && !session.HasGatePairLock)
-        || (isPendingVariantAlignment
-            && session.SideEntranceScanPriorConfidence <= 0d
-            && !session.HasGatePairLock);
+        MapAlignmentSession session)
+    {
+        _ = isPendingVariantAlignment;
+        return isOtherFloor
+            || (session.Mode == MapAlignmentTrackingMode.StructureMatched
+                && session.SideEntranceScanPriorConfidence <= 0d
+                && !session.HasGatePairLock);
+    }
 
     internal static MapAlignmentSession ResolveMapOpenAlignmentSession(
         MapRecord map,
@@ -301,7 +301,7 @@ internal static class MapOpenAlignmentRouteRules
                 LockedTransform = transform,
                 BaselineGateScale = transform.ScaleX,
                 HasGatePairLock = false,
-                Mode = MapAlignmentTrackingMode.StructureMatched,
+                Mode = MapAlignmentTrackingMode.None,
                 SideEntranceScanPriorConfidence = 0d
             };
         }

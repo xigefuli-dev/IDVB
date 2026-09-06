@@ -72,8 +72,6 @@ public sealed partial class MapOverlayWindow
                 viewport.Width,
                 viewport.Height)
             : new MapScreenRect(0d, 0d, gameBounds.Width, gameBounds.Height);
-        if (_map.ClipBounds != expectedClip)
-            return false;
 
         var overlayWidth = transform.ReferenceWidth * transform.ScaleX;
         var overlayHeight = transform.ReferenceHeight * transform.ScaleY;
@@ -87,12 +85,27 @@ public sealed partial class MapOverlayWindow
             return false;
         }
 
+        var newLeft = ToFiniteSingle(transform.OffsetX - gameBounds.X);
+        var newTop = ToFiniteSingle(transform.OffsetY - gameBounds.Y);
+        var newWidth = ToFiniteSingle(overlayWidth);
+        var newHeight = ToFiniteSingle(overlayHeight);
+
+        if (Math.Abs(_map.Left - newLeft) < 0.1f
+            && Math.Abs(_map.Top - newTop) < 0.1f
+            && Math.Abs(_map.Width - newWidth) < 0.1f
+            && Math.Abs(_map.Height - newHeight) < 0.1f
+            && _map.ClipBounds == expectedClip)
+        {
+            return true;
+        }
+
         _map = _map with
         {
-            Left = ToFiniteSingle(transform.OffsetX - gameBounds.X),
-            Top = ToFiniteSingle(transform.OffsetY - gameBounds.Y),
-            Width = ToFiniteSingle(overlayWidth),
-            Height = ToFiniteSingle(overlayHeight)
+            Left = newLeft,
+            Top = newTop,
+            Width = newWidth,
+            Height = newHeight,
+            ClipBounds = expectedClip
         };
         InvalidateLockedBackground();
         if (IsVisible)

@@ -87,13 +87,11 @@ public sealed partial class SessionOrchestrator
                     _pendingAlignmentSeed,
                     identity,
                     targetFloorKey);
+                var effectiveScale = sideEntranceSeed?.LockedTransform.ScaleX > 0.05 ? (double?)sideEntranceSeed.LockedTransform.ScaleX : null;
                 if (_recognition.TryGetMap(mapId) is { } targetMap
                     && _recognition.TryAlignWithVpsg3(
-                        frame,
-                        targetMap,
-                        targetFloorKey,
-                        identity.Result.IdentityConfidence,
-                        out var fastVpsgAttempt))
+                        frame, targetMap, targetFloorKey, identity.Result.IdentityConfidence,
+                        out var fastVpsgAttempt, knownScaleSeed: effectiveScale))
                 {
                     repair = null;
                     return fastVpsgAttempt;

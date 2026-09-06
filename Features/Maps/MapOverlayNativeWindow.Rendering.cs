@@ -101,6 +101,11 @@ internal static partial class MapOverlayBitmapRenderer
         int Height,
         Bitmap Bitmap);
 
+    private sealed record MapLayerCacheEntry(
+        int Width,
+        int Height,
+        Bitmap Bitmap);
+
     private const float DefaultDpi = 96f;
     private const float MiniMapOpacity = 0.55f;
     private const float MiniMapMargin = 12f;
@@ -108,6 +113,10 @@ internal static partial class MapOverlayBitmapRenderer
     private static readonly Dictionary<string, Bitmap> ImageCache = [];
     private static readonly Dictionary<string, ScaledImageCacheEntry>
         ScaledImageCache = [];
+    private static readonly Dictionary<string, MapLayerCacheEntry>
+        MapLayerCache = [];
+    private static readonly Dictionary<string, MapLayerCacheEntry>
+        MiniMapLayerCache = [];
     private static readonly Lock ImageCacheLock = new();
 
     /// <summary>
@@ -124,6 +133,12 @@ internal static partial class MapOverlayBitmapRenderer
             foreach (var entry in ScaledImageCache.Values)
                 entry.Bitmap.Dispose();
             ScaledImageCache.Clear();
+            foreach (var entry in MapLayerCache.Values)
+                entry.Bitmap.Dispose();
+            MapLayerCache.Clear();
+            foreach (var entry in MiniMapLayerCache.Values)
+                entry.Bitmap.Dispose();
+            MiniMapLayerCache.Clear();
         }
     }
 

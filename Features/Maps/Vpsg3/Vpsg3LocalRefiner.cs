@@ -29,7 +29,8 @@ public static class Vpsg3LocalRefiner
         double seedY,
         MapScreenRect viewportBounds,
         int width,
-        int height)
+        int height,
+        bool lockScale = false)
     {
         ArgumentNullException.ThrowIfNull(preparedFloor);
         var pointCount = sparsePoints?.Count ?? 0;
@@ -44,6 +45,55 @@ public static class Vpsg3LocalRefiner
         var rcy = (cy - seedY) / seedScale;
 
         var probes = 0;
+
+        if (lockScale)
+        {
+            // 稳态路径：尺度已有可靠先验，严格锁定尺度，严禁量化噪声引发微小抖动破坏位图缓存！
+            // 仅在此尺度上进行平移搜索（49 次粗搜 + 8 次细搜）
+            var bestScoreLocked = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX, seedY, viewportBounds, -1.0d);
+            var bXL = seedX;
+            var bYL = seedY;
+
+            for (var i = 0; i < TranslationCoarseDeltas.Length; i++)
+            {
+                var dx = TranslationCoarseDeltas[i];
+                for (var j = 0; j < TranslationCoarseDeltas.Length; j++)
+                {
+                    var dy = TranslationCoarseDeltas[j];
+                    if (dx == 0.0d && dy == 0.0d) continue;
+                    probes++;
+                    var sc = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX + dx, seedY + dy, viewportBounds, bestScoreLocked);
+                    if (sc > bestScoreLocked)
+                    {
+                        bestScoreLocked = sc;
+                        bXL = seedX + dx;
+                        bYL = seedY + dy;
+                    }
+                }
+            }
+
+            var finalXL = bXL;
+            var finalYL = bYL;
+            for (var xIdx = 0; xIdx < TranslationFineDeltas.Length; xIdx++)
+            {
+                var fdx = TranslationFineDeltas[xIdx];
+                for (var yIdx = 0; yIdx < TranslationFineDeltas.Length; yIdx++)
+                {
+                    var fdy = TranslationFineDeltas[yIdx];
+                    if (fdx == 0.0d && fdy == 0.0d) continue;
+                    probes++;
+                    var sc = EvaluateScore(sparsePoints!, preparedFloor, seedScale, bXL + fdx, bYL + fdy, viewportBounds, bestScoreLocked);
+                    if (sc > bestScoreLocked)
+                    {
+                        bestScoreLocked = sc;
+                        finalXL = bXL + fdx;
+                        finalYL = bYL + fdy;
+                    }
+                }
+            }
+
+            return (seedScale, finalXL, finalYL, bestScoreLocked, probes);
+        }
 
         // Stage 1: Coarse joint grid (5 scales x 7x7 translations = 245 probes).
         var bS = seedScale;

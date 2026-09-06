@@ -92,4 +92,43 @@ public sealed partial class MapOpenAlignmentRouteTests
             context,
             context with { ViewportWidth = context.ViewportWidth + 1 });
     }
+
+    [Fact]
+    public void VariantPrimaryFloorUsesPreferredAlignmentRouteNotIndependentFloor()
+    {
+        var map = new MapRecord
+        {
+            Id = Guid.NewGuid(),
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        map.Recognition.EnsureStandardAnchors();
+        map.Recognition.FirstFloor.RecognitionPixelWidth = 1000;
+        map.Recognition.FirstFloor.RecognitionPixelHeight = 800;
+        var pendingIdentity = new MapRecognitionResult
+        {
+            MapId = map.Id,
+            Floor = "1f",
+            OverlayTransform = null,
+            Confidence = 0d,
+            IdentityConfidence = 1d
+        };
+
+        var session = MapOpenAlignmentRouteRules.ResolveMapOpenAlignmentSession(
+            map,
+            pendingIdentity,
+            pendingSideEntranceSeed: null,
+            previous: null,
+            canReusePrevious: false,
+            targetFloorKey: "1f");
+
+        Assert.Equal(MapAlignmentTrackingMode.None, session.Mode);
+        Assert.False(session.HasGatePairLock);
+
+        var shouldUseIndependent = MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+            isOtherFloor: false,
+            isPendingVariantAlignment: true,
+            session);
+
+        Assert.False(shouldUseIndependent);
+    }
 }

@@ -352,12 +352,6 @@ public sealed class Vpsg3ProductionSolverTests
                 using var observation = Vpsg3FastLiveExtractor.Extract(sample.LiveImage, sample.ViewportBounds);
                 using var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(sample.ReferenceStructureLine, MakeKey(sample.ReferenceName));
                 var result = Vpsg3FastBootstrapSolver.TrySolve(observation, floor);
-                if (id == "real_050_s0.88_f70")
-                {
-                    Assert.False(result.IsAccepted);
-                    Assert.StartsWith("ApertureMarginBelowThreshold", result.FallbackReason);
-                    continue;
-                }
                 Assert.True(result.IsAccepted, $"{id}: {result.FallbackReason}");
                 Assert.True(result.HasDistinctRunnerUp);
                 Assert.True(result.ApertureMargin >= .09);

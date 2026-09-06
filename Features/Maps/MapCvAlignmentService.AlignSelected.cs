@@ -180,13 +180,14 @@ internal static partial class MapCvAlignmentService
                 route,
                 hasAlignmentDeadline,
                 reuseCurrentScanGateEvidence)
-            // 兜底已锁定身份：无门楼层不需要门检测。双门 RankGeometry 只用于
-            // 身份选择，此处会话已匹配当前地图；实测本场景门检测 290 次从未
+            // 兜底已锁定身份：无门楼层或已锁定门对的会话不需要门检测。双门 RankGeometry 只用于
+            // 身份选择与初始尺度求解，此处会话若已锁定门对，说明尺度已知；实测本场景门检测 290 次从未
             // 找到双门、仅 14 次找到单个门且还要过身份确认门槛，白白付出
-            // 150ms+。有 NoDoor 预算且会话匹配时直接走结构配准，跳过
-            // CreateMatchImage + FullSearch/WarmScaleSearch。
+            // 150ms+。有 NoDoor 预算且门对已锁定时直接走结构配准，跳过
+            // CreateMatchImage + FullSearch/WarmScaleSearch。尚未锁定门对的会话
+            // 绝不能跳过门检测，否则无法求解尺度。
             || (route == SelectedAlignmentRoute.Default
-                && compatibleSession is not null
+                && compatibleSession is { HasGatePairLock: true }
                 && hasAlignmentDeadline);
         var stopwatch = Stopwatch.StartNew();
         using var inputPreprocess = MapOperationTraceAmbient.StartChild(

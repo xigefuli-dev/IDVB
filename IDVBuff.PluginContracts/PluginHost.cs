@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace IDVBuff.PluginContracts;
 
 /// <summary>
@@ -65,7 +67,10 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         if (!allowed)
         {
             foreach (var registration in _registrations)
-                DisableRegistration(registration);
+            {
+                if (!registration.IsAlwaysActive)
+                    DisableRegistration(registration);
+            }
             _activationAllowed = false;
             return;
         }
@@ -78,6 +83,8 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             {
                 foreach (var registration in _registrations.Where(static item => item.DesiredEnabled))
                 {
+                    if (registration.IsAlwaysActive && registration.Enabled)
+                        continue;
                     InitializeRegistration(registration);
                     EnableRegistration(registration);
                     activated.Add(registration);
@@ -127,16 +134,13 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
 
         try
         {
-            // Before entering a match, do not even create plugin contexts.
-            // Some legacy setting setters start local hooks once Context exists,
-            // so merely deferring StartAsync does not enforce the match gate.
-            if (_activationAllowed)
+            // Before entering a match, do not create plugin contexts unless the
+            // plugin is marked as AlwaysActive to run across match boundaries.
+            foreach (var registration in _registrations)
             {
-                foreach (var registration in _registrations)
-                    InitializeRegistration(registration);
-
-                foreach (var registration in _registrations)
+                if (_activationAllowed || registration.IsAlwaysActive)
                 {
+                    InitializeRegistration(registration);
                     if (registration.DesiredEnabled)
                         EnableRegistration(registration);
                 }
@@ -173,7 +177,7 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
 
         if (enabled)
         {
-            if (_activationAllowed)
+            if (_activationAllowed || registration.IsAlwaysActive)
             {
                 InitializeRegistration(registration);
                 EnableRegistration(registration);
@@ -315,11 +319,15 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             Plugin = plugin;
             MessageTypes = messageTypes;
             DesiredEnabled = initiallyEnabled;
+            var attribute = plugin.GetType().GetCustomAttribute<PluginAttribute>();
+            IsAlwaysActive = attribute?.AlwaysActive ?? false;
         }
 
         public IPlugin Plugin { get; }
 
         public IReadOnlyList<Type> MessageTypes { get; }
+
+        public bool IsAlwaysActive { get; }
 
         public IPluginContext? Context { get; set; }
 

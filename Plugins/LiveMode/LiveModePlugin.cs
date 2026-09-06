@@ -8,7 +8,8 @@ namespace IDVBuff.Plugins.LiveMode;
     "live-mode",
     DisplayName = "直播模式",
     Description = "控制 Identity Vision Bridge 主程序和显示层是否从录屏、截图中排除。",
-    Version = "1.0.0")]
+    Version = "1.0.0",
+    AlwaysActive = true)]
 public sealed class LiveModePlugin : PluginBase, IPluginSettingsProvider
 {
     public const string HideMainProgramKey = "hide-main-program";

@@ -156,6 +156,17 @@ public sealed partial class SessionOrchestrator
                 _manualFloorScaleLocks.Remove(key);
             }
         }
+        lock (_acceptedScaleSeedGate)
+        {
+            foreach (var key in _acceptedScaleSeeds.Keys.Where(key =>
+                key.MatchId == match.MatchId
+                && key.MapId == map.Id
+                && key.MapUpdatedAtTicks == map.UpdatedAt.UtcTicks
+                && key.FloorKey == floorKey).ToArray())
+            {
+                _acceptedScaleSeeds.Remove(key);
+            }
+        }
         lock (_automaticMapCacheGate)
         {
             bool MatchesCache(MapFeatureCacheKey key) =>

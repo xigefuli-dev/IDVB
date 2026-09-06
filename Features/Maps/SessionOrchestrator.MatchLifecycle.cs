@@ -135,6 +135,7 @@ public sealed partial class SessionOrchestrator
             _reliableFloorAlignments.Clear();
         }
         ClearManualFloorScaleLocks();
+        ClearAcceptedVpsg3ScaleSeeds();
         ClearMapViewportPresenceReferences();
 
         // Do not allow samples collected for a wrongly selected map to be
@@ -189,6 +190,7 @@ public sealed partial class SessionOrchestrator
         lock (_reliableFloorAlignmentGate)
             _reliableFloorAlignments.Clear();
         ClearManualFloorScaleLocks();
+        ClearAcceptedVpsg3ScaleSeeds();
         ClearMapViewportPresenceReferences();
 
         if (resetAutomaticCacheSamples)

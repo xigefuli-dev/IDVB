@@ -90,7 +90,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
                         ["scale"] = result.Scale,
                         ["confidence"] = result.Confidence,
                         ["margin"] = result.ApertureMargin,
-                        ["totalMs"] = result.Timing.TotalMs
+                        ["totalMs"] = result.Timing.TotalMs,
+                        ["hypothesesProposed"] = result.ScaleHypothesisCount,
+                        ["scalesEvaluated"] = result.EvaluatedHypothesisCount,
+                        ["arbitration"] = result.ScaleArbitrationSummary ?? (object?)null
                     });
                 var failureDiagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(ReadyMapCount, TotalMapCount);
                 failureDiagnostics.ScaleBootstrapAttempted = true;
@@ -208,7 +211,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     ["translationMs"] = result.Timing.TranslationMs,
                     ["refineMs"] = result.Timing.RefineMs,
                     ["verificationMs"] = result.Timing.VerificationMs,
-                    ["totalMs"] = result.Timing.TotalMs
+                    ["totalMs"] = result.Timing.TotalMs,
+                    ["hypothesesProposed"] = result.ScaleHypothesisCount,
+                    ["scalesEvaluated"] = result.EvaluatedHypothesisCount,
+                    ["arbitration"] = result.ScaleArbitrationSummary ?? (object?)null
                 });
 
             return true;
@@ -323,7 +329,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
                                 ["baselineTy"] = baseline?.OffsetY, ["baselineIsGroundTruth"] = false,
                                 ["extractionMs"] = result.Timing.ExtractionMs, ["scaleMs"] = result.Timing.ScaleMs,
                                 ["translationMs"] = result.Timing.TranslationMs, ["refineMs"] = result.Timing.RefineMs,
-                                ["verificationMs"] = result.Timing.VerificationMs, ["gateMs"] = result.Timing.GateMs
+                                ["verificationMs"] = result.Timing.VerificationMs, ["gateMs"] = result.Timing.GateMs,
+                                ["hypothesesProposed"] = result.ScaleHypothesisCount,
+                                ["scalesEvaluated"] = result.EvaluatedHypothesisCount,
+                                ["arbitration"] = result.ScaleArbitrationSummary ?? (object?)null
                             });
                     }
                     catch (Exception ex)

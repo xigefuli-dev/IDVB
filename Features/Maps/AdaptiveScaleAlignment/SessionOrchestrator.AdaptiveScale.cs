@@ -12,6 +12,22 @@ public sealed partial class SessionOrchestrator
     private readonly Dictionary<ManualFloorScaleLockKey, double>
         _manualFloorScaleLocks = [];
 
+    /// <summary>
+    /// Session-local scales that the VPSG 3.0 verification gate has *accepted* for a (match, map,
+    /// floor, capture-geometry) context. This is deliberately separate from the reliable warm-state
+    /// store, whose HighConfidence(0.70) gate rejects lower-confidence VPSG3 accepts — the accepted
+    /// scale is a reusable bootstrap prior, not a ReliableLocalizationState. Cleared at the same
+    /// lifecycle points as <see cref="_manualFloorScaleLocks"/>; never persisted to disk.
+    /// </summary>
+    private readonly object _acceptedScaleSeedGate = new();
+    private readonly Dictionary<ManualFloorScaleLockKey, AcceptedScaleSeedEntry>
+        _acceptedScaleSeeds = [];
+
+    private readonly record struct AcceptedScaleSeedEntry(
+        double Scale,
+        DateTimeOffset AcceptedAt,
+        double Confidence);
+
     private readonly record struct ManualFloorScaleLockKey(
         Guid MatchId,
         Guid MapId,
@@ -285,6 +301,153 @@ public sealed partial class SessionOrchestrator
     {
         lock (_manualFloorScaleLockGate)
             _manualFloorScaleLocks.Clear();
+    }
+
+    // ---- Session-local VPSG3 accepted-scale seeds (Phase B) --------------------------------
+
+    /// <summary>
+    /// Records a scale that VPSG 3.0's verification gate formally accepted for this floor. Unlike the
+    /// reliable warm state, no HighConfidence(0.70) bar is required — it is a *scale prior* for the next
+    /// same-session alignment attempt. Requires finite scale inside the supported VPSG3 domain.
+    /// </summary>
+    private bool RememberAcceptedVpsg3ScaleSeed(
+        RuntimeMapRecognition recognition,
+        double scale,
+        double confidence)
+    {
+        var match = _matchSession.Snapshot;
+        if (!match.IsStarted
+            || !double.IsFinite(scale)
+            || scale < Vpsg3TuningConfig.Default.MinSupportedScale
+            || scale > Vpsg3TuningConfig.Default.MaxSupportedScale
+            || _lastAlignmentResolution is not { } resolution)
+        {
+            return false;
+        }
+
+        var key = ManualFloorScaleLockKey.Create(
+            match,
+            recognition.Map,
+            recognition.Result.Floor,
+            resolution);
+        lock (_acceptedScaleSeedGate)
+            _acceptedScaleSeeds[key] = new AcceptedScaleSeedEntry(
+                scale,
+                DateTimeOffset.UtcNow,
+                confidence);
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "acceptedScaleSeed stored",
+            details: new()
+            {
+                ["mapId"] = recognition.Map.Id,
+                ["floor"] = recognition.Result.Floor,
+                ["scale"] = scale,
+                ["confidence"] = confidence,
+                ["viewport"] = $"{resolution.ViewportWidth}x{resolution.ViewportHeight}"
+            });
+        return true;
+    }
+
+    private bool TryGetAcceptedVpsg3ScaleSeed(
+        MapMatchSnapshot match,
+        CapturedGameFrame frame,
+        MapRecord map,
+        string floorKey,
+        out double scale)
+    {
+        if (!match.IsStarted)
+        {
+            scale = 0d;
+            return false;
+        }
+
+        var key = ManualFloorScaleLockKey.Create(
+            match,
+            map,
+            floorKey,
+            GetResolution(frame));
+        lock (_acceptedScaleSeedGate)
+        {
+            if (_acceptedScaleSeeds.TryGetValue(key, out var entry))
+            {
+                scale = entry.Scale;
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    "acceptedScaleSeed hit",
+                    details: new()
+                    {
+                        ["mapId"] = map.Id,
+                        ["floor"] = floorKey,
+                        ["scale"] = entry.Scale,
+                        ["ageSeconds"] = (DateTimeOffset.UtcNow - entry.AcceptedAt).TotalSeconds
+                    });
+                return true;
+            }
+        }
+
+        scale = 0d;
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "acceptedScaleSeed miss",
+            details: new()
+            {
+                ["mapId"] = map.Id,
+                ["floor"] = floorKey,
+                ["reason"] = "no-accepted-vpsg3-scale-seed"
+            });
+        return false;
+    }
+
+    /// <summary>
+    /// Drops the accepted scale for one (match, map, floor, geometry) context after a hard VPSG3
+    /// failure with the seed (e.g. no translation candidates at the seed scale), so a stale seed can
+    /// never lock the whole session into repeated S-B-less failures.
+    /// </summary>
+    private void ForgetAcceptedVpsg3ScaleSeed(
+        MapMatchSnapshot match,
+        CapturedGameFrame frame,
+        MapRecord map,
+        string floorKey)
+    {
+        if (!match.IsStarted) return;
+        var key = ManualFloorScaleLockKey.Create(
+            match,
+            map,
+            floorKey,
+            GetResolution(frame));
+        lock (_acceptedScaleSeedGate)
+            _acceptedScaleSeeds.Remove(key);
+        _logCollector.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "acceptedScaleSeed invalidated",
+            details: new()
+            {
+                ["mapId"] = map.Id,
+                ["floor"] = floorKey,
+                ["reason"] = "hard-vpsg3-scale-failure"
+            });
+    }
+
+    private void ClearAcceptedVpsg3ScaleSeeds()
+    {
+        var count = 0;
+        lock (_acceptedScaleSeedGate)
+        {
+            count = _acceptedScaleSeeds.Count;
+            _acceptedScaleSeeds.Clear();
+        }
+        if (count > 0)
+        {
+            _logCollector.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                $"acceptedScaleSeed cleared · count={count}");
+        }
     }
 
     private bool IsAdaptiveScaleEnabled => _adaptiveScale.Enabled;

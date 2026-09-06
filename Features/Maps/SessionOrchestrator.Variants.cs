@@ -124,6 +124,7 @@ public sealed partial class SessionOrchestrator
                 _reliableFloorAlignments.Clear();
             }
             ClearManualFloorScaleLocks();
+            ClearAcceptedVpsg3ScaleSeeds();
 
             _lastRecognition = null;
             _lastAlignmentSession = null;

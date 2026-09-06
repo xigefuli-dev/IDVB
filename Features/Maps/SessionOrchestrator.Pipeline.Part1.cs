@@ -56,13 +56,12 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Pipeline;
                             targetFloorKey,
                             alignmentSession.SideEntranceScanPriorConfidence,
                             out var fastVpsgAttempt,
-                            knownScaleSeed: warmSeed.Session.LockedTransform.ScaleX)
-                        && fastVpsgAttempt.Recognition is not null)
+                            knownScaleSeed: warmSeed.Session.LockedTransform.ScaleX))
                     {
                         vpsg3Attempt = fastVpsgAttempt;
                         LogNoDoorStage(
                             "steady-vpsg3-primary",
-                            true,
+                            fastVpsgAttempt.Recognition is not null,
                             vpsg3Attempt,
                             vpsg3Attempt.Diagnostics.TotalMilliseconds,
                             new Dictionary<string, object?>
@@ -132,6 +131,58 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Pipeline;
                                     recoveredTransform.ScaleX))
                             {
                                 resetRecoveredScaleState = true;
+                            }
+                        }
+                        else if (attempt.Recognition is not null
+                            && _adaptiveScale.Enabled)
+                        {
+                            var rawChamfer = MapRecognitionAttempt.ResolveRawChamferPixels(attempt.StructureResult);
+                            var queryEdgePixels = attempt.StructureResult?.QueryEdgePixels
+                                ?? attempt.Recognition.Result.QueryEdgePixels;
+                            if (double.IsFinite(rawChamfer)
+                                && rawChamfer >= _adaptiveScale.Options.ChamferProactiveRecoveryThreshold
+                                && queryEdgePixels >= _adaptiveScale.Options.MinimumLockEdgePixels)
+                            {
+                                var proactiveFailure = attempt;
+                                var recoveryAttempt = AlignSteadyScaleRecovery(
+                                    frame,
+                                    locked,
+                                    targetFloorKey,
+                                    alignmentMode,
+                                    tuning,
+                                    structureTuning,
+                                    alignmentSession.SideEntranceScanPriorConfidence,
+                                    proactiveFailure,
+                                    out var proactiveRepairKey,
+                                    warmSeed);
+                                if (recoveryAttempt.Recognition is not null)
+                                {
+                                    var recoveryChamfer = MapRecognitionAttempt.ResolveRawChamferPixels(recoveryAttempt.StructureResult);
+                                    if (!double.IsFinite(rawChamfer) || recoveryChamfer < rawChamfer)
+                                    {
+                                        _logCollector.Append(
+                                            MapLogCategory.StructureRegistration,
+                                            MapLogLevel.Info,
+                                            $"稳态配准触发 Chamfer 预警自愈: 原始 Chamfer={rawChamfer:F2}px, 恢复后 Chamfer={recoveryChamfer:F2}px",
+                                            details: new()
+                                            {
+                                                ["floor"] = targetFloorKey,
+                                                ["originalChamfer"] = rawChamfer,
+                                                ["recoveredChamfer"] = recoveryChamfer,
+                                                ["originalScale"] = attempt.Recognition.Result.OverlayTransform?.ScaleX,
+                                                ["recoveredScale"] = recoveryAttempt.Recognition.Result.OverlayTransform?.ScaleX
+                                            });
+                                        attempt = recoveryAttempt;
+                                        localRepairKey = proactiveRepairKey;
+                                        if (attempt.Recognition.Result.OverlayTransform is { } recoveredTransform
+                                            && MapOpenAlignmentRouteRules.HasMaterialScaleChange(
+                                                warmSeed.Session.LockedTransform.ScaleX,
+                                                recoveredTransform.ScaleX))
+                                        {
+                                            resetRecoveredScaleState = true;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

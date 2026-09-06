@@ -116,7 +116,11 @@ public sealed partial class SessionOrchestrator
                 ? LowStructureScaleEvidenceRules.ResolveClusterTolerance(
                     diagnostics.LowStructureScaleResolutionRatio)
                 : null,
-            ScaleResolutionRatio: diagnostics?.LowStructureScaleResolutionRatio ?? 0d);
+            ScaleResolutionRatio: diagnostics?.LowStructureScaleResolutionRatio ?? 0d,
+            SpatialSpanRatio: recognition.Result.SpatialSpanRatio,
+            QueryEdgePixels: recognition.Result.QueryEdgePixels,
+            CenterX: recognition.Result.OverlayTransform?.OffsetX ?? recognition.Result.CenterX,
+            CenterY: recognition.Result.OverlayTransform?.OffsetY ?? recognition.Result.CenterY);
     }
 
     private MapFeatureCacheSource? ResolveLegacyScaleSource(

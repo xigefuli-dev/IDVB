@@ -231,9 +231,9 @@ internal static class MapOpenAlignmentRouteRules
         bool isPendingVariantAlignment,
         MapAlignmentSession session)
     {
-        _ = isPendingVariantAlignment;
         return isOtherFloor
-            || (session.Mode == MapAlignmentTrackingMode.StructureMatched
+            || (!isPendingVariantAlignment
+                && session.Mode == MapAlignmentTrackingMode.StructureMatched
                 && session.SideEntranceScanPriorConfidence <= 0d
                 && !session.HasGatePairLock);
     }

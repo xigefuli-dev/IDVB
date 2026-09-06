@@ -33,6 +33,7 @@ internal sealed partial class AdaptiveScaleCoordinator
     }
 
     public bool Enabled => _options.Enabled;
+    public AdaptiveScaleOptions Options => _options;
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) =>
         _store.InitializeAsync(cancellationToken);
@@ -57,6 +58,7 @@ internal sealed partial class AdaptiveScaleCoordinator
         var persistedTrusted = _options.AutomaticScaleLockingEnabled
             && AdaptiveScaleStore.IsTrusted(entry);
         var strongInitial = IsStrongStructure(recognition, evidence);
+        var lockEligibleInitial = IsLockEligibleStructure(recognition, evidence);
         var strongVpsg = IsStrongVpsg(evidence.Vpsg, transform);
 
         lock (_stateGate)
@@ -69,11 +71,14 @@ internal sealed partial class AdaptiveScaleCoordinator
                 effectiveOpenId,
                 scale,
                 recognition.Result.LocalizationConfidence,
-                strongInitial,
+                lockEligibleInitial,
                 DateTimeOffset.UtcNow,
-                preserveWhenUnqualified: evidence.StructureValidated
-                    && !evidence.ScaleIndependentlyEstimated,
-                clusterTolerance: evidence.ScaleClusterTolerance);
+                preserveWhenUnqualified: strongInitial
+                    || (evidence.StructureValidated && !evidence.ScaleIndependentlyEstimated),
+                clusterTolerance: evidence.ScaleClusterTolerance,
+                spatialSpanRatio: evidence.SpatialSpanRatio,
+                centerX: evidence.CenterX,
+                centerY: evidence.CenterY);
             if (streakResult.Changed)
                 QueueInitialStreakWrite(streakResult.Snapshot);
 
@@ -87,10 +92,36 @@ internal sealed partial class AdaptiveScaleCoordinator
                 trusted ? streak.MedianScale : scale,
                 entry?.CalibrationScale,
                 trusted,
-                requiresRecovery: !strongInitial);
+                requiresRecovery: !strongInitial,
+                spatialSpan: evidence.SpatialSpanRatio);
             AddInitialObservations(controller, recognition, transform, evidence);
             if (strongVpsg && _options.AutomaticScaleLockingEnabled)
-                controller.LockCurrentScale(evidence.Vpsg!.Scale);
+            {
+                var initialVpsgSpan = evidence.SpatialSpanRatio > 0d
+                    ? evidence.SpatialSpanRatio
+                    : _options.MinimumSpatialSpanRatio;
+                controller.LockCurrentScale(evidence.Vpsg!.Scale, spatialSpan: initialVpsgSpan);
+            }
+
+            if (controller.HasReliableBaseline && lockEligibleInitial)
+            {
+                if (controller.TryRefineRuntimeScale(scale, evidence.SpatialSpanRatio, out var refinedScale))
+                {
+                    _log?.Invoke(
+                        "adaptive floor scale refined on exploration",
+                        AdaptiveScaleDiagnostics.State(
+                            key,
+                            controller,
+                            "span-expansion-refinement",
+                            refinedScale));
+                    var refinedSnapshot = streak.Snapshot(DateTimeOffset.UtcNow) with
+                    {
+                        MedianScale = refinedScale
+                    };
+                    QueueInitialStreakWrite(refinedSnapshot);
+                }
+            }
+
             var reliable = _options.AutomaticScaleLockingEnabled
                 && controller.IsReliable;
             var render = controller.HasReliableBaseline

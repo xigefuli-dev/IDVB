@@ -296,6 +296,25 @@ internal sealed partial class AdaptiveScaleCoordinator
         && recognition.Result.StructureCandidateMargin >= evidence.RequiredCandidateMargin
         && recognition.Result.OverlayTransform is { AlignmentMode: MapOverlayAlignmentMode.Uniform };
 
+    private bool IsLockEligibleStructure(
+        RuntimeMapRecognition recognition,
+        AdaptiveScaleInitialEvidence evidence)
+    {
+        if (!IsStrongStructure(recognition, evidence))
+            return false;
+
+        if (evidence.Vpsg is not null)
+            return true;
+
+        if (evidence.SpatialSpanRatio < _options.MinimumSpatialSpanRatio)
+            return false;
+
+        if (evidence.QueryEdgePixels > 0 && evidence.QueryEdgePixels < _options.MinimumLockEdgePixels)
+            return false;
+
+        return true;
+    }
+
     private bool IsUsableRecoveryStructure(
         RuntimeMapRecognition recognition,
         AdaptiveScaleInitialEvidence evidence) =>

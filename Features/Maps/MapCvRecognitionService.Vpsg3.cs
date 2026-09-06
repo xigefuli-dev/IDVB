@@ -19,7 +19,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
     /// <summary>
     /// 尝试使用 VPSG 3.0 进行极速结构对齐（尺度估计 + 平移搜索 + 亚像素精修 + 空间验证）。
     /// 当目标楼层具备有效的 PrebuiltStructureLine 且预构建索引就绪时，优先执行 VPSG 3.0。
-    /// 成功时直接返回通过结构验证的对齐结果；失败或未就绪时返回 false，由调用方回退至传统流程。
+    /// 索引就绪并完成求解时返回 true；Gate 拒绝也返回失败 attempt，禁止调用方转入传统慢路径。
     /// </summary>
     public bool TryAlignWithVpsg3(
         CapturedGameFrame frame,
@@ -92,7 +92,22 @@ public sealed partial class MapCvRecognitionService : IDisposable
                         ["margin"] = result.ApertureMargin,
                         ["totalMs"] = result.Timing.TotalMs
                     });
-                return false;
+                var failureDiagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(ReadyMapCount, TotalMapCount);
+                failureDiagnostics.ScaleBootstrapAttempted = true;
+                failureDiagnostics.ScaleBootstrapScale = result.Scale;
+                failureDiagnostics.ScaleBootstrapConfidence = result.Confidence;
+                failureDiagnostics.ScaleBootstrapMode = "Vpsg3";
+                failureDiagnostics.ScaleBootstrapMethod = "vpsg3";
+                failureDiagnostics.ScaleBootstrapCost = result.BestCandidate.WeightedScore;
+                failureDiagnostics.ScaleBootstrapMargin = result.ApertureMargin;
+                failureDiagnostics.ScaleBootstrapHintScale = knownScaleSeed ?? 0d;
+                failureDiagnostics.ScaleBootstrapHintConfidence = knownScaleSeed.HasValue ? 1d : 0d;
+                failureDiagnostics.ScaleBootstrapCandidateCount = result.HasDistinctRunnerUp ? 2 : 1;
+                failureDiagnostics.TotalMilliseconds = result.Timing.TotalMs;
+                attempt = MapCvRecognitionDiagnostics.Failure(
+                    failureDiagnostics,
+                    $"VPSG 3.0 verification rejected: {result.FallbackReason}");
+                return true;
             }
 
             var transform = MapCanonicalTransformMath.BuildOverlayTransform(
@@ -142,6 +157,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
             diagnostics.ScaleBootstrapMethod = "vpsg3";
             diagnostics.ScaleBootstrapCost = result.BestCandidate.WeightedScore;
             diagnostics.ScaleBootstrapMargin = result.ApertureMargin;
+            diagnostics.ScaleBootstrapHintScale = knownScaleSeed ?? 0d;
+            diagnostics.ScaleBootstrapHintConfidence = knownScaleSeed.HasValue ? 1d : 0d;
             diagnostics.ScaleBootstrapCandidateCount = result.HasDistinctRunnerUp ? 2 : 1;
             diagnostics.ScaleBootstrapSelectedCandidateIndex = 0;
             diagnostics.ScaleBootstrapTestedScaleCount = 1;

@@ -175,6 +175,19 @@ public static class Vpsg3FastBootstrapSolver
             }
         }
 
+        // Post-refinement global rank correction: if the runner-up clearly outscores a weak primary
+        // candidate after spatial verification, swap them so the true best result enters the gate.
+        // The strict thresholds (runnerUp >= 0.80, top1 < 0.70) are intentional: a marginal inversion
+        // (both candidates in the 0.70–0.85 band) reflects genuine aperture ambiguity and must remain
+        // a fallback. Only promote when the coarse translation solver's top1 is demonstrably poor while
+        // the runner-up is unambiguously strong — i.e. margin = score1 - score2 was deeply negative.
+        if (refinedCandidate2.HasValue
+            && refinedCandidate2.Value.Spatial.GlobalScore >= 0.80d
+            && refinedCandidate1.Spatial.GlobalScore < 0.70d)
+        {
+            (refinedCandidate1, refinedCandidate2) = (refinedCandidate2.Value, refinedCandidate1);
+        }
+
         // Stage 5: Joint Verification Gate Decision
         var swGate = Stopwatch.StartNew();
         var gateDecision = Vpsg3VerificationGate.EvaluateDecision(
@@ -198,13 +211,13 @@ public static class Vpsg3FastBootstrapSolver
             return new Vpsg3BootstrapResult(
                 isAccepted: false,
                 fallbackReason: gateDecision.FailureReason,
-                scale: rfScale1,
-                offsetX: rfX1,
-                offsetY: rfY1,
-                confidence: rfScore1,
+                scale: refinedCandidate1.Scale,
+                offsetX: refinedCandidate1.OffsetX,
+                offsetY: refinedCandidate1.OffsetY,
+                confidence: refinedCandidate1.WeightedScore,
                 apertureMargin: gateDecision.Margin,
                 hasDistinctRunnerUp: gateDecision.HasDistinctRunnerUp,
-                passedPartitions: sp1.PassedPartitions,
+                passedPartitions: refinedCandidate1.Spatial.PassedPartitions,
                 scaleResult: scaleResult,
                 bestCandidate: refinedCandidate1,
                 runnerUpCandidate: refinedCandidate2,
@@ -214,13 +227,13 @@ public static class Vpsg3FastBootstrapSolver
         return new Vpsg3BootstrapResult(
             isAccepted: true,
             fallbackReason: string.Empty,
-            scale: rfScale1,
-            offsetX: rfX1,
-            offsetY: rfY1,
-            confidence: rfScore1,
+            scale: refinedCandidate1.Scale,
+            offsetX: refinedCandidate1.OffsetX,
+            offsetY: refinedCandidate1.OffsetY,
+            confidence: refinedCandidate1.WeightedScore,
             apertureMargin: gateDecision.Margin,
             hasDistinctRunnerUp: gateDecision.HasDistinctRunnerUp,
-            passedPartitions: sp1.PassedPartitions,
+            passedPartitions: refinedCandidate1.Spatial.PassedPartitions,
             scaleResult: scaleResult,
             bestCandidate: refinedCandidate1,
             runnerUpCandidate: refinedCandidate2,

@@ -39,24 +39,42 @@ public sealed partial class SessionOrchestrator
                 out repairCacheKey);
         }
 
+        var floorScaleSeed = string.Equals(
+                alignmentSession.FloorKey,
+                targetFloorKey,
+                StringComparison.OrdinalIgnoreCase)
+            ? alignmentSession.LockedTransform
+            : MapFloorScaleSeedRules.CreateIndependentFloorSeed(
+                locked.Map,
+                targetFloorKey);
+        var knownVpsg3ScaleSeed = recoveringSelectedIdentity
+            && alignmentSession.Mode == MapAlignmentTrackingMode.StructureMatched
+            && !alignmentSession.HasGatePairLock
+                ? floorScaleSeed.ScaleX
+                : (double?)null;
+
         MapRecognitionAttempt VpsgThenFallback(bool tryDirectSideFeature)
         {
             // 无会话、无缓存时的 scale bootstrap：VPSG 用本楼层边缘结构
-            // 独立估算 scale，成功则短路，失败再进入常规 fallback。
+            // 独立估算 scale；VPSG3 接受或拒绝都短路，仅索引不可用才 fallback。
             if (TryAlignFloorWithVpsg(
                     frame,
                     locked,
                     targetFloorKey,
-                    alignmentSession.LockedTransform,
+                    floorScaleSeed,
                     alignmentMode,
                     tuning,
                     structureTuning,
-                    alignmentSession.SideEntranceScanPriorConfidence)
-                is { } vpsgAttempt
-                && vpsgAttempt.Recognition is not null
-                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
+                    alignmentSession.SideEntranceScanPriorConfidence,
+                    knownVpsg3ScaleSeed)
+                is { } vpsgAttempt)
             {
-                return vpsgAttempt;
+                if (WasHandledByVpsg3(vpsgAttempt)
+                    || (vpsgAttempt.Recognition is not null
+                        && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning)))
+                {
+                    return vpsgAttempt;
+                }
             }
             return fallback(tryDirectSideFeature);
         }
@@ -76,16 +94,20 @@ public sealed partial class SessionOrchestrator
                     frame,
                     locked,
                     targetFloorKey,
-                    alignmentSession.LockedTransform,
+                    floorScaleSeed,
                     alignmentMode,
                     tuning,
                     structureTuning,
-                    alignmentSession.SideEntranceScanPriorConfidence)
-                is { } vpsgAttempt
-                && vpsgAttempt.Recognition is not null
-                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
+                    alignmentSession.SideEntranceScanPriorConfidence,
+                    knownVpsg3ScaleSeed)
+                is { } vpsgAttempt)
             {
-                return vpsgAttempt;
+                if (WasHandledByVpsg3(vpsgAttempt)
+                    || (vpsgAttempt.Recognition is not null
+                        && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning)))
+                {
+                    return vpsgAttempt;
+                }
             }
             return directAttempt;
         }
@@ -106,31 +128,36 @@ public sealed partial class SessionOrchestrator
                 frame,
                 locked,
                 targetFloorKey,
-                alignmentSession.LockedTransform,
+                floorScaleSeed,
                 alignmentMode,
                 tuning,
                 structureTuning,
-                alignmentSession.SideEntranceScanPriorConfidence)
+                alignmentSession.SideEntranceScanPriorConfidence,
+                knownVpsg3ScaleSeed)
             is { } fastVpsgAttempt
-            && fastVpsgAttempt.Recognition is not null
-            && IsAdaptiveInitialScaleQualified(fastVpsgAttempt, structureTuning))
+            && (WasHandledByVpsg3(fastVpsgAttempt)
+                || (fastVpsgAttempt.Recognition is not null
+                    && IsAdaptiveInitialScaleQualified(fastVpsgAttempt, structureTuning))))
         {
             var isVpsg3 = string.Equals(
                 fastVpsgAttempt.Diagnostics.ScaleBootstrapMode,
                 "Vpsg3",
                 StringComparison.OrdinalIgnoreCase);
-            _logCollector.Append(
-                MapLogCategory.Session,
-                MapLogLevel.Info,
-                isVpsg3 ? "VPSG 3.0 首选快速对齐成功" : "VPSG 2.0 兜底对齐成功",
-                details: new()
-                {
-                    ["route"] = isVpsg3 ? "preferred-vpsg3" : "vpsg2-fallback",
-                    ["mapId"] = locked.Map.Id,
-                    ["floor"] = targetFloorKey,
-                    ["scale"] = fastVpsgAttempt.Recognition.Result.OverlayTransform?.ScaleX,
-                    ["elapsedMs"] = fastVpsgAttempt.Diagnostics.TotalMilliseconds
-                });
+            if (fastVpsgAttempt.Recognition is not null)
+            {
+                _logCollector.Append(
+                    MapLogCategory.Session,
+                    MapLogLevel.Info,
+                    isVpsg3 ? "VPSG 3.0 首选快速对齐成功" : "VPSG 2.0 兜底对齐成功",
+                    details: new()
+                    {
+                        ["route"] = isVpsg3 ? "preferred-vpsg3" : "vpsg2-fallback",
+                        ["mapId"] = locked.Map.Id,
+                        ["floor"] = targetFloorKey,
+                        ["scale"] = fastVpsgAttempt.Recognition.Result.OverlayTransform?.ScaleX,
+                        ["elapsedMs"] = fastVpsgAttempt.Diagnostics.TotalMilliseconds
+                    });
+            }
             return fastVpsgAttempt;
         }
         if (MapOpenAlignmentRouteRules.ShouldPreferLockedSideFeature(

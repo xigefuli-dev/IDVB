@@ -87,7 +87,9 @@ public sealed partial class SessionOrchestrator
                     _pendingAlignmentSeed,
                     identity,
                     targetFloorKey);
-                var effectiveScale = sideEntranceSeed?.LockedTransform.ScaleX > 0.05 ? (double?)sideEntranceSeed.LockedTransform.ScaleX : null;
+                // Gate-template scale must never lock VPSG3 before structure validation.
+                var effectiveScale = validatedStructureScaleSeed?.LockedTransform.ScaleX > 0.05
+                    ? (double?)validatedStructureScaleSeed.LockedTransform.ScaleX : null;
                 if (_recognition.TryGetMap(mapId) is { } targetMap
                     && _recognition.TryAlignWithVpsg3(
                         frame, targetMap, targetFloorKey, identity.Result.IdentityConfidence,

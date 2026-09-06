@@ -91,6 +91,9 @@ public sealed class MapRecognitionAttempt
         _diagnostics.LocalizationConfidence =
             _recognition.Result.LocalizationConfidence;
     }
+
+    public static double ResolveRawChamferPixels(MapStructureRegistrationResult? structure) =>
+        SideEntranceCandidateEvidence.ResolveRawChamferPixels(structure);
 }
 
 /// <summary>

@@ -25,6 +25,7 @@ internal sealed class AdaptiveScaleController
     public long OpenId { get; private set; }
     public bool HasReliableBaseline => _hasReliableScale;
     public bool IsReliable => State == AdaptiveScaleState.Stable && _hasReliableScale;
+    public double ValidatedSpatialSpan { get; private set; }
     public int ProbeIntervalMilliseconds => State == AdaptiveScaleState.Stable
         ? _options.StableProbeMilliseconds
         : _options.ActiveProbeMilliseconds;
@@ -34,7 +35,8 @@ internal sealed class AdaptiveScaleController
         double initialScale,
         double? calibrationScale,
         bool trusted,
-        bool requiresRecovery = false)
+        bool requiresRecovery = false,
+        double spatialSpan = 0d)
     {
         if (IsOpen && OpenId == openId)
             return true;
@@ -45,6 +47,8 @@ internal sealed class AdaptiveScaleController
         _fixedScaleFailures = 0;
         _challengeStartedAt = null;
         _hasReliableScale = trusted;
+        if (trusted && spatialSpan > 0d)
+            ValidatedSpatialSpan = Math.Max(ValidatedSpatialSpan, spatialSpan);
         State = trusted
             ? AdaptiveScaleState.Stable
             : requiresRecovery
@@ -140,20 +144,48 @@ internal sealed class AdaptiveScaleController
         _runtime.SetRuntime(consensus.Scale, _hasReliableScale && changed);
         _hasReliableScale = true;
         State = AdaptiveScaleState.Stable;
+        ValidatedSpatialSpan = 1.0d;
         _challengeStartedAt = null;
         _window.Clear();
     }
 
-    public bool LockCurrentScale(double scale)
+    public bool LockCurrentScale(double scale, double spatialSpan = 0.50d)
     {
         if (!IsOpen || !double.IsFinite(scale) || scale <= 0d)
             return false;
         _runtime.SetRuntime(scale, isRuntimeZoom: false);
         _hasReliableScale = true;
         State = AdaptiveScaleState.Stable;
+        ValidatedSpatialSpan = Math.Max(ValidatedSpatialSpan, spatialSpan);
         _fixedScaleFailures = 0;
         _challengeStartedAt = null;
         _window.Clear();
+        return true;
+    }
+
+    public bool TryRefineRuntimeScale(
+        double newScale,
+        double newSpatialSpan,
+        out double refinedScale)
+    {
+        refinedScale = RuntimeScale;
+        if (!IsOpen || State != AdaptiveScaleState.Stable || !double.IsFinite(newScale) || newScale <= 0d)
+            return false;
+
+        if (ValidatedSpatialSpan <= 0d
+            || ValidatedSpatialSpan >= 0.95d
+            || newSpatialSpan < ValidatedSpatialSpan + _options.SpanExpansionRefinementThreshold)
+            return false;
+
+        var diff = RelativeDifference(newScale, RuntimeScale);
+        if (diff <= _options.Deadband || diff > 0.035d)
+            return false;
+
+        _runtime.SetRuntime(newScale, isRuntimeZoom: false);
+        ValidatedSpatialSpan = Math.Max(ValidatedSpatialSpan, newSpatialSpan);
+        _fixedScaleFailures = 0;
+        _challengeStartedAt = null;
+        refinedScale = newScale;
         return true;
     }
 

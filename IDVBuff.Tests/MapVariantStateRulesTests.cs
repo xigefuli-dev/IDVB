@@ -83,4 +83,24 @@ public sealed class MapVariantStateRulesTests
         Assert.Throws<InvalidOperationException>(() =>
             session.RetargetVariantFloor(Guid.NewGuid(), "2f"));
     }
+
+    [Fact]
+    public void PendingVariantKeepsItsVerifiedScaleOnVpsgRoute()
+    {
+        var seed = new MapAlignmentSession
+        {
+            Mode = MapAlignmentTrackingMode.StructureMatched,
+            HasGatePairLock = false,
+            SideEntranceScanPriorConfidence = 0d
+        };
+
+        Assert.False(MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+            isOtherFloor: false,
+            isPendingVariantAlignment: true,
+            session: seed));
+        Assert.True(MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+            isOtherFloor: false,
+            isPendingVariantAlignment: false,
+            session: seed));
+    }
 }

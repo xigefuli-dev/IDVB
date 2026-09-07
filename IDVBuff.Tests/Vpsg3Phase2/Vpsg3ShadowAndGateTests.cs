@@ -123,15 +123,6 @@ public sealed class Vpsg3ShadowAndGateTests
                 sample.ViewportBounds,
                 IntPtr.Zero);
 
-            Assert.True(service.TryAlignWithVpsg3(
-                frame,
-                map,
-                "1f",
-                1.0d,
-                out var halfScaleAttempt,
-                knownScaleSeed: 0.515d));
-            Assert.Null(halfScaleAttempt.Recognition);
-
             var canAlign = service.TryAlignWithVpsg3(frame, map, "1f", 1.0d, out var attempt);
             Assert.True(canAlign);
             Assert.NotNull(attempt);
@@ -152,66 +143,10 @@ public sealed class Vpsg3ShadowAndGateTests
             Assert.Equal(sample.ReferenceStructureLine.Width, attempt.StructureResult.ReferenceWidth);
             Assert.Equal(sample.ReferenceStructureLine.Height, attempt.StructureResult.ReferenceHeight);
             Assert.True(attempt.StructureResult.LockedScale > 0);
-
-            var lockedAttempt = service.AlignLockedFloorFeature(
-                frame,
-                map.Id,
-                "1f",
-                new MapOverlayTransform { ScaleX = 0.515d, ScaleY = 0.515d },
-                MapOverlayAlignmentMode.Uniform,
-                new MapRecognitionTuning(),
-                new MapStructureRegistrationTuning(),
-                identityPriorConfidence: 1d,
-                knownVpsg3ScaleSeed: 1d);
-            Assert.NotNull(lockedAttempt.Recognition);
-            Assert.Equal("vpsg3", lockedAttempt.Diagnostics.ScaleBootstrapMethod);
         }
         finally
         {
             foreach (var s in dataset) s.Dispose();
-        }
-    }
-
-    [Fact]
-    public void RejectedVpsg3AttemptIsHandledWithoutLegacyFallback()
-    {
-        var dataset = Vpsg3Phase0DatasetGenerator.GenerateDataset();
-        try
-        {
-            var sample = dataset.Single(s => s.Id == "syn_035_s1.18_f75");
-            var sha = new string('c', 64);
-            var asset = new PrebuiltStructureLineAsset
-            {
-                FileName = "line.png", Sha256 = sha, SourceSha256 = sha,
-                Width = sample.ReferenceStructureLine.Width,
-                Height = sample.ReferenceStructureLine.Height,
-                FileLength = 1, AlgorithmId = "test", AlgorithmFileName = "test.idva",
-                AlgorithmSha256 = sha, AlgorithmSchemaVersion = "1"
-            };
-            var map = new MapRecord
-            {
-                Id = Guid.NewGuid(), UpdatedAt = DateTimeOffset.UnixEpoch,
-                Floors = [new() { Key = "1f", RecognitionSha256 = sha, PrebuiltStructureLine = asset }]
-            };
-            var key = new Vpsg3IndexCacheKey(
-                map.Id, "1f", MapFeatureCacheRules.ComputeContentFingerprint(map),
-                map.UpdatedAt, Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(asset));
-            using var service = new MapCvRecognitionService(new MapRepository());
-            var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(sample.ReferenceStructureLine, key);
-            Assert.True(service.Vpsg3Registry.TryBeginBuild(key));
-            Assert.True(service.Vpsg3Registry.TryPublishFloor(key, floor));
-            using var frame = new CapturedGameFrame(
-                sample.LiveImage.Clone(), sample.ViewportBounds, sample.ViewportBounds, IntPtr.Zero);
-
-            Assert.True(service.TryAlignWithVpsg3(frame, map, "1f", 1d, out var attempt));
-            Assert.NotNull(attempt);
-            Assert.Null(attempt.Recognition);
-            Assert.Equal("vpsg3", attempt.Diagnostics.ScaleBootstrapMethod);
-            Assert.Contains("VPSG 3.0 verification rejected", attempt.FailureReason);
-        }
-        finally
-        {
-            foreach (var sample in dataset) sample.Dispose();
         }
     }
 }

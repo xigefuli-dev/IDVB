@@ -78,6 +78,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     ? "本局任务已排空，自动地图缓存已完成确认落盘阶段"
                     : "本局任务已排空，自动地图缓存样本未保存"));
             StateChanged?.Invoke(this, EventArgs.Empty);
+            GC.Collect(2, GCCollectionMode.Optimized, blocking: false);
         }
         finally
         {

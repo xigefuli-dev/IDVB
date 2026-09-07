@@ -110,19 +110,6 @@ public sealed class Vpsg3BootstrapResult
     public Vpsg3RefinedCandidate? RunnerUpCandidate { get; }
     public Vpsg3SolverStageTiming Timing { get; }
 
-    /// <summary>Number of scale hypotheses the scale stage proposed (1 in the clean case, 2–3 in a harmonic family).</summary>
-    public int ScaleHypothesisCount { get; internal set; }
-
-    /// <summary>Number of scale hypotheses actually evaluated through the full registration pipeline.</summary>
-    public int EvaluatedHypothesisCount { get; internal set; }
-
-    /// <summary>
-    /// Compact per-hypothesis arbitration trace (scale → refined scale, global score, margin, pass).
-    /// Populated only when the bootstrap actually arbitrated multiple hypotheses; null otherwise so the
-    /// healthy single-hypothesis hot path allocates nothing extra.
-    /// </summary>
-    public string? ScaleArbitrationSummary { get; internal set; }
-
     public Vpsg3BootstrapResult(
         bool isAccepted,
         string fallbackReason,
@@ -189,25 +176,6 @@ public sealed class Vpsg3SolverScratch
     public double[] CenteredSignalBuffer { get; private set; } = new double[2048];
     public double[] AutocorrBuffer { get; private set; } = new double[1024];
 
-    /// <summary>
-    /// Signed autocorrelation over the same lag range as <see cref="AutocorrBuffer"/>
-    /// (which stores |r| for median-based peak ratio). Harmonic peak extraction reads
-    /// positive correlation here so anti-periodic negative lobes never become scale candidates.
-    /// </summary>
-    public double[] HarmonicCorrBuffer { get; private set; } = new double[1024];
-
-    /// <summary>
-    /// Retained local-maximum pitch candidates for the scale solver (harmonic disambiguation).
-    /// Valid count is produced by <see cref="Vpsg3ScaleSolver.FindPitchCandidates"/>.
-    /// </summary>
-    public Vpsg3PitchCandidate[] PitchCandidateBuffer { get; } = new Vpsg3PitchCandidate[24];
-
-    /// <summary>
-    /// Ordered scale hypotheses (max 3) the bootstrap solver arbitrates via 2D evidence.
-    /// Filled by <see cref="Vpsg3ScaleSolver.BuildScaleStage"/>; count is on the returned stage result.
-    /// </summary>
-    public Vpsg3ScaleHypothesis[] ScaleHypothesisBuffer { get; } = new Vpsg3ScaleHypothesis[3];
-
     public Point[] ScaledQueryPointsBuffer { get; } = new Point[256];
     internal int[] TranslationScores = [];
     public Vpsg3TranslationCandidate[] CandidateBuffer { get; } = new Vpsg3TranslationCandidate[64];
@@ -221,6 +189,5 @@ public sealed class Vpsg3SolverScratch
         if (ProjectionBufferX.Length < width) ProjectionBufferX = new double[width];
         if (CenteredSignalBuffer.Length < width) CenteredSignalBuffer = new double[width];
         if (AutocorrBuffer.Length < width / 2) AutocorrBuffer = new double[width / 2];
-        if (HarmonicCorrBuffer.Length < width / 2) HarmonicCorrBuffer = new double[width / 2];
     }
 }

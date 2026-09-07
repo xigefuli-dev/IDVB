@@ -44,11 +44,10 @@ public static class Vpsg3PreparedIndexBuilder
         Cv2.Dilate(edgeImage, dilatedK5, kernel5);
         Cv2.Dilate(edgeImage, dilatedK3, kernel3);
 
-        // 4. Pack into 64-bit row-major bitsets (K5 dilated, K3 dilated, K1 raw skeleton)
+        // 4. Pack into 64-bit row-major bitsets
         var wordsPerRow = (width + 63) / 64;
         var bitsetK5 = new ulong[height * wordsPerRow];
         var bitsetK3 = new ulong[height * wordsPerRow];
-        var bitsetK1 = new ulong[height * wordsPerRow];
 
         for (var y = 0; y < height; y++)
         {
@@ -63,16 +62,12 @@ public static class Vpsg3PreparedIndexBuilder
                 {
                     bitsetK3[rowOffset + (x >> 6)] |= 1UL << (x & 63);
                 }
-                if (edgeImage.At<byte>(y, x) > 128)
-                {
-                    bitsetK1[rowOffset + (x >> 6)] |= 1UL << (x & 63);
-                }
             }
         }
 
         // 5. Calculate memory footprint
         var objectOverhead = 160L;
-        var bitsetBytes = ((bitsetK5.Length + bitsetK3.Length + bitsetK1.Length) * 8L) + 72L;
+        var bitsetBytes = ((bitsetK5.Length + bitsetK3.Length) * 8L) + 48L;
         var totalBytes = objectOverhead + bitsetBytes;
 
         return new Vpsg3PreparedFloor(
@@ -84,7 +79,6 @@ public static class Vpsg3PreparedIndexBuilder
             wordsPerRow,
             bitsetK5,
             bitsetK3,
-            bitsetK1,
             totalBytes);
     }
 

@@ -4,7 +4,7 @@ using IDVBuff.Features.Maps;
 
 namespace IDVBuff.Tests;
 
-public sealed class MapOverlayBitmapRendererTests
+public sealed partial class MapOverlayBitmapRendererTests
 {
     [Fact]
     public void Render_EmptySceneIsFullyTransparent()
@@ -412,7 +412,7 @@ public sealed class MapOverlayBitmapRendererTests
         }
     }
 
-    private static string CreateSolidImage(Color color, int width = 12, int height = 12)
+    internal static string CreateSolidImage(Color color, int width = 12, int height = 12)
     {
         var path = Path.Combine(Path.GetTempPath(), $"idvbuff-overlay-{Guid.NewGuid():N}.png");
         using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);

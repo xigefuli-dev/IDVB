@@ -15,7 +15,7 @@ public static class Vpsg3LocalRefiner
     private static readonly double[] ScaleCoarseDeltas = [-0.020d, -0.015d, 0.000d, 0.015d, 0.020d];
     private static readonly double[] TranslationCoarseDeltas = [-6.0d, -4.0d, -2.0d, 0.0d, 2.0d, 4.0d, 6.0d];
     private static readonly double[] ScaleScanDeltas = [-0.020d, -0.010d, -0.005d, 0.005d, 0.010d, 0.020d];
-    private static readonly double[] TranslationFineDeltas = [-1.5d, -1.0d, -0.5d, 0.0d, 0.5d, 1.0d, 1.5d];
+    private static readonly double[] TranslationFineDeltas = [-1.5d, 0.0d, 1.5d];
     private static readonly double[] ScaleFineDeltas = [-0.005d, 0.0d, 0.005d];
 
     /// <summary>
@@ -48,8 +48,8 @@ public static class Vpsg3LocalRefiner
 
         if (lockScale)
         {
-            // 稳态路径：已有尺度种子，严格锁定尺度，严禁量化噪声或局部视野引发单帧微漂移！
-            // 仅在此尺度执行平移搜索（49 次粗搜 + 48 次细搜 + 8 次 0.25px 亚像素精修）
+            // 稳态路径：尺度已有可靠先验，严格锁定尺度，严禁量化噪声引发微小抖动破坏位图缓存！
+            // 仅在此尺度上进行平移搜索（49 次粗搜 + 8 次细搜）
             var bestScoreLocked = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX, seedY, viewportBounds, -1.0d);
             var bXL = seedX;
             var bYL = seedY;
@@ -88,25 +88,6 @@ public static class Vpsg3LocalRefiner
                         bestScoreLocked = sc;
                         finalXL = bXL + fdx;
                         finalYL = bYL + fdy;
-                    }
-                }
-            }
-
-            // 亚像素 0.25px 步长精修（8 probes）
-            for (var sx = -1; sx <= 1; sx++)
-            {
-                for (var sy = -1; sy <= 1; sy++)
-                {
-                    if (sx == 0 && sy == 0) continue;
-                    var subX = finalXL + sx * 0.25d;
-                    var subY = finalYL + sy * 0.25d;
-                    probes++;
-                    var sc = EvaluateScore(sparsePoints!, preparedFloor, seedScale, subX, subY, viewportBounds, bestScoreLocked);
-                    if (sc > bestScoreLocked)
-                    {
-                        bestScoreLocked = sc;
-                        finalXL = subX;
-                        finalYL = subY;
                     }
                 }
             }
@@ -174,7 +155,7 @@ public static class Vpsg3LocalRefiner
             }
         }
 
-        // Stage 3: Joint fine polish (3 scales x 7x7 translations)
+        // Stage 3: Joint fine polish (3 scales x 3x3 translations)
         var finalX = bX2;
         var finalY = bY2;
         var finalS = bS2;
@@ -210,32 +191,12 @@ public static class Vpsg3LocalRefiner
             }
         }
 
-        // Stage 4: Subpixel 0.25px micro polish (8 probes)
-        for (var sx = -1; sx <= 1; sx++)
-        {
-            for (var sy = -1; sy <= 1; sy++)
-            {
-                if (sx == 0 && sy == 0) continue;
-                var subX = finalX + sx * 0.25d;
-                var subY = finalY + sy * 0.25d;
-                probes++;
-                var sc = EvaluateScore(sparsePoints!, preparedFloor, finalS, subX, subY, viewportBounds, bestScore);
-                if (sc > bestScore)
-                {
-                    bestScore = sc;
-                    finalX = subX;
-                    finalY = subY;
-                }
-            }
-        }
-
         return (finalS, finalX, finalY, bestScore, probes);
     }
 
     /// <summary>
-    /// Evaluates weighted potential field score.
-    /// When K1 bitset is present: (3 * hits_K5 + 6 * hits_K3 + 1 * hits_K1) / (10 * N).
-    /// Fallback without K1: (hits_K5 + 2 * hits_K3) / (3 * N).
+    /// Evaluates weighted potential field score: (hits_K5 + 2 * hits_K3) / (3 * N).
+    /// Uses dual bitset simultaneous check without heap allocation.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static double EvaluateScore(
@@ -253,18 +214,15 @@ public static class Vpsg3LocalRefiner
     {
         var hitsK5 = 0;
         var hitsK3 = 0;
-        var hitsK1 = 0;
         var count = sparsePoints.Count;
         var invScale = 1.0d / scale;
         var points = sparsePoints as Point[];
         var k5 = preparedFloor.DilatedBitsetK5Span;
         var k3 = preparedFloor.DilatedBitsetK3Span;
-        var k1 = preparedFloor.BitsetK1Span;
         if (k5.IsEmpty || k3.IsEmpty) return 0d;
         var width = preparedFloor.ReferenceWidth;
         var height = preparedFloor.ReferenceHeight;
         var wordsPerRow = preparedFloor.WordsPerRow;
-        var hasK1 = !k1.IsEmpty;
 
         for (var i = 0; i < count; i++)
         {
@@ -279,38 +237,16 @@ public static class Vpsg3LocalRefiner
                 var index = ry * wordsPerRow + (rx >> 6);
                 var shift = rx & 63;
                 var word5 = k5[index];
-                var hit5 = (int)((word5 >> shift) & 1UL);
-                hitsK5 += hit5;
-                if (hit5 != 0)
-                {
-                    var word3 = k3[index];
-                    var hit3 = (int)((word3 >> shift) & 1UL);
-                    hitsK3 += hit3;
-                    if (hit3 != 0 && hasK1)
-                    {
-                        hitsK1 += (int)((k1[index] >> shift) & 1UL);
-                    }
-                }
+                hitsK5 += (int)((word5 >> shift) & 1UL);
+                hitsK3 += (int)(((k3[index] & word5) >> shift) & 1UL);
             }
-
-            if (hasK1)
-            {
-                if ((i & 15) == 15 &&
-                    (3d * hitsK5 + 6d * hitsK3 + 1d * hitsK1 + 10d * (count - i - 1)) / (10d * count) <= bestScore)
-                    return -1d;
-            }
-            else
-            {
-                if ((i & 15) == 15 &&
-                    (hitsK5 + 2d * hitsK3 + 3d * (count - i - 1)) / (3d * count) <= bestScore)
-                    return -1d;
-            }
+            // An unvisited point can contribute at most 3. Prune only when even that
+            // exact upper bound cannot beat the incumbent; ties retain the first probe.
+            if ((i & 15) == 15 &&
+                (hitsK5 + 2d * hitsK3 + 3d * (count - i - 1)) / (3d * count) <= bestScore)
+                return -1d;
         }
 
-        if (hasK1)
-        {
-            return (3.0d * hitsK5 + 6.0d * hitsK3 + 1.0d * hitsK1) / (10.0d * Math.Max(1, count));
-        }
         return (hitsK5 + 2.0d * hitsK3) / (3.0d * Math.Max(1, count));
     }
 }

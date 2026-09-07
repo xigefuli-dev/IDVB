@@ -15,7 +15,7 @@ internal static class Vpsg3RefinerScalarBaseline
     private static readonly double[] ScaleCoarseDeltas = [-0.020d, -0.015d, 0.000d, 0.015d, 0.020d];
     private static readonly double[] TranslationCoarseDeltas = [-6.0d, -4.0d, -2.0d, 0.0d, 2.0d, 4.0d, 6.0d];
     private static readonly double[] ScaleScanDeltas = [-0.020d, -0.010d, -0.005d, 0.005d, 0.010d, 0.020d];
-    private static readonly double[] TranslationFineDeltas = [-1.5d, -1.0d, -0.5d, 0.0d, 0.5d, 1.0d, 1.5d];
+    private static readonly double[] TranslationFineDeltas = [-1.5d, 0.0d, 1.5d];
     private static readonly double[] ScaleFineDeltas = [-0.005d, 0.0d, 0.005d];
 
     /// <summary>
@@ -29,8 +29,7 @@ internal static class Vpsg3RefinerScalarBaseline
         double seedY,
         MapScreenRect viewportBounds,
         int width,
-        int height,
-        bool lockScale = false)
+        int height)
     {
         ArgumentNullException.ThrowIfNull(preparedFloor);
         var pointCount = sparsePoints?.Count ?? 0;
@@ -46,72 +45,7 @@ internal static class Vpsg3RefinerScalarBaseline
 
         var probes = 0;
 
-        if (lockScale)
-        {
-            var bestScoreLocked = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX, seedY, viewportBounds);
-            var bXL = seedX;
-            var bYL = seedY;
-
-            for (var i = 0; i < TranslationCoarseDeltas.Length; i++)
-            {
-                var dx = TranslationCoarseDeltas[i];
-                for (var j = 0; j < TranslationCoarseDeltas.Length; j++)
-                {
-                    var dy = TranslationCoarseDeltas[j];
-                    if (dx == 0.0d && dy == 0.0d) continue;
-                    probes++;
-                    var sc = EvaluateScore(sparsePoints!, preparedFloor, seedScale, seedX + dx, seedY + dy, viewportBounds);
-                    if (sc > bestScoreLocked)
-                    {
-                        bestScoreLocked = sc;
-                        bXL = seedX + dx;
-                        bYL = seedY + dy;
-                    }
-                }
-            }
-
-            var finalXL = bXL;
-            var finalYL = bYL;
-            for (var xIdx = 0; xIdx < TranslationFineDeltas.Length; xIdx++)
-            {
-                var fdx = TranslationFineDeltas[xIdx];
-                for (var yIdx = 0; yIdx < TranslationFineDeltas.Length; yIdx++)
-                {
-                    var fdy = TranslationFineDeltas[yIdx];
-                    if (fdx == 0.0d && fdy == 0.0d) continue;
-                    probes++;
-                    var sc = EvaluateScore(sparsePoints!, preparedFloor, seedScale, bXL + fdx, bYL + fdy, viewportBounds);
-                    if (sc > bestScoreLocked)
-                    {
-                        bestScoreLocked = sc;
-                        finalXL = bXL + fdx;
-                        finalYL = bYL + fdy;
-                    }
-                }
-            }
-
-            for (var sx = -1; sx <= 1; sx++)
-            {
-                for (var sy = -1; sy <= 1; sy++)
-                {
-                    if (sx == 0 && sy == 0) continue;
-                    var subX = finalXL + sx * 0.25d;
-                    var subY = finalYL + sy * 0.25d;
-                    probes++;
-                    var sc = EvaluateScore(sparsePoints!, preparedFloor, seedScale, subX, subY, viewportBounds);
-                    if (sc > bestScoreLocked)
-                    {
-                        bestScoreLocked = sc;
-                        finalXL = subX;
-                        finalYL = subY;
-                    }
-                }
-            }
-
-            return (seedScale, finalXL, finalYL, bestScoreLocked, probes);
-        }
-
-        // Stage 1: Coarse Joint Scale-Translation Grid
+        // Stage 1: Coarse Joint Scale-Translation Grid (3 scales x 5x5 translations = 75 probes)
         var bS = seedScale;
         var bX = seedX;
         var bY = seedY;
@@ -121,7 +55,7 @@ internal static class Vpsg3RefinerScalarBaseline
         {
             var ds = ScaleCoarseDeltas[sIdx];
             var cs = seedScale + ds;
-            if (cs < 0.35d || cs > 2.50d) continue;
+            if (cs < 0.65d || cs > 1.60d) continue;
 
             var bx = cx - rcx * cs;
             var by = cy - rcy * cs;
@@ -156,7 +90,7 @@ internal static class Vpsg3RefinerScalarBaseline
         {
             var ds = ScaleScanDeltas[i];
             var cs = bS + ds;
-            if (cs < 0.35d || cs > 2.50d) continue;
+            if (cs < 0.65d || cs > 1.60d) continue;
 
             var nx = cx - rCentX * cs;
             var ny = cy - rCentY * cs;
@@ -171,7 +105,7 @@ internal static class Vpsg3RefinerScalarBaseline
             }
         }
 
-        // Stage 3: Joint fine polish (3 scales x 7x7 translations)
+        // Stage 3: Joint fine polish (3 scales x 3x3 translations)
         var finalX = bX2;
         var finalY = bY2;
         var finalS = bS2;
@@ -207,25 +141,6 @@ internal static class Vpsg3RefinerScalarBaseline
             }
         }
 
-        // Stage 4: Subpixel 0.25px micro polish (8 probes)
-        for (var sx = -1; sx <= 1; sx++)
-        {
-            for (var sy = -1; sy <= 1; sy++)
-            {
-                if (sx == 0 && sy == 0) continue;
-                var subX = finalX + sx * 0.25d;
-                var subY = finalY + sy * 0.25d;
-                probes++;
-                var sc = EvaluateScore(sparsePoints!, preparedFloor, finalS, subX, subY, viewportBounds);
-                if (sc > bestScore)
-                {
-                    bestScore = sc;
-                    finalX = subX;
-                    finalY = subY;
-                }
-            }
-        }
-
         return (finalS, finalX, finalY, bestScore, probes);
     }
 
@@ -244,11 +159,8 @@ internal static class Vpsg3RefinerScalarBaseline
     {
         var hitsK5 = 0;
         var hitsK3 = 0;
-        var hitsK1 = 0;
         var count = sparsePoints.Count;
         var invScale = 1.0d / scale;
-        var k1 = preparedFloor.BitsetK1Span;
-        var hasK1 = !k1.IsEmpty;
 
         for (var i = 0; i < count; i++)
         {
@@ -262,21 +174,10 @@ internal static class Vpsg3RefinerScalarBaseline
             if (isK5)
             {
                 hitsK5++;
-                if (isK3)
-                {
-                    hitsK3++;
-                    if (hasK1 && preparedFloor.IsHitK1(rx, ry))
-                    {
-                        hitsK1++;
-                    }
-                }
+                if (isK3) hitsK3++;
             }
         }
 
-        if (hasK1)
-        {
-            return (3.0d * hitsK5 + 6.0d * hitsK3 + 1.0d * hitsK1) / (10.0d * Math.Max(1, count));
-        }
         return (hitsK5 + 2.0d * hitsK3) / (3.0d * Math.Max(1, count));
     }
 }

@@ -58,6 +58,40 @@ public sealed class MapStructureReferenceCacheTests
         }
     }
 
+    [Fact]
+    public void Clear_DisposesUnleasedEntriesAndEmptiesMemoryCache()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"IDVBuff.StructureCache.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var mapId = Guid.NewGuid();
+            var updatedAt = new DateTimeOffset(
+                2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            using var image = CreateReferenceImage();
+            using var cache = new MapStructureReferenceCache(
+                new MapStructurePreprocessor(),
+                root);
+
+            using (cache.GetOrCreate(mapId, updatedAt, image, null, "1f"))
+            {
+            }
+
+            Assert.Equal(1, cache.ResidentCount);
+
+            cache.Clear();
+
+            Assert.Equal(0, cache.ResidentCount);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static Mat CreateReferenceImage()
     {
         var image = new Mat(

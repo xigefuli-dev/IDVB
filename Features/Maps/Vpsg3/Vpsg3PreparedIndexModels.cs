@@ -166,7 +166,6 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     private int _disposed;
     private ulong[]? _dilatedBitsetK5;
     private ulong[]? _dilatedBitsetK3;
-    private ulong[]? _bitsetK1;
 
     public Vpsg3IndexCacheKey CacheKey { get; }
     public int ReferenceWidth { get; }
@@ -186,9 +185,6 @@ public sealed class Vpsg3PreparedFloor : IDisposable
 
     public ReadOnlySpan<ulong> DilatedBitsetK3Span =>
         _dilatedBitsetK3 is not null ? _dilatedBitsetK3.AsSpan() : ReadOnlySpan<ulong>.Empty;
-
-    public ReadOnlySpan<ulong> BitsetK1Span =>
-        _bitsetK1 is not null ? _bitsetK1.AsSpan() : ReadOnlySpan<ulong>.Empty;
 
     public ReadOnlyMemory<ulong> DilatedBitsetMemory =>
         _dilatedBitsetK5 is not null ? _dilatedBitsetK5.AsMemory() : ReadOnlyMemory<ulong>.Empty;
@@ -226,17 +222,6 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool IsHitK1(int rx, int ry)
-    {
-        var bitset = _bitsetK1;
-        if ((uint)rx < (uint)ReferenceWidth && (uint)ry < (uint)ReferenceHeight && bitset is not null)
-        {
-            return (bitset[ry * WordsPerRow + (rx >> 6)] & (1UL << (rx & 63))) != 0;
-        }
-        return false;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void TestK3K5(int rx, int ry, out bool isK5, out bool isK3)
     {
         var b5 = _dilatedBitsetK5;
@@ -264,7 +249,6 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         int wordsPerRow,
         ulong[] dilatedBitsetK5,
         ulong[] dilatedBitsetK3,
-        ulong[]? bitsetK1,
         long memoryBytes)
     {
         CacheKey = cacheKey;
@@ -275,22 +259,7 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         WordsPerRow = wordsPerRow;
         _dilatedBitsetK5 = dilatedBitsetK5 ?? throw new ArgumentNullException(nameof(dilatedBitsetK5));
         _dilatedBitsetK3 = dilatedBitsetK3 ?? throw new ArgumentNullException(nameof(dilatedBitsetK3));
-        _bitsetK1 = bitsetK1;
         MemoryBytes = memoryBytes;
-    }
-
-    public Vpsg3PreparedFloor(
-        Vpsg3IndexCacheKey cacheKey,
-        int referenceWidth,
-        int referenceHeight,
-        int edgePixelCount,
-        Vpsg3ScalePrior scalePrior,
-        int wordsPerRow,
-        ulong[] dilatedBitsetK5,
-        ulong[] dilatedBitsetK3,
-        long memoryBytes)
-        : this(cacheKey, referenceWidth, referenceHeight, edgePixelCount, scalePrior, wordsPerRow, dilatedBitsetK5, dilatedBitsetK3, bitsetK1: null, memoryBytes)
-    {
     }
 
     public Vpsg3PreparedFloor(
@@ -302,7 +271,7 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         int wordsPerRow,
         ulong[] dilatedBitset,
         long memoryBytes)
-        : this(cacheKey, referenceWidth, referenceHeight, edgePixelCount, scalePrior, wordsPerRow, dilatedBitset, dilatedBitset, bitsetK1: null, memoryBytes)
+        : this(cacheKey, referenceWidth, referenceHeight, edgePixelCount, scalePrior, wordsPerRow, dilatedBitset, dilatedBitset, memoryBytes)
     {
     }
 
@@ -349,7 +318,6 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         {
             _dilatedBitsetK5 = null;
             _dilatedBitsetK3 = null;
-            _bitsetK1 = null;
         }
     }
 

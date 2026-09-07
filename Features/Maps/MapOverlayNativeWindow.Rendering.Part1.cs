@@ -43,6 +43,7 @@ internal static partial class MapOverlayBitmapRenderer
                 graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 graphics.DrawImage(source, new Rectangle(0, 0, width, height));
             }
+            TrimScaledImageCacheIfNecessary(MaxLayerCacheEntries - 1);
             ScaledImageCache[key] = new ScaledImageCacheEntry(
                 width,
                 height,

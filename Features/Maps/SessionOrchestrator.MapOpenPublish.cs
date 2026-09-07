@@ -160,19 +160,6 @@ public sealed partial class SessionOrchestrator
                     updatedSession,
                     frame,
                     adaptiveDecision.AllowReliableSession);
-
-                // Phase B: a VPSG3-accepted scale becomes a session-local bootstrap prior for the next
-                // same-session alignment of this floor — independent of the reliable(0.70) confidence gate.
-                if (_lastDiagnostics is { ScaleBootstrapMethod: var method }
-                    && string.Equals(method, "vpsg3", StringComparison.OrdinalIgnoreCase)
-                    && aligned.Result.OverlayTransform is { } committedScale)
-                {
-                    RememberAcceptedVpsg3ScaleSeed(
-                        aligned,
-                        committedScale.ScaleX,
-                        aligned.Result.LocalizationConfidence);
-                }
-
                 _lastGameBounds = frame.ClientBounds;
                 _lastGameWindowHandle = frame.WindowHandle;
                 _statusMessage =

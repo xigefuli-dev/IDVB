@@ -180,13 +180,6 @@ public sealed class Vpsg3ProductionSolverTests
             var wrongAccept = 0;
             var transErrors = new List<double>();
             var scaleErrors = new List<double>();
-            var harmonicAmbiguity = 0;
-            var harmonicResolved = 0;
-            var harmonicUnresolved = 0;
-            var scaleStageRejected = 0;
-            var apertureMarginReject = 0;
-            var verificationScoreReject = 0;
-            var translationNoCand = 0;
 
             var latExtract = new List<double>();
             var latScale = new List<double>();
@@ -206,9 +199,7 @@ public sealed class Vpsg3ProductionSolverTests
                 {
                     s.Id, s.SourceType, s.ViewportBounds, s.TrueScale, s.TrueOffsetX, s.TrueOffsetY,
                     res.IsAccepted, res.FallbackReason, res.Scale, res.OffsetX, res.OffsetY,
-                    res.BestCandidate, res.RunnerUpCandidate, res.Timing,
-                    res.ScaleHypothesisCount, res.EvaluatedHypothesisCount,
-                    ScaleArbitration = res.ScaleArbitrationSummary
+                    res.BestCandidate, res.RunnerUpCandidate, res.Timing
                 });
 
                 latExtract.Add(res.Timing.ExtractionMs);
@@ -234,23 +225,6 @@ public sealed class Vpsg3ProductionSolverTests
                 {
                     noCand++;
                 }
-
-                // Harmonic-disambiguation / reject-reason tallies (new metrics since 3.0 harmonic fix).
-                if (res.ScaleHypothesisCount > 1)
-                {
-                    harmonicAmbiguity++;
-                    if (res.EvaluatedHypothesisCount >= 2)
-                    {
-                        if (res.IsAccepted) harmonicResolved++;
-                        else harmonicUnresolved++;
-                    }
-                }
-
-                if (!res.ScaleResult.Success && res.FallbackReason.StartsWith("ScaleSolverFailed", StringComparison.Ordinal))
-                    scaleStageRejected++;
-                if (res.FallbackReason.StartsWith("ApertureMarginBelowThreshold", StringComparison.Ordinal)) apertureMarginReject++;
-                if (res.FallbackReason.StartsWith("VerificationScoreBelowThreshold", StringComparison.Ordinal)) verificationScoreReject++;
-                if (res.FallbackReason.StartsWith("TranslationNoCandidates", StringComparison.Ordinal)) translationNoCand++;
 
                 if (res.IsAccepted)
                 {
@@ -296,13 +270,6 @@ public sealed class Vpsg3ProductionSolverTests
             sb.AppendLine($"| RejectRate (solver only) | {fallbackRate:F1}% ({total - accepted}/{total}) |");
             sb.AppendLine($"| Trans Error P50 / P95 | {Percentile(transErrors, 0.50):F2}px / {Percentile(transErrors, 0.95):F2}px |");
             sb.AppendLine($"| Scale Error P50 / P95 | {Percentile(scaleErrors, 0.50):F4} / {Percentile(scaleErrors, 0.95):F4} |");
-            sb.AppendLine($"| HarmonicAmbiguity (multi-scale proposed) | {harmonicAmbiguity}/{total} |");
-            sb.AppendLine($"| HarmonicResolved (arbitrated & accepted) | {harmonicResolved} |");
-            sb.AppendLine($"| HarmonicUnresolved (arbitrated but rejected) | {harmonicUnresolved} |");
-            sb.AppendLine($"| ScaleStageRejected | {scaleStageRejected} |");
-            sb.AppendLine($"| ApertureMarginReject | {apertureMarginReject} |");
-            sb.AppendLine($"| VerificationScoreReject | {verificationScoreReject} |");
-            sb.AppendLine($"| TranslationNoCandidatesReject | {translationNoCand} |");
             sb.AppendLine();
             sb.AppendLine($"| Stage Breakdown (ms) | P50 | P95 | P99 | Max |");
             sb.AppendLine($"| :--- | :---: | :---: | :---: | :---: |");

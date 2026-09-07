@@ -49,4 +49,9 @@ public interface IGameWindowCapture
         frame = null;
         return false;
     }
+
+    /// <summary>
+    /// Releases cached surface bitmap, graphics, and hot frames.
+    /// </summary>
+    void Reset() { }
 }

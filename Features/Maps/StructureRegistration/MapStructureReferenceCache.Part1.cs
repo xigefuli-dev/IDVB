@@ -18,6 +18,31 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         }
     }
 
+    /// <summary>
+    /// Discards all cached reference features and releases unmanaged memory.
+    /// Entries currently leased are moved to the deferred-eviction map and
+    /// disposed when their lease is returned.
+    /// </summary>
+    public void Clear()
+    {
+        lock (_memoryGate)
+        {
+            foreach (var (key, (features, _)) in _memoryCache)
+            {
+                if (_leaseCounts.TryGetValue(key, out var count) && count > 0)
+                {
+                    _evictedWhileLeased[key] = features;
+                }
+                else
+                {
+                    features.Dispose();
+                }
+            }
+            _memoryCache.Clear();
+            _lruList.Clear();
+        }
+    }
+
     public void InvalidateMaps(IReadOnlySet<Guid> mapIds)
     {
         if (mapIds.Count == 0)

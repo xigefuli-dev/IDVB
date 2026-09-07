@@ -38,4 +38,22 @@ public sealed partial class MapCvRecognitionService : IDisposable
             mapClass,
             SelectedAlignmentRoute.Default);
 
+    private static MapGeometryFingerprint RebindFingerprint(
+        MapGeometryFingerprint source,
+        MapRecord map) => new()
+    {
+        Map = map,
+        FloorKey = source.FloorKey,
+        MainPoint = source.MainPoint,
+        SidePoint = source.SidePoint,
+        MainReferenceBounds = source.MainReferenceBounds,
+        SideReferenceBounds = source.SideReferenceBounds,
+        ReferenceWidth = source.ReferenceWidth,
+        ReferenceHeight = source.ReferenceHeight,
+        RecognitionImagePath = source.RecognitionImagePath,
+        OverlayImagePath = source.OverlayImagePath,
+        ReferenceGateIconWidth = source.ReferenceGateIconWidth,
+        ReferenceGateIconHeight = source.ReferenceGateIconHeight
+    };
+
 }

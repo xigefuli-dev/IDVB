@@ -251,6 +251,7 @@ public sealed class MapAlignmentResearchCollectorTests
         try
         {
             await collector.SetEnabledAsync(true);
+            await collector.WaitForCleanupAsync();
             Assert.False(Directory.Exists(oldSession));
             await collector.SetEnabledAsync(false);
         }

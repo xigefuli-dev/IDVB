@@ -122,13 +122,18 @@ public sealed partial class MapCvRecognitionService : IDisposable
     public double? LastGateTemplateScale => _gateDetector.WarmScale;
 
     /// <summary>
-    /// Clears observations learned from one match without discarding the map
-    /// catalog or immutable derived-reference caches.
+    /// Clears observations learned from one match and releases match-scoped
+    /// resident reference features.
     /// </summary>
     public void ResetMatchState()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _gateDetector.ResetSuccessfulScale();
+        _structureCache.Clear();
+        lock (_floorPrewarmGate)
+        {
+            _floorPrewarmTasks.Clear();
+        }
     }
 
     public MapRecord? TryGetMap(Guid mapId) =>
@@ -154,18 +159,20 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 "map_catalog_fingerprint_dispatch_wait",
                 MapOperationWaitKind.Queue);
             CacheBuildResult cache;
+            Dictionary<(Guid, string), Mat> sideEntranceCache;
             try
             {
-                cache = await Task.Run(() =>
+                (cache, sideEntranceCache) = await Task.Run(() =>
                 {
                     cacheDispatch.Complete();
                     using var cacheWorker = MapOperationTraceAmbient.StartChild(
                         "map_catalog_fingerprint_build",
                         MapOperationWaitKind.Compute);
                     var snapshot = maps.Select(map => map.Clone()).ToArray();
+                    CacheBuildResult buildResult;
                     if (!_cacheInitialized)
                     {
-                        return new CacheBuildResult(
+                        buildResult = new CacheBuildResult(
                             snapshot,
                             snapshot.Select(TryCreateFingerprint)
                                 .Where(fingerprint => fingerprint is not null)
@@ -173,32 +180,37 @@ public sealed partial class MapCvRecognitionService : IDisposable
                                 .ToArray(),
                             snapshot.Select(map => map.Id).ToHashSet());
                     }
-
-                    var previousMaps = _maps.ToDictionary(map => map.Id);
-                    var previousFingerprints = _fingerprints.ToDictionary(
-                        fingerprint => fingerprint.Map.Id);
-                    var changedIds = snapshot
-                        .Where(map => changedMapId == map.Id
-                            || !previousMaps.TryGetValue(map.Id, out var previous)
-                            || !MapCvRecognitionHelpers.HaveSameFingerprintInputs(previous, map))
-                        .Select(map => map.Id)
-                        .ToHashSet();
-
-                    var fingerprints = new List<MapGeometryFingerprint>();
-                    foreach (var map in snapshot)
+                    else
                     {
-                        if (!changedIds.Contains(map.Id)
-                            && previousFingerprints.TryGetValue(map.Id, out var existing))
+                        var previousMaps = _maps.ToDictionary(map => map.Id);
+                        var previousFingerprints = _fingerprints.ToDictionary(
+                            fingerprint => fingerprint.Map.Id);
+                        var changedIds = snapshot
+                            .Where(map => changedMapId == map.Id
+                                || !previousMaps.TryGetValue(map.Id, out var previous)
+                                || !MapCvRecognitionHelpers.HaveSameFingerprintInputs(previous, map))
+                            .Select(map => map.Id)
+                            .ToHashSet();
+
+                        var fingerprints = new List<MapGeometryFingerprint>();
+                        foreach (var map in snapshot)
                         {
-                            fingerprints.Add(RebindFingerprint(existing, map));
-                            continue;
+                            if (!changedIds.Contains(map.Id)
+                                && previousFingerprints.TryGetValue(map.Id, out var existing))
+                            {
+                                fingerprints.Add(RebindFingerprint(existing, map));
+                                continue;
+                            }
+
+                            if (TryCreateFingerprint(map) is { } rebuilt)
+                                fingerprints.Add(rebuilt);
                         }
 
-                        if (TryCreateFingerprint(map) is { } rebuilt)
-                            fingerprints.Add(rebuilt);
+                        buildResult = new CacheBuildResult(snapshot, fingerprints, changedIds);
                     }
 
-                    return new CacheBuildResult(snapshot, fingerprints, changedIds);
+                    var builtSideEntrance = MapCvRecognitionHelpers.BuildSideEntranceFeatureCache(_repository, buildResult.Maps);
+                    return (buildResult, builtSideEntrance);
                 });
             }
             finally
@@ -218,7 +230,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
             // 刷新侧门特征缓存
             var oldFeatureCache = _sideEntranceFeatureCache;
-            _sideEntranceFeatureCache = MapCvRecognitionHelpers.BuildSideEntranceFeatureCache(_repository, cache.Maps);
+            _sideEntranceFeatureCache = sideEntranceCache;
             foreach (var mat in oldFeatureCache.Values)
                 mat.Dispose();
         }
@@ -228,23 +240,6 @@ public sealed partial class MapCvRecognitionService : IDisposable
         }
     }
 
-    private static MapGeometryFingerprint RebindFingerprint(
-        MapGeometryFingerprint source,
-        MapRecord map) => new()
-    {
-        Map = map,
-        FloorKey = source.FloorKey,
-        MainPoint = source.MainPoint,
-        SidePoint = source.SidePoint,
-        MainReferenceBounds = source.MainReferenceBounds,
-        SideReferenceBounds = source.SideReferenceBounds,
-        ReferenceWidth = source.ReferenceWidth,
-        ReferenceHeight = source.ReferenceHeight,
-        RecognitionImagePath = source.RecognitionImagePath,
-        OverlayImagePath = source.OverlayImagePath,
-        ReferenceGateIconWidth = source.ReferenceGateIconWidth,
-        ReferenceGateIconHeight = source.ReferenceGateIconHeight
-    };
 
     // ── 公开识别入口 ──────────────────────────────────────────────────────────
 

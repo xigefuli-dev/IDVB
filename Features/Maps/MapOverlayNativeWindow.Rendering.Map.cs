@@ -88,7 +88,7 @@ internal static partial class MapOverlayBitmapRenderer
         bool showBoxAnnotations,
         bool showLineAnnotations)
     {
-        var key = $"{Path.GetFullPath(map.ImagePath)}|w={width}|h={height}|dpi={dpiScale:F2}|op={mapOpacity:F2}|gm={showGateMarkers}|aa={showAuxiliaryAnchors}|ta={showTextAnnotations}|ba={showBoxAnnotations}|la={showLineAnnotations}|anc={map.Anchors.Count}|ann={map.Annotations?.Count ?? 0}";
+        var key = $"{Path.GetFullPath(map.ImagePath)}|dpi={dpiScale:F2}|op={mapOpacity:F2}|gm={showGateMarkers}|aa={showAuxiliaryAnchors}|ta={showTextAnnotations}|ba={showBoxAnnotations}|la={showLineAnnotations}|anc={map.Anchors.Count}|ann={map.Annotations?.Count ?? 0}";
         lock (ImageCacheLock)
         {
             if (MapLayerCache.TryGetValue(key, out var cached))
@@ -165,6 +165,7 @@ internal static partial class MapOverlayBitmapRenderer
                     showBoxAnnotations, showLineAnnotations);
             }
 
+            TrimCacheIfNecessary(MapLayerCache, MaxLayerCacheEntries - 1);
             MapLayerCache[key] = new MapLayerCacheEntry(width, height, layerBitmap);
             return layerBitmap;
         }

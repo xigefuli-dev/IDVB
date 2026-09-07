@@ -40,14 +40,7 @@ internal static partial class MapCvRecognitionBuilders
                 StructureDisposition =
                     structure.RejectionReason.ToDisposition(
                         structure.Accepted),
-                WasForcedBestResult = false,
-                SpatialSpanRatio = Math.Max(structure.ReferenceWidth, structure.ReferenceHeight) > 0
-                    ? Math.Max(structure.QueryBoundsWidth, structure.QueryBoundsHeight)
-                        / (double)Math.Max(structure.ReferenceWidth, structure.ReferenceHeight)
-                    : 1.0d,
-                QueryEdgePixels = structure.QueryEdgePixels,
-                CenterX = transform.OffsetX,
-                CenterY = transform.OffsetY
+                WasForcedBestResult = false
             }
         };
 

@@ -40,7 +40,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
                 }
                 written++;
                 if (written % 50 == 0)
-                    CleanupSessions();
+                    CleanupSessions(sessionDirectory);
 
                 // PNG 编码在这里完成，不占用对齐发布路径。
                 var artifacts = request.Artifacts;
@@ -157,7 +157,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
         catch { /* 非关键 */ }
     }
 
-    private void CleanupSessions()
+    private void CleanupSessions(string? currentSessionDirectory = null)
     {
         try
         {
@@ -165,36 +165,49 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
             if (!Directory.Exists(sessionsRoot))
                 return;
 
-            var sessions = Directory.GetDirectories(sessionsRoot)
+            var sessionDirs = Directory.GetDirectories(sessionsRoot)
                 .Select(dir => new DirectoryInfo(dir))
                 .OrderBy(d => d.CreationTimeUtc)
                 .ToList();
 
             var cutoff = DateTime.UtcNow - _retention;
-            foreach (var expired in sessions
-                .Where(d => d.CreationTimeUtc < cutoff).ToArray())
+            var activeSessions = new List<(DirectoryInfo Dir, long Size)>();
+
+            foreach (var session in sessionDirs)
             {
-                if (!string.Equals(
-                    expired.FullName, _sessionDirectory,
+                if (string.Equals(
+                    session.FullName, currentSessionDirectory,
                     StringComparison.OrdinalIgnoreCase))
                 {
-                    expired.Delete(recursive: true);
+                    continue;
                 }
-                sessions.Remove(expired);
+
+                if (session.CreationTimeUtc < cutoff)
+                {
+                    try { session.Delete(recursive: true); }
+                    catch (Exception ex) { Warn(ex); }
+                    continue;
+                }
+
+                var size = GetDirectorySize(session);
+                activeSessions.Add((session, size));
             }
 
-            long totalBytes = sessions.Sum(GetDirectorySize);
-            foreach (var oldest in sessions)
+            long totalBytes = activeSessions.Sum(s => s.Size);
+            foreach (var (dir, size) in activeSessions)
             {
                 if (totalBytes <= _maximumBytes)
                     break;
-                if (string.Equals(
-                    oldest.FullName, _sessionDirectory,
-                    StringComparison.OrdinalIgnoreCase))
-                    continue;
-                var bytes = GetDirectorySize(oldest);
-                oldest.Delete(recursive: true);
-                totalBytes -= bytes;
+
+                try
+                {
+                    dir.Delete(recursive: true);
+                    totalBytes -= size;
+                }
+                catch (Exception ex)
+                {
+                    Warn(ex);
+                }
             }
         }
         catch (Exception exception)
@@ -229,5 +242,74 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
             await SetEnabledAsync(false);
         lock (_gate)
             _disposed = true;
+    }
+
+    private static Dictionary<string, object?> BuildCaseManifest(
+        MapAlignmentResearchAttempt attempt,
+        MapRecord map,
+        string floorKey)
+    {
+        var profile = MapFloorRules.GetFloorProfile(map, floorKey);
+        return new Dictionary<string, object?>
+        {
+            ["mapId"] = attempt.MapId,
+            ["mapTitle"] = map.Title,
+            ["floorKey"] = floorKey,
+            ["observedAt"] = attempt.ObservedAt,
+            ["accepted"] = attempt.Accepted,
+            ["confidence"] = attempt.Confidence,
+            ["failureCategory"] = attempt.FailureCategory.ToString(),
+            ["failureReason"] = attempt.FailureReason,
+            ["calibrationUpdated"] = attempt.CalibrationUpdated,
+            ["elapsedMs"] = attempt.ElapsedMilliseconds,
+            ["schemaVersion"] = attempt.SchemaVersion,
+            ["alignmentRoute"] = attempt.AlignmentRoute,
+            ["readinessDecision"] = attempt.ReadinessDecision,
+            ["lowStructureCacheTrustLevel"] =
+                attempt.LowStructureCacheTrustLevel,
+            ["lowStructurePlannedScaleCount"] =
+                attempt.LowStructurePlannedScaleCount,
+            ["lowStructureCompletedScaleCount"] =
+                attempt.LowStructureCompletedScaleCount,
+            ["lowStructureRecoveryBatch"] = attempt.LowStructureRecoveryBatch,
+            ["lowStructureRecoveryTotalScaleCount"] =
+                attempt.LowStructureRecoveryTotalScaleCount,
+            ["lowStructureTranslationCandidateCount"] =
+                attempt.LowStructureTranslationCandidateCount,
+            ["lowStructureBudgetTerminationReason"] =
+                attempt.LowStructureBudgetTerminationReason,
+            ["lowStructureVpsgEnabled"] = attempt.LowStructureVpsgEnabled,
+            ["vpsgActuallyEnabled"] = attempt.VpsgActuallyEnabled,
+            ["structureSearchMs"] = attempt.StructureSearchMilliseconds,
+            ["structureRefineMs"] = attempt.StructureRefineMilliseconds,
+            ["totalAlignmentMs"] = attempt.TotalAlignmentMilliseconds,
+            ["scaleX"] = attempt.FinalTransform?.ScaleX,
+            ["scaleY"] = attempt.FinalTransform?.ScaleY,
+            ["offsetX"] = attempt.FinalTransform?.OffsetX,
+            ["offsetY"] = attempt.FinalTransform?.OffsetY,
+            ["edgeCoverage"] =
+                attempt.ConfidenceBreakdown?.EdgeCoverage,
+            ["occupancyCoverage"] =
+                attempt.ConfidenceBreakdown?.OccupancyCoverage,
+            ["chamferPixels"] =
+                attempt.ConfidenceBreakdown?.ChamferPixels,
+            ["candidateCount"] = attempt.Candidates.Count,
+            ["queryEdgePixels"] = attempt.QueryEdgePixels,
+            ["gateCandidateCount"] = attempt.GateCandidateCount,
+            ["referenceWidth"] = attempt.ReferenceWidth,
+            ["referenceHeight"] = attempt.ReferenceHeight,
+            ["recognitionPixelWidth"] = profile?.RecognitionPixelWidth,
+            ["recognitionPixelHeight"] = profile?.RecognitionPixelHeight,
+            ["windowSignature"] = attempt.WindowSignature is { } sig
+                ? new Dictionary<string, object?>
+                {
+                    ["clientWidth"] = sig.ClientWidth,
+                    ["clientHeight"] = sig.ClientHeight,
+                    ["viewportWidth"] = sig.ViewportWidth,
+                    ["viewportHeight"] = sig.ViewportHeight,
+                    ["dpi"] = sig.Dpi
+                }
+                : null
+        };
     }
 }

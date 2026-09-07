@@ -84,7 +84,7 @@ internal static partial class MapOverlayBitmapRenderer
         var ta = showTextAnnotationsOnMiniMap && showTextAnnotations;
         var ba = showBoxAnnotationsOnMiniMap && showBoxAnnotations;
         var la = showLineAnnotationsOnMiniMap && showLineAnnotations;
-        var key = $"{Path.GetFullPath(miniMap.ImagePath)}|w={width}|h={height}|dpi={dpiScale:F2}|op={miniMapOpacity:F2}|gm={gm}|aa={aa}|ta={ta}|ba={ba}|la={la}|fl={showFloorOnMiniMap}|flbl={miniMap.FloorLabel}|anc={miniMap.Anchors.Count}|ann={miniMap.Annotations?.Count ?? 0}";
+        var key = $"{Path.GetFullPath(miniMap.ImagePath)}|dpi={dpiScale:F2}|op={miniMapOpacity:F2}|gm={gm}|aa={aa}|ta={ta}|ba={ba}|la={la}|fl={showFloorOnMiniMap}|flbl={miniMap.FloorLabel}|anc={miniMap.Anchors.Count}|ann={miniMap.Annotations?.Count ?? 0}";
 
         lock (ImageCacheLock)
         {
@@ -145,6 +145,7 @@ internal static partial class MapOverlayBitmapRenderer
                 }
             }
 
+            TrimCacheIfNecessary(MiniMapLayerCache, MaxLayerCacheEntries - 1);
             MiniMapLayerCache[key] = new MapLayerCacheEntry(width, height, layerBitmap);
             return layerBitmap;
         }

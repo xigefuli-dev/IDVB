@@ -88,17 +88,6 @@ public sealed partial class SessionOrchestrator
                 string.Equals(floor.Key, oldFloor, StringComparison.Ordinal)));
             var targetFloor = targetFloors.ElementAtOrDefault(floorIndex)?.Key
                 ?? targetFloors[0].Key;
-            var targetScaleSeed = _lastCandidateChoices
-                .Where(choice => !choice.IsReferenceOnly)
-                .Select(choice => choice.Recognition)
-                .Where(recognition => recognition.Map.Id == targetMap.Id
-                    && recognition.Map.UpdatedAt == targetMap.UpdatedAt)
-                .Select(recognition =>
-                    BackgroundScanRules.BuildValidatedStructureScaleSeed(
-                        recognition,
-                        sideEntranceSeed: null,
-                        floorKey: targetFloor))
-                .FirstOrDefault(seed => seed is not null);
 
             var mapWasOpen = _gameMapToggleState.IsOpen;
             _matchSession.AdvanceOperationEpoch();
@@ -124,12 +113,11 @@ public sealed partial class SessionOrchestrator
                 _reliableFloorAlignments.Clear();
             }
             ClearManualFloorScaleLocks();
-            ClearAcceptedVpsg3ScaleSeeds();
 
             _lastRecognition = null;
             _lastAlignmentSession = null;
             _primaryFloorAlignmentSession = null;
-            _pendingAlignmentSeed = targetScaleSeed;
+            _pendingAlignmentSeed = null;
             _lastFloorRecognition = null;
             _lastTrustedPlayerPoint = null;
             _alignmentTrackingMode = MapAlignmentTrackingMode.None;
@@ -145,12 +133,7 @@ public sealed partial class SessionOrchestrator
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
-                $"切换地图变体 · from={currentMap.Id} · to={targetMap.Id} · floor={targetFloor}",
-                details: new()
-                {
-                    ["targetVerifiedScale"] =
-                        targetScaleSeed?.LockedTransform.ScaleX
-                });
+                $"切换地图变体 · from={currentMap.Id} · to={targetMap.Id} · floor={targetFloor}");
 
             if (mapWasOpen)
             {

@@ -37,6 +37,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
     private int _totalCaseCount;
     private Channel<WriteRequest>? _channel;
     private Task? _worker;
+    private Task? _cleanupTask;
     private string? _sessionDirectory;
     private long _recordCount;
     private bool _disposed;
@@ -73,6 +74,13 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
     public bool IsEnabled => Volatile.Read(ref _channel) is not null;
     public long RecordCount => Interlocked.Read(ref _recordCount);
     public string? CurrentSessionDirectory => _sessionDirectory;
+    public Task? CleanupTask => Volatile.Read(ref _cleanupTask);
+
+    public async Task WaitForCleanupAsync()
+    {
+        if (Volatile.Read(ref _cleanupTask) is { } task)
+            await task;
+    }
 
     // ═════════════════════════════════════════════════════════════
     // 生命周期
@@ -82,6 +90,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
     {
         Channel<WriteRequest>? channelToClose = null;
         Task? workerToWait = null;
+        string? sessionDirToClean = null;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -109,14 +118,22 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
                 _totalCaseCount = 0;
                 Interlocked.Exchange(ref _recordCount, 0);
                 WriteSessionManifest(_sessionDirectory);
-                CleanupSessions();
-                return;
+                sessionDirToClean = _sessionDirectory;
             }
+            else
+            {
+                channelToClose = _channel;
+                workerToWait = _worker;
+                _channel = null;
+                _worker = null;
+            }
+        }
 
-            channelToClose = _channel;
-            workerToWait = _worker;
-            _channel = null;
-            _worker = null;
+        if (sessionDirToClean is not null)
+        {
+            // 后台异步执行清理，不阻塞启动链路与锁
+            _cleanupTask = Task.Run(() => CleanupSessions(sessionDirToClean));
+            return;
         }
 
         channelToClose?.Writer.TryComplete();
@@ -405,77 +422,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
     }
 
     // ═════════════════════════════════════════════════════════════
-    // Case manifest
-    // ═════════════════════════════════════════════════════════════
 
-    private static Dictionary<string, object?> BuildCaseManifest(
-        MapAlignmentResearchAttempt attempt,
-        MapRecord map,
-        string floorKey)
-    {
-        var profile = MapFloorRules.GetFloorProfile(map, floorKey);
-        return new Dictionary<string, object?>
-        {
-            ["mapId"] = attempt.MapId,
-            ["mapTitle"] = map.Title,
-            ["floorKey"] = floorKey,
-            ["observedAt"] = attempt.ObservedAt,
-            ["accepted"] = attempt.Accepted,
-            ["confidence"] = attempt.Confidence,
-            ["failureCategory"] = attempt.FailureCategory.ToString(),
-            ["failureReason"] = attempt.FailureReason,
-            ["calibrationUpdated"] = attempt.CalibrationUpdated,
-            ["elapsedMs"] = attempt.ElapsedMilliseconds,
-            ["schemaVersion"] = attempt.SchemaVersion,
-            ["alignmentRoute"] = attempt.AlignmentRoute,
-            ["readinessDecision"] = attempt.ReadinessDecision,
-            ["lowStructureCacheTrustLevel"] =
-                attempt.LowStructureCacheTrustLevel,
-            ["lowStructurePlannedScaleCount"] =
-                attempt.LowStructurePlannedScaleCount,
-            ["lowStructureCompletedScaleCount"] =
-                attempt.LowStructureCompletedScaleCount,
-            ["lowStructureRecoveryBatch"] = attempt.LowStructureRecoveryBatch,
-            ["lowStructureRecoveryTotalScaleCount"] =
-                attempt.LowStructureRecoveryTotalScaleCount,
-            ["lowStructureTranslationCandidateCount"] =
-                attempt.LowStructureTranslationCandidateCount,
-            ["lowStructureBudgetTerminationReason"] =
-                attempt.LowStructureBudgetTerminationReason,
-            ["lowStructureVpsgEnabled"] = attempt.LowStructureVpsgEnabled,
-            ["vpsgActuallyEnabled"] = attempt.VpsgActuallyEnabled,
-            ["structureSearchMs"] = attempt.StructureSearchMilliseconds,
-            ["structureRefineMs"] = attempt.StructureRefineMilliseconds,
-            ["totalAlignmentMs"] = attempt.TotalAlignmentMilliseconds,
-            ["scaleX"] = attempt.FinalTransform?.ScaleX,
-            ["scaleY"] = attempt.FinalTransform?.ScaleY,
-            ["offsetX"] = attempt.FinalTransform?.OffsetX,
-            ["offsetY"] = attempt.FinalTransform?.OffsetY,
-            ["edgeCoverage"] =
-                attempt.ConfidenceBreakdown?.EdgeCoverage,
-            ["occupancyCoverage"] =
-                attempt.ConfidenceBreakdown?.OccupancyCoverage,
-            ["chamferPixels"] =
-                attempt.ConfidenceBreakdown?.ChamferPixels,
-            ["candidateCount"] = attempt.Candidates.Count,
-            ["queryEdgePixels"] = attempt.QueryEdgePixels,
-            ["gateCandidateCount"] = attempt.GateCandidateCount,
-            ["referenceWidth"] = attempt.ReferenceWidth,
-            ["referenceHeight"] = attempt.ReferenceHeight,
-            ["recognitionPixelWidth"] = profile?.RecognitionPixelWidth,
-            ["recognitionPixelHeight"] = profile?.RecognitionPixelHeight,
-            ["windowSignature"] = attempt.WindowSignature is { } sig
-                ? new Dictionary<string, object?>
-                {
-                    ["clientWidth"] = sig.ClientWidth,
-                    ["clientHeight"] = sig.ClientHeight,
-                    ["viewportWidth"] = sig.ViewportWidth,
-                    ["viewportHeight"] = sig.ViewportHeight,
-                    ["dpi"] = sig.Dpi
-                }
-                : null
-        };
-    }
 }
 /*
  * 文件职责：MapAlignmentResearchCollector。

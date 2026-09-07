@@ -103,11 +103,7 @@ internal sealed record AdaptiveScaleInitialEvidence(
     AdaptiveVpsgEvidence? Vpsg = null,
     bool ScaleIndependentlyEstimated = true,
     double? ScaleClusterTolerance = null,
-    double ScaleResolutionRatio = 0d,
-    double SpatialSpanRatio = 1.0d,
-    int QueryEdgePixels = 0,
-    double CenterX = 0d,
-    double CenterY = 0d);
+    double ScaleResolutionRatio = 0d);
 
 internal sealed record AdaptiveScaleConsensus(
     double Scale,
@@ -172,11 +168,6 @@ internal sealed class AdaptiveScaleOptions
     public double InitialScaleClusterTolerance { get; set; } = 0.002d;
     public double RecoveryConfidence { get; set; } = 0.65d;
     public int RecoveryStructureCount { get; set; } = 2;
-    public double MinimumSpatialSpanRatio { get; set; } = 0.35d;
-    public int MinimumLockEdgePixels { get; set; } = 60;
-    public double MinimumMovementDiversityPixels { get; set; } = 15.0d;
-    public double SpanExpansionRefinementThreshold { get; set; } = 0.20d;
-    public double ChamferProactiveRecoveryThreshold { get; set; } = 2.2d;
 
     public void Normalize()
     {
@@ -204,11 +195,6 @@ internal sealed class AdaptiveScaleOptions
             0.5d,
             ReliableConfidence);
         RecoveryStructureCount = Math.Clamp(RecoveryStructureCount, 2, 5);
-        MinimumSpatialSpanRatio = Math.Clamp(MinimumSpatialSpanRatio, 0.10d, 0.90d);
-        MinimumLockEdgePixels = Math.Clamp(MinimumLockEdgePixels, 10, 500);
-        MinimumMovementDiversityPixels = Math.Clamp(MinimumMovementDiversityPixels, 0d, 100d);
-        SpanExpansionRefinementThreshold = Math.Clamp(SpanExpansionRefinementThreshold, 0.05d, 0.50d);
-        ChamferProactiveRecoveryThreshold = Math.Clamp(ChamferProactiveRecoveryThreshold, 1.5d, 2.9d);
     }
 }
 /*

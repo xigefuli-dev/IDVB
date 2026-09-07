@@ -40,8 +40,7 @@ public sealed partial class MapCvRecognitionService
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
         double identityPriorConfidence,
-        bool includeSiftFallback = false,
-        double? knownVpsg3ScaleSeed = null)
+        bool includeSiftFallback = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(scaleSeed);
@@ -79,13 +78,14 @@ public sealed partial class MapCvRecognitionService
                 allowPrimaryFloor: true);
         }
 
+        var effectiveScaleSeed = scaleSeed.ScaleX > 0.05 ? (double?)scaleSeed.ScaleX : null;
         if (TryAlignWithVpsg3(
                 frame,
                 map,
                 floorKey,
                 identityPriorConfidence,
                 out var vpsg3Attempt,
-                knownVpsg3ScaleSeed))
+                knownScaleSeed: effectiveScaleSeed))
         {
             return vpsg3Attempt;
         }

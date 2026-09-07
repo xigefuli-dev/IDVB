@@ -454,6 +454,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         }
     }
 
+
+
     public void Dispose()
     {
         lock (_memoryGate)

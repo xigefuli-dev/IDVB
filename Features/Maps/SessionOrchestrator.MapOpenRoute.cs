@@ -39,77 +39,24 @@ public sealed partial class SessionOrchestrator
                 out repairCacheKey);
         }
 
-        var floorScaleSeed = string.Equals(
-                alignmentSession.FloorKey,
-                targetFloorKey,
-                StringComparison.OrdinalIgnoreCase)
-            ? alignmentSession.LockedTransform
-            : MapFloorScaleSeedRules.CreateIndependentFloorSeed(
-                locked.Map,
-                targetFloorKey);
-
-        // Phase B: prefer a session-local scale the VPSG3 gate already accepted for this exact
-        // (match, map, floor, capture-geometry) — it lets the next map-open skip the unstable S-B
-        // bootstrap entirely, independent of the reliable(0.70) confidence gate. Fall back to the
-        // recovering-session locked transform only when no accepted seed exists yet.
-        var acceptedScaleSeedUsed = TryGetAcceptedVpsg3ScaleSeed(
-            _matchSession.Snapshot,
-            frame,
-            locked.Map,
-            targetFloorKey,
-            out var acceptedScale);
-        double? knownVpsg3ScaleSeed = acceptedScaleSeedUsed
-            ? acceptedScale
-            : recoveringSelectedIdentity
-                && alignmentSession.Mode == MapAlignmentTrackingMode.StructureMatched
-                && !alignmentSession.HasGatePairLock
-                    ? floorScaleSeed.ScaleX
-                    : (double?)null;
-
-        // A hard failure at the accepted scale (no translation candidates / out-of-domain refined
-        // scale / degenerate bounds) means the seed no longer matches this capture context. Drop it
-        // so the next attempt returns to the harmonic-aware S-B bootstrap instead of reusing a stale
-        // seed forever. Single-frame ApertureMarginBelowThreshold is *not* a hard failure.
-        void InvalidateAcceptedSeedOnHardFailure(MapRecognitionAttempt? vpsgAttempt)
-        {
-            if (!acceptedScaleSeedUsed
-                || vpsgAttempt is null
-                || vpsgAttempt.Recognition is not null
-                || !IsHardVpsg3ScaleFailure(vpsgAttempt.FailureReason))
-            {
-                return;
-            }
-
-            ForgetAcceptedVpsg3ScaleSeed(
-                _matchSession.Snapshot,
-                frame,
-                locked.Map,
-                targetFloorKey);
-        }
-
         MapRecognitionAttempt VpsgThenFallback(bool tryDirectSideFeature)
         {
             // 无会话、无缓存时的 scale bootstrap：VPSG 用本楼层边缘结构
-            // 独立估算 scale；VPSG3 接受或拒绝都短路，仅索引不可用才 fallback。
+            // 独立估算 scale，成功则短路，失败再进入常规 fallback。
             if (TryAlignFloorWithVpsg(
                     frame,
                     locked,
                     targetFloorKey,
-                    floorScaleSeed,
+                    alignmentSession.LockedTransform,
                     alignmentMode,
                     tuning,
                     structureTuning,
-                    alignmentSession.SideEntranceScanPriorConfidence,
-                    knownVpsg3ScaleSeed)
-                is { } vpsgAttempt)
+                    alignmentSession.SideEntranceScanPriorConfidence)
+                is { } vpsgAttempt
+                && vpsgAttempt.Recognition is not null
+                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
             {
-                InvalidateAcceptedSeedOnHardFailure(vpsgAttempt);
-                if (WasHandledByVpsg3(vpsgAttempt)
-                    || (vpsgAttempt.Recognition is not null
-                        && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning)))
-                {
-                    return vpsgAttempt;
-                }
+                return vpsgAttempt;
             }
             return fallback(tryDirectSideFeature);
         }
@@ -129,21 +76,16 @@ public sealed partial class SessionOrchestrator
                     frame,
                     locked,
                     targetFloorKey,
-                    floorScaleSeed,
+                    alignmentSession.LockedTransform,
                     alignmentMode,
                     tuning,
                     structureTuning,
-                    alignmentSession.SideEntranceScanPriorConfidence,
-                    knownVpsg3ScaleSeed)
-                is { } vpsgAttempt)
+                    alignmentSession.SideEntranceScanPriorConfidence)
+                is { } vpsgAttempt
+                && vpsgAttempt.Recognition is not null
+                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
             {
-                InvalidateAcceptedSeedOnHardFailure(vpsgAttempt);
-                if (WasHandledByVpsg3(vpsgAttempt)
-                    || (vpsgAttempt.Recognition is not null
-                        && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning)))
-                {
-                    return vpsgAttempt;
-                }
+                return vpsgAttempt;
             }
             return directAttempt;
         }
@@ -164,40 +106,32 @@ public sealed partial class SessionOrchestrator
                 frame,
                 locked,
                 targetFloorKey,
-                floorScaleSeed,
+                alignmentSession.LockedTransform,
                 alignmentMode,
                 tuning,
                 structureTuning,
-                alignmentSession.SideEntranceScanPriorConfidence,
-                knownVpsg3ScaleSeed)
-            is { } fastVpsgAttempt)
+                alignmentSession.SideEntranceScanPriorConfidence)
+            is { } fastVpsgAttempt
+            && fastVpsgAttempt.Recognition is not null
+            && IsAdaptiveInitialScaleQualified(fastVpsgAttempt, structureTuning))
         {
-            InvalidateAcceptedSeedOnHardFailure(fastVpsgAttempt);
-            if (WasHandledByVpsg3(fastVpsgAttempt)
-                || (fastVpsgAttempt.Recognition is not null
-                    && IsAdaptiveInitialScaleQualified(fastVpsgAttempt, structureTuning)))
-            {
-                var isVpsg3 = string.Equals(
-                    fastVpsgAttempt.Diagnostics.ScaleBootstrapMode,
-                    "Vpsg3",
-                    StringComparison.OrdinalIgnoreCase);
-                if (fastVpsgAttempt.Recognition is not null)
+            var isVpsg3 = string.Equals(
+                fastVpsgAttempt.Diagnostics.ScaleBootstrapMode,
+                "Vpsg3",
+                StringComparison.OrdinalIgnoreCase);
+            _logCollector.Append(
+                MapLogCategory.Session,
+                MapLogLevel.Info,
+                isVpsg3 ? "VPSG 3.0 首选快速对齐成功" : "VPSG 2.0 兜底对齐成功",
+                details: new()
                 {
-                    _logCollector.Append(
-                        MapLogCategory.Session,
-                        MapLogLevel.Info,
-                        isVpsg3 ? "VPSG 3.0 首选快速对齐成功" : "VPSG 2.0 兜底对齐成功",
-                        details: new()
-                        {
-                            ["route"] = isVpsg3 ? "preferred-vpsg3" : "vpsg2-fallback",
-                            ["mapId"] = locked.Map.Id,
-                            ["floor"] = targetFloorKey,
-                            ["scale"] = fastVpsgAttempt.Recognition.Result.OverlayTransform?.ScaleX,
-                            ["elapsedMs"] = fastVpsgAttempt.Diagnostics.TotalMilliseconds
-                        });
-                }
-                return fastVpsgAttempt;
-            }
+                    ["route"] = isVpsg3 ? "preferred-vpsg3" : "vpsg2-fallback",
+                    ["mapId"] = locked.Map.Id,
+                    ["floor"] = targetFloorKey,
+                    ["scale"] = fastVpsgAttempt.Recognition.Result.OverlayTransform?.ScaleX,
+                    ["elapsedMs"] = fastVpsgAttempt.Diagnostics.TotalMilliseconds
+                });
+            return fastVpsgAttempt;
         }
         if (MapOpenAlignmentRouteRules.ShouldPreferLockedSideFeature(
                 isOtherFloor,
@@ -318,22 +252,6 @@ public sealed partial class SessionOrchestrator
             "仅对齐阶段耗时汇总",
             elapsedMs: wallClockMilliseconds,
             details: details);
-    }
-
-    /// <summary>
-    /// Classifies a VPSG3 rejection as a *hard* scale incompatibility — one where reusing the same
-    /// accepted scale seed next frame is pointless and would only repeat the failure. Transient
-    /// aperture-margin / score shortfalls are not hard: the accepted scale stays valid across a few
-    /// thin-margin frames (temporary ambiguity), exactly per the Phase B invalidation contract.
-    /// </summary>
-    private static bool IsHardVpsg3ScaleFailure(string? failureReason)
-    {
-        if (string.IsNullOrEmpty(failureReason)) return false;
-        return failureReason.Contains("TranslationNoCandidatesFound", StringComparison.Ordinal)
-            || failureReason.Contains("RefinedScaleOutOfRange", StringComparison.Ordinal)
-            || failureReason.Contains("TransformedBoundsOutOfBounds", StringComparison.Ordinal)
-            || failureReason.Contains("ScaleSolverFailed", StringComparison.Ordinal)
-            || failureReason.Contains("AllScaleHypothesesRejected", StringComparison.Ordinal);
     }
 }
 /*

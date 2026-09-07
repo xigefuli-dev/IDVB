@@ -3,10 +3,7 @@ namespace IDVBuff.Features.Maps.AdaptiveScaleAlignment;
 internal sealed record AdaptiveScaleInitialSample(
     double Scale,
     double Confidence,
-    DateTimeOffset ObservedAt,
-    double SpatialSpanRatio = 1.0d,
-    double CenterX = 0d,
-    double CenterY = 0d);
+    DateTimeOffset ObservedAt);
 
 internal sealed record AdaptiveScaleInitialStreakSnapshot(
     AdaptiveScaleKey Key,
@@ -28,8 +25,6 @@ internal sealed class AdaptiveScaleInitialStreakState
     private readonly AdaptiveScaleKey _key;
     private readonly int _requiredCount;
     private readonly double _clusterTolerance;
-    private readonly double _minSpatialSpan;
-    private readonly double _minMovementDiversity;
     private readonly List<AdaptiveScaleInitialSample> _samples = [];
     private long? _lastCountedOpenId;
 
@@ -41,8 +36,6 @@ internal sealed class AdaptiveScaleInitialStreakState
         _key = key;
         _requiredCount = options.RequiredConsecutiveInitialResults;
         _clusterTolerance = options.InitialScaleClusterTolerance;
-        _minSpatialSpan = options.MinimumSpatialSpanRatio;
-        _minMovementDiversity = options.MinimumMovementDiversityPixels;
         if (persisted is { ScaleEvidenceVersion: >= 1 }
             && persisted.InitialSamples is { Count: > 0 })
         {
@@ -53,33 +46,7 @@ internal sealed class AdaptiveScaleInitialStreakState
     }
 
     public int Count => _samples.Count;
-
-    public bool IsReliable
-    {
-        get
-        {
-            if (Count < _requiredCount)
-                return false;
-
-            var maxSpan = _samples.Count == 0 ? 0d : _samples.Max(s => s.SpatialSpanRatio);
-            if (maxSpan < _minSpatialSpan)
-                return false;
-
-            if (maxSpan < 0.65d && _samples.Count >= 2 && _minMovementDiversity > 0d)
-            {
-                var minX = _samples.Min(s => s.CenterX);
-                var maxX = _samples.Max(s => s.CenterX);
-                var minY = _samples.Min(s => s.CenterY);
-                var maxY = _samples.Max(s => s.CenterY);
-                var spanDist = Math.Sqrt(Math.Pow(maxX - minX, 2d) + Math.Pow(maxY - minY, 2d));
-                if (spanDist < _minMovementDiversity)
-                    return false;
-            }
-
-            return true;
-        }
-    }
-
+    public bool IsReliable => Count >= _requiredCount;
     public double MedianScale => Median(_samples.Select(item => item.Scale));
 
     public AdaptiveScaleInitialStreakResult Observe(
@@ -89,10 +56,7 @@ internal sealed class AdaptiveScaleInitialStreakState
         bool qualified,
         DateTimeOffset observedAt,
         bool preserveWhenUnqualified = false,
-        double? clusterTolerance = null,
-        double spatialSpanRatio = 1.0d,
-        double centerX = 0d,
-        double centerY = 0d)
+        double? clusterTolerance = null)
     {
         if (_lastCountedOpenId == openId)
             return Result(changed: false, counted: false, rebuilt: false, observedAt);
@@ -111,13 +75,7 @@ internal sealed class AdaptiveScaleInitialStreakState
             return Result(changed, counted: true, rebuilt: false, observedAt);
         }
 
-        var sample = new AdaptiveScaleInitialSample(
-            scale,
-            confidence,
-            observedAt,
-            spatialSpanRatio,
-            centerX,
-            centerY);
+        var sample = new AdaptiveScaleInitialSample(scale, confidence, observedAt);
         var candidateScales = _samples.Select(item => item.Scale)
             .Append(scale)
             .TakeLast(_requiredCount)

@@ -185,7 +185,7 @@ public sealed class DwrGameWindowCaptureService
         }
     }
 
-    private void ReplaceLatestViewportSnapshot(LatestViewportSnapshot snapshot)
+    private void ReplaceLatestViewportSnapshot(LatestViewportSnapshot? snapshot)
     {
         LatestViewportSnapshot? previous;
         lock (_latestViewportGate)
@@ -194,6 +194,22 @@ public sealed class DwrGameWindowCaptureService
             _latestViewport = snapshot;
         }
         previous?.Dispose();
+    }
+
+    /// <summary>
+    /// Releases cached surface bitmap, graphics, and the latest viewport snapshot.
+    /// Called when a match ends or transient state resets to free unmanaged memory.
+    /// </summary>
+    public void Reset()
+    {
+        lock (_captureSurfaceGate)
+        {
+            _captureGraphics?.Dispose();
+            _captureGraphics = null;
+            _captureSurface?.Dispose();
+            _captureSurface = null;
+        }
+        ReplaceLatestViewportSnapshot(null);
     }
 
     /// <summary>

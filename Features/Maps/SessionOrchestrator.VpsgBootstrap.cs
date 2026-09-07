@@ -4,8 +4,8 @@ public sealed partial class SessionOrchestrator
 {
     /// <summary>
     /// VPSG 缩放引导阶段：用本楼层边缘结构独立估算 scale（不信任跨楼层
-    /// seed），再做固定 scale 结构验证。VPSG 3.0 一旦实际执行，接受或拒绝
-    /// 都由调用方直接返回；只有索引不可用时才进入兼容路线。
+    /// seed），再做固定 scale 结构验证。成功短路返回；失败返回 null，
+    /// 由调用方继续现有回退链。
     /// </summary>
     private MapRecognitionAttempt? TryAlignFloorWithVpsg(
         CapturedGameFrame frame,
@@ -15,8 +15,7 @@ public sealed partial class SessionOrchestrator
         MapOverlayAlignmentMode alignmentMode,
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
-        double identityPriorConfidence,
-        double? knownVpsg3ScaleSeed = null)
+        double identityPriorConfidence)
     {
         if (MapAlignmentChannelRegistry.Resolve(
                 locked.Map,
@@ -53,8 +52,7 @@ public sealed partial class SessionOrchestrator
             alignmentMode,
             tuning,
             vpsgTuning,
-            identityPriorConfidence,
-            knownVpsg3ScaleSeed: knownVpsg3ScaleSeed);
+            identityPriorConfidence);
         LogNoDoorStage(
             "vpsg-scale-bootstrap",
             attempt.Recognition is not null,
@@ -112,12 +110,6 @@ public sealed partial class SessionOrchestrator
         }
         return attempt;
     }
-
-    private static bool WasHandledByVpsg3(MapRecognitionAttempt attempt) =>
-        string.Equals(
-            attempt.Diagnostics.ScaleBootstrapMethod,
-            "vpsg3",
-            StringComparison.OrdinalIgnoreCase);
 }
 /*
  * 文件职责：SessionOrchestrator.VpsgBootstrap。

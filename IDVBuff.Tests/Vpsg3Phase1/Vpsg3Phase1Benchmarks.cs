@@ -78,8 +78,8 @@ public sealed class Vpsg3Phase1Benchmarks
         _output.WriteLine("===============================================================================");
 
         Assert.Equal(110, registry.Count);
-        // Total memory for 110 floors with 3-tier bitsets (K5, K3, K1) is ~44.4 MB (budget is < 50 MB)
-        Assert.True(totalMb < 50.0, $"Expected total memory < 50 MB, but was {totalMb:F2} MB");
+        // Total memory for 110 floors should be well under 30 MB (budget is < 35 MB)
+        Assert.True(totalMb < 35.0, $"Expected total memory < 35 MB, but was {totalMb:F2} MB");
     }
 
     [Fact]

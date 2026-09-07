@@ -109,6 +109,7 @@ internal static partial class MapOverlayBitmapRenderer
     private const float DefaultDpi = 96f;
     private const float MiniMapOpacity = 0.55f;
     private const float MiniMapMargin = 12f;
+    internal const int MaxLayerCacheEntries = 4;
 
     private static readonly Dictionary<string, Bitmap> ImageCache = [];
     private static readonly Dictionary<string, ScaledImageCacheEntry>
@@ -130,15 +131,56 @@ internal static partial class MapOverlayBitmapRenderer
             foreach (var image in ImageCache.Values)
                 image.Dispose();
             ImageCache.Clear();
-            foreach (var entry in ScaledImageCache.Values)
+            InvalidateLayerCachesCore();
+        }
+    }
+
+    /// <summary>
+    /// Disposes and clears only rendered layer bitmaps and scaled rasters,
+    /// preserving raw source images if needed.
+    /// </summary>
+    internal static void InvalidateLayerCaches()
+    {
+        lock (ImageCacheLock)
+        {
+            InvalidateLayerCachesCore();
+        }
+    }
+
+    private static void InvalidateLayerCachesCore()
+    {
+        foreach (var entry in ScaledImageCache.Values)
+            entry.Bitmap.Dispose();
+        ScaledImageCache.Clear();
+        foreach (var entry in MapLayerCache.Values)
+            entry.Bitmap.Dispose();
+        MapLayerCache.Clear();
+        foreach (var entry in MiniMapLayerCache.Values)
+            entry.Bitmap.Dispose();
+        MiniMapLayerCache.Clear();
+    }
+
+    private static void TrimCacheIfNecessary(Dictionary<string, MapLayerCacheEntry> cache, int maxEntries)
+    {
+        while (cache.Count > maxEntries && cache.Count > 0)
+        {
+            var firstKey = cache.Keys.First();
+            if (cache.Remove(firstKey, out var entry))
+            {
                 entry.Bitmap.Dispose();
-            ScaledImageCache.Clear();
-            foreach (var entry in MapLayerCache.Values)
+            }
+        }
+    }
+
+    private static void TrimScaledImageCacheIfNecessary(int maxEntries)
+    {
+        while (ScaledImageCache.Count > maxEntries && ScaledImageCache.Count > 0)
+        {
+            var firstKey = ScaledImageCache.Keys.First();
+            if (ScaledImageCache.Remove(firstKey, out var entry))
+            {
                 entry.Bitmap.Dispose();
-            MapLayerCache.Clear();
-            foreach (var entry in MiniMapLayerCache.Values)
-                entry.Bitmap.Dispose();
-            MiniMapLayerCache.Clear();
+            }
         }
     }
 
@@ -148,6 +190,24 @@ internal static partial class MapOverlayBitmapRenderer
         {
             lock (ImageCacheLock)
                 return ScaledImageCache.Count;
+        }
+    }
+
+    internal static int MapLayerCacheCount
+    {
+        get
+        {
+            lock (ImageCacheLock)
+                return MapLayerCache.Count;
+        }
+    }
+
+    internal static int MiniMapLayerCacheCount
+    {
+        get
+        {
+            lock (ImageCacheLock)
+                return MiniMapLayerCache.Count;
         }
     }
 

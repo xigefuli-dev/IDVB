@@ -51,6 +51,7 @@
     <Compile Include="..\ServiceCollectionExtensions.cs" Link="Production\ServiceCollectionExtensions.cs" />
     <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\Cli\RealCliCandidateSelector.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\Features\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\Maps\**\*.cs" Link="Production\Features\Maps\%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- ServiceCollectionExtensions registers the screenshot capability even

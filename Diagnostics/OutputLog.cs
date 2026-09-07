@@ -102,6 +102,22 @@ public static class OutputLog
     }
 
     public static void Write(
+        IDVBuff.Core.Diagnostics.IdvbStatus? status,
+        string source = "DIAGNOSTICS")
+    {
+        if (status is null)
+            return;
+
+        var level = status.IsServerError ? "ERROR"
+            : (status.IsFallback || status.IsClientError) ? "WARNING"
+            : "INFO";
+
+        var tag = status.SubCode > 0 ? $"[IDVB-{status.SubCode:D5}] " : string.Empty;
+        var message = $"{tag}{status.ToTraceString()}";
+        Write(level, source, message, status.Exception);
+    }
+
+    public static void Write(
         string level,
         string source,
         string message,

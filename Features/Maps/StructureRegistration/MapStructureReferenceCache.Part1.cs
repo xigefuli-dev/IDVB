@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Text.Json;
+using IDVBuff.Diagnostics;
 using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
@@ -20,25 +21,26 @@ public sealed partial class MapStructureReferenceCache : IDisposable
 
     /// <summary>
     /// Discards all cached reference features and releases unmanaged memory.
-    /// Entries currently leased are moved to the deferred-eviction map and
-    /// disposed when their lease is returned.
+    /// Entries in both resident cache and deferred-eviction map are disposed,
+    /// and all lease accounting is reset.
     /// </summary>
     public void Clear()
     {
+        using var perfScope = RealtimePerformanceTracker.TrackScope("StructureCache.Clear", forceLog: true);
         lock (_memoryGate)
         {
-            foreach (var (key, (features, _)) in _memoryCache)
+            _generation++;
+            foreach (var (_, (features, _)) in _memoryCache)
             {
-                if (_leaseCounts.TryGetValue(key, out var count) && count > 0)
-                {
-                    _evictedWhileLeased[key] = features;
-                }
-                else
-                {
-                    features.Dispose();
-                }
+                features.Dispose();
+            }
+            foreach (var features in _evictedWhileLeased.Values)
+            {
+                features.Dispose();
             }
             _memoryCache.Clear();
+            _evictedWhileLeased.Clear();
+            _leaseCounts.Clear();
             _lruList.Clear();
         }
     }
@@ -96,5 +98,28 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             Response,
             Octave,
             ClassId);
+    }
+
+    private static MapStructureGenerationTuning NormalizeGeneration(
+        MapStructureGenerationTuning? generationTuning)
+    {
+        var normalized = generationTuning?.Clone() ?? new();
+        normalized.Normalize();
+        return normalized;
+    }
+
+    private static KeyPoint[] ReadKeyPoints(string path)
+    {
+        try
+        {
+            var documents = JsonSerializer.Deserialize<KeyPointDocument[]>(
+                File.ReadAllText(path));
+            return documents?.Select(document => document.ToKeyPoint()).ToArray()
+                ?? [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 }

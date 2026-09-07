@@ -50,7 +50,33 @@ internal static class MapCvRecognitionDiagnostics
         new()
         {
             Diagnostics = diagnostics,
-            FailureReason = reason
+            FailureReason = reason,
+            Status = IDVBuff.Core.Diagnostics.IdvbStatus.ClientError(
+                IDVBuff.Core.Diagnostics.IdvbHttpCode.UnprocessableVisual,
+                0,
+                "RecognitionFailure",
+                reason)
+        };
+
+    internal static MapRecognitionAttempt Failure(
+        MapScanDiagnostics diagnostics,
+        string reason,
+        IDVBuff.Core.Diagnostics.IdvbStatus? status) =>
+        new()
+        {
+            Diagnostics = diagnostics,
+            FailureReason = reason,
+            Status = status
+        };
+
+    internal static MapRecognitionAttempt Failure(
+        MapScanDiagnostics diagnostics,
+        IDVBuff.Core.Diagnostics.IdvbStatus status) =>
+        new()
+        {
+            Diagnostics = diagnostics,
+            FailureReason = status.UserMessage,
+            Status = status
         };
 
     internal static void WriteStructureDebugResult(

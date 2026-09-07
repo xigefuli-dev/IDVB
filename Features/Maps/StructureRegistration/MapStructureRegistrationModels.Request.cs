@@ -17,6 +17,11 @@ public sealed class MapStructureRegistrationRequest
     public Mat LiveRoi { get; init; } = new();
     public Mat? OriginalLiveRoi { get; init; }
     public double PhysicalPixelsPerLivePixel { get; init; } = 1d;
+    /// <summary>
+    /// 当请求处于两阶段原图精审阶段时，记录原图相对计算空间的物理缩放比率。
+    /// 用于将 Chamfer 门限换算到高分辨率原图空间，消除空间切换导致的物理容差倒挂。
+    /// </summary>
+    public double TwoStagePhysicalRatio { get; init; } = 1d;
     public MapScreenRect ViewportBounds { get; init; }
     public MapOverlayTransform LockedTransform { get; init; } = new();
     public MapStructureRegistrationTuning Tuning { get; init; } = new();

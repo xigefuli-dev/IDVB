@@ -68,6 +68,16 @@ public sealed class MapAuxiliaryAnchorTemplateCache : IDisposable
         }
     }
 
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+                return;
+            ClearCore();
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)

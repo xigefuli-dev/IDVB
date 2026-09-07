@@ -237,4 +237,15 @@ public sealed partial class MapOverlayWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr window);
+
+    private sealed class PresentLease(MapOverlayWindow owner) : IDisposable
+    {
+        private MapOverlayWindow? _owner = owner;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            owner?.EndPresentDeferral();
+        }
+    }
 }

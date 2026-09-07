@@ -214,8 +214,15 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _suppressClassSelectionChanged = true;
         try
         {
-            _classComboBox.ItemsSource = _mapClasses;
-            _classComboBox.SelectedItem = _pendingClass;
+            var currentSource = _classComboBox.ItemsSource as IReadOnlyList<string>;
+            if (currentSource is null || !currentSource.SequenceEqual(_mapClasses, StringComparer.Ordinal))
+            {
+                _classComboBox.ItemsSource = _mapClasses;
+            }
+            if (!string.Equals(_classComboBox.SelectedItem as string, _pendingClass, StringComparison.Ordinal))
+            {
+                _classComboBox.SelectedItem = _pendingClass;
+            }
         }
         finally
         {
@@ -464,29 +471,6 @@ public sealed partial class MapControlPanelWindow : IDisposable
             SetActionsEnabled(true);
         }
     }
-
-    private async void EndButton_Click(object sender, RoutedEventArgs e)
-    {
-        SetActionsEnabled(false);
-        try
-        {
-            var saveAutomaticMapCache = _snapshot.Mode != MapRunMode.Survey
-                && _isAutomaticMapCacheEnabled()
-                && await ConfirmAutomaticMapCacheSaveAsync();
-            await _endMatch(saveAutomaticMapCache);
-            _variantContext = null;
-            Hide();
-        }
-        catch (Exception exception)
-        {
-            _messageText.Text = exception.Message;
-        }
-        finally
-        {
-            SetActionsEnabled(true);
-        }
-    }
-
 }
 /*
  * 文件职责：MapControlPanelWindow。

@@ -92,6 +92,63 @@ public sealed class MapStructureReferenceCacheTests
         }
     }
 
+    [Fact]
+    public void Clear_DisposesEvictedWhileLeasedAndResetsAllAccounting()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"IDVBuff.StructureCache.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var updatedAt = new DateTimeOffset(
+                2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            using var image = CreateReferenceImage();
+            using var cache = new MapStructureReferenceCache(
+                new MapStructurePreprocessor(),
+                root);
+
+            var borrowedId = Guid.NewGuid();
+            using (cache.GetOrCreate(borrowedId, updatedAt, image, null, "1f"))
+            {
+            }
+
+            var lease = cache.TryRentResident(borrowedId, updatedAt, "1f");
+            Assert.NotNull(lease);
+
+            // 灌满 LRU，将 borrowedId 挤入 _evictedWhileLeased
+            for (var i = 0; i < MapStructureReferenceCache.MaxCacheSlots + 2; i++)
+            {
+                using (cache.GetOrCreate(Guid.NewGuid(), updatedAt, image, null, "1f"))
+                {
+                }
+            }
+
+            // 此时调用 Clear()，必须将 _memoryCache 与 _evictedWhileLeased 一并彻底清空并释放底层资源
+            cache.Clear();
+
+            Assert.Equal(0, cache.ResidentCount);
+            Assert.Null(cache.TryRentResident(borrowedId, updatedAt, "1f"));
+
+            // 归还已失效的 lease 不应抛出异常
+            lease!.Dispose();
+
+            // 重新填入同 key 条目，借用计数应从干净的 0 开始，正常租借与归还
+            using (cache.GetOrCreate(borrowedId, updatedAt, image, null, "1f"))
+            {
+            }
+            Assert.Equal(1, cache.ResidentCount);
+            using var freshLease = cache.TryRentResident(borrowedId, updatedAt, "1f");
+            Assert.NotNull(freshLease);
+            Assert.False(freshLease!.Features.Edges.Empty());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static Mat CreateReferenceImage()
     {
         var image = new Mat(

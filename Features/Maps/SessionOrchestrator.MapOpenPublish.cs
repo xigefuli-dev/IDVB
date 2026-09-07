@@ -66,7 +66,7 @@ public sealed partial class SessionOrchestrator
                     aligned.Map,
                     targetFloorKey);
                 ForgetReliableFloorAlignment(recoveredContextKey);
-                await ResetAdaptiveScaleAfterSteadyRecoveryAsync(
+                ResetAdaptiveScaleAfterSteadyRecovery(
                     frame,
                     aligned.Map,
                     targetFloorKey);

@@ -10,6 +10,7 @@ public sealed partial class SessionOrchestrator
         MapScreenRect gameBounds,
         IntPtr gameWindowHandle)
     {
+        RealtimePerformanceOverlay.Instance?.UpdateGameBounds(gameBounds);
         _overlayStatus.Show(
             new MapOverlayStatus(level, title, message, detail ?? string.Empty),
             gameBounds,

@@ -133,5 +133,6 @@ public sealed partial class MapStructureRegistrar
             MapStructureRejectionReason.NoCandidate
             or MapStructureRejectionReason.AmbiguousCandidates
             or MapStructureRejectionReason.WeakAbsoluteScore
+            or MapStructureRejectionReason.LowGeometricLockConfidence
             or MapStructureRejectionReason.RefinementFailed;
 }

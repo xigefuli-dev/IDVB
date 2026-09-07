@@ -266,7 +266,7 @@ public sealed partial class SessionOrchestrator
         {
             firstAttempt ??= vpsgAttempt;
             if (vpsgAttempt.Recognition is not null
-                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
+                && IsVpsgAttemptQualified(vpsgAttempt, structureTuning))
                 return vpsgAttempt;
             // VPSG 估计出本楼层 scale 但固定 scale 结构验证失败：保留估计值，
             // 让全局恢复以它（而非中性 KEEP-1.0 种子）为搜索锚点，避免正确

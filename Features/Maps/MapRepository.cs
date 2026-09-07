@@ -27,6 +27,8 @@ public sealed partial class MapRepository
     private readonly string _rootDirectory;
     private readonly Lazy<SideEntranceFeaturePreprocessor> _sideEntrancePreprocessor =
         new(() => new SideEntranceFeaturePreprocessor());
+    private MapCatalogRevision _cachedClassesRevision = MapCatalogRevision.Empty;
+    private IReadOnlyList<string> _cachedClasses = [];
 
     public MapRepository(string? rootDirectory = null)
     {

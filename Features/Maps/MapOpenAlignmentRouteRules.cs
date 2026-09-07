@@ -45,7 +45,7 @@ internal static class MapOpenAlignmentRouteRules
     internal const double CachedScaleRepairSearchRadius = 0.03d; // 覆盖 ±3%
     internal const double SteadyScaleRecoverySearchRadius = 0.04d; // 稳态恢复覆盖 ±4% 微漂移，杜绝暴力穷搜
     internal const double MaximumSteadyTranslationDriftPixels = 48d; // 稳态平移最大漂移门限，避免走位重影
-    internal const double MaterialScaleChangeRatio = 0.002d;
+    internal const double MaterialScaleChangeRatio = 0.015d;
     // 跟踪恢复（unrestricted 第二轮）的局部证据门槛：实测局部结构配准置信度
     // < 0.52（chamferQuality≈0 的"最佳候选绝对贴合度不足"）时全局第二轮 2/2
     // 白付 ~270ms；≥0.68 时 2/2 成功。0.52 只砍掉证据极弱的帧，保留接近成功

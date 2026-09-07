@@ -183,36 +183,40 @@ public sealed partial class SessionOrchestrator
         _primaryFloorAdaptiveKey = null;
     }
 
-    private async Task ResetAdaptiveScaleAfterSteadyRecoveryAsync(
+    private void ResetAdaptiveScaleAfterSteadyRecovery(
         CapturedGameFrame frame,
         MapRecord map,
         string floorKey)
     {
         var key = CreateAdaptiveScaleKey(frame, map, floorKey);
-        try
-        {
-            await _adaptiveScale.ResetForScaleRecoveryAsync(key);
-        }
-        catch (Exception exception)
-        {
-            // ResetAsync clears the in-memory store before persisting.  Keep
-            // rendering the recovered result, but retain a diagnostic if the
-            // stale on-disk entry could not be removed for the next process.
-            _logCollector.Append(
-                MapLogCategory.StructureRegistration,
-                MapLogLevel.Warning,
-                $"Steady 尺度恢复后的自适应基线持久化重置失败 · floor={floorKey}",
-                details: new()
-                {
-                    ["mapId"] = map.Id,
-                    ["floor"] = floorKey,
-                    ["exception"] = exception.GetBaseException().Message
-                });
-        }
         if (_lastReliableAdaptiveKey == key)
             _lastReliableAdaptiveKey = null;
         if (_primaryFloorAdaptiveKey == key)
             _primaryFloorAdaptiveKey = null;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _adaptiveScale.ResetForScaleRecoveryAsync(key);
+            }
+            catch (Exception exception)
+            {
+                // ResetAsync clears the in-memory store before persisting.  Keep
+                // rendering the recovered result, but retain a diagnostic if the
+                // stale on-disk entry could not be removed for the next process.
+                _logCollector.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Warning,
+                    $"Steady 尺度恢复后的自适应基线持久化重置失败 · floor={floorKey}",
+                    details: new()
+                    {
+                        ["mapId"] = map.Id,
+                        ["floor"] = floorKey,
+                        ["exception"] = exception.GetBaseException().Message
+                    });
+            }
+        });
     }
 
     private bool IsAdaptiveTransformConfirmed(

@@ -338,7 +338,10 @@ internal static class MapStructureEvaluator
             UsedGlobalSearch = usedGlobalSearch,
             CompositeCost = composite,
             PriorAgreement = priorAgreement,
-            IsWithinValidBounds = isWithinBounds
+            IsWithinValidBounds = isWithinBounds,
+            SpaceRatio = request.TwoStagePhysicalRatio is > 1.000001d and < 10.0d
+                ? request.TwoStagePhysicalRatio
+                : 1.0d
         };
     }
 

@@ -32,6 +32,8 @@
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartStateStore.cs" Link="Production\QuickStart\QuickStartStateStore.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
+    <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
     <Compile Include="..\Features\Plugins\PluginPreferencesStore.cs" Link="Production\Plugins\PluginPreferencesStore.cs" />
     <Compile Include="..\Features\Windows\WindowCaptureProtectionService.cs" Link="Production\Features\Windows\WindowCaptureProtectionService.cs" />
     <Compile Include="..\Lifecycle\VelopackInstallLayout.cs" Link="Production\VelopackInstallLayout.cs" />
@@ -79,6 +81,7 @@
     <Compile Include="..\Features\Maps\MapEditorState.cs" Link="Production\MapEditorState.cs" />
     <Compile Include="..\Features\Maps\MapModels.Catalog.cs" Link="Production\MapModels.Catalog.cs" />
     <Compile Include="..\Features\Maps\MapScanFloorRules.cs" Link="Production\MapScanFloorRules.cs" />
+    <Compile Include="..\Features\Maps\MapFloorScaleSeedRules.cs" Link="Production\MapFloorScaleSeedRules.cs" />
     <Compile Include="..\Features\Maps\FloorOrderProjection.cs" Link="Production\FloorOrderProjection.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionCoordinates.cs" Link="Production\MapRecognitionCoordinates.cs" />
     <Compile Include="..\Features\Maps\MapLearningModels.cs" Link="Production\MapLearningModels.cs" />
@@ -134,8 +137,11 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionService.SideEntranceTracking.cs" Link="Production\MapCvRecognitionService.SideEntranceTracking.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.cs" Link="Production\MapCvRecognitionService.LockedFloorFeature.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.Part*.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.Fit.cs" Link="Production\MapCvRecognitionService.LockedFloorFeature.Fit.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.VpsgModes.cs" Link="Production\MapCvRecognitionService.VpsgModes.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.Vpsg3.cs" Link="Production\MapCvRecognitionService.Vpsg3.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.Vpsg3.Align.cs" Link="Production\MapCvRecognitionService.Vpsg3.Align.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.Vpsg3.Readiness.cs" Link="Production\MapCvRecognitionService.Vpsg3.Readiness.cs" />
     <Compile Include="..\Features\Maps\AlignmentSearchContext.cs" Link="Production\AlignmentSearchContext.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentSearchPolicy.cs" Link="Production\MapAlignmentSearchPolicy.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.cs" Link="Production\MapCvAlignmentService.AlignSelected.cs" />
@@ -192,6 +198,8 @@
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3ScaleSolver.cs" Link="Production\Vpsg3\Vpsg3ScaleSolver.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3TranslationSolver.cs" Link="Production\Vpsg3\Vpsg3TranslationSolver.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3LocalRefiner.cs" Link="Production\Vpsg3\Vpsg3LocalRefiner.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3PrecisionRefiner.cs" Link="Production\Vpsg3\Vpsg3PrecisionRefiner.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3PrecisionShadow.cs" Link="Production\Vpsg3\Vpsg3PrecisionShadow.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3VerificationGate.cs" Link="Production\Vpsg3\Vpsg3VerificationGate.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3FastBootstrapSolver.cs" Link="Production\Vpsg3\Vpsg3FastBootstrapSolver.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3CertificationCapture.cs" Link="Production\Vpsg3\Vpsg3CertificationCapture.cs" />

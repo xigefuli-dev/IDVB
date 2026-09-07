@@ -339,6 +339,7 @@ public sealed partial class MapOverlayWindow : IDisposable
         _gameWindowHandle = IntPtr.Zero;
         _gameBounds = default;
         Hide();
+        _nativeWindow.CleanupCachedBuffer();
     }
 
     public void Show()
@@ -477,17 +478,6 @@ public sealed partial class MapOverlayWindow : IDisposable
                 throw new InvalidOperationException(
                     "图层窗口意外取得了输入焦点，已自动隐藏以恢复游戏操作。");
             }
-        }
-    }
-
-    private sealed class PresentLease(MapOverlayWindow owner) : IDisposable
-    {
-        private MapOverlayWindow? _owner = owner;
-
-        public void Dispose()
-        {
-            var owner = Interlocked.Exchange(ref _owner, null);
-            owner?.EndPresentDeferral();
         }
     }
 }

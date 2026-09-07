@@ -8,6 +8,9 @@ public partial class App
 {
     private void StartStartupBackgroundTasks(SessionOrchestrator session)
     {
+        if (MainProgramPreferences.Load().RealtimePerformanceOverlayEnabled)
+            RealtimePerformanceOverlay.SetEnabled(true);
+
         // Offline network retries must never occupy the WinUI dispatcher.
         _ = Task.Run(AutomaticUpdateLauncher.TryLaunch);
         _ = CheckMapSubscriptionsInBackgroundAsync(session);

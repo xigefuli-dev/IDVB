@@ -61,6 +61,15 @@ public sealed class MapLogEntry
     /// <summary>可选耗时（毫秒），仅 Timing 级别日志有意义。</summary>
     public double? ElapsedMs { get; init; }
 
+    /// <summary>HTTP 风格状态码（如 200, 301, 422, 500）。</summary>
+    public int? StatusCode { get; init; }
+
+    /// <summary>细分诊断子码（如 33013）。</summary>
+    public int? SubCode { get; init; }
+
+    /// <summary>完整因果溯源链描述（如存在降级或前置死因）。</summary>
+    public string? StatusChain { get; init; }
+
     /// <summary>
     /// 结构化键值对，携带该阶段的诊断数据。
     /// 键名沿用 <see cref="MapScanDiagnostics"/> 中的字段名。

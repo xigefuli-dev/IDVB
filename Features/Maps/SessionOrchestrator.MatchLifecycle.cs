@@ -1,3 +1,5 @@
+using IDVBuff.Diagnostics;
+
 namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
@@ -111,6 +113,7 @@ public sealed partial class SessionOrchestrator
 
         _overlayStatus.Clear();
         _overlay.Clear();
+        MapOverlayBitmapRenderer.InvalidateImageCache();
         _mapOpenSession.Close("quick scan restarted");
         _candidateStability.Reset();
         _alignmentCommitGuard.Invalidate();
@@ -157,6 +160,7 @@ public sealed partial class SessionOrchestrator
         EndAdaptiveMapOpen("match transient state reset");
         _overlayStatus.Clear();
         _overlay.Clear();
+        MapOverlayBitmapRenderer.InvalidateImageCache();
         _mapOpenSession.Close("match lifecycle reset");
         _candidateStability.Reset();
         _alignmentCommitGuard.Invalidate();
@@ -195,6 +199,11 @@ public sealed partial class SessionOrchestrator
 
         if (resetAutomaticCacheSamples)
             ResetAutomaticMapCacheSamples();
+
+        RealtimePerformanceTracker.AuditLifecycle(
+            "ResetMatchTransientState",
+            detail: $"resetAutoSamples={resetAutomaticCacheSamples}",
+            triggerGcAudit: true);
     }
 }
 /*

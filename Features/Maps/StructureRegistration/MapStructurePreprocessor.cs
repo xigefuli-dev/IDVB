@@ -1,4 +1,5 @@
 using OpenCvSharp;
+using IDVBuff.Diagnostics;
 using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
@@ -306,6 +307,7 @@ public sealed partial class MapStructurePreprocessor
             MapStructurePreprocessingProfile.EdgesAndFeatures,
         MapStructureGenerationTuning? generationTuning = null)
     {
+        using var perfScope = RealtimePerformanceTracker.TrackScope("ProcessLiveRoi", $"profile={profile}");
         timing = new PreprocessTiming();
         return ProcessCore(
             source,

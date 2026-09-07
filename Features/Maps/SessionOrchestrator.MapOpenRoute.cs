@@ -54,7 +54,7 @@ public sealed partial class SessionOrchestrator
                     alignmentSession.SideEntranceScanPriorConfidence)
                 is { } vpsgAttempt
                 && vpsgAttempt.Recognition is not null
-                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
+                && IsVpsgAttemptQualified(vpsgAttempt, structureTuning))
             {
                 return vpsgAttempt;
             }
@@ -83,7 +83,7 @@ public sealed partial class SessionOrchestrator
                     alignmentSession.SideEntranceScanPriorConfidence)
                 is { } vpsgAttempt
                 && vpsgAttempt.Recognition is not null
-                && IsAdaptiveInitialScaleQualified(vpsgAttempt, structureTuning))
+                && IsVpsgAttemptQualified(vpsgAttempt, structureTuning))
             {
                 return vpsgAttempt;
             }
@@ -113,7 +113,7 @@ public sealed partial class SessionOrchestrator
                 alignmentSession.SideEntranceScanPriorConfidence)
             is { } fastVpsgAttempt
             && fastVpsgAttempt.Recognition is not null
-            && IsAdaptiveInitialScaleQualified(fastVpsgAttempt, structureTuning))
+            && IsVpsgAttemptQualified(fastVpsgAttempt, structureTuning))
         {
             var isVpsg3 = string.Equals(
                 fastVpsgAttempt.Diagnostics.ScaleBootstrapMode,
@@ -252,6 +252,24 @@ public sealed partial class SessionOrchestrator
             "仅对齐阶段耗时汇总",
             elapsedMs: wallClockMilliseconds,
             details: details);
+    }
+
+    private bool IsVpsgAttemptQualified(
+        MapRecognitionAttempt? attempt,
+        MapStructureRegistrationTuning structureTuning)
+    {
+        if (attempt?.Recognition is null)
+            return false;
+
+        // VPSG 3.0：几何检验由 Vpsg3VerificationGate 闭环完成（6 重门禁，含 2x2 空间象限一致性），
+        // 只要结构接受（StructureAccepted == true），其尺度与位移均已通过充分物理验证，直接放行短路。
+        if (string.Equals(attempt.Diagnostics.ScaleBootstrapMode, "Vpsg3", StringComparison.OrdinalIgnoreCase))
+        {
+            return attempt.StructureAccepted;
+        }
+
+        // VPSG 2.0 / AKAZE 兜底链路保持原本的自适应尺度门禁
+        return IsAdaptiveInitialScaleQualified(attempt, structureTuning);
     }
 }
 /*

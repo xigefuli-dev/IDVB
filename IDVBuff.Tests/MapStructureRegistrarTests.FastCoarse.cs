@@ -179,7 +179,7 @@ public sealed partial class MapStructureRegistrarTests
         var strong = weak with { GeometricLockConfidence = 0.60d };
 
         Assert.Equal(
-            MapStructureRejectionReason.WeakAbsoluteScore,
+            MapStructureRejectionReason.LowGeometricLockConfidence,
             MapStructureValidator.ValidateFastConfidence(weak, 0.60d));
         Assert.Equal(
             MapStructureRejectionReason.None,
@@ -470,5 +470,4 @@ public sealed partial class MapStructureRegistrarTests
         Assert.False(result.UsedFastStrategy,
             "Pure Legacy mode should not set UsedFastStrategy");
     }
-
 }

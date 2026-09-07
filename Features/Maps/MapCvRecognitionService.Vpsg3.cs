@@ -16,187 +16,6 @@ public sealed partial class MapCvRecognitionService : IDisposable
     /// </summary>
     public IVpsg3PreparedIndexRegistry Vpsg3Registry => _vpsg3Registry;
 
-    /// <summary>
-    /// 尝试使用 VPSG 3.0 进行极速结构对齐（尺度估计 + 平移搜索 + 亚像素精修 + 空间验证）。
-    /// 当目标楼层具备有效的 PrebuiltStructureLine 且预构建索引就绪时，优先执行 VPSG 3.0。
-    /// 成功时直接返回通过结构验证的对齐结果；失败或未就绪时返回 false，由调用方回退至传统流程。
-    /// </summary>
-    public bool TryAlignWithVpsg3(
-        CapturedGameFrame frame,
-        MapRecord map,
-        string floorKey,
-        double identityPriorConfidence,
-        [NotNullWhen(true)] out MapRecognitionAttempt? attempt,
-        double? knownScaleSeed = null)
-    {
-        attempt = null;
-        if (_disposed || MapAlignmentChannelRegistry.Resolve(map, floorKey).Channel == MapAlignmentChannel.LowStructure)
-            return false;
-
-        if (!TryGetVpsg3IndexKey(map, floorKey, out var key))
-        {
-            return false;
-        }
-
-        if (!_vpsg3Registry.TryGet(key, out var lease))
-        {
-            MapLogCollector.Instance.Append(
-                MapLogCategory.StructureRegistration,
-                MapLogLevel.Info,
-                $"VPSG 3.0 快速对齐跳过 · 索引未就绪 · map={map.SequenceNumber}#{floorKey}",
-                details: new() { ["cacheKey"] = key.ToString() });
-            return false;
-        }
-
-        using (lease)
-        {
-            using var observation = Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds);
-            var result = Vpsg3FastBootstrapSolver.TrySolve(observation, lease.Floor, knownScaleSeed: knownScaleSeed);
-
-            if (MapDiagnosticModeCapture.IsActive)
-            {
-                try
-                {
-                    var refPath = _repository.GetPrebuiltStructureLinePath(map, floorKey);
-                    Vpsg3DiagnosticCapture.CaptureIfActive(
-                        MapDiagnosticModeCapture.CurrentMapOpenId,
-                        observation,
-                        refPath,
-                        result,
-                        tag: "vpsg3-live");
-                }
-                catch (Exception diagEx)
-                {
-                    MapLogCollector.Instance.Append(
-                        MapLogCategory.StructureRegistration,
-                        MapLogLevel.Warning,
-                        "VPSG3 diagnostic capture failed",
-                        details: new() { ["error"] = diagEx.Message });
-                }
-            }
-
-            if (!result.IsAccepted)
-            {
-                MapLogCollector.Instance.Append(
-                    MapLogCategory.StructureRegistration,
-                    MapLogLevel.Info,
-                    $"VPSG 3.0 快速对齐未接受 · map={map.SequenceNumber}#{floorKey} · reason={result.FallbackReason}",
-                    elapsedMs: result.Timing.TotalMs,
-                    details: new()
-                    {
-                        ["mapId"] = map.Id,
-                        ["floor"] = floorKey,
-                        ["reason"] = result.FallbackReason,
-                        ["scale"] = result.Scale,
-                        ["confidence"] = result.Confidence,
-                        ["margin"] = result.ApertureMargin,
-                        ["totalMs"] = result.Timing.TotalMs
-                    });
-                return false;
-            }
-
-            var transform = MapCanonicalTransformMath.BuildOverlayTransform(
-                result.Scale,
-                result.Scale,
-                result.OffsetX,
-                result.OffsetY,
-                lease.Floor.ReferenceWidth,
-                lease.Floor.ReferenceHeight,
-                residualPixels: 0d,
-                orientationDegrees: MapFloorRules.GetFloorProfile(map, floorKey)?.OrientationDegrees ?? 0,
-                alignmentMode: MapOverlayAlignmentMode.Uniform);
-
-            var structureResult = new MapStructureRegistrationResult
-            {
-                Accepted = true,
-                Transform = transform,
-                Confidence = result.Confidence,
-                BestScore = result.BestCandidate.WeightedScore,
-                SecondScore = result.RunnerUpCandidate?.WeightedScore ?? double.PositiveInfinity,
-                CandidateMargin = result.ApertureMargin,
-                RejectionReason = MapStructureRejectionReason.None,
-                PreprocessMilliseconds = result.Timing.ExtractionMs,
-                SearchMilliseconds = result.Timing.TranslationMs,
-                RefineMilliseconds = result.Timing.RefineMs,
-                UsedFastStrategy = true,
-                LockedScale = result.Scale,
-                ReferenceWidth = lease.Floor.ReferenceWidth,
-                ReferenceHeight = lease.Floor.ReferenceHeight
-            };
-
-            var recognition = MapCvRecognitionBuilders.BuildFloorStructureRecognition(
-                map,
-                floorKey,
-                _repository.GetFloorOverlayPath(map, floorKey),
-                transform,
-                structureResult,
-                identityPriorConfidence);
-
-            var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(ReadyMapCount, TotalMapCount);
-            diagnostics.ScaleBootstrapAttempted = true;
-            diagnostics.ScaleBootstrapSucceeded = true;
-            diagnostics.ScaleBootstrapValidated = true;
-            diagnostics.ScaleBootstrapScale = result.Scale;
-            diagnostics.ScaleBootstrapConfidence = result.Confidence;
-            diagnostics.ScaleBootstrapMode = "Vpsg3";
-            diagnostics.ScaleBootstrapMethod = "vpsg3";
-            diagnostics.ScaleBootstrapCost = result.BestCandidate.WeightedScore;
-            diagnostics.ScaleBootstrapMargin = result.ApertureMargin;
-            diagnostics.ScaleBootstrapCandidateCount = result.HasDistinctRunnerUp ? 2 : 1;
-            diagnostics.ScaleBootstrapSelectedCandidateIndex = 0;
-            diagnostics.ScaleBootstrapTestedScaleCount = 1;
-            diagnostics.ScaleBootstrapStructureMilliseconds = result.Timing.ScaleMs;
-            diagnostics.LiveStructurePreprocessMilliseconds = result.Timing.ExtractionMs;
-            diagnostics.StructurePreprocessMilliseconds = result.Timing.ExtractionMs;
-            diagnostics.StructureSearchMilliseconds = result.Timing.TranslationMs + result.Timing.RefineMs;
-            diagnostics.StructureRefineMilliseconds = result.Timing.RefineMs;
-            diagnostics.StructureBestScore = result.BestCandidate.WeightedScore;
-            diagnostics.StructureSecondScore = result.RunnerUpCandidate?.WeightedScore ?? double.PositiveInfinity;
-            diagnostics.StructureCandidateMargin = result.ApertureMargin;
-            diagnostics.StructureCandidateCount = result.HasDistinctRunnerUp ? 2 : 1;
-            diagnostics.AlignmentEvidence = MapAlignmentEvidenceKind.Structure;
-            diagnostics.StructureAccepted = true;
-            diagnostics.StructureAttempted = true;
-            diagnostics.StructureRejectionReason = MapStructureRejectionReason.None;
-            diagnostics.TotalMilliseconds = result.Timing.TotalMs;
-            diagnostics.TrackingMode = MapAlignmentTrackingMode.StructureMatched;
-
-            attempt = new MapRecognitionAttempt
-            {
-                Diagnostics = diagnostics,
-                StructureResult = structureResult,
-                Recognition = recognition,
-                StructureAttempted = true,
-                StructureAccepted = true,
-                SearchStage = AlignmentSearchStage.StructureFallback
-            };
-
-            MapLogCollector.Instance.Append(
-                MapLogCategory.StructureRegistration,
-                MapLogLevel.Info,
-                $"VPSG 3.0 快速对齐通过 · floor={floorKey} · scale={result.Scale:F5} · elapsedMs={result.Timing.TotalMs:F1}",
-                elapsedMs: result.Timing.TotalMs,
-                details: new()
-                {
-                    ["mapId"] = map.Id,
-                    ["floor"] = floorKey,
-                    ["scale"] = result.Scale,
-                    ["tx"] = result.OffsetX,
-                    ["ty"] = result.OffsetY,
-                    ["confidence"] = result.Confidence,
-                    ["margin"] = result.ApertureMargin,
-                    ["partitions"] = result.PassedPartitions,
-                    ["extractionMs"] = result.Timing.ExtractionMs,
-                    ["scaleMs"] = result.Timing.ScaleMs,
-                    ["translationMs"] = result.Timing.TranslationMs,
-                    ["refineMs"] = result.Timing.RefineMs,
-                    ["verificationMs"] = result.Timing.VerificationMs,
-                    ["totalMs"] = result.Timing.TotalMs
-                });
-
-            return true;
-        }
-    }
 
     private static bool TryGetVpsg3IndexKey(MapRecord map, string floorKey, out Vpsg3IndexCacheKey key) { key = default; var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase)); if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase)) return false; key = new Vpsg3IndexCacheKey(map.Id, floor.Key, MapFeatureCacheRules.ComputeContentFingerprint(map), map.UpdatedAt, Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt, schemaVersion: 1), SchemaVersion: 1); return true; }
 
@@ -415,7 +234,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                             return ValueTask.CompletedTask;
                         }
 
-                        var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, taskItem.CacheKey);
+                        var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, taskItem.CacheKey, preparePrecision: false);
                         _vpsg3Registry.TryPublishFloor(taskItem.CacheKey, preparedFloor);
                     }
                     catch (OperationCanceledException)
@@ -467,6 +286,26 @@ public sealed partial class MapCvRecognitionService : IDisposable
         }
 
         return false;
+    }
+
+    private readonly object _precisionLruGate = new();
+    private readonly List<Vpsg3PreparedFloor> _activePrecisionFloors = new();
+    private const int MaxActivePrecisionFloors = 2;
+
+    internal void TrackActivePrecisionFloor(Vpsg3PreparedFloor floor)
+    {
+        lock (_precisionLruGate)
+        {
+            _activePrecisionFloors.Remove(floor);
+            _activePrecisionFloors.Add(floor);
+
+            while (_activePrecisionFloors.Count > MaxActivePrecisionFloors)
+            {
+                var oldest = _activePrecisionFloors[0];
+                _activePrecisionFloors.RemoveAt(0);
+                oldest.EvictPrecisionDistance();
+            }
+        }
     }
 
     private void DisposeVpsg3()

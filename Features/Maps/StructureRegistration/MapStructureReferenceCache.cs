@@ -29,6 +29,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
     private long _cacheMisses;
     private long _diskLoads;
     private long _diskLoadMilliseconds;
+    private long _generation;
 
     public MapStructureReferenceCache(
         MapStructurePreprocessor preprocessor,
@@ -168,8 +169,10 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             MapOperationWaitKind.Io,
             mapId: mapId.ToString("D"),
             floorKey: floor);
+        long generationSnapshot;
         lock (_memoryGate)
         {
+            generationSnapshot = _generation;
             if (_memoryCache.TryGetValue(key, out var cached))
             {
                 // 内存缓存命中：提升到 LRU 头部
@@ -184,7 +187,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         memoryLookup.Complete();
 
         if (profile == MapStructurePreprocessingProfile.PrebuiltStructureLine)
-            return Remember(key, MapStructurePreprocessor.UsePrebuiltStructureLine(referenceImage));
+            return Remember(key, MapStructurePreprocessor.UsePrebuiltStructureLine(referenceImage), generationSnapshot);
 
         var directory = Path.Combine(
             _rootDirectory,
@@ -375,34 +378,13 @@ public sealed partial class MapStructureReferenceCache : IDisposable
             // The cache is optional. A read-only or full cache directory must
             // not prevent in-memory registration.
         }
-        return Remember(key, generated);
+        return Remember(key, generated, generationSnapshot);
     }
 
-    private static MapStructureGenerationTuning NormalizeGeneration(
-        MapStructureGenerationTuning? generationTuning)
-    {
-        var normalized = generationTuning?.Clone() ?? new();
-        normalized.Normalize();
-        return normalized;
-    }
-
-    private static KeyPoint[] ReadKeyPoints(string path)
-    {
-        try
-        {
-            var documents = JsonSerializer.Deserialize<KeyPointDocument[]>(
-                File.ReadAllText(path));
-            return documents?.Select(document => document.ToKeyPoint()).ToArray()
-                ?? [];
-        }
-        catch
-        {
-            return [];
-        }
-    }
     private MapStructureFeatures Remember(
         CacheKey key,
-        MapStructureFeatures features)
+        MapStructureFeatures features,
+        long expectedGeneration = 0)
     {
         using var distanceMap = MapOperationTraceAmbient.StartChild(
             "reference_distance_map",
@@ -412,6 +394,13 @@ public sealed partial class MapStructureReferenceCache : IDisposable
 
         lock (_memoryGate)
         {
+            if (expectedGeneration != 0 && _generation != expectedGeneration)
+            {
+                // 缓存代次已改变（对局已重置并调用了 Clear()），放弃将此孤儿特征存入常驻缓存，
+                // 直接返回未缓存的特征供当前调用方使用或释放，防止内存常驻泄漏。
+                return features;
+            }
+
             // Another caller may have populated the same key while this
             // caller was loading or generating it outside the lock. Reuse the
             // resident entry instead of leaving a duplicate linked-list node
@@ -460,6 +449,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
     {
         lock (_memoryGate)
         {
+            _generation++;
             foreach (var (features, _) in _memoryCache.Values)
             {
                 features.Dispose();
@@ -494,9 +484,4 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         string GenerationFingerprint,
         MapStructurePreprocessingProfile Profile);
 }
-/*
- * 所属模块：Features/Maps，主要负责地图结构特征注册、候选评估与验证。
- * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
- * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
- * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
- */
+/* 文件职责：MapStructureReferenceCache，负责地图结构特征注册、候选评估与验证。 */

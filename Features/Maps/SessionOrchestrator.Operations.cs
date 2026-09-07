@@ -10,11 +10,8 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposable, IAsyncDisposable
 {
-    private async Task<IReadOnlyList<string>> GetMapClassesAsync()
-    {
-        var snapshot = await _mapRepo.GetCatalogSnapshotAsync();
-        return snapshot is MapCatalogSnapshot cs ? cs.Classes : Array.Empty<string>();
-    }
+    private async Task<IReadOnlyList<string>> GetMapClassesAsync() =>
+        await _mapRepo.GetMapClassesAsync();
 
     // ════════════════ Public Methods ════════════════
 

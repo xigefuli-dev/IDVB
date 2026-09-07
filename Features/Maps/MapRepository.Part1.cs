@@ -79,6 +79,31 @@ public sealed partial class MapRepository
         }
     }
 
+    /// <summary>轻量获取 Class 名称列表，命中修订版本缓存时不做反序列化与深克隆。</summary>
+    public async Task<IReadOnlyList<string>> GetMapClassesAsync()
+    {
+        var revision = GetCatalogRevision();
+        if (_cachedClasses.Count > 0 && revision == _cachedClassesRevision)
+            return _cachedClasses;
+
+        await Gate.WaitAsync();
+        try
+        {
+            revision = GetCatalogRevision();
+            if (_cachedClasses.Count > 0 && revision == _cachedClassesRevision)
+                return _cachedClasses;
+
+            var catalog = await ReadCatalogAsync();
+            _cachedClasses = catalog.Classes.ToArray();
+            _cachedClassesRevision = revision;
+            return _cachedClasses;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     public async Task VerifyMapContentAsync(Guid id)
     {
         await Gate.WaitAsync();

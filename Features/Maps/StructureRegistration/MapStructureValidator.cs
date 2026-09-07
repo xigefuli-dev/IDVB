@@ -21,11 +21,17 @@ internal static partial class MapStructureValidator
             return MapStructureRejectionReason.PlayerPriorMismatch;
         if (IsUncalibratedScaleSearchBoundary(best, tuning, request))
             return MapStructureRejectionReason.ScaleSearchBoundary;
-        var chamferLimit = restrictedSearch
+        var baseChamferLimit = restrictedSearch
             ? Math.Min(
                 tuning.MaximumChamferPixels,
                 tuning.RestrictedSearchMaximumChamferPixels)
             : tuning.MaximumChamferPixels;
+        var spaceRatio = best.SpaceRatio is > 1.000001d and < 10.0d
+            ? best.SpaceRatio
+            : request?.TwoStagePhysicalRatio is > 1.000001d and < 10.0d
+                ? request.TwoStagePhysicalRatio
+                : 1.0d;
+        var chamferLimit = baseChamferLimit * spaceRatio;
         var asymmetricObserved = request?.PreparedLive?.RawVisibleMask is not null
             && request.PreparedLive.DiagnosticTiming?.Profile ==
                 MapStructurePreprocessingProfile.NativeObservedStructureLine;
@@ -36,7 +42,7 @@ internal static partial class MapStructureValidator
         var missesEdgeFit = best.ChamferPixels > chamferLimit
             || best.EdgeCoverage < tuning.MinimumEdgeCoverage;
         if ((missesEdgeFit
-                && !MeetsEdgeDegradedSilhouetteEvidence(best, tuning))
+                && !MeetsEdgeDegradedSilhouetteEvidence(best, tuning, chamferLimit))
             || best.OccupancyCoverage < tuning.MinimumOccupancyCoverage
             || (missesReferenceCoverage
                 && !MeetsClearCorridorEvidence(best, tuning)
@@ -140,7 +146,8 @@ internal static partial class MapStructureValidator
     /// </summary>
     internal static bool MeetsEdgeDegradedSilhouetteEvidence(
         MapStructureCandidate candidate,
-        MapStructureRegistrationTuning tuning)
+        MapStructureRegistrationTuning tuning,
+        double? maximumChamferPixels = null)
     {
         if (tuning.Channel != MapAlignmentChannel.LowStructure)
             return false;
@@ -155,8 +162,12 @@ internal static partial class MapStructureValidator
         var minimumProjectionCorrelation = Math.Max(
             0.60d,
             tuning.LowStructureMinimumProjectionCorrelation * 0.80d);
+        var ratio = candidate.SpaceRatio is > 1.000001d and < 10.0d
+            ? candidate.SpaceRatio
+            : 1.0d;
+        var baseLimit = maximumChamferPixels ?? (tuning.MaximumChamferPixels * ratio);
         return candidate.ChamferPixels
-                <= tuning.MaximumChamferPixels * 1.40d
+                <= baseLimit * 1.40d
             && candidate.EdgeCoverage >= minimumEdgeCoverage
             && candidate.OccupancyCoverage >= minimumOccupancyCoverage
             && candidate.ReferenceCoverage >= minimumReferenceCoverage
@@ -170,7 +181,7 @@ internal static partial class MapStructureValidator
         double minimumGeometricLockConfidence) =>
         confidence.GeometricLockConfidence >= minimumGeometricLockConfidence
             ? MapStructureRejectionReason.None
-            : MapStructureRejectionReason.WeakAbsoluteScore;
+            : MapStructureRejectionReason.LowGeometricLockConfidence;
 
     /// <summary>
     /// Phase 5: 提前终止安全检查。条件比 <see cref="MapStructureRefiner.CanSkipLocalRefinement"/>

@@ -19,7 +19,8 @@ public enum MapStructureRejectionReason
     NativeScaleChanged,
     AnchorTransformConflict,
     TimeBudgetExceeded,
-    ScaleSearchBoundary
+    ScaleSearchBoundary,
+    LowGeometricLockConfidence
 }
 
 public enum MapStructureEvidenceDisposition
@@ -52,6 +53,7 @@ public static class MapStructureRejectionReasonExtensions
         MapStructureRejectionReason.AnchorTransformConflict => "结构精修与锚点变换明显冲突",
         MapStructureRejectionReason.ScaleSearchBoundary => "尺度候选位于全尺度搜索边界，无法形成闭合估计",
         MapStructureRejectionReason.TimeBudgetExceeded => "结构配准超过时间预算",
+        MapStructureRejectionReason.LowGeometricLockConfidence => "几何锁定置信度不足",
         _ => string.Empty
     };
 
@@ -72,7 +74,8 @@ public static class MapStructureRejectionReasonExtensions
                     or MapStructureRejectionReason.InconsistentStructure
                     or MapStructureRejectionReason.RefinementFailed
                     or MapStructureRejectionReason.ScaleSearchBoundary
-                    or MapStructureRejectionReason.TimeBudgetExceeded =>
+                    or MapStructureRejectionReason.TimeBudgetExceeded
+                    or MapStructureRejectionReason.LowGeometricLockConfidence =>
                     MapStructureEvidenceDisposition.Inconclusive,
                 MapStructureRejectionReason.ScaleChangeTooLarge
                     or MapStructureRejectionReason.OutsideValidBounds

@@ -157,11 +157,15 @@ internal static class MapStructureRefiner
                     ? tuning.GlobalSearchMarginMultiplier
                     : StructureRegistrationRules.GlobalSearchMarginMultiplier
                 : 1d);
-        var chamferLimit = restrictedSearch
+        var baseChamferLimit = restrictedSearch
             ? Math.Min(
                 tuning.MaximumChamferPixels,
                 tuning.RestrictedSearchMaximumChamferPixels)
             : tuning.MaximumChamferPixels;
+        var spaceRatio = best.SpaceRatio is > 1.000001d and < 10.0d
+            ? best.SpaceRatio
+            : 1.0d;
+        var chamferLimit = baseChamferLimit * spaceRatio;
         return MapStructureValidator.Validate(
                     best, margin, requiredMargin, tuning, restrictedSearch)
                 == MapStructureRejectionReason.None

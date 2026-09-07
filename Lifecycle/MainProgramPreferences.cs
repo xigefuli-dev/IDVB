@@ -21,6 +21,7 @@ public sealed class MainProgramPreferences
     public bool AllowUnsafePluginRandomDelayMinimums { get; set; }
     public bool AllowSurveyMode { get; set; }
     public bool DeveloperMode { get; set; }
+    public bool RealtimePerformanceOverlayEnabled { get; set; }
 
     public static MainProgramPreferences Load()
     {

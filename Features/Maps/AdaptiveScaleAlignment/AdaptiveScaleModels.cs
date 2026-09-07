@@ -152,6 +152,7 @@ internal sealed class AdaptiveScaleOptions
     public bool AutomaticScaleLockingEnabled { get; set; } = true;
     public double ReliableConfidence { get; set; } = 0.65d;
     public double VpsgConfidence { get; set; } = DefaultVpsgConfidence;
+    public double Vpsg3Confidence { get; set; } = 0.50d;
     public double StrongRepairConfidence { get; set; } = 0.90d;
     public double Deadband { get; set; } = 0.003d;
     public double ChallengeThreshold { get; set; } = 0.005d;
@@ -173,6 +174,7 @@ internal sealed class AdaptiveScaleOptions
     {
         ReliableConfidence = Math.Clamp(ReliableConfidence, 0.5d, 1d);
         VpsgConfidence = Math.Clamp(VpsgConfidence, ReliableConfidence, 1d);
+        Vpsg3Confidence = Math.Clamp(Vpsg3Confidence, 0.40d, 1d);
         StrongRepairConfidence = Math.Clamp(StrongRepairConfidence, VpsgConfidence, 1d);
         Deadband = Math.Clamp(Deadband, 0.0001d, 0.02d);
         ChallengeThreshold = Math.Max(Deadband, Math.Clamp(ChallengeThreshold, 0.0001d, 0.05d));

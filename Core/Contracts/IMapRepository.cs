@@ -36,6 +36,12 @@ public interface IMapRepository
     Task</* MapCatalogSnapshot */ object> GetCatalogSnapshotAsync();
 
     /// <summary>
+    /// 轻量获取所有已注册的地图 Class 名称列表，支持修订版本缓存以避免全量快照反序列化。
+    /// </summary>
+    Task<IReadOnlyList<string>> GetMapClassesAsync() =>
+        Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>
     /// 验证指定地图的楼层图片绑定完整性。
     /// </summary>
     Task VerifyMapContentAsync(Guid id);

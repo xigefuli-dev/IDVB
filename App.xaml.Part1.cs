@@ -48,6 +48,8 @@ namespace IDVBuff
                 if (closingWindow is not null)
                     closingWindow.Content = null;
 
+                RealtimePerformanceOverlay.Instance?.Dispose();
+
                 // 释放新架构 SessionOrchestrator 及所有子资源
                 if (_idvbControlServer is not null)
                 {

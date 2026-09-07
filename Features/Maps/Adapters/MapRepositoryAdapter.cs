@@ -25,6 +25,9 @@ public sealed class MapRepositoryAdapter : IMapRepository
     public async Task<object> GetCatalogSnapshotAsync() =>
         await _repo.GetCatalogSnapshotAsync();
 
+    public async Task<IReadOnlyList<string>> GetMapClassesAsync() =>
+        await _repo.GetMapClassesAsync();
+
     public Task VerifyMapContentAsync(Guid id) =>
         _repo.VerifyMapContentAsync(id);
 

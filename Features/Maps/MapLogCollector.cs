@@ -212,7 +212,10 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
         string message,
         double? elapsedMs = null,
         Dictionary<string, object?>? details = null,
-        bool writePlainTextOutput = true)
+        bool writePlainTextOutput = true,
+        int? statusCode = null,
+        int? subCode = null,
+        string? statusChain = null)
     {
         var entry = new MapLogEntry
         {
@@ -222,6 +225,9 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
             Level = level,
             Message = message,
             ElapsedMs = elapsedMs,
+            StatusCode = statusCode,
+            SubCode = subCode,
+            StatusChain = statusChain,
             Details = details
         };
 

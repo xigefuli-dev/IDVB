@@ -143,7 +143,18 @@ public sealed partial class MainSettingsPage : Page
             _preferences.DeveloperMode,
             value => SavePreferenceAsync(() => _preferences.DeveloperMode = value)));
         if (_preferences.DeveloperMode)
+        {
             content.Children.Add(CreateExperimentalAlgorithmsCard());
+            content.Children.Add(CreateToggleCard(
+                "实时性能监控（顶部横条）",
+                "在游戏顶部以彩色小横条实时显示 RAM、GC 堆、增量及当前关键资源函数，并同步记录性能日志",
+                _preferences.RealtimePerformanceOverlayEnabled,
+                value => SavePreferenceAsync(() =>
+                {
+                    _preferences.RealtimePerformanceOverlayEnabled = value;
+                    Features.Maps.RealtimePerformanceOverlay.SetEnabled(value);
+                })));
+        }
 
         content.Children.Add(new TextBlock
         {

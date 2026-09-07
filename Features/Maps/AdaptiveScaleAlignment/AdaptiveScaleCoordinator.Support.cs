@@ -321,7 +321,7 @@ internal sealed partial class AdaptiveScaleCoordinator
 
         if (string.Equals(evidence.Mode, "Vpsg3", StringComparison.OrdinalIgnoreCase))
         {
-            return evidence.Confidence >= _options.ReliableConfidence;
+            return evidence.Confidence >= _options.Vpsg3Confidence;
         }
 
         return evidence.UniqueMatches >= MapVpsgScaleEstimator.MinimumUniqueMatches

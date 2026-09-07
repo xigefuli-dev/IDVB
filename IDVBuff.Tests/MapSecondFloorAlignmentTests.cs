@@ -226,4 +226,29 @@ public sealed class MapSecondFloorAlignmentTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void NeutralScaleSeedIsRecognizedCorrectly()
+    {
+        var map = new MapRecord
+        {
+            Id = Guid.NewGuid(),
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        map.Recognition.EnsureStandardAnchors();
+        map.Recognition.SecondFloor.RecognitionPixelWidth = 500;
+        map.Recognition.SecondFloor.RecognitionPixelHeight = 400;
+
+        var neutralSeed = MapFloorScaleSeedRules.CreateIndependentFloorSeed(map, "2f");
+        Assert.True(MapFloorScaleSeedRules.IsNeutralIndependentSeed(neutralSeed));
+
+        var realSeed = new MapOverlayTransform
+        {
+            ScaleX = 0.81177d,
+            ScaleY = 0.81177d,
+            ReferenceWidth = 500,
+            ReferenceHeight = 400
+        };
+        Assert.False(MapFloorScaleSeedRules.IsNeutralIndependentSeed(realSeed));
+    }
 }

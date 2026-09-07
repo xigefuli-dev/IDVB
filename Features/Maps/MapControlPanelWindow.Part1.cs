@@ -133,4 +133,26 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr window);
+
+    private async void EndButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetActionsEnabled(false);
+        try
+        {
+            var saveAutomaticMapCache = _snapshot.Mode != MapRunMode.Survey
+                && _isAutomaticMapCacheEnabled()
+                && await ConfirmAutomaticMapCacheSaveAsync();
+            await _endMatch(saveAutomaticMapCache);
+            _variantContext = null;
+            Hide();
+        }
+        catch (Exception exception)
+        {
+            _messageText.Text = exception.Message;
+        }
+        finally
+        {
+            SetActionsEnabled(true);
+        }
+    }
 }

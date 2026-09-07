@@ -126,7 +126,8 @@ public static class MapAlignmentResearchFailureClassifier
                 MapAlignmentResearchFailureCategory.NoCandidate,
             MapStructureRejectionReason.WeakAbsoluteScore
                 or MapStructureRejectionReason.InconsistentStructure
-                or MapStructureRejectionReason.RefinementFailed =>
+                or MapStructureRejectionReason.RefinementFailed
+                or MapStructureRejectionReason.LowGeometricLockConfidence =>
                 MapAlignmentResearchFailureCategory.WeakFit,
             MapStructureRejectionReason.AmbiguousCandidates =>
                 MapAlignmentResearchFailureCategory.AmbiguousCandidates,

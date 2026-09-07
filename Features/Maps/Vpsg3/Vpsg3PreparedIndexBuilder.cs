@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
@@ -18,7 +19,8 @@ public static class Vpsg3PreparedIndexBuilder
     public static Vpsg3PreparedFloor BuildFromMat(
         Mat edgeImage,
         Vpsg3IndexCacheKey cacheKey,
-        Vpsg3TuningConfig? tuning = null)
+        Vpsg3TuningConfig? tuning = null,
+        bool preparePrecision = false)
     {
         ArgumentNullException.ThrowIfNull(edgeImage);
         if (edgeImage.Empty())
@@ -68,7 +70,20 @@ public static class Vpsg3PreparedIndexBuilder
         // 5. Calculate memory footprint
         var objectOverhead = 160L;
         var bitsetBytes = ((bitsetK5.Length + bitsetK3.Length) * 8L) + 48L;
-        var totalBytes = objectOverhead + bitsetBytes;
+        float[]? precisionDistance = null;
+        if (preparePrecision)
+        {
+            using var binary = new Mat();
+            using var inverse = new Mat();
+            using var distance = new Mat();
+            Cv2.Threshold(edgeImage, binary, 128, 255, ThresholdTypes.Binary);
+            Cv2.BitwiseNot(binary, inverse);
+            Cv2.DistanceTransform(inverse, distance, DistanceTypes.L2, DistanceTransformMasks.Precise);
+            precisionDistance = new float[checked(width * height)];
+            Marshal.Copy(distance.Data, precisionDistance, 0, precisionDistance.Length);
+        }
+        var totalBytes = objectOverhead + bitsetBytes
+            + (precisionDistance is null ? 0L : precisionDistance.LongLength * sizeof(float) + 24L);
 
         return new Vpsg3PreparedFloor(
             cacheKey,
@@ -79,7 +94,8 @@ public static class Vpsg3PreparedIndexBuilder
             wordsPerRow,
             bitsetK5,
             bitsetK3,
-            totalBytes);
+            totalBytes,
+            precisionDistance);
     }
 
     /// <summary>

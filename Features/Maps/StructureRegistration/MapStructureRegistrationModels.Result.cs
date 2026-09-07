@@ -30,6 +30,7 @@ public sealed record MapStructureCandidate
     public double VisibleFraction { get; init; }
     public int VisibleStructurePixels { get; init; }
     public int VisibleEdgePixels { get; init; }
+    public double SpaceRatio { get; init; } = 1.0d;
 }
 
 public sealed class MapStructureRegistrationResult

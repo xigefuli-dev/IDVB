@@ -46,6 +46,43 @@ public sealed class Vpsg3ShadowAndGateTests
     }
 
     [Fact]
+    public void ApertureMarginRelaxation_AllowsSpatiallyConsistentNearRunnerUp()
+    {
+        var consistentSpatial = new Vpsg3SpatialResult(0.52, 150, 78, 4, 4, true);
+        var best = new Vpsg3RefinedCandidate(1, 0, 0, 0.52, 0.52, 0.52, consistentSpatial, 1);
+        var runnerSpatial = new Vpsg3SpatialResult(0.4733, 150, 71, 4, 4, true);
+        var runner = new Vpsg3RefinedCandidate(1, 15, 15, 0.4733, 0.4733, 0.4733, runnerSpatial, 1);
+        var scale = new Vpsg3ScaleResult(Vpsg3ScaleStatus.Success, 1, 3, 0, "");
+
+        var gate = Vpsg3VerificationGate.EvaluateDecision(scale, best, runner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.True(gate.Passed);
+        Assert.Equal(0.52 - 0.4733, gate.Margin, 4);
+
+        var inconsistentSpatial = new Vpsg3SpatialResult(0.44, 150, 66, 4, 2, false);
+        var weakBest = best with { Spatial = inconsistentSpatial };
+        var weakRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.3933 } };
+        var gateWeak = Vpsg3VerificationGate.EvaluateDecision(scale, weakBest, weakRunner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.False(gateWeak.Passed);
+        Assert.Contains("ApertureMarginBelowThreshold", gateWeak.FailureReason);
+
+        // When margin is wide (e.g. 0.20) but spatial consistency is false, passes Gate 2 but fails Gate 5:
+        var wideMarginRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.24 } };
+        var gateSpatialFail = Vpsg3VerificationGate.EvaluateDecision(scale, weakBest, wideMarginRunner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.False(gateSpatialFail.Passed);
+        Assert.Contains("SpatialPartitionsBelowThreshold", gateSpatialFail.FailureReason);
+
+        // When spatially consistent but margin below relaxed threshold 0.035:
+        var tinyMarginRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.51 } };
+        var gateTiny = Vpsg3VerificationGate.EvaluateDecision(scale, best, tinyMarginRunner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.False(gateTiny.Passed);
+        Assert.Contains("ApertureMarginBelowThreshold", gateTiny.FailureReason);
+    }
+
+    [Fact]
     public async Task ShadowUsesOwnedFrameAndExactFloorLeaseWithoutChangingBaseline()
     {
         var sha = new string('a', 64);

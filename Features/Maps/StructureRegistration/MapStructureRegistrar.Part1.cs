@@ -238,7 +238,10 @@ namespace IDVBuff.Features.Maps;public sealed partial class MapStructureRegistra
                 rd["queryBoundsY"] = query.Bounds.Y;
                 rd["queryBoundsWidth"] = query.Bounds.Width;
                 rd["queryBoundsHeight"] = query.Bounds.Height;
-                MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Warning,
+                var failureLogLevel = tuning.Mode == MapStructureRegistrationMode.ScanVerification
+                    ? MapLogLevel.Info
+                    : MapLogLevel.Warning;
+                MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, failureLogLevel,
                     $"快速粗搜索未通过验证：{rejection.ToDisplayText()}",
                     elapsedMs: coarseMs + refineTimer.Elapsed.TotalMilliseconds, details: rd);
                 return MapStructureValidator.BuildResult(rejection,

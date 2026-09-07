@@ -150,11 +150,14 @@ public static class Vpsg3VerificationGate
         var runnerUpScore = 0.0d;
         var hasValidCompetitor = false;
 
+        var dX = 0d;
+        var dY = 0d;
+        var refinedDist = 0d;
         if (hasDistinctRunnerUp && runnerUpCandidate.HasValue)
         {
-            var dX = bestCandidate.OffsetX - runnerUpCandidate.Value.OffsetX;
-            var dY = bestCandidate.OffsetY - runnerUpCandidate.Value.OffsetY;
-            var refinedDist = Math.Sqrt(dX * dX + dY * dY);
+            dX = bestCandidate.OffsetX - runnerUpCandidate.Value.OffsetX;
+            dY = bestCandidate.OffsetY - runnerUpCandidate.Value.OffsetY;
+            refinedDist = Math.Sqrt(dX * dX + dY * dY);
             if (double.IsFinite(refinedDist) && refinedDist >= cfg.MinDistinctDistance
                 && double.IsFinite(runnerUpCandidate.Value.Spatial.GlobalScore))
             {
@@ -168,11 +171,19 @@ public static class Vpsg3VerificationGate
 
         var margin = bestCandidate.Spatial.GlobalScore - runnerUpScore;
         var effectiveMinMargin = cfg.MinApertureMargin;
-        if (bestCandidate.Spatial.GlobalScore >= 0.90d && bestCandidate.Spatial.IsSpatiallyConsistent)
+        if (bestCandidate.Spatial.IsSpatiallyConsistent)
         {
-            // 当主峰匹配度 >= 90% 且象限一致时，由于真实离散网格相关峰具有一定空间宽度，邻域次峰得分往往也较高。
-            // 此时只要具有明确的主峰优势 (>= 0.035)，即可安全采纳，防止高精度结果被误杀并引发 300ms+ 的昂贵回退。
-            effectiveMinMargin = Math.Min(effectiveMinMargin, 0.035d);
+            // 当 2x2 空间象限一致且主峰得分达到高质量区间时：
+            // 1. 如果主峰得分 >= 0.48（真实带杂质画面的主流高置信区间，cfg.MinVerificationScore 为 0.40），且具有明确主峰优势 (>= 0.035)；
+            // 2. 或者在已知可靠尺度（PeakRatio >= 9.9d，由 knownScaleSeed 稳态驱动）且次峰为邻域展宽 (refinedDist < 48px) 时；
+            // 采纳放宽阈值 0.035d，防止因离散网格侧瓣抬高次峰得分而误杀正解并引发 300ms+ 的昂贵全局回退。
+            var isKnownScale = scaleResult.PeakRatio >= 9.9d;
+            var isNearbySideLobe = refinedDist < 48.0d;
+            if (bestCandidate.Spatial.GlobalScore >= 0.48d
+                || (isKnownScale && (isNearbySideLobe || bestCandidate.Spatial.GlobalScore >= cfg.MinVerificationScore)))
+            {
+                effectiveMinMargin = Math.Min(effectiveMinMargin, 0.035d);
+            }
         }
 
         if (margin < effectiveMinMargin)

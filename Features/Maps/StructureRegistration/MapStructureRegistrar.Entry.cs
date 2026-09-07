@@ -89,6 +89,9 @@ public sealed partial class MapStructureRegistrar
                 fineTuning.Channel = request.Channel;
                 fineTuning.EnableFeatureVoting = false;
                 fineTuning.EnableFastAlignment = false;
+                fineTuning.RestrictedSearchMaximumChamferPixels = Math.Max(
+                    fineTuning.RestrictedSearchMaximumChamferPixels,
+                    fineTuning.MaximumChamferPixels);
                 fineTuning.Normalize();
                 if (request.Channel == MapAlignmentChannel.LowStructure
                     && ResolveRemainingBudget(
@@ -121,7 +124,8 @@ public sealed partial class MapStructureRegistrar
                         request.LiveIgnoreRegions,
                         request.DynamicIgnoreRegions,
                         generateVisibleMask: fineTuning.EnableVisibleMask,
-                        profile: MapStructurePreprocessingProfile.EdgesOnly,
+                        profile: request.PreparedLive?.DiagnosticTiming?.Profile
+                                 ?? MapStructurePreprocessingProfile.EdgesOnly,
                         generationTuning: fineTuning.Generation)
                     : null;
                 var fineLive = request.PreparedOriginalLive ?? ownedFineLive!;
@@ -158,7 +162,9 @@ public sealed partial class MapStructureRegistrar
                 var fine = RegisterInternal(ToOriginalFineRequest(
                     request,
                     coarseTransform,
-                    fineLive), fineTuning);
+                    fineLive,
+                    fineTuning,
+                    ratio), fineTuning);
                 totalTimer.Stop();
                 LogTwoStageCompletion(
                     request,
@@ -213,14 +219,17 @@ public sealed partial class MapStructureRegistrar
     private static MapStructureRegistrationRequest ToOriginalFineRequest(
         MapStructureRegistrationRequest source,
         MapOverlayTransform seed,
-        MapStructureFeatures fineLive) => new()
+        MapStructureFeatures fineLive,
+        MapStructureRegistrationTuning fineTuning,
+        double ratio = 1d) => new()
     {
         ReferenceImage = source.ReferenceImage,
         Channel = source.Channel,
         LiveRoi = source.OriginalLiveRoi!,
+        TwoStagePhysicalRatio = ratio,
         ViewportBounds = source.ViewportBounds,
         LockedTransform = seed,
-        Tuning = source.Tuning,
+        Tuning = fineTuning,
         ScaleSearchPolicy = MapScaleSearchPolicy.Fixed,
         RestrictSearchToLockedTransform = true,
         TrackingMode = source.TrackingMode,

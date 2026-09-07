@@ -75,6 +75,7 @@ public sealed class MapRecognitionAttempt
     }
 
     public string FailureReason { get; init; } = string.Empty;
+    public IDVBuff.Core.Diagnostics.IdvbStatus? Status { get; init; }
     public MapStructureRegistrationResult? StructureResult { get; init; }
     public GateDetectionResult? GateDetectionResult { get; init; }
     public bool StructureAttempted { get; init; }

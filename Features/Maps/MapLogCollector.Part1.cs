@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using IDVBuff.Core.Diagnostics;
 using IDVBuff.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
@@ -9,6 +10,35 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
 {
+    public void AppendStatus(
+        IdvbStatus status,
+        MapLogCategory category = MapLogCategory.StructureRegistration,
+        double? elapsedMs = null,
+        Dictionary<string, object?>? details = null)
+    {
+        var level = status.IsServerError ? MapLogLevel.Error
+            : (status.IsFallback || status.IsClientError) ? MapLogLevel.Warning
+            : MapLogLevel.Info;
+
+        var message = status.ToTraceString();
+        WritePlainTextOutput(category, level, message, elapsedMs, details);
+        lock (_stateGate)
+        {
+            if (!_isEnabled || _session is null)
+                return;
+            AppendInternal(
+                _session,
+                category,
+                level,
+                message,
+                elapsedMs,
+                details,
+                writePlainTextOutput: false,
+                statusCode: status.Code,
+                subCode: status.SubCode,
+                statusChain: status.Cause is not null ? status.ToTraceString() : null);
+        }
+    }
 
     private void WriteErrorToFile(string context, Exception exception)
     {

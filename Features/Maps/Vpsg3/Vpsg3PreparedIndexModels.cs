@@ -1,5 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.IO;
+using System.Runtime.InteropServices;
+using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
@@ -166,6 +169,12 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     private int _disposed;
     private ulong[]? _dilatedBitsetK5;
     private ulong[]? _dilatedBitsetK3;
+    private float[]? _precisionDistance;
+    private readonly object _precisionGate = new();
+    private readonly long _baseMemoryBytes;
+
+    internal ReadOnlySpan<float> PrecisionDistance => _precisionDistance;
+    public bool HasPrecisionDistance => _precisionDistance is not null;
 
     public Vpsg3IndexCacheKey CacheKey { get; }
     public int ReferenceWidth { get; }
@@ -173,7 +182,7 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     public int EdgePixelCount { get; }
     public Vpsg3ScalePrior ScalePrior { get; }
     public int WordsPerRow { get; }
-    public long MemoryBytes { get; }
+    public long MemoryBytes => _baseMemoryBytes + (_precisionDistance is null ? 0L : _precisionDistance.LongLength * sizeof(float) + 24L);
 
     public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
@@ -249,7 +258,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         int wordsPerRow,
         ulong[] dilatedBitsetK5,
         ulong[] dilatedBitsetK3,
-        long memoryBytes)
+        long memoryBytes,
+        float[]? precisionDistance = null)
     {
         CacheKey = cacheKey;
         ReferenceWidth = referenceWidth;
@@ -259,7 +269,10 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         WordsPerRow = wordsPerRow;
         _dilatedBitsetK5 = dilatedBitsetK5 ?? throw new ArgumentNullException(nameof(dilatedBitsetK5));
         _dilatedBitsetK3 = dilatedBitsetK3 ?? throw new ArgumentNullException(nameof(dilatedBitsetK3));
-        MemoryBytes = memoryBytes;
+        if (precisionDistance is not null && precisionDistance.LongLength != (long)referenceWidth * referenceHeight)
+            throw new ArgumentException("Precision distance field must match the reference dimensions.", nameof(precisionDistance));
+        _baseMemoryBytes = memoryBytes - (precisionDistance is null ? 0L : precisionDistance.LongLength * sizeof(float) + 24L);
+        _precisionDistance = precisionDistance;
     }
 
     public Vpsg3PreparedFloor(
@@ -279,6 +292,62 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     /// Atomically increments reference count from a positive value.
     /// Returns false if refCount is &lt;= 0 or object has been disposed, strictly preventing 0->1 resurrection.
     /// </summary>
+    public bool EnsurePrecisionDistance(string linePath)
+    {
+        if (_precisionDistance is not null || Volatile.Read(ref _disposed) != 0 || string.IsNullOrWhiteSpace(linePath) || !File.Exists(linePath))
+            return _precisionDistance is not null;
+
+        lock (_precisionGate)
+        {
+            if (_precisionDistance is not null || Volatile.Read(ref _disposed) != 0)
+                return _precisionDistance is not null;
+
+            try
+            {
+                using var edgeImage = Cv2.ImRead(linePath, ImreadModes.Grayscale);
+                if (edgeImage.Empty() || edgeImage.Width != ReferenceWidth || edgeImage.Height != ReferenceHeight)
+                    return false;
+
+                return EnsurePrecisionDistance(edgeImage);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    public bool EnsurePrecisionDistance(Mat edgeImage)
+    {
+        if (_precisionDistance is not null || Volatile.Read(ref _disposed) != 0)
+            return _precisionDistance is not null;
+
+        lock (_precisionGate)
+        {
+            if (_precisionDistance is not null || Volatile.Read(ref _disposed) != 0)
+                return _precisionDistance is not null;
+
+            using var binary = new Mat();
+            using var inverse = new Mat();
+            using var distance = new Mat();
+            Cv2.Threshold(edgeImage, binary, 128, 255, ThresholdTypes.Binary);
+            Cv2.BitwiseNot(binary, inverse);
+            Cv2.DistanceTransform(inverse, distance, DistanceTypes.L2, DistanceTransformMasks.Precise);
+            var buffer = new float[checked(ReferenceWidth * ReferenceHeight)];
+            Marshal.Copy(distance.Data, buffer, 0, buffer.Length);
+            Interlocked.Exchange(ref _precisionDistance, buffer);
+            return true;
+        }
+    }
+
+    public void EvictPrecisionDistance()
+    {
+        lock (_precisionGate)
+        {
+            Interlocked.Exchange(ref _precisionDistance, null);
+        }
+    }
+
     internal bool TryRetain()
     {
         while (true)
@@ -318,6 +387,7 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         {
             _dilatedBitsetK5 = null;
             _dilatedBitsetK3 = null;
+            _precisionDistance = null;
         }
     }
 

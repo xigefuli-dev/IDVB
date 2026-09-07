@@ -40,6 +40,8 @@ public sealed class GameWindowCaptureAdapter : IGameWindowCapture
         frame = f;
         return result;
     }
+
+    public void Reset() => _capture.Reset();
 }
 /*
  * 文件职责：GameWindowCaptureAdapter。

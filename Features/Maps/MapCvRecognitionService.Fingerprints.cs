@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Diagnostics;
 using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
@@ -388,13 +389,65 @@ public sealed partial class MapCvRecognitionService
             out failureReason);
     }
 
+    /// <summary>
+    /// Builds one floor's resident reference features at most once. Callers can
+    /// overlap this work with the first capture; alignment rents the same
+    /// resident entry after the task completes and never repeats the decode.
+    /// </summary>
+    internal Task WarmFloorStructureCacheAsync(
+        MapRecord map,
+        string floorKey,
+        MapStructureRegistrationTuning tuning)
+    {
+        var floorProfile = MapFloorRules.GetFloorProfile(map, floorKey);
+        if (floorProfile is null) return Task.CompletedTask;
+        var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|{tuning.Generation.CacheFingerprint}|{tuning.UsePrebuiltStructureLine}";
+        var profile = GetReferenceProfile(tuning, MapStructurePreprocessingProfile.EdgesAndFeatures);
+        lock (_floorPrewarmGate)
+        {
+            if (_floorPrewarmTasks.TryGetValue(key, out var existing)) return existing;
+            var ct = _matchCts.Token;
+            var task = Task.Run(() =>
+            {
+                using var perfScope = RealtimePerformanceTracker.TrackScope("WarmFloorStructure", $"map={map.Id:N}|floor={floorKey}");
+                if (ct.IsCancellationRequested) return;
+                if (_structureCache.TryRentResident(
+                        map.Id, map.UpdatedAt, floorKey, tuning.Generation, profile) is { } resident)
+                {
+                    resident.Dispose();
+                    return;
+                }
+                if (ct.IsCancellationRequested) return;
+                var path = GetAlignmentReferencePath(map, floorKey, tuning);
+                using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
+                if (image.Empty() || ct.IsCancellationRequested) return;
+                using var prepared = _structureCache.GetOrCreate(
+                    map.Id, map.UpdatedAt, image, floorProfile.WholeImageIgnoreRegions,
+                    floorKey, tuning.Generation, profile);
+            }, ct);
+            _floorPrewarmTasks[key] = task;
+            _ = task.ContinueWith(_ =>
+            {
+                lock (_floorPrewarmGate) _floorPrewarmTasks.Remove(key);
+            }, TaskScheduler.Default);
+            return task;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
             return;
         _disposed = true;
+        lock (_floorPrewarmGate)
+        {
+            _matchCts.Cancel();
+            _matchCts.Dispose();
+            _floorPrewarmTasks.Clear();
+        }
         _gateDetector.Dispose();
         _structureCache.Dispose();
+        MapStructurePreprocessor.ClearReferenceCache();
         DisposeVpsg3();
         _auxiliaryTemplateCache.Dispose();
         _cacheGate.Dispose();

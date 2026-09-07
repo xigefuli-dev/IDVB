@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Diagnostics;
 using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
@@ -33,6 +34,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
         new();
     private readonly object _floorPrewarmGate = new();
     private readonly Dictionary<string, Task> _floorPrewarmTasks = new(StringComparer.Ordinal);
+    private CancellationTokenSource _matchCts = new();
     private readonly SideEntranceScanPipeline _sideEntrancePipeline = new();
     // 侧门特征缓存：(mapId, floorKey) → 预加载的灰度模板 Mat
     private Dictionary<(Guid, string), Mat> _sideEntranceFeatureCache = [];
@@ -57,67 +59,13 @@ public sealed partial class MapCvRecognitionService : IDisposable
     internal MapStructurePreprocessor StructurePreprocessor => _structurePreprocessor;
     internal MapStructureRegistrar StructureRegistrar => _structureRegistrar;
     internal MapStructureReferenceCache StructureCache => _structureCache;
-
-    /// <summary>
-    /// Builds one floor's resident reference features at most once. Callers can
-    /// overlap this work with the first capture; alignment rents the same
-    /// resident entry after the task completes and never repeats the decode.
-    /// </summary>
-    internal Task WarmFloorStructureCacheAsync(
-        MapRecord map,
-        string floorKey,
-        MapStructureRegistrationTuning tuning)
-    {
-        var floorProfile = MapFloorRules.GetFloorProfile(map, floorKey);
-        if (floorProfile is null) return Task.CompletedTask;
-        var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|{tuning.Generation.CacheFingerprint}|{tuning.UsePrebuiltStructureLine}";
-        var profile = GetReferenceProfile(tuning, MapStructurePreprocessingProfile.EdgesAndFeatures);
-        lock (_floorPrewarmGate)
-        {
-            if (_floorPrewarmTasks.TryGetValue(key, out var existing))
-                return existing;
-            var task = Task.Run(() =>
-            {
-                if (_structureCache.TryRentResident(
-                        map.Id, map.UpdatedAt, floorKey, tuning.Generation, profile) is { } resident)
-                {
-                    resident.Dispose();
-                    return;
-                }
-
-                var path = GetAlignmentReferencePath(map, floorKey, tuning);
-                using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
-                if (image.Empty())
-                    return;
-                using var prepared = _structureCache.GetOrCreate(
-                    map.Id,
-                    map.UpdatedAt,
-                    image,
-                    floorProfile.WholeImageIgnoreRegions,
-                    floorKey,
-                    tuning.Generation,
-                    profile);
-            });
-            _floorPrewarmTasks[key] = task;
-            _ = task.ContinueWith(
-                _ =>
-                {
-                    lock (_floorPrewarmGate)
-                        _floorPrewarmTasks.Remove(key);
-                },
-                TaskScheduler.Default);
-            return task;
-        }
-    }
     internal MapVpsgScaleGraphCache VpsgScaleGraphCache => _vpsgScaleGraphCache;
     internal MapVpsgScaleEstimator VpsgScaleEstimator => _vpsgScaleEstimator;
     internal MapAuxiliaryAnchorTemplateCache AuxiliaryTemplateCache => _auxiliaryTemplateCache;
     internal MapRepository Repository => _repository;
-
     public int ReadyMapCount => _fingerprints.Count;
     public int TotalMapCount { get; private set; }
     public int SideEntranceReadyMapCount => _sideEntranceFeatureCache.Count;
-
     /// <summary>上次成功检测到的门模板 scale（用于 LockedScale 搜索），可能为 null。</summary>
     public double? LastGateTemplateScale => _gateDetector.WarmScale;
 
@@ -127,13 +75,39 @@ public sealed partial class MapCvRecognitionService : IDisposable
     /// </summary>
     public void ResetMatchState()
     {
+        using var perfScope = RealtimePerformanceTracker.TrackScope("ResetMatchState", forceLog: true);
         ObjectDisposedException.ThrowIf(_disposed, this);
         _gateDetector.ResetSuccessfulScale();
-        _structureCache.Clear();
+
+        Task[] pendingTasks;
         lock (_floorPrewarmGate)
         {
+            _matchCts.Cancel();
+            pendingTasks = _floorPrewarmTasks.Values.ToArray();
+        }
+
+        if (pendingTasks.Length > 0)
+        {
+            try
+            {
+                Task.WaitAll(pendingTasks, TimeSpan.FromMilliseconds(500));
+            }
+            catch (AggregateException)
+            {
+                // 忽略后台被取消或异常的任务
+            }
+        }
+
+        lock (_floorPrewarmGate)
+        {
+            _matchCts.Dispose();
+            _matchCts = new CancellationTokenSource();
             _floorPrewarmTasks.Clear();
         }
+
+        _structureCache.Clear();
+        MapStructurePreprocessor.ClearReferenceCache();
+        _auxiliaryTemplateCache.Clear();
     }
 
     public MapRecord? TryGetMap(Guid mapId) =>

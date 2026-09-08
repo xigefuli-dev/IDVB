@@ -111,6 +111,50 @@ public sealed class Vpsg3PreparedIndexRegistry : IVpsg3PreparedIndexRegistry
     }
 
     /// <inheritdoc />
+    public bool TryGetDetailedStatus(
+        Guid mapId,
+        string floorKey,
+        out Vpsg3IndexStatus status,
+        out TimeSpan statusAge,
+        out string? failureReason,
+        out Vpsg3IndexCacheKey? actualKey)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            status = Vpsg3IndexStatus.Missing;
+            statusAge = TimeSpan.Zero;
+            failureReason = "RegistryDisposed";
+            actualKey = null;
+            return false;
+        }
+
+        var normalizedFloor = NormalizeFloor(floorKey);
+        if (!_slots.TryGetValue((mapId, normalizedFloor), out var slot))
+        {
+            status = Vpsg3IndexStatus.Missing;
+            statusAge = TimeSpan.Zero;
+            failureReason = null;
+            actualKey = null;
+            return false;
+        }
+
+        status = slot.Status;
+        statusAge = DateTimeOffset.UtcNow - slot.StatusChangedAt;
+        failureReason = slot.FailureReason;
+        actualKey = slot.ExpectedKey;
+        return true;
+    }
+
+    /// <inheritdoc />
+    public bool TryGetDetailedStatus(
+        Vpsg3IndexCacheKey expectedKey,
+        out Vpsg3IndexStatus status,
+        out TimeSpan statusAge,
+        out string? failureReason,
+        out Vpsg3IndexCacheKey? actualKey)
+        => TryGetDetailedStatus(expectedKey.MapId, expectedKey.FloorKey, out status, out statusAge, out failureReason, out actualKey);
+
+    /// <inheritdoc />
     public bool TryBeginBuild(Vpsg3IndexCacheKey expectedKey)
     {
         if (Volatile.Read(ref _disposed) != 0)

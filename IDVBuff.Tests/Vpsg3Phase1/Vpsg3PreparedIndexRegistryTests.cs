@@ -442,4 +442,46 @@ public sealed class Vpsg3PreparedIndexRegistryTests
 
         await Task.WhenAll([.. readTasks, .. writeTasks]);
     }
+
+    [Fact]
+    public void TryGetDetailedStatus_ReportsAccurateStateAgeAndFailureReason()
+    {
+        using var registry = new Vpsg3PreparedIndexRegistry();
+        var mapId = Guid.NewGuid();
+        var floor = CreateDummyFloor(mapId, "1f");
+
+        // 1. Missing
+        var hasSlot = registry.TryGetDetailedStatus(mapId, "1f", out var status, out var age, out var reason, out var actualKey);
+        Assert.False(hasSlot);
+        Assert.Equal(Vpsg3IndexStatus.Missing, status);
+        Assert.Null(reason);
+        Assert.Null(actualKey);
+
+        // 2. Building
+        Assert.True(registry.TryBeginBuild(floor.CacheKey));
+        hasSlot = registry.TryGetDetailedStatus(floor.CacheKey, out status, out age, out reason, out actualKey);
+        Assert.True(hasSlot);
+        Assert.Equal(Vpsg3IndexStatus.Building, status);
+        Assert.True(age >= TimeSpan.Zero);
+        Assert.Null(reason);
+        Assert.Equal(floor.CacheKey, actualKey);
+
+        // 3. Failed
+        Assert.True(registry.RecordBuildFailure(floor.CacheKey, "Image corrupted"));
+        hasSlot = registry.TryGetDetailedStatus(floor.CacheKey, out status, out age, out reason, out actualKey);
+        Assert.True(hasSlot);
+        Assert.Equal(Vpsg3IndexStatus.Failed, status);
+        Assert.Equal("Image corrupted", reason);
+        Assert.Equal(floor.CacheKey, actualKey);
+
+        // 4. Ready (after new build)
+        var floor2 = CreateDummyFloor(mapId, "1f", fingerprint: "fp2");
+        Assert.True(registry.TryBeginBuild(floor2.CacheKey));
+        Assert.True(registry.TryPublishFloor(floor2.CacheKey, floor2));
+        hasSlot = registry.TryGetDetailedStatus(floor2.CacheKey, out status, out age, out reason, out actualKey);
+        Assert.True(hasSlot);
+        Assert.Equal(Vpsg3IndexStatus.Ready, status);
+        Assert.Null(reason);
+        Assert.Equal(floor2.CacheKey, actualKey);
+    }
 }

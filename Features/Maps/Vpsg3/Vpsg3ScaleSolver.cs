@@ -139,10 +139,11 @@ public static class Vpsg3ScaleSolver
         var maxLag = n / 2;
         if (maxLag <= minLag) return (0.0d, 0.0d);
 
-        var autocorr = scratch.AutocorrBuffer.AsSpan(0, maxLag - minLag);
+        var totalLags = maxLag - minLag;
+        var autocorr = scratch.AutocorrBuffer.AsSpan(0, totalLags);
+        var rawAutocorr = scratch.ProjectionBufferY.AsSpan(0, totalLags);
         var bestLag = 0;
         var maxR = -1.0d;
-        var rCount = 0;
 
         for (var lag = minLag; lag < maxLag; lag++)
         {
@@ -154,7 +155,9 @@ public static class Vpsg3ScaleSolver
             }
 
             var r = dot / variance;
-            autocorr[rCount++] = Math.Abs(r);
+            var idx = lag - minLag;
+            rawAutocorr[idx] = r;
+            autocorr[idx] = Math.Abs(r);
 
             if (r > maxR && lag >= minPitch && lag <= maxPitch)
             {
@@ -163,11 +166,34 @@ public static class Vpsg3ScaleSolver
             }
         }
 
-        if (rCount == 0 || maxR <= 0.05d) return (0.0d, 0.0d);
+        if (maxR <= 0.05d || bestLag <= 0) return (0.0d, 0.0d);
+
+        // Harmonic ambiguity resolution: prioritize fundamental pitch over harmonic multiples
+        // If a smaller local peak exists in [minPitch, maxPitch] with r >= 0.80 * maxR and bestLag is roughly an integer multiple,
+        // select the smaller fundamental pitch to prevent locking into higher harmonics (e.g. 0.52x/1.57x on periodic maps).
+        var searchStart = (int)Math.Max(minLag + 1, Math.Ceiling(minPitch));
+        var searchEnd = (int)Math.Min(maxLag - 1, Math.Floor(maxPitch));
+        for (var lag = searchStart; lag < bestLag - 1 && lag < searchEnd; lag++)
+        {
+            var idx = lag - minLag;
+            if (idx <= 0 || idx >= totalLags - 1) continue;
+            var r = rawAutocorr[idx];
+            if (r > rawAutocorr[idx - 1] && r > rawAutocorr[idx + 1] && r >= 0.80d * maxR)
+            {
+                var ratio = (double)bestLag / lag;
+                var k = Math.Round(ratio);
+                if (k >= 2 && Math.Abs(ratio - k) < 0.15d)
+                {
+                    bestLag = lag;
+                    maxR = r;
+                    break;
+                }
+            }
+        }
 
         // In-place sort of absolute autocorrelation values in scratch to find median without heap allocation
         autocorr.Sort();
-        var medianR = autocorr[rCount / 2];
+        var medianR = autocorr[totalLags / 2];
         var peakRatio = maxR / Math.Max(0.01d, medianR);
 
         return (bestLag, peakRatio);

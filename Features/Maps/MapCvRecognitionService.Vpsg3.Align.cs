@@ -75,16 +75,45 @@ public sealed partial class MapCvRecognitionService
 
         if (!_vpsg3Registry.TryGet(key, out var lease))
         {
+            _vpsg3Registry.TryGetDetailedStatus(
+                key,
+                out var indexStatus,
+                out var statusAge,
+                out var failureReason,
+                out var actualKey);
+
+            var keyMismatch = actualKey.HasValue && actualKey.Value != key;
+            var detailReason = indexStatus switch
+            {
+                Vpsg3IndexStatus.Missing => "索引未构建(未进入预构建队列或prebuilt文件不合规)",
+                Vpsg3IndexStatus.Building => $"索引正在后台构建中 (已耗时 {statusAge.TotalMilliseconds:F0}ms)",
+                Vpsg3IndexStatus.Failed => $"索引后台构建失败: {failureReason ?? "未知错误"}",
+                Vpsg3IndexStatus.Stale => "索引已失效(版本/时间戳变更)",
+                _ when keyMismatch => "缓存键不匹配",
+                _ => "索引未就绪"
+            };
+
             status = IdvbStatus.Fallback(
                 IdvbHttpCode.Vpsg3FallbackToLegacy,
                 IdvbSubCode.Vpsg3FallbackIndexNotReady,
                 "Vpsg3IndexNotReady",
-                $"VPSG 3.0 快速对齐跳过 · 索引未就绪 · map={map.SequenceNumber}#{floorKey}",
+                $"VPSG 3.0 快速对齐跳过 · 索引未就绪({indexStatus}: {detailReason}) · map={map.SequenceNumber}#{floorKey}",
                 stage: "Vpsg3.RegistryCheck");
             MapLogCollector.Instance.AppendStatus(
                 status,
                 MapLogCategory.StructureRegistration,
-                details: new() { ["cacheKey"] = key.ToString() });
+                details: new()
+                {
+                    ["mapId"] = map.Id,
+                    ["floorKey"] = floorKey,
+                    ["indexStatus"] = indexStatus.ToString(),
+                    ["statusAgeMs"] = statusAge.TotalMilliseconds,
+                    ["failureReason"] = failureReason ?? string.Empty,
+                    ["detailReason"] = detailReason,
+                    ["expectedKey"] = key.ToString(),
+                    ["actualKey"] = actualKey?.ToString() ?? string.Empty,
+                    ["keyMatch"] = !keyMismatch
+                });
             return false;
         }
 

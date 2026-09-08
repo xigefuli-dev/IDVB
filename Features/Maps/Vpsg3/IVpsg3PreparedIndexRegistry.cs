@@ -26,6 +26,27 @@ public interface IVpsg3PreparedIndexRegistry : IDisposable
     Vpsg3IndexStatus GetStatus(Guid mapId, string floorKey, Vpsg3IndexCacheKey? expectedKey = null);
 
     /// <summary>
+    /// Gets detailed diagnostic status information for a floor slot, including state age, failure reason, and actual key.
+    /// </summary>
+    bool TryGetDetailedStatus(
+        Guid mapId,
+        string floorKey,
+        out Vpsg3IndexStatus status,
+        out TimeSpan statusAge,
+        out string? failureReason,
+        out Vpsg3IndexCacheKey? actualKey);
+
+    /// <summary>
+    /// Gets detailed diagnostic status information for a floor slot by expected cache key.
+    /// </summary>
+    bool TryGetDetailedStatus(
+        Vpsg3IndexCacheKey expectedKey,
+        out Vpsg3IndexStatus status,
+        out TimeSpan statusAge,
+        out string? failureReason,
+        out Vpsg3IndexCacheKey? actualKey);
+
+    /// <summary>
     /// Atomically transitions the slot to Building state for the given expected key.
     /// Returns false if already Building or Ready with the exact same expected key.
     /// </summary>

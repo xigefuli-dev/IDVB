@@ -253,16 +253,9 @@ public sealed partial class BackgroundScanTests
     [Fact]
     public void AllTemplateCandidatesReceiveMandatoryFormalStructureRegistration()
     {
-        var mainSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "Features",
-            "Maps",
-            "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs"));
-        var verificationSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "Features",
-            "Maps",
-            "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.Verification.cs"));
+        var repoRoot = FindRepositoryRoot();
+        var mainSource = File.ReadAllText(Path.Combine(repoRoot, "Features", "Maps", "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs"));
+        var verificationSource = File.ReadAllText(Path.Combine(repoRoot, "Features", "Maps", "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.Verification.cs"));
 
         var verificationCallIndex = mainSource.IndexOf(
             "VerifySideEntranceCandidates(",

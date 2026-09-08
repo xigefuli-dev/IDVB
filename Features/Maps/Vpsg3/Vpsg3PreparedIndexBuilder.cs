@@ -352,6 +352,30 @@ public static class Vpsg3PreparedIndexBuilder
         if (rValues.Count == 0 || maxR <= 0.05)
             return (0.0, 0.0);
 
+        // Harmonic ambiguity resolution: prioritize fundamental pitch over harmonic multiples
+        // If a smaller local peak exists with r >= 0.80 * maxR and bestLag is roughly an integer multiple of it,
+        // select the smaller fundamental pitch to prevent locking into higher harmonics.
+        if (bestLag > minLag)
+        {
+            for (var lag = minLag + 1; lag < bestLag - 1; lag++)
+            {
+                var idx = lag - minLag;
+                if (idx <= 0 || idx >= rValues.Count - 1) continue;
+                var r = rValues[idx];
+                if (r > rValues[idx - 1] && r > rValues[idx + 1] && r >= 0.80 * maxR)
+                {
+                    var ratio = (double)bestLag / lag;
+                    var k = Math.Round(ratio);
+                    if (k >= 2 && Math.Abs(ratio - k) < 0.15)
+                    {
+                        bestLag = lag;
+                        maxR = r;
+                        break;
+                    }
+                }
+            }
+        }
+
         var sortedR = rValues.Select(Math.Abs).OrderBy(x => x).ToList();
         var medianR = sortedR[sortedR.Count / 2];
         var peakRatio = maxR / Math.Max(0.01, medianR);

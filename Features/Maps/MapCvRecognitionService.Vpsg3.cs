@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using OpenCvSharp;
 
@@ -52,8 +53,18 @@ public sealed partial class MapCvRecognitionService : IDisposable
             if (!_vpsg3Registry.TryGet(key, out lease))
             {
                 Interlocked.Exchange(ref _vpsg3ShadowRunning, 0);
+                _vpsg3Registry.TryGetDetailedStatus(key, out var shadowStatus, out var shadowAge, out var shadowFail, out var shadowActual);
                 log.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
-                    "VPSG3 shadow skipped: index not ready", details: new() { ["cacheKey"] = key.ToString() });
+                    "VPSG3 shadow skipped: index not ready", details: new()
+                    {
+                        ["mapId"] = map.Id,
+                        ["floorKey"] = floorKey,
+                        ["indexStatus"] = shadowStatus.ToString(),
+                        ["statusAgeMs"] = shadowAge.TotalMilliseconds,
+                        ["failureReason"] = shadowFail ?? string.Empty,
+                        ["expectedKey"] = key.ToString(),
+                        ["actualKey"] = shadowActual?.ToString() ?? string.Empty
+                    });
                 return Task.CompletedTask;
             }
             pixels = frame.Image.Clone();
@@ -183,7 +194,21 @@ public sealed partial class MapCvRecognitionService : IDisposable
             {
                 // Strict PrebuiltStructureLine contract: ineligible floors never get a VPSG3 index
                 if (!TryGetEligiblePrebuiltPath(map, floor, out var linePath) || linePath is null)
+                {
+                    MapLogCollector.Instance.Append(
+                        MapLogCategory.StructureRegistration,
+                        MapLogLevel.Info,
+                        "VPSG3 index build skipped: ineligible floor",
+                        details: new()
+                        {
+                            ["mapId"] = map.Id,
+                            ["floorKey"] = floor.Key,
+                            ["hasPrebuilt"] = floor.PrebuiltStructureLine != null,
+                            ["isComplete"] = floor.PrebuiltStructureLine?.IsComplete == true,
+                            ["sourceShaMatch"] = string.Equals(floor.PrebuiltStructureLine?.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase)
+                        });
                     continue;
+                }
 
                 var structureGen = Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(
                     floor.PrebuiltStructureLine!,
@@ -200,6 +225,16 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 buildTasks.Add((map, floor, linePath, cacheKey));
             }
         }
+
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            "VPSG3 rebuild scheduled",
+            details: new()
+            {
+                ["changedMapCount"] = changedMapIds.Count,
+                ["buildTaskCount"] = buildTasks.Count
+            });
 
         if (buildTasks.Count == 0)
             return;
@@ -222,7 +257,32 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
                     // Prevent duplicate parallel builds for the same key
                     if (!_vpsg3Registry.TryBeginBuild(taskItem.CacheKey))
+                    {
+                        MapLogCollector.Instance.Append(
+                            MapLogCategory.StructureRegistration,
+                            MapLogLevel.Info,
+                            "VPSG3 index build skipped (already building/ready)",
+                            details: new()
+                            {
+                                ["mapId"] = taskItem.Map.Id,
+                                ["floorKey"] = taskItem.Floor.Key,
+                                ["cacheKey"] = taskItem.CacheKey.ToString()
+                            });
                         return ValueTask.CompletedTask;
+                    }
+
+                    var swBuild = Stopwatch.StartNew();
+                    MapLogCollector.Instance.Append(
+                        MapLogCategory.StructureRegistration,
+                        MapLogLevel.Info,
+                        "VPSG3 index build started",
+                        details: new()
+                        {
+                            ["mapId"] = taskItem.Map.Id,
+                            ["floorKey"] = taskItem.Floor.Key,
+                            ["cacheKey"] = taskItem.CacheKey.ToString(),
+                            ["linePath"] = taskItem.LinePath
+                        });
 
                     try
                     {
@@ -230,12 +290,57 @@ public sealed partial class MapCvRecognitionService : IDisposable
                         using var image = Cv2.ImRead(taskItem.LinePath, ImreadModes.Grayscale);
                         if (image.Empty())
                         {
-                            _vpsg3Registry.RecordBuildFailure(taskItem.CacheKey, "Decoded prebuilt line image is empty.");
+                            const string reason = "Decoded prebuilt line image is empty.";
+                            _vpsg3Registry.RecordBuildFailure(taskItem.CacheKey, reason);
+                            MapLogCollector.Instance.Append(
+                                MapLogCategory.StructureRegistration,
+                                MapLogLevel.Warning,
+                                "VPSG3 index build failed: image empty",
+                                details: new()
+                                {
+                                    ["mapId"] = taskItem.Map.Id,
+                                    ["floorKey"] = taskItem.Floor.Key,
+                                    ["cacheKey"] = taskItem.CacheKey.ToString(),
+                                    ["linePath"] = taskItem.LinePath
+                                });
                             return ValueTask.CompletedTask;
                         }
 
                         var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, taskItem.CacheKey, preparePrecision: false);
-                        _vpsg3Registry.TryPublishFloor(taskItem.CacheKey, preparedFloor);
+                        var published = _vpsg3Registry.TryPublishFloor(taskItem.CacheKey, preparedFloor);
+                        swBuild.Stop();
+                        if (published)
+                        {
+                            MapLogCollector.Instance.Append(
+                                MapLogCategory.StructureRegistration,
+                                MapLogLevel.Info,
+                                "VPSG3 index build finished and published",
+                                elapsedMs: swBuild.Elapsed.TotalMilliseconds,
+                                details: new()
+                                {
+                                    ["mapId"] = taskItem.Map.Id,
+                                    ["floorKey"] = taskItem.Floor.Key,
+                                    ["cacheKey"] = taskItem.CacheKey.ToString(),
+                                    ["memoryBytes"] = preparedFloor.MemoryBytes,
+                                    ["width"] = preparedFloor.ReferenceWidth,
+                                    ["height"] = preparedFloor.ReferenceHeight,
+                                    ["elapsedMs"] = swBuild.Elapsed.TotalMilliseconds
+                                });
+                        }
+                        else
+                        {
+                            MapLogCollector.Instance.Append(
+                                MapLogCategory.StructureRegistration,
+                                MapLogLevel.Warning,
+                                "VPSG3 index build finished but rejected/displaced (stale slot)",
+                                elapsedMs: swBuild.Elapsed.TotalMilliseconds,
+                                details: new()
+                                {
+                                    ["mapId"] = taskItem.Map.Id,
+                                    ["floorKey"] = taskItem.Floor.Key,
+                                    ["cacheKey"] = taskItem.CacheKey.ToString()
+                                });
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -243,7 +348,20 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     }
                     catch (Exception ex)
                     {
+                        swBuild.Stop();
                         _vpsg3Registry.RecordBuildFailure(taskItem.CacheKey, ex.Message);
+                        MapLogCollector.Instance.Append(
+                            MapLogCategory.StructureRegistration,
+                            MapLogLevel.Warning,
+                            "VPSG3 index build failed with exception",
+                            elapsedMs: swBuild.Elapsed.TotalMilliseconds,
+                            details: new()
+                            {
+                                ["mapId"] = taskItem.Map.Id,
+                                ["floorKey"] = taskItem.Floor.Key,
+                                ["cacheKey"] = taskItem.CacheKey.ToString(),
+                                ["error"] = ex.Message
+                            });
                     }
 
                     return ValueTask.CompletedTask;

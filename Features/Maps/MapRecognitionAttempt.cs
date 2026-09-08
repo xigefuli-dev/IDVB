@@ -132,9 +132,12 @@ internal static class SideEntranceCandidateEvidence
 
         var rawChamferAccepted = double.IsFinite(candidate.RawChamferPixels)
             && candidate.RawChamferPixels <= StrictInitialIdentityChamferLimit;
+        var fastAccepted = structure?.UsedFastStrategy == true
+            && attempt.StructureAccepted
+            && (!double.IsFinite(candidate.RawChamferPixels) || candidate.RawChamferPixels <= StrictInitialIdentityChamferLimit);
         if (attempt.StructureAccepted
             && attempt.Recognition is not null
-            && rawChamferAccepted)
+            && (rawChamferAccepted || fastAccepted))
         {
             candidate.Disposition = SideEntranceCandidateDisposition.Reliable;
             candidate.RejectionReason = SideEntranceRejectionReason.None;
@@ -144,7 +147,7 @@ internal static class SideEntranceCandidateEvidence
 
         candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
         candidate.RejectionReason = SideEntranceRejectionReason.StructureRejected;
-        if (!rawChamferAccepted)
+        if (!rawChamferAccepted && !fastAccepted)
         {
             candidate.RejectionDetail =
                 $"结构 Chamfer {candidate.RawChamferPixels:F2}px 超过 "

@@ -175,6 +175,21 @@ public static class Vpsg3FastBootstrapSolver
             }
         }
 
+        // Stage 4.5: Candidate Re-ranking (Promotion of Spatially Superior Runner-Up)
+        // Coarse grid quantization can sometimes rank a local false peak above the true global basin.
+        // In steady tracking with a known reliable scale seed, if the refined runner-up is spatially
+        // consistent and achieves a higher spatial score, promote it to prevent false negative aperture rejections.
+        // On cold-start unseeded frames, competing distant modes must remain ambiguous to trigger safe fallback (e.g. syn_035).
+        if (knownScaleSeed.HasValue
+            && refinedCandidate2 is { } runnerUp
+            && runnerUp.Spatial.IsSpatiallyConsistent
+            && runnerUp.Spatial.GlobalScore > refinedCandidate1.Spatial.GlobalScore)
+        {
+            var originalPrimary = refinedCandidate1;
+            refinedCandidate1 = runnerUp;
+            refinedCandidate2 = originalPrimary;
+        }
+
         // Stage 5: Joint Verification Gate Decision
         var swGate = Stopwatch.StartNew();
         var gateDecision = Vpsg3VerificationGate.EvaluateDecision(
@@ -198,13 +213,13 @@ public static class Vpsg3FastBootstrapSolver
             return new Vpsg3BootstrapResult(
                 isAccepted: false,
                 fallbackReason: gateDecision.FailureReason,
-                scale: rfScale1,
-                offsetX: rfX1,
-                offsetY: rfY1,
-                confidence: rfScore1,
+                scale: refinedCandidate1.Scale,
+                offsetX: refinedCandidate1.OffsetX,
+                offsetY: refinedCandidate1.OffsetY,
+                confidence: refinedCandidate1.WeightedScore,
                 apertureMargin: gateDecision.Margin,
                 hasDistinctRunnerUp: gateDecision.HasDistinctRunnerUp,
-                passedPartitions: sp1.PassedPartitions,
+                passedPartitions: refinedCandidate1.Spatial.PassedPartitions,
                 scaleResult: scaleResult,
                 bestCandidate: refinedCandidate1,
                 runnerUpCandidate: refinedCandidate2,
@@ -214,13 +229,13 @@ public static class Vpsg3FastBootstrapSolver
         return new Vpsg3BootstrapResult(
             isAccepted: true,
             fallbackReason: string.Empty,
-            scale: rfScale1,
-            offsetX: rfX1,
-            offsetY: rfY1,
-            confidence: rfScore1,
+            scale: refinedCandidate1.Scale,
+            offsetX: refinedCandidate1.OffsetX,
+            offsetY: refinedCandidate1.OffsetY,
+            confidence: refinedCandidate1.WeightedScore,
             apertureMargin: gateDecision.Margin,
             hasDistinctRunnerUp: gateDecision.HasDistinctRunnerUp,
-            passedPartitions: sp1.PassedPartitions,
+            passedPartitions: refinedCandidate1.Spatial.PassedPartitions,
             scaleResult: scaleResult,
             bestCandidate: refinedCandidate1,
             runnerUpCandidate: refinedCandidate2,

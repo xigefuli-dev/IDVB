@@ -95,6 +95,12 @@ public sealed partial class MapCvRecognitionService
         }
 
         var vpsgFallbackCause = vpsg3Status;
+        if (structureTuning.Mode == MapStructureRegistrationMode.ScanVerification)
+        {
+            return vpsg3Attempt ?? MapCvRecognitionDiagnostics.Failure(
+                diagnostics,
+                $"VPSG 3.0 快速对齐未接受：{vpsg3Status}");
+        }
 
         var stopwatch = Stopwatch.StartNew();
         LockedFloorFeatureFit? fit = null;

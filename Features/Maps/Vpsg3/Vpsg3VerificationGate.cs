@@ -94,8 +94,16 @@ public static class Vpsg3VerificationGate
         var validParts = 0;
         var passedParts = 0;
 
+        var maxPartPoints = 0;
+        var maxPartPassed = false;
         for (var p = 0; p < 4; p++)
         {
+            if (partTotal[p] > maxPartPoints)
+            {
+                maxPartPoints = partTotal[p];
+                maxPartPassed = (double)partHits[p] / partTotal[p] >= cfg.PartitionScoreThreshold;
+            }
+
             if (partTotal[p] >= cfg.MinPointsPerPartition)
             {
                 validParts++;
@@ -107,8 +115,24 @@ public static class Vpsg3VerificationGate
             }
         }
 
+        // 空间一致性 / 质量放行判定：
+        // 1. 标准多分区：通过的分区数 >= MinPassedPartitions (默认 2)；
+        // 2. 全部有效分区均通过且全局得分达标 (如单分区完全覆盖)；
+        // 3. 主导象限高质量覆盖：特征点高度集中在单象限 (>= 60%) 且该象限自身通过，同时全局得分与命中点充分 (totalHits >= 20 且 globalScore >= PartitionScoreThreshold)；
+        // 4. 全局高置信放行：全局得分 >= 0.55 且总命中点数 >= 25，至少有 1 个分区通过 (passedParts >= 1)，避免边缘局部视角下被零碎杂质象限误杀。
+        var isDominantPartitionValid = maxPartPoints >= totalValidPoints * 0.60
+            && maxPartPassed
+            && globalScore >= cfg.PartitionScoreThreshold
+            && totalHits >= 20;
+
+        var isHighConfidenceGlobalValid = globalScore >= 0.55d
+            && totalHits >= 25
+            && passedParts >= 1;
+
         var isConsistent = passedParts >= cfg.MinPassedPartitions
-            || (validParts > 0 && passedParts == validParts && globalScore >= cfg.PartitionScoreThreshold);
+            || (validParts > 0 && passedParts == validParts && globalScore >= cfg.PartitionScoreThreshold)
+            || isDominantPartitionValid
+            || isHighConfidenceGlobalValid;
         return new Vpsg3SpatialResult(globalScore, totalValidPoints, totalHits, validParts, passedParts, isConsistent);
     }
 

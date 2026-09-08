@@ -83,6 +83,33 @@ public sealed class Vpsg3ShadowAndGateTests
     }
 
     [Fact]
+    public void CandidateReRanking_InSteadyTracking_PromotesConsistentRunnerUp()
+    {
+        // Demonstrates the Phase 1 fix: in steady tracking with knownScaleSeed,
+        // a spatially consistent runner-up with higher spatial score is swapped to best candidate.
+        // Before swap, primary=0.622, runnerUp=0.860 -> negative margin -0.238 -> rejected.
+        // After swap, primary=0.860, runnerUp=0.622 -> positive margin +0.238 -> passed.
+        var scale = new Vpsg3ScaleResult(Vpsg3ScaleStatus.Success, 1.016, 10.0, 0, "");
+        var weakPrimarySpatial = new Vpsg3SpatialResult(0.622, 150, 93, 4, 4, true);
+        var weakPrimary = new Vpsg3RefinedCandidate(1.016, 25, 25, 0.622, 0.622, 0.622, weakPrimarySpatial, 1);
+        var strongRunnerSpatial = new Vpsg3SpatialResult(0.860, 150, 129, 4, 4, true);
+        var strongRunner = new Vpsg3RefinedCandidate(1.016, 10, 10, 0.860, 0.860, 0.860, strongRunnerSpatial, 1);
+
+        // Raw Gate decision without swap would fail with ApertureMarginBelowThreshold
+        var unswappedGate = Vpsg3VerificationGate.EvaluateDecision(scale, weakPrimary, strongRunner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.False(unswappedGate.Passed);
+        Assert.Contains("ApertureMarginBelowThreshold", unswappedGate.FailureReason);
+        Assert.True(unswappedGate.Margin < 0);
+
+        // With swap applied (as in Stage 4.5)
+        var swappedGate = Vpsg3VerificationGate.EvaluateDecision(scale, strongRunner, weakPrimary,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.True(swappedGate.Passed);
+        Assert.True(swappedGate.Margin > 0.20);
+    }
+
+    [Fact]
     public async Task ShadowUsesOwnedFrameAndExactFloorLeaseWithoutChangingBaseline()
     {
         var sha = new string('a', 64);
@@ -185,5 +212,66 @@ public sealed class Vpsg3ShadowAndGateTests
         {
             foreach (var s in dataset) s.Dispose();
         }
+    }
+
+    [Fact]
+    public void SpatialVerification_DominantPartition_QualifiesConsistent()
+    {
+        // 场景：视口在地图角落，100 个点中有 80 个点落在象限 0（占比 80%），象限 0 命中 65 个（ratio 81%）。
+        // 其余象限点数很少或未及格，但全局得分 70%，总命中数 70。
+        // 原逻辑因 passedParts == 1 < 2 拒收；新逻辑识别主导象限高质量覆盖并放行。
+        var cfg = Vpsg3TuningConfig.Default;
+        var width = 200;
+        var height = 200;
+        // 构造点：象限 0 (X < 100, Y < 100) 放入 80 个点
+        var points = new List<OpenCvSharp.Point>();
+        for (var i = 0; i < 80; i++)
+        {
+            points.Add(new OpenCvSharp.Point(10 + (i % 10) * 8, 10 + (i / 10) * 8));
+        }
+        // 象限 1 (X >= 100, Y < 100) 放入 20 个点
+        for (var i = 0; i < 20; i++)
+        {
+            points.Add(new OpenCvSharp.Point(110 + (i % 5) * 8, 10 + (i / 5) * 8));
+        }
+
+        // 用 PreparedFloor 模拟全部命中
+        using var refMat = new OpenCvSharp.Mat(400, 400, OpenCvSharp.MatType.CV_8UC1, OpenCvSharp.Scalar.All(255));
+        var key = new Vpsg3IndexCacheKey(Guid.NewGuid(), "1f", "fp", DateTimeOffset.UnixEpoch, "gen");
+        var prepared = Vpsg3PreparedIndexBuilder.BuildFromMat(refMat, key);
+
+        var spatial = Vpsg3VerificationGate.EvaluateSpatialVerification(
+            points, null!, prepared, 1.0, 0, 0, new(0, 0, 200, 200), width, height, cfg);
+
+        Assert.True(spatial.IsSpatiallyConsistent);
+        Assert.True(spatial.GlobalScore >= 0.50);
+        Assert.True(spatial.HitPoints >= 20);
+    }
+
+    [Fact]
+    public void SpatialVerification_HighConfidenceGlobal_QualifiesConsistent()
+    {
+        // 场景：虽然只有 1 个分区及格，但全局命中率达 60% 且总命中点数 >= 25，应高置信放行
+        var cfg = Vpsg3TuningConfig.Default;
+        var width = 200;
+        var height = 200;
+        var points = new List<OpenCvSharp.Point>();
+        // 象限 0: 30 个点
+        for (var i = 0; i < 30; i++) points.Add(new OpenCvSharp.Point(10 + i * 2, 10));
+        // 象限 1: 10 个点
+        for (var i = 0; i < 10; i++) points.Add(new OpenCvSharp.Point(110 + i * 2, 10));
+        // 象限 2: 10 个点
+        for (var i = 0; i < 10; i++) points.Add(new OpenCvSharp.Point(10 + i * 2, 110));
+
+        using var refMat = new OpenCvSharp.Mat(400, 400, OpenCvSharp.MatType.CV_8UC1, OpenCvSharp.Scalar.All(255));
+        var key = new Vpsg3IndexCacheKey(Guid.NewGuid(), "1f", "fp", DateTimeOffset.UnixEpoch, "gen");
+        var prepared = Vpsg3PreparedIndexBuilder.BuildFromMat(refMat, key);
+
+        var spatial = Vpsg3VerificationGate.EvaluateSpatialVerification(
+            points, null!, prepared, 1.0, 0, 0, new(0, 0, 200, 200), width, height, cfg);
+
+        Assert.True(spatial.IsSpatiallyConsistent);
+        Assert.True(spatial.TotalValidPoints == 50);
+        Assert.True(spatial.HitPoints == 50);
     }
 }

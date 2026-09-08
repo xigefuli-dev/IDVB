@@ -13,7 +13,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Pipeline;
         // latency from the alignment critical path.
         var initialPrewarmTuning = CreateStructureTuningForFloor(             locked.Map,             targetFloorKey,             CreateInitialAlignmentStructureTuning());         var initialPrewarmTask = _recognition.WarmFloorStructureCacheAsync(             locked.Map,             targetFloorKey,             initialPrewarmTuning);         // Presence detection selects the first frame that belongs to the map;
         // no second screenshot is taken after readiness is confirmed.
-        var captureResult = await CaptureMapOpenViewportAsync(toggle, operationMatch, locked, targetFloorKey, recoveringSelectedIdentity, independentAlignment, initialPrewarmTuning, cancellationToken); CapturedGameFrame? frame = captureResult.Frame; var stableViewportWaitMs = captureResult.StableViewportWaitMilliseconds; var stableViewportMode = captureResult.StableViewportMode; var stableViewportFallback = captureResult.StableViewportFallback; var precomputedVpsg3Attempt = captureResult.PrecomputedVpsg3Attempt;         if (!_gameMapToggleState.IsCurrent(toggle))         {             trace?.SetTerminal("superseded", "map-operation-version-changed");             frame?.Dispose();             return;         }         try         {             cancellationToken.ThrowIfCancellationRequested();         }         catch         {             frame?.Dispose();             throw;         }         if (frame is null)         {             trace?.SetTerminal("failed", "stable-viewport-capture-failed");             _statusMessage = string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)                 ? "地图截图失败。"                 : _lastStableCaptureFailureReason;             _logCollector.Append(                 MapLogCategory.ViewportCapture,                 MapLogLevel.Warning,                 _statusMessage,                 elapsedMs: alignmentWallClock.Elapsed.TotalMilliseconds);             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 _overlay.ClearMap();                 if (_lastGameBounds.IsValid && _lastGameWindowHandle != IntPtr.Zero)                 {                     ShowTransientOverlayStatus(                         MapOverlayStatusLevel.Failure,                         "地图重新对齐失败",                         _statusMessage,                         "请保持游戏完整地图打开且画面稳定，然后重新打开地图重试。",                         _lastGameBounds,                         _lastGameWindowHandle);                     _overlay.Show();                 }                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }             StateChanged?.Invoke(this, EventArgs.Empty);
+        var captureResult = await CaptureMapOpenViewportAsync(toggle, locked, targetFloorKey, initialPrewarmTuning, cancellationToken); CapturedGameFrame? frame = captureResult.Frame; var stableViewportWaitMs = captureResult.StableViewportWaitMilliseconds; var stableViewportMode = captureResult.StableViewportMode; var stableViewportFallback = captureResult.StableViewportFallback; var precomputedVpsg3Attempt = captureResult.PrecomputedVpsg3Attempt;         if (!_gameMapToggleState.IsCurrent(toggle))         {             trace?.SetTerminal("superseded", "map-operation-version-changed");             frame?.Dispose();             return;         }         try         {             cancellationToken.ThrowIfCancellationRequested();         }         catch         {             frame?.Dispose();             throw;         }         if (frame is null)         {             trace?.SetTerminal("failed", "stable-viewport-capture-failed");             _statusMessage = string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)                 ? "地图截图失败。"                 : _lastStableCaptureFailureReason;             _logCollector.Append(                 MapLogCategory.ViewportCapture,                 MapLogLevel.Warning,                 _statusMessage,                 elapsedMs: alignmentWallClock.Elapsed.TotalMilliseconds);             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 _overlay.ClearMap();                 if (_lastGameBounds.IsValid && _lastGameWindowHandle != IntPtr.Zero)                 {                     ShowTransientOverlayStatus(                         MapOverlayStatusLevel.Failure,                         "地图重新对齐失败",                         _statusMessage,                         "请保持游戏完整地图打开且画面稳定，然后重新打开地图重试。",                         _lastGameBounds,                         _lastGameWindowHandle);                     _overlay.Show();                 }                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }             StateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -125,6 +125,54 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Pipeline;
                                     recoveredTransform.ScaleX))
                             {
                                 resetRecoveredScaleState = true;
+                            }
+                        }
+
+                        if (attempt.Recognition is null)
+                        {
+                            _logCollector.Append(
+                                MapLogCategory.StructureRegistration,
+                                MapLogLevel.Info,
+                                $"稳态追踪与恢复均未通过，降级至本楼层独立全量对齐 · floor={targetFloorKey}",
+                                details: new()
+                                {
+                                    ["floor"] = targetFloorKey,
+                                    ["previousFailure"] = attempt.FailureReason
+                                });
+
+                            if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure
+                                || MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(
+                                    isOtherFloor,
+                                    isPendingVariantAlignment,
+                                    alignmentSession))
+                            {
+                                var fallbackScaleSeed = MapFloorScaleSeedRules
+                                    .CreateIndependentFloorSeed(locked.Map, targetFloorKey);
+                                attempt = AlignExactManualFloor(
+                                    frame,
+                                    locked,
+                                    targetFloorKey,
+                                    fallbackScaleSeed,
+                                    alignmentMode,
+                                    tuning,
+                                    structureTuning,
+                                    alignmentSession.SideEntranceScanPriorConfidence,
+                                    out localRepairKey);
+                            }
+                            else
+                            {
+                                attempt = AlignMapOpenWithPreferredRoute(
+                                    frame,
+                                    locked,
+                                    targetFloorKey,
+                                    isOtherFloor,
+                                    recoveringSelectedIdentity,
+                                    alignmentSession,
+                                    alignmentMode,
+                                    tuning,
+                                    structureTuning,
+                                    RunFallback,
+                                    out localRepairKey);
                             }
                         }
                     }

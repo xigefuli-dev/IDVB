@@ -54,26 +54,23 @@ public static class MapViewportPresenceDetector
         if (viewport.Empty())
             return new MapViewportColorSignature([], 0d, 0d, null);
 
-        using var bgr = new Mat();
-        switch (viewport.Channels())
+        // Channel removal/replication commutes with area resize. Convert only 160x100 pixels.
+        using var reduced = new Mat();
+        Cv2.Resize(viewport, reduced, new Size(SignatureWidth, SignatureHeight),
+            interpolation: InterpolationFlags.Area);
+        using var resized = new Mat();
+        switch (reduced.Channels())
         {
             case 4:
-                Cv2.CvtColor(viewport, bgr, ColorConversionCodes.BGRA2BGR);
+                Cv2.CvtColor(reduced, resized, ColorConversionCodes.BGRA2BGR);
                 break;
             case 3:
-                viewport.CopyTo(bgr);
+                reduced.CopyTo(resized);
                 break;
             default:
-                Cv2.CvtColor(viewport, bgr, ColorConversionCodes.GRAY2BGR);
+                Cv2.CvtColor(reduced, resized, ColorConversionCodes.GRAY2BGR);
                 break;
         }
-
-        using var resized = new Mat();
-        Cv2.Resize(
-            bgr,
-            resized,
-            new Size(SignatureWidth, SignatureHeight),
-            interpolation: InterpolationFlags.Area);
         using var hsv = new Mat();
         Cv2.CvtColor(resized, hsv, ColorConversionCodes.BGR2HSV);
         using var gray = new Mat();

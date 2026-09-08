@@ -55,7 +55,12 @@ public sealed partial class SessionOrchestrator
         referenceCandidates = candidates
             .Where(candidate => candidate.Disposition !=
                 SideEntranceCandidateDisposition.Reliable)
-            .OrderByDescending(candidate => candidate.MatchScore)
+            .OrderBy(candidate => candidate.RejectionReason ==
+                SideEntranceRejectionReason.StructureRejected ? 1 : 0)
+            .ThenBy(candidate => double.IsFinite(candidate.GateSpatialResidualPixels)
+                ? candidate.GateSpatialResidualPixels
+                : 999d)
+            .ThenByDescending(candidate => candidate.MatchScore)
             .Take(SideEntranceScanRules.MaximumReferenceCandidates)
             .ToArray();
         for (var index = 0; index < referenceCandidates.Length; index++)
@@ -75,8 +80,10 @@ public sealed partial class SessionOrchestrator
                     EvidenceScore = candidate.MatchScore,
                     IsReferenceOnly = true,
                     PreferredOrder = index,
-                    EvidenceLabel = (requireStrictStructureRegistration
-                            ? "仅供参考（未通过结构验证） · "
+                    EvidenceLabel = (candidate.RejectionReason == SideEntranceRejectionReason.StructureRejected
+                            ? "结构验证未通过 · "
+                            : requireStrictStructureRegistration
+                            ? "未验证（优先候选） · "
                             : "扫描阶段未验证 · ")
                         + $"模板相似度 {candidate.MatchScore:P0} · "
                         + candidate.RejectionDetail

@@ -31,6 +31,11 @@ public sealed partial class IdvaStructureLineEngine
     private const int MaximumStages = 64;
     private static readonly HashSet<string> SupportedStages =
     [
+        "tone_adjustment",
+        "clahe_contrast",
+        "unsharp_sharpen",
+        "separate_classes",
+        "wall_barrier_separation",
         "color_classification",
         "ignore_route_overlays",
         "class_conflict_resolution",
@@ -43,6 +48,7 @@ public sealed partial class IdvaStructureLineEngine
         "contours",
         "room_contours",
         "corridor_contours",
+        "source_edge_evidence",
         "draw_edges"
     ];
 
@@ -171,12 +177,46 @@ public sealed partial class IdvaStructureLineEngine
         var name = RequireNonEmptyString(stage, "stage");
         switch (name)
         {
+            case "tone_adjustment":
+                ApplyToneAdjustment(state, stage);
+                break;
+            case "clahe_contrast":
+                ApplyClaheContrast(state, stage);
+                break;
+            case "unsharp_sharpen":
+                ApplyUnsharpMask(state, stage);
+                break;
+            case "separate_classes":
+                ApplySeparateClasses(state, stage);
+                break;
+            case "wall_barrier_separation":
+                ApplyWallBarriers(state, stage);
+                break;
             case "color_classification":
                 Classify(state, parameters, stage, progress, cancellationToken);
                 break;
             case "class_conflict_resolution":
-                RequireString(stage, "mode", "nearest_center_wins");
-                ResolveClassConflict(state);
+                var conflictMode = RequireNonEmptyString(stage, "mode");
+                if (conflictMode == "room_wins")
+                {
+                    using var notRoom = new Mat();
+                    Cv2.BitwiseNot(state.Room, notRoom);
+                    Cv2.BitwiseAnd(state.Corridor, notRoom, state.Corridor);
+                }
+                else if (conflictMode == "corridor_wins")
+                {
+                    using var notCorr = new Mat();
+                    Cv2.BitwiseNot(state.Corridor, notCorr);
+                    Cv2.BitwiseAnd(state.Room, notCorr, state.Room);
+                }
+                else if (conflictMode == "nearest_center_wins")
+                {
+                    ResolveClassConflict(state);
+                }
+                else
+                {
+                    throw new InvalidDataException($"不支持的 class_conflict_resolution 模式：{conflictMode}。");
+                }
                 break;
             case "ignore_route_overlays":
                 RequireString(stage, "mode", "HSV_RANGES");
@@ -213,17 +253,59 @@ public sealed partial class IdvaStructureLineEngine
             case "contours":
                 state.RoomRetrieval = ReadRetrieval(stage);
                 state.CorridorRetrieval = state.RoomRetrieval;
+                if (stage.TryGetProperty("approx_poly_dp_epsilon", out var epsVal) && epsVal.TryGetDouble(out var eps) && eps >= 0d)
+                    state.ApproxPolyDpEpsilon = eps;
+                if (stage.TryGetProperty("min_perimeter_px", out var minPerimVal) && minPerimVal.TryGetDouble(out var minP) && minP >= 0d)
+                    state.MinPerimeterPx = minP;
+                if (stage.TryGetProperty("orthogonal_snap_px", out var snapVal) && snapVal.TryGetInt32(out var sPx) && sPx >= 0)
+                    state.OrthogonalSnapPx = sPx;
                 break;
             case "room_contours":
                 state.RoomRetrieval = ReadRetrieval(stage);
+                if (stage.TryGetProperty("approx_poly_dp_epsilon", out var epsValR) && epsValR.TryGetDouble(out var epsR) && epsR >= 0d)
+                    state.ApproxPolyDpEpsilon = epsR;
+                if (stage.TryGetProperty("min_perimeter_px", out var minPerimValR) && minPerimValR.TryGetDouble(out var minPR) && minPR >= 0d)
+                    state.MinPerimeterPx = minPR;
+                if (stage.TryGetProperty("orthogonal_snap_px", out var snapValR) && snapValR.TryGetInt32(out var sPxR) && sPxR >= 0)
+                    state.OrthogonalSnapPx = sPxR;
                 break;
             case "corridor_contours":
                 state.CorridorRetrieval = ReadRetrieval(stage);
+                if (stage.TryGetProperty("approx_poly_dp_epsilon", out var epsValC) && epsValC.TryGetDouble(out var epsC) && epsC >= 0d)
+                    state.ApproxPolyDpEpsilon = epsC;
+                if (stage.TryGetProperty("min_perimeter_px", out var minPerimValC) && minPerimValC.TryGetDouble(out var minPC) && minPC >= 0d)
+                    state.MinPerimeterPx = minPC;
+                if (stage.TryGetProperty("min_hole_area_px", out var minHoleValC) && minHoleValC.TryGetDouble(out var minHC) && minHC >= 0d)
+                    state.CorridorMinHoleAreaPx = minHC;
+                if (stage.TryGetProperty("orthogonal_snap_px", out var snapValC) && snapValC.TryGetInt32(out var sPxC) && sPxC >= 0)
+                    state.OrthogonalSnapPx = sPxC;
+                break;
+            case "source_edge_evidence":
+                ExecuteSourceEdgeEvidence(state, parameters, stage);
                 break;
             case "draw_edges":
                 if (ReadBoolean(stage, "antialias"))
                     throw new InvalidDataException("IDVA 1.1 不支持抗锯齿线图。");
-                state.CombineEdges(ReadBoundedInt(stage, "line_width_px", 1, 16));
+                var lineWidth = ReadBoundedInt(stage, "line_width_px", 1, 16);
+                var drawMode = stage.TryGetProperty("mode", out var mProp) ? mProp.GetString() : "CONTOURS";
+                if (stage.TryGetProperty("approx_poly_dp_epsilon", out var epsValD) && epsValD.TryGetDouble(out var epsD) && epsD >= 0d)
+                    state.ApproxPolyDpEpsilon = epsD;
+                if (stage.TryGetProperty("min_perimeter_px", out var minPerimValD) && minPerimValD.TryGetDouble(out var minPD) && minPD >= 0d)
+                    state.MinPerimeterPx = minPD;
+                if (stage.TryGetProperty("orthogonal_snap_px", out var snapValD) && snapValD.TryGetInt32(out var sPxD) && sPxD >= 0)
+                    state.OrthogonalSnapPx = sPxD;
+                if (drawMode is "CONTOURS" or null)
+                {
+                    state.CombineEdges(lineWidth);
+                }
+                else if (drawMode is "SOURCE_EDGE_GATED" or "CANNY_BOUNDARY_GATED")
+                {
+                    DrawSourceEdgeGated(state, parameters, stage, lineWidth);
+                }
+                else
+                {
+                    throw new InvalidDataException($"不支持的 draw_edges 模式：{drawMode}。");
+                }
                 break;
         }
     }

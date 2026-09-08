@@ -175,7 +175,7 @@ public sealed partial class MapRuntimeSettings
             AmbiguityMargin = 0.015d,
             ConfirmationAdvantage = 0.08d,
             ForceBestRecognitionResult = false,
-            ForceCandidateSelection = true,
+            ForceCandidateSelection = false,
             WarmGateSearchBudgetMs = 120,
             ConfirmationGateSearchBudgetMs = 0,
             ConfirmationRoiTemplatePaddingFactor = 1d,

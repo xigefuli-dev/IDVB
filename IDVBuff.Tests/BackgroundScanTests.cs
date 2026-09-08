@@ -253,28 +253,34 @@ public sealed partial class BackgroundScanTests
     [Fact]
     public void AllTemplateCandidatesReceiveMandatoryFormalStructureRegistration()
     {
-        var sourcePath = Path.Combine(
+        var mainSource = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "Features",
             "Maps",
-            "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs");
-        var source = File.ReadAllText(sourcePath);
-        var verificationIndex = source.IndexOf(
-            "var verificationCandidates = candidates;",
+            "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs"));
+        var verificationSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "Features",
+            "Maps",
+            "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.Verification.cs"));
+
+        var verificationCallIndex = mainSource.IndexOf(
+            "VerifySideEntranceCandidates(",
             StringComparison.Ordinal);
-        var backgroundCompletionIndex = source.LastIndexOf(
+        var backgroundCompletionIndex = mainSource.LastIndexOf(
             "if (recognizeOnly)",
             StringComparison.Ordinal);
 
-        Assert.True(verificationIndex >= 0);
-        Assert.True(backgroundCompletionIndex > verificationIndex);
-        Assert.Contains("RunMandatoryCandidateStructureRegistration(", source);
-        Assert.Contains("CreateIndependentCandidateStructureSeed(", source);
-        Assert.DoesNotContain("ScanVerificationMinimumCandidateBudgetMilliseconds", source);
-        Assert.DoesNotContain("SelectVerificationCandidates", source);
+        Assert.True(verificationCallIndex >= 0);
+        Assert.True(backgroundCompletionIndex > verificationCallIndex);
+        Assert.Contains("var verificationCandidates = candidates;", verificationSource);
+        Assert.Contains("RunMandatoryCandidateStructureRegistration(", verificationSource);
+        Assert.Contains("CreateIndependentCandidateStructureSeed(", verificationSource);
+        Assert.DoesNotContain("ScanVerificationMinimumCandidateBudgetMilliseconds", verificationSource);
+        Assert.DoesNotContain("SelectVerificationCandidates", verificationSource);
         Assert.DoesNotContain(
             "BuildSideEntranceChoices",
-            source,
+            mainSource,
             StringComparison.Ordinal);
 
         var mandatorySource = File.ReadAllText(Path.Combine(
@@ -492,5 +498,4 @@ public sealed partial class BackgroundScanTests
             CreateSideEntranceSeed(map),
             "1f"));
     }
-
 }

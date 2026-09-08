@@ -54,4 +54,11 @@ public interface IGameWindowCapture
     /// Releases cached surface bitmap, graphics, and hot frames.
     /// </summary>
     void Reset() { }
+
+    /// <summary>Warms a native frame pool; implementations may retain the synchronous fallback.</summary>
+    void PrepareViewportCapture() { }
+
+    /// <summary>Waits for a distinct native frame newer than the supplied QPC time in 100 ns units.</summary>
+    Task<object?> CaptureNextViewportAsync(object viewport, long afterSystemTicks,
+        TimeSpan maximumWait, CancellationToken cancellationToken) => Task.FromResult<object?>(null);
 }

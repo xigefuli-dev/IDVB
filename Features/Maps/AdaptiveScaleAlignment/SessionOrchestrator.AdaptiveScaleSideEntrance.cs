@@ -32,6 +32,11 @@ public sealed partial class SessionOrchestrator
                 return scanTemplateAttempt;
             }
 
+            if (MapOpenAlignmentRouteRules.ShouldShortCircuitScanVerification(scanTemplateAttempt))
+            {
+                return scanTemplateAttempt;
+            }
+
             // The mandatory template formal registration establishes the
             // candidate accounting. VPSG is a second, independent scale
             // proposal; it never replaces or suppresses that registration.

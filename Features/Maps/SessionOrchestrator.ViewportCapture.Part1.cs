@@ -19,7 +19,9 @@ public sealed partial class SessionOrchestrator
         CancellationToken cancellationToken,
         Func<bool>? shouldContinue,
         bool requireStructureReadiness,
-        int structureFallbackFrameCount)
+        int structureFallbackFrameCount,
+        bool prepareNativeStructure,
+        bool prepareVpsg3Structure)
     {
         var sessionTuning = _settings!.SessionTuning;
         // Readiness must remain bounded. A stale floor reference or a map that
@@ -29,6 +31,8 @@ public sealed partial class SessionOrchestrator
             sessionTuning.OpeningTimeoutMilliseconds,
             interval * 4d);
         var stopwatch = Stopwatch.StartNew();
+        var afterSystemTicks = (long)(Stopwatch.GetTimestamp()
+            * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
         CapturedGameFrame? lastFrame = null;
         var attempts = 0;
         var successfulCaptures = 0;
@@ -62,21 +66,37 @@ public sealed partial class SessionOrchestrator
                 string failureReason;
                 try
                 {
-                    captured = _captureSvc.TryCaptureViewport(
-                        viewport,
-                        out frameObj,
-                        out failureReason);
+                    frameObj = await _captureSvc.CaptureNextViewportAsync(
+                        viewport, afterSystemTicks,
+                        TimeSpan.FromMilliseconds(Math.Max(1d, Math.Min(50d,
+                            timeout - stopwatch.Elapsed.TotalMilliseconds))),
+                        cancellationToken).ConfigureAwait(false);
+                    failureReason = string.Empty;
+                    captured = frameObj is CapturedGameFrame;
+                    if (!captured)
+                    {
+                        captured = _captureSvc.TryCaptureViewport(viewport, out frameObj, out failureReason);
+                        afterSystemTicks = (long)(Stopwatch.GetTimestamp()
+                            * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
+                    }
                 }
                 finally
                 {
                     captureSpan?.Complete();
                 }
                 captureTimer.Stop();
+                if (_disposed || cancellationToken.IsCancellationRequested
+                    || !(shouldContinue?.Invoke() ?? true))
+                {
+                    DisposeViewportFrame(frameObj as IDisposable, attempts);
+                    break;
+                }
                 if (captured && frameObj is CapturedGameFrame current)
                 {
                     successfulCaptures++;
                     DisposeViewportFrame(lastFrame, attempts);
                     lastFrame = current;
+                    afterSystemTicks = Math.Max(afterSystemTicks, current.CaptureSystemRelativeTicks);
                     // 本帧签名同时用于就绪判定和下一帧的明度基线，只能算一次。
                     var signatureTimer = Stopwatch.StartNew();
                     var signatureSpan = ActiveOperationTrace?.StartChild(
@@ -150,6 +170,17 @@ public sealed partial class SessionOrchestrator
                         signatureTimer.Elapsed.TotalMilliseconds;
                     if (lastPresence.IsPresent)
                     {
+                        var structureTimer = Stopwatch.StartNew();
+                        if (prepareNativeStructure || prepareVpsg3Structure)
+                        {
+                            using var structureSpan = ActiveOperationTrace?.StartChild(
+                                "native_contour", MapOperationWaitKind.Compute, attemptIndex: attempts);
+                            if (prepareVpsg3Structure)
+                                current.GetOrCreateVpsg3Observation();
+                            else
+                                current.GetOrCreateNativeObservedStructure();
+                        }
+                        structureTimer.Stop();
                         _logCollector.Append(
                             MapLogCategory.ViewportCapture,
                             MapLogLevel.Info,
@@ -167,6 +198,12 @@ public sealed partial class SessionOrchestrator
                                 ["blueGrayFraction"] = lastPresence.BlueGrayFraction,
                                 ["presenceRejections"] = presenceRejections,
                                 ["readyWaitMs"] = stopwatch.Elapsed.TotalMilliseconds,
+                                ["captureBackend"] = current.CaptureBackend,
+                                ["nativeContourMs"] = structureTimer.Elapsed.TotalMilliseconds,
+                                ["nativeFrameToContourMs"] = current.CaptureSystemRelativeTicks > 0
+                                    ? Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency
+                                        - current.CaptureSystemRelativeTicks / (double)TimeSpan.TicksPerMillisecond
+                                    : null,
                                 ["captureMs"] = captureMilliseconds,
                                 ["signatureMs"] = signatureMilliseconds,
                                 ["pollIntervalMs"] = interval,
@@ -230,6 +267,9 @@ public sealed partial class SessionOrchestrator
                         : failureReason;
                 }
 
+                // A native frame is already paced by FrameArrived; never add a polling sleep to it.
+                if (lastFrame?.CaptureSystemRelativeTicks > 0)
+                    continue;
                 if (stopwatch.ElapsedMilliseconds + interval > timeout)
                     break;
                 try

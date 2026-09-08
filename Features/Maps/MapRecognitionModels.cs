@@ -37,6 +37,8 @@ public sealed partial class CapturedGameFrame : IDisposable
     public MapScreenRect ClientBounds { get; }
     public MapScreenRect ViewportBounds { get; }
     public IntPtr WindowHandle { get; }
+    public long CaptureSystemRelativeTicks { get; init; }
+    public string CaptureBackend { get; init; } = "gdi";
 
     internal MapStructureFeatures GetOrCreateDefaultLiveStructureFeatures(
         MapStructurePreprocessor preprocessor,
@@ -151,6 +153,8 @@ public sealed partial class CapturedGameFrame : IDisposable
             if (_disposed)
                 return;
             _disposed = true;
+            _vpsg3Observation?.Dispose();
+            _vpsg3Observation = null;
             _nativeObservedStructure?.Dispose();
             _nativeObservedStructure = null;
             _defaultLiveStructureFeatures?.Dispose();

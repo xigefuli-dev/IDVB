@@ -55,7 +55,7 @@ public sealed class MapRuntimeDefaultSettingsTests
 
         Assert.Equal(0.15d, settings.RecognitionTuning.VectorErrorTolerance);
         Assert.False(settings.RecognitionTuning.ForceBestRecognitionResult);
-        Assert.True(settings.RecognitionTuning.ForceCandidateSelection);
+        Assert.False(settings.RecognitionTuning.ForceCandidateSelection);
         Assert.Equal(10, settings.SessionTuning.OpeningAnimationDelayMilliseconds);
         Assert.Equal(10, settings.SessionTuning.StableFrameIntervalMilliseconds);
         Assert.Equal(3, settings.SessionTuning.StableFrameCount);

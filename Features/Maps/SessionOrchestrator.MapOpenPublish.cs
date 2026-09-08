@@ -331,11 +331,16 @@ public sealed partial class SessionOrchestrator
         var pendingVariant = IsPendingVariantAlignment(
             locked.Map.Id,
             targetFloorKey);
+        var isQueryLarger = failureReason?.Contains("结构范围超出") == true
+            || failureReason?.Contains("QueryLargerThanReference") == true
+            || failureReason?.Contains("结构范围大于参考地图") == true;
         _statusMessage = recoveringSelectedIdentity
             ? $"所选地图暂未完成首次对齐：{locked.Map.DisplayName} · "
                 + $"{failureReason ?? "无法匹配当前画面"}"
-            : $"对齐未更新：当前按{manualFloorLabel}对齐；"
-                + $"{failureReason ?? "无法匹配当前画面"}";
+            : isQueryLarger
+                ? $"对齐未更新：当前按{manualFloorLabel}对齐，但画面特征范围明显超出该楼层（疑似楼层不匹配）"
+                : $"对齐未更新：当前按{manualFloorLabel}对齐；"
+                    + $"{failureReason ?? "无法匹配当前画面"}";
         resultPublish?.Complete();
         _logCollector.Append(
             MapLogCategory.Session,
@@ -352,19 +357,24 @@ public sealed partial class SessionOrchestrator
         {
             _overlay.ClearMap();
             var isPendingWait = pendingVariant || recoveringSelectedIdentity;
+            var bannerLevel = isPendingWait || isQueryLarger
+                ? MapOverlayStatusLevel.Warning
+                : MapOverlayStatusLevel.Failure;
+            var bannerTitle = isPendingWait
+                ? (pendingVariant ? "目标变体等待对齐" : "已选定地图，等待开图对齐")
+                : (isQueryLarger ? "楼层结构不匹配" : "地图重新对齐失败");
+            var bannerSubtext = isPendingWait
+                ? (pendingVariant
+                    ? "目标地图身份和楼层已保留；本次没有复用旧变体的覆盖层或变换。"
+                    : "已锁定所选地图身份；请保持完整地图打开并重新打开地图以完成对齐。")
+                : (isQueryLarger
+                    ? $"检测到当前小地图结构大于{manualFloorLabel}参考范围。若刚进入其他楼层，请等待游戏小地图刷新后重新开图；或按快捷键切换到正确楼层。"
+                    : "本次未复用旧变换；请保持完整地图打开，确认 IDVB 手动楼层正确后重新打开地图重试。");
             ShowTransientOverlayStatus(
-                isPendingWait
-                    ? MapOverlayStatusLevel.Warning
-                    : MapOverlayStatusLevel.Failure,
-                isPendingWait
-                    ? (pendingVariant ? "目标变体等待对齐" : "已选定地图，等待开图对齐")
-                    : "地图重新对齐失败",
+                bannerLevel,
+                bannerTitle,
                 _statusMessage,
-                isPendingWait
-                    ? (pendingVariant
-                        ? "目标地图身份和楼层已保留；本次没有复用旧变体的覆盖层或变换。"
-                        : "已锁定所选地图身份；请保持完整地图打开并重新打开地图以完成对齐。")
-                    : "本次未复用旧变换；请保持完整地图打开，确认 IDVB 手动楼层正确后重新打开地图重试。",
+                bannerSubtext,
                 frame.ClientBounds,
                 frame.WindowHandle);
             _overlay.Show();

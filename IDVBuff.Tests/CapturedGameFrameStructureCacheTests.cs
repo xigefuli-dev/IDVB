@@ -5,6 +5,26 @@ namespace IDVBuff.Tests;
 
 public sealed class CapturedGameFrameStructureCacheTests
 {
+    [Fact]
+    public void PreparedVpsg3ContourMatchesFreshExtractionAndIsOwnedByThisFrame()
+    {
+        using var image = new Mat(240, 320, MatType.CV_8UC4, new Scalar(90, 70, 60, 255));
+        Cv2.Rectangle(image, new Rect(40, 35, 220, 160), Scalar.White, 3);
+        using var frame = new CapturedGameFrame(image.Clone(), default, new(15, 25, 320, 240), new(7));
+        var prepared = frame.GetOrCreateVpsg3Observation();
+        using var fresh = Vpsg3FastLiveExtractor.Extract(image, frame.ViewportBounds);
+        Assert.Same(prepared, frame.GetOrCreateVpsg3Observation());
+        Assert.Equal(0d, Cv2.Norm(fresh.ObservedEdges, prepared.ObservedEdges, NormTypes.INF));
+        Assert.Equal(0d, Cv2.Norm(fresh.ValidMask, prepared.ValidMask, NormTypes.INF));
+        Assert.Equal(frame.ViewportBounds, prepared.ViewportBounds);
+        using var secondFrame = new CapturedGameFrame(image.Clone(), default, frame.ViewportBounds, new(7));
+        Assert.NotSame(prepared, secondFrame.GetOrCreateVpsg3Observation());
+        frame.Dispose();
+        Assert.True(prepared.IsDisposed);
+        Assert.False(secondFrame.GetOrCreateVpsg3Observation().IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => frame.GetOrCreateVpsg3Observation());
+    }
+
     [Theory]
     [InlineData(1333, 1062, 1003, 799)]
     [InlineData(2006, 1594, 1003, 797)]

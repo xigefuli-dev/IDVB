@@ -9,6 +9,29 @@ namespace IDVBuff.Tests;
 /// </summary>
 public sealed class MapViewportPresenceDetectorReadyTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void ReducedColorConversionPreservesTheExistingSignature(int channels)
+    {
+        using var image = new Mat(799, 1003, MatType.CV_8UC(channels));
+        Cv2.Randu(image, Scalar.All(0), Scalar.All(256));
+        using var bgr = new Mat();
+        if (channels == 3) image.CopyTo(bgr);
+        else Cv2.CvtColor(image, bgr, channels == 4
+            ? ColorConversionCodes.BGRA2BGR : ColorConversionCodes.GRAY2BGR);
+        using var legacyReduced = new Mat();
+        Cv2.Resize(bgr, legacyReduced, new Size(160, 100), interpolation: InterpolationFlags.Area);
+        var expected = MapViewportPresenceDetector.CreateSignature(legacyReduced);
+        var actual = MapViewportPresenceDetector.CreateSignature(image);
+        Assert.Equal(expected.Histogram, actual.Histogram);
+        Assert.Equal(expected.MeanValue, actual.MeanValue);
+        Assert.Equal(expected.BlueGrayFraction, actual.BlueGrayFraction);
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(expected.Structure),
+            System.Text.Json.JsonSerializer.Serialize(actual.Structure));
+    }
+
     [Fact]
     public void EvaluateReadyAcceptsSettledReferenceFrame()
     {

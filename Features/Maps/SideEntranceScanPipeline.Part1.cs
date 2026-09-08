@@ -130,8 +130,16 @@ public sealed partial class SideEntranceScanPipeline
                     mapId: map.Id.ToString("D"),
                     floorKey: floorKey,
                     attemptIndex: i);
+                GateSpatialPrior? gatePrior = null;
+                if (TryCreateGateSpatialPrior(
+                        map, floorKey, template,
+                        detectedGate, viewportBounds, searchBounds,
+                        out var prior))
+                {
+                    gatePrior = prior;
+                }
                 var peak = FindCoarsePeak(
-                    coarseFrame, template, coarseFactor,
+                    coarseFrame, template, coarseFactor, gatePrior,
                     $"{map.SequenceNumber}#{floorKey}");
                 coarseResults[i] = peak is { } p
                     ? new CoarseResult(map, floorKey, template, p)
@@ -250,6 +258,9 @@ public sealed partial class SideEntranceScanPipeline
         var eligible = results
             .Where(candidate => candidate.Disposition !=
                 SideEntranceCandidateDisposition.Rejected)
+            .OrderBy(candidate => double.IsFinite(candidate.GateSpatialResidualPixels)
+                && candidate.GateSpatialResidualPixels > 25d ? 1 : 0)
+            .ThenByDescending(candidate => candidate.MatchScore)
             .Take(topK)
             .ToList();
         return eligible;
@@ -363,78 +374,5 @@ public sealed partial class SideEntranceScanPipeline
         top = Math.Clamp(top, 0, grayFrame.Height - height);
         window = new Rect(left, top, width, height);
         return true;
-    }
-
-    /// <summary>
-    /// 在（已降采样的）粗帧上遍历缩放网格，返回得分最高的那一档缩放及其
-    /// 匹配位置。缩放是相对原始分辨率的，位置则是降采样图坐标；降采样只
-    /// 影响搜索成本与位置精度，不影响缩放语义。粗帧由调用方一次性构建并
-    /// 共享给全部候选地图，避免每张地图重复降采样完整帧。
-    /// </summary>
-    /// <param name="coarseFrame">1/<paramref name="coarseFactor"/> 分辨率的灰度帧。</param>
-    /// <param name="coarseFactor">粗搜索的降采样倍率。</param>
-    private static CoarsePeak? FindCoarsePeak(
-        Mat coarseFrame,
-        Mat template,
-        int coarseFactor,
-        string logContext)
-    {
-        CoarsePeak? bestPeak = null;
-        var bestScore = double.NegativeInfinity;
-        var response = new List<(double Scale, double Score)>();
-        for (var scale = SideEntranceScanRules.MinimumScale;
-            scale <= SideEntranceScanRules.MaximumScale;
-            scale *= 1d + SideEntranceScanRules.CoarseScaleStep)
-        {
-            var width = (int)Math.Round(
-                template.Width * scale / coarseFactor);
-            var height = (int)Math.Round(
-                template.Height * scale / coarseFactor);
-            if (width < 8 || height < 8
-                || width >= coarseFrame.Width || height >= coarseFrame.Height)
-            {
-                continue;
-            }
-
-            using var scaled = new Mat();
-            Cv2.Resize(
-                template,
-                scaled,
-                new Size(width, height),
-                0d,
-                0d,
-                InterpolationFlags.Area);
-            using var resultMat = new Mat();
-            Cv2.MatchTemplate(
-                coarseFrame,
-                scaled,
-                resultMat,
-                TemplateMatchModes.CCoeffNormed);
-            Cv2.MinMaxLoc(resultMat, out _, out var maxVal, out _, out var maxLoc);
-            if (double.IsFinite(maxVal))
-                response.Add((scale, maxVal));
-            if (double.IsFinite(maxVal) && maxVal > bestScore)
-            {
-                bestScore = maxVal;
-                bestPeak = new CoarsePeak(scale, maxLoc.X, maxLoc.Y, maxVal);
-            }
-        }
-
-        if (response.Count > 0)
-        {
-            MapLogCollector.Instance.Append(
-                MapLogCategory.GateDetection,
-                MapLogLevel.Info,
-                $"侧门粗搜索尺度响应 {logContext}",
-                details: new()
-                {
-                    ["scales"] = string.Join(
-                        ",", response.Select(r => r.Scale.ToString("F3"))),
-                    ["scores"] = string.Join(
-                        ",", response.Select(r => r.Score.ToString("F4")))
-                });
-        }
-
-        return bestPeak;
     }
 }

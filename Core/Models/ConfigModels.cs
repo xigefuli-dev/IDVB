@@ -160,7 +160,7 @@ public sealed class GeometryConfig
 
 public sealed class CandidateConfig
 {
-    public bool ForceCandidateSelection { get; init; } = true;
+    public bool ForceCandidateSelection { get; init; } = false;
     public bool ForceBestResult { get; init; }
     public int TopCandidates { get; init; } = 4;
     public int WarmGateSearchBudgetMs { get; init; } = 120;

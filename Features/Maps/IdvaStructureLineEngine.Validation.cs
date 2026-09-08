@@ -155,27 +155,36 @@ public sealed partial class IdvaStructureLineEngine
 
     private sealed class PipelineState : IDisposable
     {
+        private Mat _bgr;
         private Mat _room;
         private Mat _corridor;
         private Mat? _roomDistance;
         private Mat? _corridorDistance;
+        private Mat? _routeMask;
+        private Mat? _sourceEdgeEvidence;
         private Mat? _edges;
 
         private PipelineState(Mat bgr, Mat room, Mat corridor)
         {
-            Bgr = bgr;
+            _bgr = bgr;
             _room = room;
             _corridor = corridor;
         }
 
-        public Mat Bgr { get; }
+        public Mat Bgr => _bgr;
         public Mat Room => _room;
         public Mat Corridor => _corridor;
         public Mat? RoomDistance => _roomDistance;
         public Mat? CorridorDistance => _corridorDistance;
+        public Mat? RouteMask => _routeMask;
+        public Mat? SourceEdgeEvidence => _sourceEdgeEvidence;
         public Mat? Edges => _edges;
         public RetrievalModes RoomRetrieval { get; set; } = RetrievalModes.List;
         public RetrievalModes CorridorRetrieval { get; set; } = RetrievalModes.List;
+        public double ApproxPolyDpEpsilon { get; set; } = 0d;
+        public double MinPerimeterPx { get; set; } = 0d;
+        public double CorridorMinHoleAreaPx { get; set; } = 0d;
+        public int OrthogonalSnapPx { get; set; } = 0;
 
         public static PipelineState Create(Mat source)
         {
@@ -201,8 +210,12 @@ public sealed partial class IdvaStructureLineEngine
                 new Mat(source.Size(), MatType.CV_8UC1, Scalar.Black));
         }
 
+        public void ReplaceBgr(Mat value) => Replace(ref _bgr, value);
         public void ReplaceRoom(Mat value) => Replace(ref _room, value);
         public void ReplaceCorridor(Mat value) => Replace(ref _corridor, value);
+        public void ReplaceRouteMask(Mat value) => ReplaceNullable(ref _routeMask, value);
+        public void ReplaceSourceEdgeEvidence(Mat value) => ReplaceNullable(ref _sourceEdgeEvidence, value);
+        public void ReplaceEdges(Mat value) => ReplaceNullable(ref _edges, value);
         public void ReplaceDistances(Mat room, Mat corridor)
         {
             ReplaceNullable(ref _roomDistance, room);
@@ -211,8 +224,8 @@ public sealed partial class IdvaStructureLineEngine
 
         public void CombineEdges(int thickness)
         {
-            using var room = DrawContours(Room, RoomRetrieval, thickness);
-            using var corridor = DrawContours(Corridor, CorridorRetrieval, thickness);
+            using var room = DrawContours(Room, RoomRetrieval, thickness, ApproxPolyDpEpsilon, MinPerimeterPx, 0d, OrthogonalSnapPx);
+            using var corridor = DrawContours(Corridor, CorridorRetrieval, thickness, ApproxPolyDpEpsilon, MinPerimeterPx, CorridorMinHoleAreaPx, OrthogonalSnapPx);
             var combined = new Mat();
             Cv2.BitwiseOr(room, corridor, combined);
             ReplaceNullable(ref _edges, combined);
@@ -237,6 +250,8 @@ public sealed partial class IdvaStructureLineEngine
             _corridor.Dispose();
             _roomDistance?.Dispose();
             _corridorDistance?.Dispose();
+            _routeMask?.Dispose();
+            _sourceEdgeEvidence?.Dispose();
             _edges?.Dispose();
         }
     }

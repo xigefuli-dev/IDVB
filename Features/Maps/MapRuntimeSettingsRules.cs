@@ -15,7 +15,7 @@ public sealed class MapRecognitionTuning
     public double AmbiguityMargin { get; set; } = DefaultAmbiguityMargin;
     public double ConfirmationAdvantage { get; set; } = DefaultConfirmationAdvantage;
     public bool ForceBestRecognitionResult { get; set; } = false;
-    public bool ForceCandidateSelection { get; set; } = true;
+    public bool ForceCandidateSelection { get; set; } = false;
     /// <summary>
     /// 开启后每次扫描成功都会弹出变换窗口，由玩家决定叠加地图的缩放与位置，
     /// 确认结果直接渲染并以最高信任来源写入缩放缓存。

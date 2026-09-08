@@ -42,6 +42,13 @@ public sealed class GameWindowCaptureAdapter : IGameWindowCapture
     }
 
     public void Reset() => _capture.Reset();
+
+    public void PrepareViewportCapture() => _capture.PrepareViewportCapture();
+
+    public async Task<object?> CaptureNextViewportAsync(object viewport, long afterSystemTicks,
+        TimeSpan maximumWait, CancellationToken cancellationToken) =>
+        await _capture.CaptureNextViewportAsync((NormalizedRectangle)viewport,
+            afterSystemTicks, maximumWait, cancellationToken).ConfigureAwait(false);
 }
 /*
  * 文件职责：GameWindowCaptureAdapter。

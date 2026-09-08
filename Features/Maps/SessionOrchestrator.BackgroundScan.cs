@@ -150,9 +150,14 @@ public sealed partial class SessionOrchestrator
             outcome.Status == BackgroundScanStatus.CompletedFailed
                 ? MapLogLevel.Warning
                 : MapLogLevel.Info,
-            outcome.Status == BackgroundScanStatus.CompletedFailed
-                ? $"后台扫描未产生可消费结果：{outcome.FailureReason ?? "未知原因"}"
-                : "后台扫描成功；候选结果已预计算，玩家第一次打开游戏地图时直接显示。");
+            outcome.Status switch
+            {
+                BackgroundScanStatus.CompletedIdentified =>
+                    $"后台扫描成功，已确定地图身份 · map={outcome.Identity!.Map.DisplayName} · 打开游戏地图后直接对齐",
+                BackgroundScanStatus.CompletedAmbiguous =>
+                    $"后台扫描完成，候选结果已就绪 · count={outcome.Choices!.Count} · 打开游戏地图后显示选择界面",
+                _ => $"后台扫描未产生可消费结果：{outcome.FailureReason ?? "未知原因"}"
+            });
 
         _statusMessage = outcome.Status switch
         {

@@ -46,8 +46,11 @@ public sealed partial class SessionOrchestrator
         bool relaxForLockedMap = false,
         Func<bool>? shouldContinue = null,
         bool lowStructureReadiness = false,
-        int lowStructureReadinessFrameCount = 3)
+        int lowStructureReadinessFrameCount = 3,
+        bool prepareNativeStructure = false,
+        bool prepareVpsg3Structure = false)
     {
+        _captureSvc.PrepareViewportCapture();
         var sessionTuning = _settings!.SessionTuning;
         if (_captureSvc.TryGetForegroundClientBounds(
                 out var presetBounds,
@@ -85,7 +88,9 @@ public sealed partial class SessionOrchestrator
                 // stale or unavailable. Only the explicitly low-structure
                 // channel needs consecutive structural readiness evidence.
                 requireStructureReadiness: lowStructureReadiness,
-                structureFallbackFrameCount);
+                structureFallbackFrameCount,
+                prepareNativeStructure,
+                prepareVpsg3Structure);
             if (readyFrame is not null
                 && string.Equals(operation, "仅对齐", StringComparison.Ordinal))
             {

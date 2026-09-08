@@ -240,4 +240,38 @@ public sealed class SideEntranceCandidateEvidenceTests
             }
         ]
     };
+
+    [Fact]
+    public void FastStrategyStructureAcceptancePromotesCandidateEvenWithUnsetChamfer()
+    {
+        var candidate = new SideEntranceScanCandidate
+        {
+            Map = new MapRecord { Id = Guid.NewGuid() },
+            FloorKey = "1f",
+            MatchScore = 0.85d,
+            TemplateMargin = 0.05d,
+            Disposition = SideEntranceCandidateDisposition.NeedsVerification
+        };
+        var structure = new MapStructureRegistrationResult
+        {
+            Accepted = true,
+            Confidence = 0.88d,
+            BestScore = 0.45d,
+            UsedFastStrategy = true
+        };
+        var attempt = new MapRecognitionAttempt
+        {
+            StructureResult = structure,
+            StructureAccepted = true,
+            Recognition = CreateRecognition(candidate.Map, 0.85d)
+        };
+
+        var promoted = SideEntranceCandidateEvidence.ApplyStructureAttempt(
+            candidate,
+            attempt);
+
+        Assert.True(promoted);
+        Assert.Equal(SideEntranceCandidateDisposition.Reliable, candidate.Disposition);
+        Assert.Equal(SideEntranceRejectionReason.None, candidate.RejectionReason);
+    }
 }

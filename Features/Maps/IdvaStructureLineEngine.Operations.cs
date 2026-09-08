@@ -17,8 +17,40 @@ public sealed partial class IdvaStructureLineEngine
         {
             using var hsv = new Mat();
             Cv2.CvtColor(state.Bgr, hsv, ColorConversionCodes.BGR2HSV);
-            state.ReplaceRoom(InRange(hsv, ReadTriplet(parameters, "room_hsv_lo"), ReadTriplet(parameters, "room_hsv_hi")));
-            state.ReplaceCorridor(InRange(hsv, ReadTriplet(parameters, "corridor_hsv_lo"), ReadTriplet(parameters, "corridor_hsv_hi")));
+
+            if (parameters.TryGetProperty("room_hsv_ranges", out var roomRanges) && roomRanges.ValueKind == JsonValueKind.Array)
+            {
+                var roomMat = Mat.Zeros(hsv.Size(), MatType.CV_8UC1).ToMat();
+                foreach (var range in roomRanges.EnumerateArray())
+                {
+                    using var matched = InRange(hsv,
+                        ReadTripletElement(RequireArray(range, "lo"), "room_hsv_ranges.lo"),
+                        ReadTripletElement(RequireArray(range, "hi"), "room_hsv_ranges.hi"));
+                    Cv2.BitwiseOr(roomMat, matched, roomMat);
+                }
+                state.ReplaceRoom(roomMat);
+            }
+            else
+            {
+                state.ReplaceRoom(InRange(hsv, ReadTriplet(parameters, "room_hsv_lo"), ReadTriplet(parameters, "room_hsv_hi")));
+            }
+
+            if (parameters.TryGetProperty("corridor_hsv_ranges", out var corrRanges) && corrRanges.ValueKind == JsonValueKind.Array)
+            {
+                var corridorMat = Mat.Zeros(hsv.Size(), MatType.CV_8UC1).ToMat();
+                foreach (var range in corrRanges.EnumerateArray())
+                {
+                    using var matched = InRange(hsv,
+                        ReadTripletElement(RequireArray(range, "lo"), "corridor_hsv_ranges.lo"),
+                        ReadTripletElement(RequireArray(range, "hi"), "corridor_hsv_ranges.hi"));
+                    Cv2.BitwiseOr(corridorMat, matched, corridorMat);
+                }
+                state.ReplaceCorridor(corridorMat);
+            }
+            else
+            {
+                state.ReplaceCorridor(InRange(hsv, ReadTriplet(parameters, "corridor_hsv_lo"), ReadTriplet(parameters, "corridor_hsv_hi")));
+            }
             return;
         }
         if (mode != "OPENCV_LAB_NEAREST_CENTER")
@@ -140,7 +172,10 @@ public sealed partial class IdvaStructureLineEngine
         var radius = ReadBoundedDouble(parameters, "route_repair_radius_px", 1d, 32d);
         Cv2.Inpaint(state.Room, routes, room, radius, InpaintTypes.Telea);
         Cv2.Inpaint(state.Corridor, routes, corridor, radius, InpaintTypes.Telea);
+        Cv2.Threshold(room, room, 127, 255, ThresholdTypes.Binary);
+        Cv2.Threshold(corridor, corridor, 127, 255, ThresholdTypes.Binary);
         ReplaceMasks(state, room.Clone(), corridor.Clone());
+        state.ReplaceRouteMask(routes.Clone());
     }
 
     private static Mat InRange(Mat source, int[] lower, int[] upper)
@@ -265,13 +300,150 @@ public sealed partial class IdvaStructureLineEngine
         return result;
     }
 
-    private static Mat DrawContours(Mat mask, RetrievalModes retrieval, int thickness)
+    private static void ExecuteSourceEdgeEvidence(
+        PipelineState state,
+        JsonElement parameters,
+        JsonElement stage)
     {
-        Cv2.FindContours(mask, out Point[][] contours, out _, retrieval,
+        var mode = RequireNonEmptyString(stage, "mode");
+        if (mode is not ("CANNY" or "CANNY_SUPPORT_ONLY"))
+            throw new InvalidDataException($"不支持的 source_edge_evidence 模式：{mode}。");
+
+        var cannyLow = stage.TryGetProperty("canny_low", out var cl) ? cl.GetInt32() : ReadBoundedInt(parameters, "canny_low", 1, 255);
+        var cannyHigh = stage.TryGetProperty("canny_high", out var ch) ? ch.GetInt32() : ReadBoundedInt(parameters, "canny_high", 1, 255);
+        var l2Gradient = !stage.TryGetProperty("l2_gradient", out var l2) || l2.GetBoolean();
+        var excludeRoutes = !stage.TryGetProperty("exclude_routes", out var er) || er.GetBoolean();
+
+        using var gray = new Mat();
+        Cv2.CvtColor(state.Bgr, gray, ColorConversionCodes.BGR2GRAY);
+        var canny = new Mat();
+        Cv2.Canny(gray, canny, cannyLow, cannyHigh, 3, l2Gradient);
+
+        if (excludeRoutes && state.RouteMask is not null)
+        {
+            using var notRoutes = new Mat();
+            Cv2.BitwiseNot(state.RouteMask, notRoutes);
+            Cv2.BitwiseAnd(canny, notRoutes, canny);
+        }
+
+        if (mode == "CANNY_SUPPORT_ONLY")
+        {
+            var kernelSize = stage.TryGetProperty("support_dilate_kernel", out _)
+                ? ReadSize(stage, "support_dilate_kernel")
+                : new Size(5, 5);
+            using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, kernelSize);
+            Cv2.Dilate(canny, canny, kernel);
+        }
+
+        state.ReplaceSourceEdgeEvidence(canny);
+    }
+
+    private static void DrawSourceEdgeGated(
+        PipelineState state,
+        JsonElement parameters,
+        JsonElement stage,
+        int lineWidth)
+    {
+        Mat canny;
+        var ownCanny = false;
+        if (state.SourceEdgeEvidence is not null)
+        {
+            canny = state.SourceEdgeEvidence;
+        }
+        else
+        {
+            var cannyLow = stage.TryGetProperty("canny_low", out var cl) ? cl.GetInt32() : 30;
+            var cannyHigh = stage.TryGetProperty("canny_high", out var ch) ? ch.GetInt32() : 85;
+            var l2Gradient = !stage.TryGetProperty("l2_gradient", out var l2) || l2.GetBoolean();
+            var excludeRoutes = !stage.TryGetProperty("exclude_routes", out var er) || er.GetBoolean();
+
+            using var gray = new Mat();
+            Cv2.CvtColor(state.Bgr, gray, ColorConversionCodes.BGR2GRAY);
+            canny = new Mat();
+            Cv2.Canny(gray, canny, cannyLow, cannyHigh, 3, l2Gradient);
+            if (excludeRoutes && state.RouteMask is not null)
+            {
+                using var notRoutes = new Mat();
+                Cv2.BitwiseNot(state.RouteMask, notRoutes);
+                Cv2.BitwiseAnd(canny, notRoutes, canny);
+            }
+            ownCanny = true;
+        }
+
+        try
+        {
+            using var walkable = new Mat();
+            Cv2.BitwiseOr(state.Room, state.Corridor, walkable);
+
+            var boundaryKernel = stage.TryGetProperty("boundary_kernel", out _)
+                ? ReadSize(stage, "boundary_kernel")
+                : new Size(11, 11);
+            using var gradKernel = Cv2.GetStructuringElement(MorphShapes.Rect, boundaryKernel);
+            using var boundary = new Mat();
+            Cv2.MorphologyEx(walkable, boundary, MorphTypes.Gradient, gradKernel);
+
+            var dilateKernel = stage.TryGetProperty("boundary_dilate", out _)
+                ? ReadSize(stage, "boundary_dilate")
+                : new Size(5, 5);
+            using var dilKernel = Cv2.GetStructuringElement(MorphShapes.Rect, dilateKernel);
+            using var dilatedBoundary = new Mat();
+            Cv2.Dilate(boundary, dilatedBoundary, dilKernel);
+
+            var gated = new Mat();
+            Cv2.BitwiseAnd(canny, dilatedBoundary, gated);
+
+            if (lineWidth > 2)
+            {
+                using var lineKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(lineWidth - 1, lineWidth - 1));
+                Cv2.Dilate(gated, gated, lineKernel);
+            }
+
+            state.ReplaceEdges(gated);
+        }
+        finally
+        {
+            if (ownCanny)
+                canny.Dispose();
+        }
+    }
+
+    private static Mat DrawContours(
+        Mat mask,
+        RetrievalModes retrieval,
+        int thickness,
+        double approxPolyDpEpsilon = 0d,
+        double minPerimeter = 0d,
+        double minHoleArea = 0d,
+        int orthogonalSnapPx = 0)
+    {
+        Cv2.FindContours(mask, out Point[][] contours, out HierarchyIndex[] hierarchy, retrieval,
             ContourApproximationModes.ApproxSimple);
         var result = Mat.Zeros(mask.Size(), MatType.CV_8UC1).ToMat();
         if (contours.Length > 0)
-            Cv2.DrawContours(result, contours, -1, Scalar.White, thickness, LineTypes.Link8);
+        {
+            var drawnContours = new List<Point[]>(contours.Length);
+            for (var i = 0; i < contours.Length; i++)
+            {
+                var cnt = contours[i];
+                if (minPerimeter > 0d && Cv2.ArcLength(cnt, true) < minPerimeter)
+                    continue;
+                if (minHoleArea > 0d && hierarchy != null && i < hierarchy.Length && hierarchy[i].Parent != -1)
+                {
+                    var area = Cv2.ContourArea(cnt);
+                    if (area < minHoleArea)
+                        continue;
+                }
+                if (approxPolyDpEpsilon > 0d)
+                    cnt = Cv2.ApproxPolyDP(cnt, approxPolyDpEpsilon, true);
+                if (orthogonalSnapPx > 0)
+                    cnt = SnapOrthogonal(cnt, orthogonalSnapPx);
+                drawnContours.Add(cnt);
+            }
+            if (drawnContours.Count > 0)
+            {
+                Cv2.DrawContours(result, drawnContours, -1, Scalar.White, thickness, LineTypes.Link8);
+            }
+        }
         return result;
     }
 }

@@ -5,6 +5,17 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class CapturedGameFrame
 {
     private IdvaNativeObservedExtractor.Result? _nativeObservedStructure;
+    private Vpsg3LiveObservation? _vpsg3Observation;
+
+    // The capture path can prepare this once; alignment/recovery borrow the same immutable observation.
+    internal Vpsg3LiveObservation GetOrCreateVpsg3Observation()
+    {
+        lock (_derivedFeaturesGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _vpsg3Observation ??= Vpsg3FastLiveExtractor.Extract(Image, ViewportBounds);
+        }
+    }
 
     // One physical frame owns one immutable native observation across local,
     // global translation and scale recovery. Callers must not dispose it.

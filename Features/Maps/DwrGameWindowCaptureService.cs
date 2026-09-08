@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 namespace IDVBuff.Features.Maps;
 
 /// <summary>Captures the visible foreground dwrg.exe client area without activating it.</summary>
-public sealed class DwrGameWindowCaptureService
+public sealed partial class DwrGameWindowCaptureService
 {
     private const string ProcessName = "dwrg";
 
@@ -202,6 +202,7 @@ public sealed class DwrGameWindowCaptureService
     /// </summary>
     public void Reset()
     {
+        ResetFrameStream();
         lock (_captureSurfaceGate)
         {
             _captureGraphics?.Dispose();

@@ -159,12 +159,13 @@ public sealed partial class MapCvRecognitionService
                 }
             }
 
+            Vpsg3PrecisionResult? precision = null;
             if (!lease.Floor.PrecisionDistance.IsEmpty)
             {
                 TrackActivePrecisionFloor(lease.Floor);
                 var precisionBudget = Vpsg3PrecisionBudget.Start();
                 var lockScale = knownScaleSeed is { } s && s > 0;
-                var precision = Vpsg3PrecisionRefiner.Refine(
+                precision = Vpsg3PrecisionRefiner.Refine(
                     observation, lease.Floor, result.Scale, result.OffsetX, result.OffsetY, precisionBudget, lockScale: lockScale);
                 refineTime += precision.Milliseconds;
                 if (precision.Calibrated)
@@ -186,11 +187,51 @@ public sealed partial class MapCvRecognitionService
                 orientationDegrees: MapFloorRules.GetFloorProfile(map, floorKey)?.OrientationDegrees ?? 0,
                 alignmentMode: MapOverlayAlignmentMode.Uniform);
 
+            var chamferEstimate = precision?.After?.Loss
+                ?? precision?.Before?.Loss
+                ?? (2.0d * (1.0d - Math.Clamp(result.BestCandidate.K3Score, 0d, 1d)) + 1.0d);
+
+            var coverage = (double)result.BestCandidate.Spatial.HitPoints / Math.Max(1, result.BestCandidate.Spatial.TotalValidPoints);
+            var breakdown = new MapStructureConfidenceBreakdown
+            {
+                ChamferPixels = chamferEstimate,
+                ChamferQuality = Math.Clamp(1.0d - (chamferEstimate / 3.0d), 0d, 1d),
+                EdgeCoverage = coverage,
+                OccupancyCoverage = result.BestCandidate.K5Score,
+                ReferenceCoverage = result.Confidence,
+                ProjectionCorrelation = result.BestCandidate.WeightedScore,
+                ConsistentPartitions = result.PassedPartitions,
+                PartitionQuality = Math.Clamp(result.PassedPartitions / 4.0d, 0d, 1d),
+                StructureQuality = result.Confidence,
+                CandidateSeparation = result.ApertureMargin,
+                GeometricFitQuality = result.Confidence,
+                EvidenceConfidence = result.Confidence,
+                GeometricLockConfidence = result.Confidence,
+                LockConfidence = result.Confidence,
+                EffectiveWeight = 1.0d,
+                FinalScore = result.BestCandidate.WeightedScore
+            };
+
+            var mainCandidate = new MapStructureCandidate
+            {
+                Scale = finalScale,
+                OffsetX = finalX,
+                OffsetY = finalY,
+                ChamferPixels = chamferEstimate,
+                EdgeCoverage = coverage,
+                OccupancyCoverage = result.BestCandidate.K5Score,
+                ConsistentPartitions = result.PassedPartitions,
+                CompositeCost = result.BestCandidate.WeightedScore,
+                AppearanceCorrelation = result.Confidence
+            };
+
             var structureResult = new MapStructureRegistrationResult
             {
                 Accepted = true,
                 Transform = transform,
                 Confidence = result.Confidence,
+                ConfidenceBreakdown = breakdown,
+                Candidates = [mainCandidate],
                 BestScore = result.BestCandidate.WeightedScore,
                 SecondScore = result.RunnerUpCandidate?.WeightedScore ?? double.PositiveInfinity,
                 CandidateMargin = result.ApertureMargin,

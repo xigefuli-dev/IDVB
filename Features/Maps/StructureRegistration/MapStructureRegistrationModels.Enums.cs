@@ -40,7 +40,7 @@ public static class MapStructureRejectionReasonExtensions
         MapStructureRejectionReason.UnsupportedAlignmentMode => "结构配准只支持等比缩放",
         MapStructureRejectionReason.InvalidLockedScale => "历史等比缩放无效，需要双门重新锁定",
         MapStructureRejectionReason.InsufficientStructure => "当前已探索地图结构过少或分布过于单一",
-        MapStructureRejectionReason.QueryLargerThanReference => "当前结构范围大于参考地图，无法安全搜索",
+        MapStructureRejectionReason.QueryLargerThanReference => "小地图结构范围超出参考地图（疑似楼层不匹配）",
         MapStructureRejectionReason.NoCandidate => "没有找到可用的结构候选",
         MapStructureRejectionReason.WeakAbsoluteScore => "最佳候选与墙体结构的绝对贴合度不足",
         MapStructureRejectionReason.AmbiguousCandidates => "存在多个近似房间或走廊，候选不唯一",

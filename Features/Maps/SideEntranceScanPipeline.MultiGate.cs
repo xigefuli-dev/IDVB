@@ -106,9 +106,16 @@ public sealed partial class SideEntranceScanPipeline
         var associatedKeys = results
             .Select(candidate => (candidate.Map.Id, candidate.FloorKey))
             .ToHashSet();
-        var rescueInputs = candidates
-            .Where(item => !associatedKeys.Contains((item.map.Id, item.floorKey)))
-            .ToList();
+        // 只有当检测到的门没有任何候选在几何上契合（疑似门误检/假门），
+        // 或者根本没有检测出门时，才允许对剩余候选执行全帧无门补救搜索。
+        // 若已有候选与检测门高度吻合，则门已确认为真，门位置冲突的错图严禁捞回，
+        // 避免错图在全图盲搜撞出伪高分并抹平真实门候选的 Margin。
+        var shouldAttemptRescue = results.Count == 0;
+        var rescueInputs = shouldAttemptRescue
+            ? candidates
+                .Where(item => !associatedKeys.Contains((item.map.Id, item.floorKey)))
+                .ToList()
+            : [];
         if (rescueInputs.Count > 0)
         {
             var rescued = RunSingleGateScan(

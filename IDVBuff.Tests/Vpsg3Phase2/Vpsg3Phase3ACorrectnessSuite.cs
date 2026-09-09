@@ -397,14 +397,17 @@ public sealed class Vpsg3Phase3ACorrectnessSuite
             sbRef.AppendLine($"| Refine Latency  |             N/A |     P50: {Percentile(refineTimes, 0.50):F2}ms, P95: {Percentile(refineTimes, 0.95):F2}ms | 81-probe centered scan |");
             _output.WriteLine(sbRef.ToString());
 
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                var fullReport = sbRoc.ToString() + "\n\n" + sbRef.ToString();
-                File.WriteAllText(Path.Combine(scratchDir, "phase3a_convergence.txt"), fullReport);
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    var fullReport = sbRoc.ToString() + "\n\n" + sbRef.ToString();
+                    File.WriteAllText(Path.Combine(scratchDir, "phase3a_convergence.txt"), fullReport);
+                }
+                catch { }
             }
-            catch { }
 
             // Cleanup
             foreach (var kvp in refDilatedMapK5)

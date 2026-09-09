@@ -77,9 +77,12 @@ public sealed class Vpsg3TranslationDifferentialTests
                 $"T3 new P50/P95: {P(newTranslation, .5):F3}/{P(newTranslation, .95):F3} ms\n" +
                 $"Refiner old P50/P95: {P(oldRefine, .5):F3}/{P(oldRefine, .95):F3} ms per candidate\n" +
                 $"Refiner new P50/P95: {P(newRefine, .5):F3}/{P(newRefine, .95):F3} ms per candidate\n";
-            var directory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch"));
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(Path.Combine(directory, "vpsg3-paired-performance.txt"), report);
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                var directory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch"));
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "vpsg3-paired-performance.txt"), report);
+            }
         }
         finally
         {

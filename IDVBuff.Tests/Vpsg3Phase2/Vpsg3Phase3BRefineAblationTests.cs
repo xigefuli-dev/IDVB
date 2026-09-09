@@ -148,13 +148,16 @@ public sealed class Vpsg3Phase3BRefineAblationTests
             }
 
             _output.WriteLine(sb.ToString());
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "phase3b_item7_refinement.txt"), sb.ToString());
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "phase3b_item7_refinement.txt"), sb.ToString());
+                }
+                catch { }
             }
-            catch { }
             foreach (var kvp in refDilK5) kvp.Value.Dispose();
             foreach (var kvp in refDilK3) kvp.Value.Dispose();
         }

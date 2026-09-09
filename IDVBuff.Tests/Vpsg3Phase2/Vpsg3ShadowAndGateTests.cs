@@ -132,23 +132,35 @@ public sealed class Vpsg3ShadowAndGateTests
         var floor = Vpsg3PreparedIndexBuilder.BuildFromMat(line, key);
         Assert.True(service.Vpsg3Registry.TryBeginBuild(key));
         Assert.True(service.Vpsg3Registry.TryPublishFloor(key, floor));
-        var logPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch/vpsg3-shadow-check"));
-        await using var log = new MapLogCollector(new MapLogRepository(logPath)) { IsEnabled = true };
-        var baseline = new MapOverlayTransform { ScaleX = 1.2, ScaleY = 1.2, OffsetX = 123, OffsetY = 456 };
-        using var frame = new CapturedGameFrame(new Mat(120, 160, MatType.CV_8UC3, Scalar.Black),
-            new(0, 0, 160, 120), new(25, 30, 160, 120), IntPtr.Zero);
-        var work = service.QueueVpsg3Shadow(frame, map, "1f", baseline, log);
-        frame.Dispose();
-        await work;
-        Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow result");
-        Assert.Equal(123d, baseline.OffsetX);
-        Assert.True(service.Vpsg3Registry.Contains(map.Id, "1f"));
+        var logPath = Path.Combine(Path.GetTempPath(), "vpsg3-shadow-check-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await using var log = new MapLogCollector(new MapLogRepository(logPath)) { IsEnabled = true };
+            var baseline = new MapOverlayTransform { ScaleX = 1.2, ScaleY = 1.2, OffsetX = 123, OffsetY = 456 };
+            using var frame = new CapturedGameFrame(new Mat(120, 160, MatType.CV_8UC3, Scalar.Black),
+                new(0, 0, 160, 120), new(25, 30, 160, 120), IntPtr.Zero);
+            var work = service.QueueVpsg3Shadow(frame, map, "1f", baseline, log);
+            frame.Dispose();
+            await work;
+            Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow result");
+            Assert.Equal(123d, baseline.OffsetX);
+            Assert.True(service.Vpsg3Registry.Contains(map.Id, "1f"));
 
-        map.UpdatedAt = map.UpdatedAt.AddSeconds(1);
-        await service.QueueVpsg3Shadow(frame, map, "1f", baseline, log);
-        Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow skipped: index not ready");
-        await service.QueueVpsg3Shadow(frame, map, "2f", baseline, log);
-        Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow skipped: prebuilt unavailable");
+            map.UpdatedAt = map.UpdatedAt.AddSeconds(1);
+            using var frame2 = new CapturedGameFrame(new Mat(120, 160, MatType.CV_8UC3, Scalar.Black),
+                new(0, 0, 160, 120), new(25, 30, 160, 120), IntPtr.Zero);
+            await service.QueueVpsg3Shadow(frame2, map, "1f", baseline, log);
+            Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow skipped: index not ready");
+            await service.QueueVpsg3Shadow(frame2, map, "2f", baseline, log);
+            Assert.Contains(log.GetEntries(), e => e.Message == "VPSG3 shadow skipped: prebuilt unavailable");
+        }
+        finally
+        {
+            if (Directory.Exists(logPath))
+            {
+                try { Directory.Delete(logPath, true); } catch { }
+            }
+        }
     }
 
     [Fact]

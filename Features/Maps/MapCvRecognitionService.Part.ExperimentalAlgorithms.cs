@@ -5,18 +5,45 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCvRecognitionService
 {
+    internal bool HasPrebuiltStructureLine(MapRecord map, string floorKey) =>
+        Repository.HasPrebuiltStructureLine(map, floorKey);
+
     internal string GetAlignmentReferencePath(
         MapRecord map,
         string floorKey,
         MapStructureRegistrationTuning tuning) =>
-        tuning.UsePrebuiltStructureLine
+        tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey)
             ? Repository.GetPrebuiltStructureLinePath(map, floorKey)
             : Repository.GetFloorRecognitionPath(map, floorKey);
+
+    internal bool TryGetAlignmentReferencePath(
+        MapRecord map,
+        string floorKey,
+        MapStructureRegistrationTuning tuning,
+        out string path)
+    {
+        if (tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey))
+        {
+            path = Repository.GetPrebuiltStructureLinePath(map, floorKey);
+            return true;
+        }
+        path = Repository.GetFloorRecognitionPath(map, floorKey);
+        return File.Exists(path);
+    }
 
     internal static MapStructurePreprocessingProfile GetReferenceProfile(
         MapStructureRegistrationTuning tuning,
         MapStructurePreprocessingProfile regularProfile) =>
         tuning.UsePrebuiltStructureLine
+            ? MapStructurePreprocessingProfile.PrebuiltStructureLine
+            : regularProfile;
+
+    internal MapStructurePreprocessingProfile GetReferenceProfile(
+        MapRecord map,
+        string floorKey,
+        MapStructureRegistrationTuning tuning,
+        MapStructurePreprocessingProfile regularProfile) =>
+        tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey)
             ? MapStructurePreprocessingProfile.PrebuiltStructureLine
             : regularProfile;
 

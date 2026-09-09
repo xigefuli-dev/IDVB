@@ -108,7 +108,7 @@ internal static partial class MapCvAlignmentService
                 ? session
                 : null;
 
-        if (structureTuning.UsePrebuiltStructureLine)
+        if (structureTuning.UsePrebuiltStructureLine && service.HasPrebuiltStructureLine(fingerprint.Map, fingerprint.FloorKey))
             return AlignPrebuiltStructureLine(
                 service, frame, selectedMapId, fingerprint, compatibleSession,
                 alignmentMode, tuning, structureTuning, playerPrior,

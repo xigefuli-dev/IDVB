@@ -196,6 +196,28 @@ public static class Vpsg3ScaleSolver
         var medianR = autocorr[totalLags / 2];
         var peakRatio = maxR / Math.Max(0.01d, medianR);
 
-        return (bestLag, peakRatio);
+        // Sub-pixel parabolic interpolation on continuous autocorrelation signal
+        var refinedPitch = (double)bestLag;
+        var bIdx = bestLag - minLag;
+        if (bIdx > 0 && bIdx < totalLags - 1)
+        {
+            var y0 = rawAutocorr[bIdx - 1];
+            var y1 = rawAutocorr[bIdx];
+            var y2 = rawAutocorr[bIdx + 1];
+            if (y1 > y0 && y1 > y2)
+            {
+                var denom = 2.0d * (2.0d * y1 - y0 - y2);
+                if (denom > 1e-9d)
+                {
+                    var delta = (y2 - y0) / denom;
+                    if (Math.Abs(delta) <= 0.5d)
+                    {
+                        refinedPitch = bestLag + delta;
+                    }
+                }
+            }
+        }
+
+        return (refinedPitch, peakRatio);
     }
 }

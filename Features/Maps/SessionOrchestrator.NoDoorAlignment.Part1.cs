@@ -50,7 +50,11 @@ public sealed partial class SessionOrchestrator
         }
 
         var cacheTimer = Stopwatch.StartNew();
-        var referenceProfile = MapCvRecognitionService.GetReferenceProfile(
+        var usePrebuiltLine = structureTuning.UsePrebuiltStructureLine
+            && _recognition.HasPrebuiltStructureLine(locked.Map, floorKey);
+        var referenceProfile = _recognition.GetReferenceProfile(
+            locked.Map,
+            floorKey,
             structureTuning,
             MapStructurePreprocessingProfile.EdgesOnly);
         var residentLease = _recognition.StructureCache.TryRentResident(
@@ -105,7 +109,7 @@ public sealed partial class SessionOrchestrator
         MapStructureFeatures? ownedPreparedOriginalLive = null;
         var liveCacheHit = false;
         double liveExtractionMilliseconds;
-        if (structureTuning.UsePrebuiltStructureLine)
+        if (usePrebuiltLine)
         {
             _recognition.CreatePrebuiltLiveStructureFeatures(
                 frame,

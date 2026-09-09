@@ -33,7 +33,8 @@ public sealed partial class SessionOrchestrator
                 shouldContinue: () => _gameMapToggleState.IsCurrent(toggle),
                 lowStructureReadiness: channel.Channel == MapAlignmentChannel.LowStructure,
                 lowStructureReadinessFrameCount: initialPrewarmTuning.LowStructureReadinessFrameCount,
-                prepareNativeStructure: initialPrewarmTuning.UsePrebuiltStructureLine,
+                prepareNativeStructure: initialPrewarmTuning.UsePrebuiltStructureLine
+                    && _recognition.HasPrebuiltStructureLine(locked.Map, floorKey),
                 prepareVpsg3Structure: _recognition.IsVpsg3Ready(locked.Map, floorKey));
         }
         finally

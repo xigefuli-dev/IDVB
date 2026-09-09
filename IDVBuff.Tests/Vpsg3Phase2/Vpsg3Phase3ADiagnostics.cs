@@ -217,13 +217,16 @@ public sealed class Vpsg3Phase3ADiagnostics
 
             var outText = sb.ToString();
             _output.WriteLine(outText);
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "diagnostics_wrong_accepts.txt"), outText);
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "diagnostics_wrong_accepts.txt"), outText);
+                }
+                catch { }
             }
-            catch { }
         }
         finally
         {
@@ -314,13 +317,16 @@ public sealed class Vpsg3Phase3ADiagnostics
 
             var outText = sb.ToString();
             _output.WriteLine(outText);
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "diagnose_21_refined.txt"), outText);
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "diagnose_21_refined.txt"), outText);
+                }
+                catch { }
             }
-            catch { }
         }
         finally
         {
@@ -362,13 +368,16 @@ public sealed class Vpsg3Phase3ADiagnostics
 
             var outText = sb.ToString();
             _output.WriteLine(outText);
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "diagnose_sample035.txt"), outText);
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "diagnose_sample035.txt"), outText);
+                }
+                catch { }
             }
-            catch { }
         }
         finally
         {

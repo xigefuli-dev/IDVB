@@ -163,13 +163,16 @@ public sealed class Vpsg3Phase3BInvestigationTests
             sb.AppendLine($"| Scheme B | Resident K3 Only (K5 via 3x3)     | 21.0 MB (1 layer)  | {swB.Elapsed.TotalMilliseconds,14:F2} ms | {swB.Elapsed.TotalMilliseconds * 10.0,15:F1} ns | {swB.Elapsed.TotalMilliseconds / swA.Elapsed.TotalMilliseconds * 100.0,12:F1}% ({swB.Elapsed.TotalMilliseconds / swA.Elapsed.TotalMilliseconds:F1}x slower) |");
             sb.AppendLine($"| Scheme C | Interleaved 2-bit Bitset          | 42.0 MB (2 bits)   | {swC.Elapsed.TotalMilliseconds,14:F2} ms | {swC.Elapsed.TotalMilliseconds * 10.0,15:F1} ns | {swC.Elapsed.TotalMilliseconds / swA.Elapsed.TotalMilliseconds * 100.0,12:F1}% |");
             _output.WriteLine(sb.ToString());
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "phase3b_item8_bitset.txt"), sb.ToString());
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "phase3b_item8_bitset.txt"), sb.ToString());
+                }
+                catch { }
             }
-            catch { }
         }
         finally
         {
@@ -253,13 +256,16 @@ public sealed class Vpsg3Phase3BInvestigationTests
             }
 
             _output.WriteLine(sb.ToString());
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "phase3b_item4_topk.txt"), sb.ToString());
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "phase3b_item4_topk.txt"), sb.ToString());
+                }
+                catch { }
             }
-            catch { }
         }
         finally
         {
@@ -356,11 +362,14 @@ public sealed class Vpsg3Phase3BInvestigationTests
             }
 
             sb.AppendLine($"\nTotal HadDistinct: {hadDistinctRunnerUp}, Total NoDistinct (Fake Margin): {noDistinctRunnerUp}");
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                File.WriteAllText(Path.Combine(scratchDir, "phase3a_margin_diagnose.txt"), sb.ToString());
-            } catch { }
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    File.WriteAllText(Path.Combine(scratchDir, "phase3a_margin_diagnose.txt"), sb.ToString());
+                } catch { }
+            }
 
             foreach (var kvp in refDilK5) kvp.Value.Dispose();
             foreach (var kvp in refDilK3) kvp.Value.Dispose();

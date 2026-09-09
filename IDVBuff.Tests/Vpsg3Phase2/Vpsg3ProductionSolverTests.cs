@@ -52,7 +52,9 @@ public sealed class Vpsg3ProductionSolverTests
                 if (protoPeakRatio >= 2.0d)
                 {
                     Assert.True(prodScale.Success, $"Sample {sample.Id} expected success in production ScaleSolver.");
-                    Assert.True(Math.Abs(prodScale.SeedScale - protoScale.EstimatedScale) < 1e-4,
+                    // Sub-pixel parabolic interpolation in production refines discrete lag within +/-0.5px of prototype discrete lag.
+                    // For refPitch >= 12, max theoretical delta is 0.5 / 12 = 0.0417 (for refPitch=15, 0.5 / 15 = 0.0333).
+                    Assert.True(Math.Abs(prodScale.SeedScale - protoScale.EstimatedScale) <= 0.04d,
                         $"Scale mismatch on {sample.Id}: prod={prodScale.SeedScale:F4}, proto={protoScale.EstimatedScale:F4}");
                     matchCount++;
                 }
@@ -284,17 +286,20 @@ public sealed class Vpsg3ProductionSolverTests
         }
 
         _output.WriteLine(sb.ToString());
-        try
+        if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
         {
-            var scratchDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch"));
-            if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-            File.WriteAllText(Path.Combine(scratchDir, "phase3b_production_solver_benchmark.txt"), sb.ToString());
-            File.WriteAllText(Path.Combine(scratchDir, "phase3b_joint_evidence.json"),
-                System.Text.Json.JsonSerializer.Serialize(evidence, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-        }
-        catch
-        {
-            // Ignore filesystem error in test runner sandbox
+            try
+            {
+                var scratchDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch"));
+                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                File.WriteAllText(Path.Combine(scratchDir, "phase3b_production_solver_benchmark.txt"), sb.ToString());
+                File.WriteAllText(Path.Combine(scratchDir, "phase3b_joint_evidence.json"),
+                    System.Text.Json.JsonSerializer.Serialize(evidence, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch
+            {
+                // Ignore filesystem error in test runner sandbox
+            }
         }
 
         Assert.Equal(0, totalWrongAcceptCount);

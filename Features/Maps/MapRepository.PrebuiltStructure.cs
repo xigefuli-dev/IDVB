@@ -142,6 +142,22 @@ public sealed partial class MapRepository
         return GetSafeMapFilePath(GetMapDirectory(map.Id), floor.PrebuiltStructureLine.AlgorithmFileName);
     }
 
+    public bool HasPrebuiltStructureLine(MapRecord map, string floorKey)
+    {
+        var floor = map.Floors.FirstOrDefault(candidate => string.Equals(candidate.Key, floorKey, StringComparison.Ordinal));
+        if (floor?.PrebuiltStructureLine?.IsComplete is not true
+            || !string.Equals(
+                floor.PrebuiltStructureLine.SourceSha256,
+                floor.RecognitionSha256,
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+        var path = GetSafeMapFilePath(
+            GetMapDirectory(map.Id),
+            floor.PrebuiltStructureLine.FileName);
+        return File.Exists(path)
+            && new FileInfo(path).Length == floor.PrebuiltStructureLine.FileLength;
+    }
+
     public bool HasCompletePrebuiltStructureLines(MapRecord map) =>
         MapFloorRules.GetOrderedFloors(map).All(floor =>
             floor.PrebuiltStructureLine?.IsComplete is true

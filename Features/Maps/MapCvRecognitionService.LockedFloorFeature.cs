@@ -118,6 +118,8 @@ public sealed partial class MapCvRecognitionService
                 ? MapStructurePreprocessingProfile.EdgesOnly
                 : MapStructurePreprocessingProfile.EdgesAndFeatures;
             var referenceProfile = GetReferenceProfile(
+                map,
+                floorKey,
                 structureTuning,
                 preprocessingProfile);
             using var residentReferenceLease = _structureCache.TryRentResident(

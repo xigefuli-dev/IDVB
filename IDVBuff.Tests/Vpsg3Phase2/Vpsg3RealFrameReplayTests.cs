@@ -20,6 +20,7 @@ public sealed class Vpsg3RealFrameReplayTests(ITestOutputHelper output)
         Assert.NotEmpty(paths);
         var precision = Environment.GetEnvironmentVariable("VPSG3_PRECISION_SHADOW") == "1";
         var rows = new List<object>();
+        var certifiedWithGroundTruth = 0;
         foreach (var path in paths)
         {
             using var json = JsonDocument.Parse(File.ReadAllText(path));
@@ -45,9 +46,39 @@ public sealed class Vpsg3RealFrameReplayTests(ITestOutputHelper output)
                 floor.ScalePrior, result, shadow, floor.MemoryBytes, tuning = Vpsg3TuningConfig.Default,
                 knownScaleSeed = (double?)null, replayRoute = "current-cold-solver",
                 groundTruth = sample.GetProperty("groundTruth").Clone() });
+
+            if (sample.TryGetProperty("groundTruth", out var gt) && gt.ValueKind == JsonValueKind.Object)
+            {
+                certifiedWithGroundTruth++;
+                if (gt.TryGetProperty("expectedAccepted", out var ea))
+                {
+                    Assert.Equal(ea.GetBoolean(), result.IsAccepted);
+                }
+                if (result.IsAccepted && gt.TryGetProperty("trueScale", out var ts))
+                {
+                    var maxScaleErr = gt.TryGetProperty("scaleTolerance", out var st) ? st.GetDouble() : 0.035d;
+                    Assert.True(Math.Abs(result.Scale - ts.GetDouble()) <= maxScaleErr, $"{id}: Scale error too large (actual={result.Scale:F5}, expected={ts.GetDouble():F5})");
+                }
+                if (result.IsAccepted && gt.TryGetProperty("trueOffsetX", out var tox) && gt.TryGetProperty("trueOffsetY", out var toy))
+                {
+                    var maxTransErr = gt.TryGetProperty("translationTolerance", out var tt) ? tt.GetDouble() : 4.0d;
+                    var err = Math.Sqrt(Math.Pow(result.OffsetX - tox.GetDouble(), 2) + Math.Pow(result.OffsetY - toy.GetDouble(), 2));
+                    Assert.True(err <= maxTransErr, $"{id}: Translation error too large (actual=({result.OffsetX:F2},{result.OffsetY:F2}), expected=({tox.GetDouble():F2},{toy.GetDouble():F2}), err={err:F2}px)");
+                }
+            }
+
             output.WriteLine($"{id} ref={reference.Width}x{reference.Height} pitch={floor.ScalePrior.ReferencePitch} edges={observation.EdgePixelCount} accepted={result.IsAccepted} scale={result.Scale:F5} x={result.OffsetX:F2} y={result.OffsetY:F2} ms={result.Timing.TotalMs:F2} {result.FallbackReason}");
         }
         Assert.NotEmpty(rows);
-        File.WriteAllText(Environment.GetEnvironmentVariable("VPSG3_REPLAY_OUTPUT") ?? Path.Combine(root, "replay.json"), JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true }));
+        Assert.True(certifiedWithGroundTruth >= 50, $"Expected at least 50 certified samples with independent ground truth, but only {certifiedWithGroundTruth} were verified.");
+        var outputPath = Environment.GetEnvironmentVariable("VPSG3_REPLAY_OUTPUT") ?? Path.Combine(root, "replay.json");
+        try
+        {
+            File.WriteAllText(outputPath, JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // Ignore write errors in read-only replay root
+        }
     }
 }

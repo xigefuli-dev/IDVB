@@ -68,12 +68,15 @@ public sealed class Vpsg3ProductionTopKTests
                 "K,Accepted,Total,WrongAccept\n" + string.Join("\n", Enumerable.Range(1, 3)
                     .Select(k => $"{k},{accepted[k - 1]},{samples.Count},{wrong[k - 1]}")) +
                 $"\n3+pool-refill,{accepted[3]},{samples.Count},{wrong[3]}";
-            var directory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch"));
-            Directory.CreateDirectory(directory);
-            File.WriteAllText(Path.Combine(directory, "vpsg3-production-topk.csv"), report);
-            File.WriteAllText(Path.Combine(directory, "vpsg3-production-topk-evidence.json"),
-                System.Text.Json.JsonSerializer.Serialize(evidence,
-                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                var directory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../scratch"));
+                Directory.CreateDirectory(directory);
+                File.WriteAllText(Path.Combine(directory, "vpsg3-production-topk.csv"), report);
+                File.WriteAllText(Path.Combine(directory, "vpsg3-production-topk-evidence.json"),
+                    System.Text.Json.JsonSerializer.Serialize(evidence,
+                        new System.Text.Json.JsonSerializerOptions { WriteIndented = true, IncludeFields = true }));
+            }
             Assert.Equal(0, wrong[2]);
             Assert.Equal(0, wrong[3]);
         }

@@ -243,13 +243,16 @@ public sealed class Vpsg3Phase3BudgetRehearsalTests
             var reportStr = sb.ToString();
             _output.WriteLine(reportStr);
 
-            try
+            if (string.Equals(Environment.GetEnvironmentVariable("VPSG3_WRITE_DIAGNOSTICS"), "1", StringComparison.OrdinalIgnoreCase))
             {
-                var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
-                if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
-                File.WriteAllText(Path.Combine(scratchDir, "phase3a_benchmark_rehearsal.txt"), reportStr);
+                try
+                {
+                    var scratchDir = Path.Combine(AppContext.BaseDirectory, "../../../../scratch");
+                    if (!Directory.Exists(scratchDir)) Directory.CreateDirectory(scratchDir);
+                    File.WriteAllText(Path.Combine(scratchDir, "phase3a_benchmark_rehearsal.txt"), reportStr);
+                }
+                catch { }
             }
-            catch { }
 
             foreach (var kvp in refDilatedK5) kvp.Value.Dispose();
             foreach (var kvp in refDilatedK3) kvp.Value.Dispose();

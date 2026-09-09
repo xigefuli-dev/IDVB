@@ -402,7 +402,7 @@ public sealed partial class MapCvRecognitionService
         var floorProfile = MapFloorRules.GetFloorProfile(map, floorKey);
         if (floorProfile is null) return Task.CompletedTask;
         var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|{tuning.Generation.CacheFingerprint}|{tuning.UsePrebuiltStructureLine}";
-        var profile = GetReferenceProfile(tuning, MapStructurePreprocessingProfile.EdgesAndFeatures);
+        var profile = GetReferenceProfile(map, floorKey, tuning, MapStructurePreprocessingProfile.EdgesAndFeatures);
         lock (_floorPrewarmGate)
         {
             if (_floorPrewarmTasks.TryGetValue(key, out var existing)) return existing;

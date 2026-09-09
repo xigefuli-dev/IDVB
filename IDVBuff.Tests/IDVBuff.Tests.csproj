@@ -324,4 +324,11 @@
     <None Include="..\Assets\player_03.png" Link="Assets\player_03.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Assets\player_04.png" Link="Assets\player_04.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\Assets\FloorIndicators\**\*" Link="Assets\FloorIndicators\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Features\Maps\FloorIndicatorTemplateRegistry.cs" Link="Production\FloorIndicatorTemplateRegistry.cs" />
+    <Compile Include="..\Features\Maps\FloorIndicatorCaptureRegion.cs" Link="Production\FloorIndicatorCaptureRegion.cs" />
+  </ItemGroup>
 </Project>

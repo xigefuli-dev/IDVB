@@ -180,6 +180,7 @@ public sealed partial class SessionOrchestrator
             && openSession.RecalibrationReason == MapRecalibrationReason.VariantChanged
             && openSession.MapId == recognition.Map.Id
             && _pendingAlignmentIdentity?.Map.Id == recognition.Map.Id;
+        CancelMapOpenAlignment();
         CancelOrbTracking("floor changed");
         SuspendActiveAdaptiveFloor("floor changed");
         var nextFloorKey = decision.ToFloorKey!;

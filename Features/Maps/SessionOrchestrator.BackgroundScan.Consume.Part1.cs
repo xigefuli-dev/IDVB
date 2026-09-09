@@ -28,9 +28,8 @@ public sealed partial class SessionOrchestrator
                 MapOperationWaitKind.Capture);
             try
             {
-                frame = await CaptureStableViewportAsync(
-                    "后台扫描消费对齐",
-                    cancellationToken);
+                frame = await CaptureBackgroundAlignmentFrameAsync(locked.Map,
+                    cancellationToken, () => _gameMapToggleState.IsCurrent(toggle));
             }
             finally
             {
@@ -54,6 +53,9 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
+        if (frame.DetectedFloorKey is { } detectedFloor && detectedFloor != targetFloorKey)
+            validatedStructureScaleSeed = null;
+        targetFloorKey = frame.DetectedFloorKey ?? targetFloorKey;
         try
         {
             // 与正常扫描一致的初始对齐入口：真实侧门种子走带完整恢复上下文

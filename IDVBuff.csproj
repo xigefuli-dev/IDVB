@@ -105,6 +105,7 @@
                  CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Algorithms\structure-doom-girl-hard-wangqingxin-v1.idva"
                  CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\FloorIndicators\**\*" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Guide\*.png" />
         <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="release\trust\idvb-update-2026-01.pem"

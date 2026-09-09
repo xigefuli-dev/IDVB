@@ -33,6 +33,7 @@ public sealed partial class CapturedGameFrame : IDisposable
         WindowHandle = windowHandle;
     }
 
+    public string? DetectedFloorKey { get; init; }
     public Mat Image { get; }
     public MapScreenRect ClientBounds { get; }
     public MapScreenRect ViewportBounds { get; }

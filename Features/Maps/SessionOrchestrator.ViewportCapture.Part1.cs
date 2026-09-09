@@ -21,9 +21,12 @@ public sealed partial class SessionOrchestrator
         bool requireStructureReadiness,
         int structureFallbackFrameCount,
         bool prepareNativeStructure,
-        bool prepareVpsg3Structure)
+        bool prepareVpsg3Structure,
+        AutoFloorCapture? autoFloor = null)
     {
         var sessionTuning = _settings!.SessionTuning;
+        var captureViewport = autoFloor?.Expand(viewport) ?? viewport;
+        string? previousFloor = null;
         // Readiness must remain bounded. A stale floor reference or a map that
         // was closed before settling must not keep the input handler alive
         // until another toggle happens to cancel it.
@@ -67,7 +70,7 @@ public sealed partial class SessionOrchestrator
                 try
                 {
                     frameObj = await _captureSvc.CaptureNextViewportAsync(
-                        viewport, afterSystemTicks,
+                        captureViewport, afterSystemTicks,
                         TimeSpan.FromMilliseconds(Math.Max(1d, Math.Min(50d,
                             timeout - stopwatch.Elapsed.TotalMilliseconds))),
                         cancellationToken).ConfigureAwait(false);
@@ -75,7 +78,7 @@ public sealed partial class SessionOrchestrator
                     captured = frameObj is CapturedGameFrame;
                     if (!captured)
                     {
-                        captured = _captureSvc.TryCaptureViewport(viewport, out frameObj, out failureReason);
+                        captured = _captureSvc.TryCaptureViewport(captureViewport, out frameObj, out failureReason);
                         afterSystemTicks = (long)(Stopwatch.GetTimestamp()
                             * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
                     }
@@ -94,6 +97,27 @@ public sealed partial class SessionOrchestrator
                 if (captured && frameObj is CapturedGameFrame current)
                 {
                     successfulCaptures++;
+                    if (autoFloor is not null)
+                    {
+                        current = autoFloor.Extract(current, viewport);
+                        afterSystemTicks = Math.Max(afterSystemTicks, current.CaptureSystemRelativeTicks);
+                        var floor = current.DetectedFloorKey ?? _currentFloorKey
+                            ?? MapFloorRules.GetPrimaryFloorKey(autoFloor.Map);
+                        if (previousFloor != floor)
+                        {
+                            previousSignature = null;
+                            stableStructureFrames = 0;
+                            previousFloor = floor;
+                        }
+                        requireStructureReadiness = MapAlignmentChannelRegistry.Resolve(
+                            autoFloor.Map, floor).Channel == MapAlignmentChannel.LowStructure;
+                        var tuning = CreateStructureTuningForFloor(autoFloor.Map, floor,
+                            CreateInitialAlignmentStructureTuning());
+                        structureFallbackFrameCount = tuning.LowStructureReadinessFrameCount;
+                        prepareNativeStructure = tuning.UsePrebuiltStructureLine
+                            && _recognition.HasPrebuiltStructureLine(autoFloor.Map, floor);
+                        prepareVpsg3Structure = _recognition.IsVpsg3Ready(autoFloor.Map, floor);
+                    }
                     DisposeViewportFrame(lastFrame, attempts);
                     lastFrame = current;
                     afterSystemTicks = Math.Max(afterSystemTicks, current.CaptureSystemRelativeTicks);
@@ -115,7 +139,7 @@ public sealed partial class SessionOrchestrator
                     }
                     signatureTimer.Stop();
                     var presenceReference =
-                        GetCurrentMapViewportPresenceReference();
+                        GetCurrentMapViewportPresenceReference(current.DetectedFloorKey);
                     double? referenceStructureSimilarity = null;
                     double? consecutiveStructureSimilarity = null;
                     lastPresence = MapViewportPresenceDetector.EvaluateReady(
@@ -191,6 +215,11 @@ public sealed partial class SessionOrchestrator
                             details: new()
                             {
                                 ["operation"] = operation,
+                                ["floorIndicatorGroup"] = autoFloor?.Group.Key,
+                                ["detectedFloor"] = autoFloor?.FloorKey,
+                                ["floorIndicatorScore"] = autoFloor?.Score,
+                                ["floorIndicatorMargin"] = autoFloor?.Margin,
+                                ["floorIndicatorMs"] = autoFloor?.TotalMilliseconds,
                                 ["attempts"] = attempts,
                                 ["successfulCaptures"] = successfulCaptures,
                                 ["mapPresenceMode"] = lastPresence.Mode,
@@ -322,6 +351,11 @@ public sealed partial class SessionOrchestrator
                     ["blueGrayFraction"] = lastPresence?.BlueGrayFraction,
                     ["presenceRejections"] = presenceRejections,
                     ["captureFailureReason"] = _lastStableCaptureFailureReason
+                    ,["floorIndicatorGroup"] = autoFloor?.Group.Key
+                    ,["floorIndicatorScore"] = autoFloor?.Score
+                    ,["floorIndicatorMargin"] = autoFloor?.Margin
+                    ,["floorIndicatorMs"] = autoFloor?.TotalMilliseconds
+                    ,["floorIndicatorRejected"] = autoFloor is not null && autoFloor.FloorKey is null
                 });
             DisposeViewportFrame(lastFrame, attempts);
             lastFrame = null;
@@ -352,12 +386,12 @@ public sealed partial class SessionOrchestrator
         }
     }
 
-    private MapViewportColorSignature? GetCurrentMapViewportPresenceReference()
+    private MapViewportColorSignature? GetCurrentMapViewportPresenceReference(string? detectedFloor = null)
     {
         var identity = _lastRecognition ?? _pendingAlignmentIdentity;
         if (identity is null)
             return null;
-        var floorKey = _currentFloorKey
+        var floorKey = detectedFloor ?? _currentFloorKey
             ?? identity.Result.Floor
             ?? MapFloorRules.GetPrimaryFloorKey(identity.Map);
         var key = new MapViewportReferenceKey(

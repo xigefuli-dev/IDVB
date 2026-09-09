@@ -1,5 +1,4 @@
 // IDVB Remaster — Session Orchestrator（新架构唯一入口）
-
 using IDVBuff.Core.Contracts;
 using IDVBuff.Core.Models;
 using IDVBuff.Pipeline;
@@ -289,6 +288,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         try
         {
             if (_initialized) return;
+            await Task.Run(FloorIndicatorTemplateRegistry.Prepare);
             var settingsObj = await _settingsRepo.LoadAsync();
             _settings = settingsObj is MapRuntimeSettings s ? s : new MapRuntimeSettings();
             _logCollector.IsEnabled = _settings.CollectLogs;

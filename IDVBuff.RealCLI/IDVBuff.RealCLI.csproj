@@ -76,4 +76,7 @@
     <None Include="..\Assets\1F.png" Link="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Assets\2F.png" Link="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\Assets\FloorIndicators\**\*" Link="Assets\FloorIndicators\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

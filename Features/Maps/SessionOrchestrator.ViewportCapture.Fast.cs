@@ -17,7 +17,8 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition locked,
         string floorKey,
         MapStructureRegistrationTuning initialPrewarmTuning,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AutoFloorCapture? autoFloor = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var timer = Stopwatch.StartNew();
@@ -35,7 +36,8 @@ public sealed partial class SessionOrchestrator
                 lowStructureReadinessFrameCount: initialPrewarmTuning.LowStructureReadinessFrameCount,
                 prepareNativeStructure: initialPrewarmTuning.UsePrebuiltStructureLine
                     && _recognition.HasPrebuiltStructureLine(locked.Map, floorKey),
-                prepareVpsg3Structure: _recognition.IsVpsg3Ready(locked.Map, floorKey));
+                prepareVpsg3Structure: _recognition.IsVpsg3Ready(locked.Map, floorKey),
+                autoFloor: autoFloor);
         }
         finally
         {

@@ -48,7 +48,8 @@ public sealed partial class SessionOrchestrator
         bool lowStructureReadiness = false,
         int lowStructureReadinessFrameCount = 3,
         bool prepareNativeStructure = false,
-        bool prepareVpsg3Structure = false)
+        bool prepareVpsg3Structure = false,
+        AutoFloorCapture? autoFloor = null)
     {
         _captureSvc.PrepareViewportCapture();
         var sessionTuning = _settings!.SessionTuning;
@@ -90,7 +91,7 @@ public sealed partial class SessionOrchestrator
                 requireStructureReadiness: lowStructureReadiness,
                 structureFallbackFrameCount,
                 prepareNativeStructure,
-                prepareVpsg3Structure);
+                prepareVpsg3Structure, autoFloor);
             if (readyFrame is not null
                 && string.Equals(operation, "仅对齐", StringComparison.Ordinal))
             {

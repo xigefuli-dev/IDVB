@@ -142,6 +142,7 @@ public sealed partial class SessionOrchestrator
                         },
                         aligned.Result.LocalizationConfidence);
                 }
+                _currentFloorKey = aligned.Result.Floor;
                 _lastRecognition = aligned;
                 _mapLease.Bind(_matchSession.Snapshot, aligned.Map.Id);
                 _pendingAlignmentIdentity = null;

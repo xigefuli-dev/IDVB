@@ -77,6 +77,11 @@ public sealed class Vpsg3FastLiveExtractorTests
         Assert.True(obs.EdgePixelCount > 0);
         Assert.True(obs.ValidStructurePixelCount > 0);
         Assert.True(obs.SparseEdgePoints.Count > 0);
+        var sampling = obs.GetSparseSamplingDiagnostics();
+        Assert.Equal(obs.EdgePixelCount, sampling.TotalEdgePoints);
+        Assert.Equal(obs.SparseEdgePoints.Count, sampling.ActualSparsePoints);
+        Assert.Equal(16, sampling.SparsePointHash.Length);
+        Assert.Equal(sampling, obs.GetSparseSamplingDiagnostics());
 
         // Verification points must be within [0, width) x [0, height)
         foreach (var pt in obs.SparseEdgePoints)

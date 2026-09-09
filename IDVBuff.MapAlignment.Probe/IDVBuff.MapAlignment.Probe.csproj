@@ -146,6 +146,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.Compatibility.cs" Link="Production\MapStructureLowScaleSelector.Compatibility.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.cs" Link="Production\MapStructureCandidateCollector.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.Diagnostics.cs" Link="Production\MapStructureCandidateCollector.Diagnostics.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureProjectionScorer.cs" Link="Production\MapStructureProjectionScorer.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureFeatureVoting.cs" Link="Production\MapStructureFeatureVoting.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePyramidSearch.cs" Link="Production\MapStructurePyramidSearch.cs" />

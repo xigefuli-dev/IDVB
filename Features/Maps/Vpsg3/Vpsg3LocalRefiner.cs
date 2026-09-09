@@ -208,6 +208,35 @@ public static class Vpsg3LocalRefiner
         MapScreenRect viewportBounds)
         => EvaluateScore(sparsePoints, preparedFloor, scale, offsetX, offsetY, viewportBounds, -1d);
 
+    public static (int HitsK5, int HitsK3, int PointCount) CountHits(
+        IReadOnlyList<Point> sparsePoints,
+        Vpsg3PreparedFloor preparedFloor,
+        double scale,
+        double offsetX,
+        double offsetY,
+        MapScreenRect viewportBounds)
+    {
+        var hitsK5 = 0;
+        var hitsK3 = 0;
+        var invScale = 1d / scale;
+        var k5 = preparedFloor.DilatedBitsetK5Span;
+        var k3 = preparedFloor.DilatedBitsetK3Span;
+        for (var i = 0; i < sparsePoints.Count; i++)
+        {
+            var point = sparsePoints[i];
+            var rx = (int)Math.Round((viewportBounds.X + point.X - offsetX) * invScale);
+            var ry = (int)Math.Round((viewportBounds.Y + point.Y - offsetY) * invScale);
+            if ((uint)rx >= (uint)preparedFloor.ReferenceWidth || (uint)ry >= (uint)preparedFloor.ReferenceHeight)
+                continue;
+            var index = ry * preparedFloor.WordsPerRow + (rx >> 6);
+            var shift = rx & 63;
+            var word5 = k5[index];
+            hitsK5 += (int)((word5 >> shift) & 1UL);
+            hitsK3 += (int)(((k3[index] & word5) >> shift) & 1UL);
+        }
+        return (hitsK5, hitsK3, sparsePoints.Count);
+    }
+
     private static double EvaluateScore(
         IReadOnlyList<Point> sparsePoints, Vpsg3PreparedFloor preparedFloor,
         double scale, double offsetX, double offsetY, MapScreenRect viewportBounds, double bestScore)

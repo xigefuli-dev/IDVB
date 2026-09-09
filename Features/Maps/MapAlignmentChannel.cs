@@ -47,6 +47,9 @@ public static class MapAlignmentChannelRegistry
         {
             SchemaVersion = MapStructureRegistrationTuning.CurrentSchemaVersion,
             Channel = MapAlignmentChannel.LowStructure,
+            // LowStructure is certified against recognition reference plus
+            // EdgesOnly live input. Keep this independent from Standard.
+            UsePrebuiltStructureLine = false,
             EnforceTimeBudget = true,
             StructureFallbackBudgetMilliseconds = Math.Clamp(
                 config.ColdPathBudgetMilliseconds, 50, 700),

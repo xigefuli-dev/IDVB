@@ -168,15 +168,8 @@ public sealed partial class MapStructureRegistrationTuning
     [JsonIgnore]
     internal bool EnableScanCheapRejectShadowCollection { get; set; }
     public VpsgScaleMode VpsgScaleMode { get; set; } = VpsgScaleMode.Structure;
-    /// <summary>
-    /// 实验算法：使用预制线图。默认开启且不可被关闭。
-    /// Setter 保留用于兼容旧持久化配置反序列化，但所有覆盖尝试均被忽略。
-    /// </summary>
-    public bool UsePrebuiltStructureLine
-    {
-        get => true;
-        set { }
-    }
+    /// <summary>Whether this channel uses the prebuilt reference/live contract.</summary>
+    public bool UsePrebuiltStructureLine { get; set; } = true;
     public MapAuxiliaryAnchorRecognitionMode AuxiliaryAnchorMode { get; set; } =
         MapAuxiliaryAnchorRecognitionMode.AmbiguityOnly;
 

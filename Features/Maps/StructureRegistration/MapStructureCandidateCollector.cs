@@ -2,7 +2,7 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-internal static class MapStructureCandidateCollector
+internal static partial class MapStructureCandidateCollector
 {
     internal static void SearchRestrictedCandidates(
         QueryGeometry query,
@@ -457,6 +457,9 @@ internal static class MapStructureCandidateCollector
                 .Take(tuning.TopCandidateCount)
                 .ToArray();
 
+        if (tuning.Channel == MapAlignmentChannel.LowStructure)
+            LogLowStructureCandidateSelection(candidates, ordered, diagnostic, valid);
+
         static int ScalePriority(
             MapStructureCandidate candidate,
             LowStructureAlignmentPlan? plan)
@@ -471,6 +474,7 @@ internal static class MapStructureCandidateCollector
                 })
                 .MinBy(item => item.Distance)!.Index;
         }
+
         return (ordered, diagnostic, valid);
     }
 }

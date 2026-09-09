@@ -70,6 +70,7 @@ public sealed class LowStructureAlignmentChannelTests
         Assert.Equal(1, low.MinimumConsistentPartitions);
         Assert.True(low.EnforceTimeBudget);
         Assert.Equal(2, low.FastCoarseTopK);
+        Assert.False(low.UsePrebuiltStructureLine);
         Assert.False(low.LowStructureEnableFeatureScaleEstimate);
         Assert.True(low.EnableVisibleMask);
         Assert.False(low.EnableVisibleAwareShadow);
@@ -116,6 +117,20 @@ public sealed class LowStructureAlignmentChannelTests
                 MapScaleSearchPolicy.Search,
                 isTracking: false,
                 tuning));
+    }
+
+    [Fact]
+    public void LowStructureContractDoesNotInheritStandardPrebuiltSetting()
+    {
+        var standard = new MapStructureRegistrationTuning
+        {
+            UsePrebuiltStructureLine = true
+        };
+
+        var low = MapAlignmentChannelRegistry.CreateLowStructure();
+
+        Assert.True(standard.UsePrebuiltStructureLine);
+        Assert.False(low.UsePrebuiltStructureLine);
     }
 
     [Fact]
@@ -299,6 +314,47 @@ public sealed class LowStructureAlignmentChannelTests
         Assert.Equal(3, ranking.Diagnostic.Length);
         Assert.DoesNotContain(valid, ranking.Diagnostic);
         Assert.Same(valid, Assert.Single(ranking.Valid));
+    }
+
+    [Fact]
+    public void LowStructureCandidateRankingEmitsRetentionSummary()
+    {
+        var previous = MapLogCollector.Instance;
+        using var collector = new MapLogCollector { IsEnabled = true };
+        MapLogCollector.Instance = collector;
+        try
+        {
+            var tuning = MapAlignmentChannelRegistry.CreateLowStructure(
+                new LowStructureConfig { TopCandidateCount = 3 });
+            var candidates = Enumerable.Range(0, 3).Select(index =>
+                new MapStructureCandidate
+                {
+                    Scale = 0.45d + (index * 0.01d),
+                    CompositeCost = 0.10d + (index * 0.01d),
+                    ChamferPixels = 2d + index,
+                    EdgeCoverage = 0.75d + (index * 0.01d),
+                    OccupancyCoverage = 0.80d,
+                    ReferenceCoverage = 0.80d,
+                    ConsistentPartitions = 3
+                }).ToArray();
+
+            _ = MapStructureCandidateCollector.RankCandidatesByValidity(
+                candidates, tuning,
+                new MapOverlayTransform { ScaleX = 1d, ScaleY = 1d },
+                restrictedSearch: false);
+
+            var entry = Assert.Single(collector.GetEntries(), item =>
+                item.Message == "LowStructureCandidateSelectionSummary");
+            Assert.Equal(3, entry.Details!["evaluatedCandidates"]);
+            Assert.Equal(3, entry.Details["afterNms"]);
+            Assert.Equal(3, entry.Details["afterTopK"]);
+            Assert.NotNull(entry.Details["bestByChamfer"]);
+            Assert.NotNull(entry.Details["bestByEdgeCoverage"]);
+        }
+        finally
+        {
+            MapLogCollector.Instance = previous;
+        }
     }
 
     [Fact]

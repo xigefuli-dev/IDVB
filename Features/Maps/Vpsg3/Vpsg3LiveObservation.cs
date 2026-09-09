@@ -15,6 +15,17 @@ public enum Vpsg3CoordinateSpace
     LocalViewport = 0,
 }
 
+public readonly record struct Vpsg3SparseSamplingDiagnostics(
+    int TotalEdgePoints,
+    int RequestedSparsePoints,
+    int ActualSparsePoints,
+    double SamplingStep,
+    string SparsePointHash,
+    int TopLeftCount,
+    int TopRightCount,
+    int BottomLeftCount,
+    int BottomRightCount);
+
 /// <summary>
 /// Immutable, self-contained live geometry observation extracted from a game frame.
 /// Manages the native memory lifecycle of ObservedEdges and ValidMask.
@@ -72,6 +83,32 @@ public sealed class Vpsg3LiveObservation : IDisposable
                 return _sparseEdgePoints;
             }
         }
+    }
+
+    /// <summary>Compact identity of the exact sparse vote set, for diagnostics only.</summary>
+    public Vpsg3SparseSamplingDiagnostics GetSparseSamplingDiagnostics()
+    {
+        var points = SparseEdgePoints;
+        var quadrants = new int[4];
+        ulong hash = 14695981039346656037UL;
+        foreach (var point in points)
+        {
+            var quadrant = (point.Y >= Height / 2 ? 2 : 0) + (point.X >= Width / 2 ? 1 : 0);
+            quadrants[quadrant]++;
+            unchecked
+            {
+                hash = (hash ^ (uint)point.X) * 1099511628211UL;
+                hash = (hash ^ (uint)point.Y) * 1099511628211UL;
+            }
+        }
+
+        return new(
+            EdgePixelCount,
+            _maxSparsePoints,
+            points.Count,
+            points.Count == 0 ? 0d : (double)EdgePixelCount / points.Count,
+            hash.ToString("X16"),
+            quadrants[0], quadrants[1], quadrants[2], quadrants[3]);
     }
 
     /// <summary>Total extraction time in milliseconds.</summary>

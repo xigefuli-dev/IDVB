@@ -121,6 +121,9 @@ public sealed partial class MapCvRecognitionService
         {
             using var observation = Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds);
             var result = Vpsg3FastBootstrapSolver.TrySolve(observation, lease.Floor, knownScaleSeed: knownScaleSeed);
+            var score = Vpsg3LocalRefiner.CountHits(observation.SparseEdgePoints, lease.Floor, result.Scale, result.OffsetX, result.OffsetY, frame.ViewportBounds);
+            var sampling = observation.GetSparseSamplingDiagnostics();
+            MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, result.IsAccepted ? MapLogLevel.Info : MapLogLevel.Warning, "VPSG3VoteDiagnostics", details: new() { ["mapId"] = map.Id, ["floor"] = floorKey, ["totalEdgePoints"] = sampling.TotalEdgePoints, ["requestedSparsePoints"] = sampling.RequestedSparsePoints, ["actualSparsePoints"] = sampling.ActualSparsePoints, ["samplingStep"] = sampling.SamplingStep, ["sparsePointHash"] = sampling.SparsePointHash, ["quadrantPointCounts"] = new[] { sampling.TopLeftCount, sampling.TopRightCount, sampling.BottomLeftCount, sampling.BottomRightCount }, ["sparsePointCount"] = score.PointCount, ["hitsK5"] = score.HitsK5, ["hitsK3"] = score.HitsK3, ["weightedNumerator"] = score.HitsK5 + 2 * score.HitsK3, ["weightedDenominator"] = 3 * score.PointCount, ["weightedScore"] = result.Confidence, ["minimumVerificationScore"] = Vpsg3TuningConfig.Default.MinVerificationScore, ["scoreUnitsBelowThreshold"] = Math.Max(0, (int)Math.Ceiling(Vpsg3TuningConfig.Default.MinVerificationScore * 3 * score.PointCount) - (score.HitsK5 + 2 * score.HitsK3)) });
 
             if (MapDiagnosticModeCapture.IsActive)
             {

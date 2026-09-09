@@ -335,6 +335,16 @@ public sealed partial class MapStructureRegistrar
                 ["originalScaleCount"] =
                     originalAttemptCount == 0 ? 0 : result.ScaleHypothesisCount,
                 ["originalAttemptCount"] = originalAttemptCount,
+                ["originalAcceptanceEligible"] =
+                    computation.Accepted && computation.Transform is not null,
+                ["originalAcceptanceAttempted"] = originalAttemptCount > 0,
+                ["originalAcceptanceSkipReason"] = originalAttemptCount > 0
+                    ? "None"
+                    : executionMode.Contains("budget", StringComparison.Ordinal)
+                        ? "TimeBudgetExceeded"
+                        : computation.Candidates.Count == 0
+                            ? "NoCoarseCandidate"
+                            : "CoarseAbsoluteGateRejected",
                 ["totalMs"] = totalMilliseconds,
                 ["evidenceRoute"] = request.LowStructurePlan?.Route.ToString()
                     ?? result.LowStructureRoute,
@@ -343,6 +353,42 @@ public sealed partial class MapStructureRegistrar
                 ["failureReason"] = result.FailureReason,
                 ["budgetTerminationReason"] =
                     result.LowStructureBudgetTerminationReason
+            });
+        if (request.Channel != MapAlignmentChannel.LowStructure)
+            return;
+
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            result.Accepted ? MapLogLevel.Info : MapLogLevel.Warning,
+            "LowStructureCandidateDiagnostics",
+            details: new()
+            {
+                ["retainedCandidateCount"] = result.Candidates.Count,
+                ["accepted"] = result.Accepted,
+                ["rejection"] = result.RejectionReason.ToString(),
+                ["candidates"] = result.Candidates
+                    .GroupBy(candidate => candidate.Scale)
+                    .SelectMany(group => group.OrderBy(candidate => candidate.CompositeCost).Take(5))
+                    .Select((candidate, rank) => new
+                    {
+                        rank,
+                        candidate.Scale,
+                        candidate.ReferenceX,
+                        candidate.ReferenceY,
+                        candidate.ChamferPixels,
+                        candidate.ReverseChamferPixels,
+                        candidate.EdgeCoverage,
+                        candidate.OccupancyCoverage,
+                        candidate.ReferenceCoverage,
+                        candidate.ProjectionCorrelation,
+                        candidate.ConsistentPartitions,
+                        candidate.PriorAgreement,
+                        candidate.IsWithinValidBounds,
+                        candidate.CompositeCost,
+                        source = candidate.FromAppearanceSearch
+                            ? "AppearanceCandidate" : "DistancePeak"
+                    })
+                    .ToArray()
             });
     }
 

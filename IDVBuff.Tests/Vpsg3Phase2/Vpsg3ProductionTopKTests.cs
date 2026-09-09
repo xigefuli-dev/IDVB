@@ -31,6 +31,10 @@ public sealed class Vpsg3ProductionTopKTests
                     var c = candidate.Value;
                     var r = Vpsg3LocalRefiner.Refine(observation.SparseEdgePoints, floor, scale.SeedScale,
                         c.OffsetX, c.OffsetY, observation.ViewportBounds, observation.Width, observation.Height);
+                    var votes = Vpsg3LocalRefiner.CountHits(observation.SparseEdgePoints, floor,
+                        r.RefinedScale, r.RefinedX, r.RefinedY, observation.ViewportBounds);
+                    Assert.Equal(r.BestScore,
+                        (votes.HitsK5 + 2d * votes.HitsK3) / (3d * votes.PointCount), 12);
                     var spatial = Vpsg3VerificationGate.EvaluateSpatialVerification(observation.SparseEdgePoints,
                         observation.ValidMask, floor, r.RefinedScale, r.RefinedX, r.RefinedY,
                         observation.ViewportBounds, observation.Width, observation.Height);

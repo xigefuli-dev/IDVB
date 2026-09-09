@@ -74,7 +74,7 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.Equal(0.64d, settings.StructureRegistrationTuning.FeatureRatioThreshold);
         Assert.True(settings.StructureRegistrationTuning.UsePrebuiltStructureLine);
         settings.StructureRegistrationTuning.UsePrebuiltStructureLine = false;
-        Assert.True(settings.Clone().StructureRegistrationTuning.UsePrebuiltStructureLine);
+        Assert.False(settings.Clone().StructureRegistrationTuning.UsePrebuiltStructureLine);
     }
 
     [Fact]

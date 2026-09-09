@@ -152,6 +152,7 @@
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignSelected.Structure.Post.cs" Link="Production\MapCvAlignmentService.AlignSelected.Structure.Post.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignStructureOnly.cs" Link="Production\MapCvAlignmentService.AlignStructureOnly.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.AlignStructureOnly.Part*.cs" />
+    <Compile Include="..\Features\Maps\MapCvAlignmentService.LowStructureDiagnostics.cs" Link="Production\MapCvAlignmentService.LowStructureDiagnostics.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.Logging.cs" Link="Production\MapCvAlignmentService.Logging.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.Budget.cs" Link="Production\MapCvAlignmentService.Budget.cs" />
     <Compile Include="..\Features\Maps\MapCvAlignmentService.Confirm.cs" Link="Production\MapCvAlignmentService.Confirm.cs" />
@@ -218,6 +219,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureLowScaleSelector.Compatibility.cs" Link="Production\MapStructureLowScaleSelector.Compatibility.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.cs" Link="Production\MapStructureCandidateCollector.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.Diagnostics.cs" Link="Production\MapStructureCandidateCollector.Diagnostics.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureProjectionScorer.cs" Link="Production\MapStructureProjectionScorer.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureFeatureVoting.cs" Link="Production\MapStructureFeatureVoting.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePyramidSearch.cs" Link="Production\MapStructurePyramidSearch.cs" />

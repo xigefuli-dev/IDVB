@@ -36,6 +36,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Pipeline;
         // or a later adaptive-scale decision.
         if (frame.DetectedFloorKey is { } detectedFloor)
         {
+            PresentDetectedFloorBeforeAlignment(locked, detectedFloor, frame);
             if (detectedFloor != targetFloorKey)
             {
                 await initialPrewarmTask;

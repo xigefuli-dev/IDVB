@@ -3,7 +3,7 @@ namespace IDVBuff.Tests;
 public sealed class MapLearningStartupSourceTests
 {
     [Fact]
-    public void TraditionalModeDefersTorchModelInitialization()
+    public void StartupRunsLearningStorageInitializationOffTheUiThread()
     {
         var root = FindRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(
@@ -12,7 +12,7 @@ public sealed class MapLearningStartupSourceTests
         Assert.Contains(
             "if (_settings?.CandidateDecisionMode == MapCandidateDecisionMode.Traditional)",
             source);
-        Assert.Contains("await EnsureLearningEngineInitializedAsync", source);
+        Assert.Contains("await Task.Run(() => _learningEngine.InitializeAsync", source);
     }
 
     private static string FindRepositoryRoot()

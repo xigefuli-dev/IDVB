@@ -45,7 +45,7 @@ public partial class App
         await EnsureMapRuntimeDisabledAsync();
         await InitializeSafeModeTraditionalWindowInputAsync(
             DispatcherQueue.GetForCurrentThread());
-        AutomaticUpdateLauncher.TryLaunch();
+        _ = Task.Run(AutomaticUpdateLauncher.TryLaunch);
         if (startMinimized)
         {
             HideMainWindow();

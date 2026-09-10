@@ -56,6 +56,8 @@ public sealed partial class SessionOrchestrator
         if (frame.DetectedFloorKey is { } detectedFloor && detectedFloor != targetFloorKey)
             validatedStructureScaleSeed = null;
         targetFloorKey = frame.DetectedFloorKey ?? targetFloorKey;
+        if (frame.DetectedFloorKey is { } floorKey)
+            PresentDetectedFloorBeforeAlignment(locked, floorKey, frame);
         try
         {
             // 与正常扫描一致的初始对齐入口：真实侧门种子走带完整恢复上下文

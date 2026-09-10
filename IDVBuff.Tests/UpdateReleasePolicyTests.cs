@@ -299,6 +299,20 @@ public sealed class UpdateReleasePolicyTests
     }
 
     [Fact]
+    public void CodeOnlyReleasePathsIncludeAllTutorialImages()
+    {
+        const string guidePngRule = "^Assets/Guide/[A-Za-z0-9._-]+\\.png$";
+
+        foreach (var script in new[]
+                 {
+                     Read("release", "Invoke-IDVBUpdateWorkflow.ps1"),
+                     Read("release", "Invoke-IDVBCodeOnlyPush.ps1"),
+                     Read("release", "Invoke-IDVBPublishAction.ps1")
+                 })
+            Assert.Contains(guidePngRule, script);
+    }
+
+    [Fact]
     public void WorkerExposesOnlyFixedUpdateChannelsAndPreservesRanges()
     {
         var worker = Read("web_installer", "src", "index.js");

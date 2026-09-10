@@ -405,6 +405,19 @@ public sealed partial class SessionOrchestrator
             floorLabel);
     }
 
+    private void PresentDetectedFloorBeforeAlignment(
+        RuntimeMapRecognition locked,
+        string floorKey,
+        CapturedGameFrame frame)
+    {
+        _currentFloorKey = floorKey;
+        _lastGameBounds = frame.ClientBounds;
+        _lastGameWindowHandle = frame.WindowHandle;
+        _statusMessage = $"已检测到{MapFloorRules.GetFloorDisplayName(locked.Map, floorKey)}，正在对齐……";
+        RefreshMiniMapForCurrentFloor();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
 }
 /*
  * 文件职责：SessionOrchestrator.Floor。

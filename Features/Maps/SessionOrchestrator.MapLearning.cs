@@ -109,7 +109,7 @@ public sealed partial class SessionOrchestrator
             return;
         try
         {
-            await _learningEngine.InitializeAsync(cancellationToken);
+            await Task.Run(() => _learningEngine.InitializeAsync(cancellationToken));
             _learningEngineInitialized = true;
         }
         catch (Exception exception)

@@ -40,6 +40,12 @@ public sealed partial class MapRepository
                 .OrderBy(map => map.SequenceNumber)
                 .Select(map => map.Clone())
                 .ToList();
+            if (ClampImageDownsampleFactor(current.ImageDownsampleFactor) != 0
+                && maps.Any(map => !HasCompleteDownsampleOriginals(map)))
+            {
+                throw new InvalidOperationException(
+                    "该 Class 缺少降采样前的原图备份，不能更改降采样设置。保留当前倍率可避免再次降低图片分辨率。");
+            }
             var originalCatalog = await File.ReadAllBytesAsync(CatalogPath, cancellationToken);
             var operationDirectory = Path.Combine(_rootDirectory, $".class-downsample-{Guid.NewGuid():N}");
             var mapBackups = Path.Combine(operationDirectory, "maps");
@@ -152,6 +158,44 @@ public sealed partial class MapRepository
     private static string GetDownsampleOriginalDirectory(string root, Guid mapId) =>
         Path.Combine(root, mapId.ToString("N"));
 
+    private bool HasCompleteDownsampleOriginals(MapRecord map)
+    {
+        var originalDirectory = GetDownsampleOriginalDirectory(
+            Path.Combine(_rootDirectory, ".downsample-originals"), map.Id);
+        return Directory.Exists(originalDirectory)
+            && MapFloorRules.GetOrderedFloors(map).Select((_, index) => index).All(index =>
+                Directory.EnumerateFiles(
+                    originalDirectory,
+                    $"floor-{index + 1:D3}-visual.*",
+                    SearchOption.TopDirectoryOnly)
+                .Any(IsSupportedImage));
+    }
+
+    internal string GetFloorImagePathForPortableExport(
+        MapRecord map,
+        string floorKey,
+        int floorIndex,
+        bool recognitionSource = false)
+    {
+        var active = recognitionSource
+            ? GetFloorRecognitionPath(map, floorKey)
+            : GetFloorImagePath(map, floorKey);
+        if (ClampImageDownsampleFactor(map.ClassProperties.ImageDownsampleFactor) == 0)
+            return active;
+
+        var originalDirectory = GetDownsampleOriginalDirectory(
+            Path.Combine(_rootDirectory, ".downsample-originals"), map.Id);
+        var suffix = recognitionSource ? "recognition" : "visual";
+        var original = Directory.Exists(originalDirectory)
+            ? Directory.EnumerateFiles(
+                    originalDirectory,
+                    $"floor-{floorIndex + 1:D3}-{suffix}.*",
+                    SearchOption.TopDirectoryOnly)
+                .SingleOrDefault(IsSupportedImage)
+            : null;
+        return original ?? active;
+    }
+
     private static string EnsureOriginalImage(
         string source,
         string directory,
@@ -168,18 +212,24 @@ public sealed partial class MapRepository
         return target;
     }
 
-    private static void ScaleBackgroundBrushes(
+    internal static void ScaleBackgroundBrushes(
         MapRecognitionProfile recognition,
+        int oldFactor,
+        int newFactor)
+    {
+        foreach (var floor in recognition.Floors.Values)
+            ScaleBackgroundBrushes(floor, oldFactor, newFactor);
+    }
+
+    internal static void ScaleBackgroundBrushes(
+        FloorRecognitionProfile floor,
         int oldFactor,
         int newFactor)
     {
         var scale = (oldFactor <= 1 ? 1d : ClampImageDownsampleFactor(oldFactor))
             / (newFactor <= 1 ? 1d : ClampImageDownsampleFactor(newFactor));
-        foreach (var floor in recognition.Floors.Values)
         foreach (var layer in floor.BackgroundLayers)
-            layer.BrushSizePixels = ClampBrushSizeForImageScale(
-                layer.BrushSizePixels,
-                scale);
+            layer.BrushSizePixels = ClampBrushSizeForImageScale(layer.BrushSizePixels, scale);
     }
 
     internal static int ClampBrushSizeForImageScale(int brushSize, double scale) =>
@@ -199,7 +249,7 @@ public sealed partial class MapRepository
         await Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var source = Cv2.ImRead(original, ImreadModes.Unchanged);
+            using var source = DecodeImage(original);
             if (source.Empty())
                 throw new InvalidOperationException($"无法读取地图原图：{Path.GetFileName(original)}");
             using var resized = new Mat();

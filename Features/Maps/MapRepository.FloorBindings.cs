@@ -268,7 +268,7 @@ public sealed partial class MapRepository
             throw new InvalidOperationException(
                 $"{context} uses an unsupported image format: '{path}'. Use PNG, JPG, or JPEG.");
 
-        using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
+        using var image = DecodeImage(path);
         if (image.Empty())
             throw new InvalidOperationException($"{context} image cannot be decoded: '{path}'.");
     }

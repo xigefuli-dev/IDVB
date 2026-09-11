@@ -32,6 +32,7 @@ public sealed partial class SessionOrchestrator
         var displayName = string.Empty;
         var sideTimings = new Dictionary<string, double>();
         MapOperationTrace.MapOperationSpanScope? initialPostProcess = null;
+
         try
         {
             var sideSw = Stopwatch.StartNew();
@@ -82,6 +83,7 @@ public sealed partial class SessionOrchestrator
                     MapLogLevel.Warning,
                     failureReason);
                 initialPostProcess.Complete();
+                initialPostProcess = null;
                 return;
             }
             if (candidates.Count == 0)
@@ -93,6 +95,7 @@ public sealed partial class SessionOrchestrator
                     MapLogLevel.Warning,
                     failureReason);
                 initialPostProcess.Complete();
+                initialPostProcess = null;
                 return;
             }
 
@@ -113,6 +116,8 @@ public sealed partial class SessionOrchestrator
                 sideAlignmentTuning.GateTemplateThreshold =
                     GateTemplateRules.FallbackPairThreshold;
             }
+            initialPostProcess.Complete();
+            initialPostProcess = null;
             var reliable = VerifySideEntranceCandidates(
                 frame,
                 candidates,
@@ -158,7 +163,8 @@ public sealed partial class SessionOrchestrator
                     && reliable.Count == 0
                     ? $"侧门扫描无可靠候选（侧门就绪 {sideScan.ReadyMapCount}/{sideScan.EligibleMapCount}）。"
                     : null;
-                initialPostProcess.Complete();
+                initialPostProcess?.Complete();
+                initialPostProcess = null;
                 return;
             }
 
@@ -181,6 +187,7 @@ public sealed partial class SessionOrchestrator
         catch (Exception alignEx)
         {
             initialPostProcess?.Complete();
+            initialPostProcess = null;
             RecordResearchAttemptForMap(
                 _recognition.TryGetMap(sideMapId), seed?.FloorKey, frame,
                 new MapRecognitionAttempt { FailureReason = alignEx.Message },

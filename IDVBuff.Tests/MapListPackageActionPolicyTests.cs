@@ -85,6 +85,15 @@ public sealed class MapListPackageActionPolicyTests
     }
 
     [Fact]
+    public void OwnedPublicationAllowsNewLocalMapsInItsClass()
+    {
+        var actions = Read("Views", "MapListPage.ExportPublishing.cs");
+
+        Assert.Contains("maps.Where(map => map.AcquisitionKind == MapAcquisitionKind.Subscription)", actions);
+        Assert.DoesNotContain("maps.Any(map => map.AcquisitionKind != MapAcquisitionKind.Subscription)", actions);
+    }
+
+    [Fact]
     public void WebsitePublicationRejectsOversizedPackagesBeforeUploading()
     {
         var session = Read("Features", "Accounts", "AccountSession.cs");

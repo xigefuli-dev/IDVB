@@ -51,7 +51,7 @@ public sealed partial class MapRepository
     private static Task CreateThumbnailAsync(string sourcePath, string destinationPath) =>
         Task.Run(() =>
         {
-            using var source = Cv2.ImRead(sourcePath, ImreadModes.Unchanged);
+            using var source = DecodeImage(sourcePath);
             if (source.Empty())
                 throw new InvalidOperationException($"Image cannot be read: '{sourcePath}'.");
 
@@ -193,7 +193,7 @@ public sealed partial class MapRepository
 
     private static async Task<FloorImageMetadata> ReadImageMetadataAsync(string path)
     {
-        using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
+        using var image = DecodeImage(path);
         if (image.Empty())
             throw new InvalidOperationException($"Image cannot be decoded: '{path}'.");
 
@@ -223,7 +223,7 @@ public sealed partial class MapRepository
         bool removeBackground = false,
         int backgroundRemovalIntensity = MapBackgroundProcessor.DefaultBackgroundRemovalIntensity)
     {
-        using var source = Cv2.ImRead(sourcePath, ImreadModes.Unchanged);
+        using var source = DecodeImage(sourcePath);
         if (source.Empty())
             throw new InvalidOperationException("无法读取地图原图以生成识别区域。");
         using var processed = MapBackgroundProcessor.Process(
@@ -239,6 +239,9 @@ public sealed partial class MapRepository
         if (overlayPath is not null && !Cv2.ImWrite(overlayPath, processed.Overlay))
             throw new InvalidOperationException("无法保存透明地图图层。");
     }
+
+    private static Mat DecodeImage(string path) =>
+        Cv2.ImDecode(File.ReadAllBytes(path), ImreadModes.Unchanged);
 
     private static Rect GetPixelRegion(NormalizedRectangle region, int width, int height)
     {

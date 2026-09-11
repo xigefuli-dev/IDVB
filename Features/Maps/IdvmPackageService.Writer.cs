@@ -130,9 +130,11 @@ public sealed partial class IdvmPackageService
         for (var index = 0; index < orderedFloors.Count; index++)
         {
             var floor = orderedFloors[index];
-            var source = _repository.GetFloorImagePath(map, floor.Key);
+            var isDownsampled = MapRepository.ClampImageDownsampleFactor(
+                classProperties.ImageDownsampleFactor) != 0;
+            var source = _repository.GetFloorImagePathForPortableExport(map, floor.Key, index);
             if (!File.Exists(source))
-                throw new InvalidOperationException($"{map.DisplayName} 的楼层“{floor.DisplayName}”原图不存在。");
+                throw new InvalidOperationException($"{map.DisplayName} 的楼层“{floor.DisplayName}”图片不存在。");
             var extension = Path.GetExtension(source).ToLowerInvariant();
             if (!MapRepository.IsSupportedImage(source))
                 throw new InvalidOperationException($"{map.DisplayName} 包含不支持的图片格式。");
@@ -141,12 +143,13 @@ public sealed partial class IdvmPackageService
             await CopyFileAsync(source, target, cancellationToken);
             using var image = Cv2.ImRead(target, ImreadModes.Unchanged);
             if (image.Empty())
-                throw new InvalidOperationException($"无法读取 {map.DisplayName} 的楼层原图。");
+                throw new InvalidOperationException($"无法读取 {map.DisplayName} 的楼层图片。");
 
             string? recognitionLogicalPath = null;
             if (string.Equals(map.Source, "survey", StringComparison.Ordinal))
             {
-                var recognitionSource = _repository.GetFloorRecognitionPath(map, floor.Key);
+                var recognitionSource = _repository.GetFloorImagePathForPortableExport(
+                    map, floor.Key, index, recognitionSource: true);
                 if (File.Exists(recognitionSource))
                 {
                     recognitionLogicalPath = $"{root}/data/floor-{index + 1:D3}-recognition.png";
@@ -158,6 +161,10 @@ public sealed partial class IdvmPackageService
             }
             var profile = map.Recognition.GetFloor(floor.Key)
                 ?? throw new InvalidOperationException($"{map.DisplayName} 缺少楼层 {floor.Key} 的识别配置。");
+            var exportProfile = profile.Clone();
+            if (isDownsampled)
+                MapRepository.ScaleBackgroundBrushes(
+                    exportProfile, classProperties.ImageDownsampleFactor, 0);
             var manifestFloor = new ManifestFloorDto
             {
                 Key = floor.Key,
@@ -177,15 +184,15 @@ public sealed partial class IdvmPackageService
                 RecognitionImage = recognitionLogicalPath,
                 ImageWidth = image.Width,
                 ImageHeight = image.Height,
-                OrientationDegrees = profile.OrientationDegrees,
-                RecognitionRegion = ToDto(profile.RecognitionRegion),
-                FreeCropPoints = profile.FreeCropPoints.Select(point => ToDto(point)!).ToList(),
-                ValidMapBounds = NormalizeBounds(profile.ValidMapBounds,
-                    profile.RecognitionPixelWidth,
-                    profile.RecognitionPixelHeight),
-                SideEntranceFeature = await TryExportSideEntranceFeatureAsync(
-                    staging, root, index + 1, map, floor.Key, profile, cancellationToken),
-                PrebuiltStructureLine = await TryExportPrebuiltStructureLineAsync(
+                OrientationDegrees = exportProfile.OrientationDegrees,
+                RecognitionRegion = ToDto(exportProfile.RecognitionRegion),
+                FreeCropPoints = exportProfile.FreeCropPoints.Select(point => ToDto(point)!).ToList(),
+                ValidMapBounds = NormalizeBounds(exportProfile.ValidMapBounds,
+                    exportProfile.RecognitionPixelWidth,
+                    exportProfile.RecognitionPixelHeight),
+                SideEntranceFeature = isDownsampled ? null : await TryExportSideEntranceFeatureAsync(
+                    staging, root, index + 1, map, floor.Key, exportProfile, cancellationToken),
+                PrebuiltStructureLine = isDownsampled ? null : await TryExportPrebuiltStructureLineAsync(
                     staging, root, index + 1, map, floor, cancellationToken)
             });
         }
@@ -207,7 +214,9 @@ public sealed partial class IdvmPackageService
         var anchorsDocument = new AnchorsDto();
         foreach (var floor in orderedFloors)
         {
-            var profile = map.Recognition.GetFloor(floor.Key)!;
+            var profile = map.Recognition.GetFloor(floor.Key)!.Clone();
+            if (MapRepository.ClampImageDownsampleFactor(classProperties.ImageDownsampleFactor) != 0)
+                MapRepository.ScaleBackgroundBrushes(profile, classProperties.ImageDownsampleFactor, 0);
             var floorAnchors = new AnchorFloorDto
             {
                 WholeImageIgnoreRegions = profile.WholeImageIgnoreRegions

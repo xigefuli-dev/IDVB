@@ -126,6 +126,42 @@ public sealed class MapOperationTraceTests
         Assert.Equal(3d, summary.OverlapMs);
     }
 
+    [Theory]
+    [InlineData("success", 1)]
+    [InlineData("candidate-selection", 2)]
+    public void InitialRecognitionClosesBeforeCandidateVerification(
+        string outcome,
+        int candidateCount)
+    {
+        var clock = new FakeClock();
+        var trace = new MapOperationTrace(MapOperationTypes.QuickScan, clock: clock);
+
+        using (trace.StartTopLevel("initial_recognition"))
+            clock.Advance(2);
+        using (trace.StartTopLevel("selected_candidate_alignment", attemptIndex: 0))
+            clock.Advance(3);
+        if (candidateCount > 1)
+        {
+            using var secondCandidate = trace.StartTopLevel(
+                "selected_candidate_alignment", attemptIndex: 1);
+            clock.Advance(4);
+        }
+
+        var summary = trace.Complete(outcome, "candidate-verification-complete");
+        var initial = Assert.Single(summary.Spans,
+            span => span.Name == "initial_recognition");
+        var selected = summary.Spans
+            .Where(span => span.Name == "selected_candidate_alignment")
+            .OrderBy(span => span.AttemptIndex)
+            .ToArray();
+
+        Assert.False(summary.HasTopLevelOverlap);
+        Assert.True(summary.UnaccountedMs >= 0d);
+        Assert.Equal(candidateCount, selected.Length);
+        Assert.True(initial.StartOffsetMs + initial.DurationMs
+            <= selected[0].StartOffsetMs);
+    }
+
     [Fact]
     public void Complete_ClosesActiveSpanWithTerminalStatus()
     {

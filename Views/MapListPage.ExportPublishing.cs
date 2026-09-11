@@ -324,9 +324,11 @@ public sealed partial class MapListPage
     private MapSubscriptionRecord? GetOwnedPublication()
     {
         var maps = GetVisibleMaps();
-        var ids = maps.Select(map => map.SubscriptionId).Distinct().ToArray();
-        if (ids.Length != 1 || ids[0] is not { } id
-            || maps.Any(map => map.AcquisitionKind != MapAcquisitionKind.Subscription)) return null;
+        var ids = maps.Where(map => map.AcquisitionKind == MapAcquisitionKind.Subscription)
+            .Select(map => map.SubscriptionId)
+            .Distinct()
+            .ToArray();
+        if (ids.Length != 1 || ids[0] is not { } id) return null;
         var identity = AccountSession.Identity;
         return identity is null ? null : _mapSubscriptionService.GetSubscriptions()
             .SingleOrDefault(record => record.Id == id

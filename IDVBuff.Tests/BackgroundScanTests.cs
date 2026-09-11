@@ -299,6 +299,35 @@ public sealed partial class BackgroundScanTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SideEntranceMustCloseInitialRecognitionBeforeCandidateVerification()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "Features", "Maps",
+            "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs"));
+
+        var thresholdIndex = source.IndexOf(
+            "GateTemplateRules.FallbackPairThreshold",
+            StringComparison.Ordinal);
+        var closeIndex = source.IndexOf(
+            "initialPostProcess.Complete();",
+            thresholdIndex,
+            StringComparison.Ordinal);
+        var clearIndex = source.IndexOf(
+            "initialPostProcess = null;",
+            closeIndex,
+            StringComparison.Ordinal);
+        var verifyIndex = source.IndexOf(
+            "VerifySideEntranceCandidates(",
+            StringComparison.Ordinal);
+
+        Assert.True(thresholdIndex >= 0);
+        Assert.True(closeIndex > thresholdIndex);
+        Assert.True(clearIndex > closeIndex);
+        Assert.True(verifyIndex > closeIndex);
+        Assert.DoesNotContain("CompleteInitialPostProcess", source);
+    }
+
     // ── PickSideEntranceSeed ──
 
     private static MapAlignmentSession CreateSideEntranceSeed(

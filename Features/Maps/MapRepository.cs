@@ -163,6 +163,7 @@ public sealed partial class MapRepository
         string? backupDirectory = null;
         string? targetDirectory = null;
         var isNewRecord = false;
+        var createdDownsampleOriginals = new List<string>();
         try
         {
             var catalog = await ReadCatalogAsync();
@@ -215,6 +216,8 @@ public sealed partial class MapRepository
                 throw new InvalidOperationException("已绑定变体的地图不能移动到其他 Class，请先解绑变体组合。");
             }
             record.Class = targetClass;
+            var classDownsampleFactor = MapRepository.ClampImageDownsampleFactor(
+                GetClassProperties(catalog, targetClass).ImageDownsampleFactor);
             if (draft.Floors.Count > 0)
                 record.Floors = draft.Floors
                     .OrderBy(floor => floor.SortOrder)
@@ -235,6 +238,36 @@ public sealed partial class MapRepository
             Directory.CreateDirectory(_rootDirectory);
             stagingDirectory = Path.Combine(_rootDirectory, $".pending-{Guid.NewGuid():N}");
             Directory.CreateDirectory(stagingDirectory);
+            var orderedFloorKeys = record.Floors
+                .OrderBy(floor => floor.SortOrder)
+                .ThenBy(floor => floor.Key, StringComparer.Ordinal)
+                .Select(floor => floor.Key)
+                .ToArray();
+            if (isNewRecord && classDownsampleFactor != 0)
+                ScaleBackgroundBrushes(record.Recognition, 0, classDownsampleFactor);
+
+            async Task<string> CopyFloorInputAsync(string key, string path)
+            {
+                if (isNewRecord && classDownsampleFactor != 0)
+                {
+                    var index = Array.IndexOf(orderedFloorKeys, key);
+                    var originals = GetDownsampleOriginalDirectory(
+                        Path.Combine(_rootDirectory, ".downsample-originals"), record.Id);
+                    Directory.CreateDirectory(originals);
+                    path = EnsureOriginalImage(
+                        path,
+                        originals,
+                        $"floor-{index + 1:D3}-visual",
+                        createdDownsampleOriginals);
+                    path = await CreateDownsampleInputAsync(
+                        path,
+                        stagingDirectory,
+                        $"floor-{index + 1:D3}-visual-input",
+                        classDownsampleFactor,
+                        CancellationToken.None);
+                }
+                return await CopyImageToDirectoryAsync(path, stagingDirectory, GetFloorImageFilePrefix(key));
+            }
 
             // Copy each floor's original image by its explicit floor key.
             var floorImageFileNames = new Dictionary<string, string>();
@@ -243,15 +276,8 @@ public sealed partial class MapRepository
                 .OrderBy(kvp => draft.Floors.FirstOrDefault(f => f.Key == kvp.Key)?.SortOrder ?? 99)
                 .ThenBy(kvp => kvp.Key, StringComparer.Ordinal))
             {
-                var filePrefix = GetFloorImageFilePrefix(key);
-                var copiedName = await CopyImageToDirectoryAsync(path, stagingDirectory, filePrefix);
-                floorImageFileNames[key] = copiedName;
+                floorImageFileNames[key] = await CopyFloorInputAsync(key, path);
             }
-            var orderedFloorKeys = record.Floors
-                .OrderBy(floor => floor.SortOrder)
-                .ThenBy(floor => floor.Key, StringComparer.Ordinal)
-                .Select(floor => floor.Key)
-                .ToArray();
             // Legacy draft fields are positional fallbacks only. Resolve them
             // to the actual ordered floor keys before persisting any file.
             for (var index = 0; index < orderedFloorKeys.Length && index < 2; index++)
@@ -261,10 +287,7 @@ public sealed partial class MapRepository
                     continue;
                 var legacyPath = index == 0 ? draft.FloorOnePath : draft.FloorTwoPath;
                 if (IsSupportedImage(legacyPath) && File.Exists(legacyPath!))
-                    floorImageFileNames[key] = await CopyImageToDirectoryAsync(
-                        legacyPath!,
-                        stagingDirectory,
-                        GetFloorImageFilePrefix(key));
+                    floorImageFileNames[key] = await CopyFloorInputAsync(key, legacyPath!);
             }
             // Legacy readers still resolve the first two floors through these
             // fields, so keep them aligned with the reordered floor list even
@@ -301,6 +324,24 @@ public sealed partial class MapRepository
                     out var surveyStructurePath)
                     && IsSupportedImage(surveyStructurePath)
                     && File.Exists(surveyStructurePath);
+                if (hasSurveyStructure && isNewRecord && classDownsampleFactor != 0)
+                {
+                    var index = Array.IndexOf(orderedFloorKeys, key);
+                    var originals = GetDownsampleOriginalDirectory(
+                        Path.Combine(_rootDirectory, ".downsample-originals"), record.Id);
+                    Directory.CreateDirectory(originals);
+                    surveyStructurePath = EnsureOriginalImage(
+                        surveyStructurePath!,
+                        originals,
+                        $"floor-{index + 1:D3}-recognition",
+                        createdDownsampleOriginals);
+                    surveyStructurePath = await CreateDownsampleInputAsync(
+                        surveyStructurePath,
+                        stagingDirectory,
+                        $"floor-{index + 1:D3}-recognition-input",
+                        classDownsampleFactor,
+                        CancellationToken.None);
+                }
                 var classProperties = GetClassProperties(catalog, record.Class);
                 var removeBackground = draft.RemoveBackgroundOverride
                     ?? classProperties.RemoveBackground;
@@ -311,7 +352,7 @@ public sealed partial class MapRepository
                     || !UsesWholeSourceImage(profile);
                 if (hasSurveyStructure)
                 {
-                    using var surveyImage = Cv2.ImRead(surveyStructurePath!, ImreadModes.Unchanged);
+                    using var surveyImage = DecodeImage(surveyStructurePath!);
                     if (surveyImage.Empty())
                         throw new InvalidOperationException("测绘识别结构无法解码。");
                     using var processed = MapBackgroundProcessor.Process(
@@ -406,9 +447,7 @@ public sealed partial class MapRepository
                         await CopyRecognitionSourceAsync(
                             recognitionPath,
                             compatibilityRecognitionPath);
-                        using var compatibilityImage = Cv2.ImRead(
-                            compatibilityRecognitionPath,
-                            ImreadModes.Unchanged);
+                        using var compatibilityImage = DecodeImage(compatibilityRecognitionPath);
                         CreateWhiteKeyOverlay(compatibilityImage, compatibilityOverlayPath);
                     }
                     else
@@ -457,6 +496,8 @@ public sealed partial class MapRepository
             {
                 Directory.Delete(targetDirectory, recursive: true);
             }
+            foreach (var path in createdDownsampleOriginals)
+                if (File.Exists(path)) File.Delete(path);
             throw;
         }
         finally

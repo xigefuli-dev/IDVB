@@ -108,8 +108,29 @@ public sealed class Vpsg3TuningConfig
     /// <summary>Minimum global verification score required to pass.</summary>
     public double MinVerificationScore { get; init; } = 0.50d;
 
-    /// <summary>Minimum aperture score margin over distinct runner-up required to pass.</summary>
+    /// <summary>
+    /// Minimum aperture score margin over distinct runner-up required to pass.
+    /// This is the sole discriminability gate and is never relaxed: a narrow
+    /// margin means the main peak and a spatially distinct competitor are
+    /// nearly tied, which is exactly the real positional ambiguity that must
+    /// be rejected.
+    /// </summary>
     public double MinApertureMargin { get; init; } = 0.09d;
+
+    /// <summary>
+    /// Aperture margin headroom above <see cref="MinApertureMargin"/> over which
+    /// the required verification score relaxes to its most permissive value.
+    /// </summary>
+    public double MarginRelaxationSpan { get; init; } = 0.14d;
+
+    /// <summary>
+    /// Maximum relief subtracted from <see cref="MinVerificationScore"/> once the
+    /// aperture margin reaches <see cref="MarginRelaxationSpan"/>. A cleanly
+    /// separated main peak is trustworthy at a lower verification score, which
+    /// is what lets a small single-room observation align instead of being
+    /// rejected for low coverage.
+    /// </summary>
+    public double MaxVerificationScoreRelief { get; init; } = 0.09d;
 
     /// <summary>Minimum number of 2x2 spatial quadrants that must pass the quadrant score threshold.</summary>
     public int MinPassedPartitions { get; init; } = 2;

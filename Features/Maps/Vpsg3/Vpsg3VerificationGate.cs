@@ -8,9 +8,12 @@ namespace IDVBuff.Features.Maps;
 /// Production verification gate for VPSG 3.0.
 /// Enforces joint multi-signal gating:
 /// 1. S-B PeakRatio threshold
-/// 2. Weighted convex verification score
-/// 3. K5 distinct aperture margin (&gt;= 0.09)
-/// 4. 2x2 spatial quadrant consistency (PassedPartitions &gt;= 3)
+/// 2. K5 distinct aperture margin (&gt;= MinApertureMargin) — the sole discriminability
+///    gate, never relaxed by spatial-consistency exemptions
+/// 3. Weighted convex verification score, jointly determined by the aperture margin
+///    (wider margin tolerates a lower score)
+/// 4. 2x2 spatial quadrant consistency (PassedPartitions &gt;= MinPassedPartitions, with
+///    small-observation exemptions for dominant-single-quadrant and high-confidence globals)
 /// 5. ValidMask neutrality: unknown fog pixels are neutral (neither hit nor miss)
 /// 6. Strict aperture uniqueness: if DistinctRunnerUpFound is false, rejects fake margins.
 /// </summary>
@@ -194,31 +197,26 @@ public static class Vpsg3VerificationGate
             return new Vpsg3GateResult(false, 0d, false, "NoDistinctRefinedRunnerUp");
 
         var margin = bestCandidate.Spatial.GlobalScore - runnerUpScore;
-        var effectiveMinMargin = cfg.MinApertureMargin;
-        if (bestCandidate.Spatial.IsSpatiallyConsistent)
+
+        // Gate 2: Aperture Margin —— 真实位置歧义的唯一判据，不接受任何豁免。
+        // 此前该门槛会在 IsSpatiallyConsistent 成立时被降到 0.035d，而空间一致性本身
+        // 有四条宽松放行路径（其中 isKnownScale 分支因 knownScaleSeed 路径硬编码
+        // PeakRatio = 10.0d 而恒真）。小观测几乎必然满足这些豁免，判别力检查形同虚设，
+        // "主峰与次峰几乎并列"的错解被放行并经 VpsgDirectLock 锁死整局。
+        // 观测区域小只应放宽分区要求，绝不应放宽判别力要求。
+        if (margin < cfg.MinApertureMargin)
         {
-            // 当 2x2 空间象限一致且主峰得分达到高质量区间时：
-            // 1. 如果主峰得分 >= 0.48（真实带杂质画面的主流高置信区间，cfg.MinVerificationScore 为 0.40），且具有明确主峰优势 (>= 0.035)；
-            // 2. 或者在已知可靠尺度（PeakRatio >= 9.9d，由 knownScaleSeed 稳态驱动）且次峰为邻域展宽 (refinedDist < 48px) 时；
-            // 采纳放宽阈值 0.035d，防止因离散网格侧瓣抬高次峰得分而误杀正解并引发 300ms+ 的昂贵全局回退。
-            var isKnownScale = scaleResult.PeakRatio >= 9.9d;
-            var isNearbySideLobe = refinedDist < 48.0d;
-            if (bestCandidate.Spatial.GlobalScore >= 0.48d
-                || (isKnownScale && (isNearbySideLobe || bestCandidate.Spatial.GlobalScore >= cfg.MinVerificationScore)))
-            {
-                effectiveMinMargin = Math.Min(effectiveMinMargin, 0.035d);
-            }
+            return new Vpsg3GateResult(false, margin, hasValidCompetitor, $"ApertureMarginBelowThreshold: {margin:F3} < {cfg.MinApertureMargin:F3} (2ndScore={runnerUpScore:F3})");
         }
 
-        if (margin < effectiveMinMargin)
+        // Gate 4: Joint verification score —— 判别力与验证分联合判定。
+        // margin 宽裕说明主峰与次峰分离明确，可容忍更低的加权验证分；单房间等小观测的
+        // 有效点少、验证分天然偏低，此前被固定 0.50 硬门槛系统性误杀。
+        // margin 贴近下限时则要求完整的 MinVerificationScore 佐证。
+        var requiredScore = ResolveRequiredVerificationScore(margin, cfg);
+        if (bestCandidate.WeightedScore < requiredScore)
         {
-            return new Vpsg3GateResult(false, margin, hasValidCompetitor, $"ApertureMarginBelowThreshold: {margin:F3} < {effectiveMinMargin:F3} (2ndScore={runnerUpScore:F3})");
-        }
-
-        // Gate 4: Global Verification Score
-        if (bestCandidate.WeightedScore < cfg.MinVerificationScore)
-        {
-            return new Vpsg3GateResult(false, margin, true, $"VerificationScoreBelowThreshold: {bestCandidate.WeightedScore:F3} < {cfg.MinVerificationScore:F3}");
+            return new Vpsg3GateResult(false, margin, true, $"VerificationScoreBelowThreshold: {bestCandidate.WeightedScore:F3} < {requiredScore:F3} (margin={margin:F3})");
         }
 
         // Gate 5: Spatial 2x2 Quadrant Consistency
@@ -243,5 +241,30 @@ public static class Vpsg3VerificationGate
         }
 
         return new Vpsg3GateResult(true, margin, true, string.Empty);
+    }
+
+    /// <summary>
+    /// Resolves the weighted verification score required at a given aperture margin.
+    /// At the margin floor the full <see cref="Vpsg3TuningConfig.MinVerificationScore"/>
+    /// is required; as the margin widens toward
+    /// <see cref="Vpsg3TuningConfig.MarginRelaxationSpan"/> the requirement relaxes by up
+    /// to <see cref="Vpsg3TuningConfig.MaxVerificationScoreRelief"/>.
+    /// </summary>
+    private static double ResolveRequiredVerificationScore(
+        double margin,
+        Vpsg3TuningConfig cfg)
+    {
+        var span = cfg.MarginRelaxationSpan;
+        if (!double.IsFinite(span) || span <= 0d)
+        {
+            return cfg.MinVerificationScore;
+        }
+
+        var relief = Math.Clamp(
+            (margin - cfg.MinApertureMargin) / span,
+            0d,
+            1d);
+        return cfg.MinVerificationScore
+            - relief * Math.Max(0d, cfg.MaxVerificationScoreRelief);
     }
 }

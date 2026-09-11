@@ -46,7 +46,7 @@ public sealed class Vpsg3ShadowAndGateTests
     }
 
     [Fact]
-    public void ApertureMarginRelaxation_AllowsSpatiallyConsistentNearRunnerUp()
+    public void ApertureMarginGovernsRequiredScore_AndIsNeverRelaxed()
     {
         var consistentSpatial = new Vpsg3SpatialResult(0.52, 150, 78, 4, 4, true);
         var best = new Vpsg3RefinedCandidate(1, 0, 0, 0.52, 0.52, 0.52, consistentSpatial, 1);
@@ -54,32 +54,39 @@ public sealed class Vpsg3ShadowAndGateTests
         var runner = new Vpsg3RefinedCandidate(1, 15, 15, 0.4733, 0.4733, 0.4733, runnerSpatial, 1);
         var scale = new Vpsg3ScaleResult(Vpsg3ScaleStatus.Success, 1, 3, 0, "");
 
+        // A near-tied runner-up is real positional ambiguity. Spatial consistency must not
+        // relax the margin gate: this is the exact shape that used to pass on the 0.035
+        // floor, get locked by VpsgDirectLock, and leave the overlay mis-scaled all game.
         var gate = Vpsg3VerificationGate.EvaluateDecision(scale, best, runner,
             true, new(0, 0, 100, 100), 800, 600);
-        Assert.True(gate.Passed);
+        Assert.False(gate.Passed);
+        Assert.Contains("ApertureMarginBelowThreshold", gate.FailureReason);
         Assert.Equal(0.52 - 0.4733, gate.Margin, 4);
 
+        // At the margin floor the full MinVerificationScore is still required.
+        var floorRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.43 } };
+        var floorBest = best with { WeightedScore = 0.49 };
+        var gateFloor = Vpsg3VerificationGate.EvaluateDecision(scale, floorBest, floorRunner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.False(gateFloor.Passed);
+        Assert.Contains("VerificationScoreBelowThreshold", gateFloor.FailureReason);
+
+        // A cleanly separated main peak (margin 0.28) is accepted at a lower verification
+        // score, which is what lets a small single-room observation align.
+        var farRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.24 } };
+        var lowScoreBest = best with { WeightedScore = 0.44 };
+        var gateSmallRoom = Vpsg3VerificationGate.EvaluateDecision(scale, lowScoreBest, farRunner,
+            true, new(0, 0, 100, 100), 800, 600);
+        Assert.True(gateSmallRoom.Passed);
+        Assert.Equal(0.52 - 0.24, gateSmallRoom.Margin, 4);
+
+        // The same wide margin still fails Gate 5 when the quadrants are not consistent.
         var inconsistentSpatial = new Vpsg3SpatialResult(0.44, 150, 66, 4, 2, false);
         var weakBest = best with { Spatial = inconsistentSpatial };
-        var weakRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.3933 } };
-        var gateWeak = Vpsg3VerificationGate.EvaluateDecision(scale, weakBest, weakRunner,
-            true, new(0, 0, 100, 100), 800, 600);
-        Assert.False(gateWeak.Passed);
-        Assert.Contains("ApertureMarginBelowThreshold", gateWeak.FailureReason);
-
-        // When margin is wide (e.g. 0.20) but spatial consistency is false, passes Gate 2 but fails Gate 5:
-        var wideMarginRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.24 } };
-        var gateSpatialFail = Vpsg3VerificationGate.EvaluateDecision(scale, weakBest, wideMarginRunner,
+        var gateSpatialFail = Vpsg3VerificationGate.EvaluateDecision(scale, weakBest, farRunner,
             true, new(0, 0, 100, 100), 800, 600);
         Assert.False(gateSpatialFail.Passed);
         Assert.Contains("SpatialPartitionsBelowThreshold", gateSpatialFail.FailureReason);
-
-        // When spatially consistent but margin below relaxed threshold 0.035:
-        var tinyMarginRunner = runner with { Spatial = runnerSpatial with { GlobalScore = 0.51 } };
-        var gateTiny = Vpsg3VerificationGate.EvaluateDecision(scale, best, tinyMarginRunner,
-            true, new(0, 0, 100, 100), 800, 600);
-        Assert.False(gateTiny.Passed);
-        Assert.Contains("ApertureMarginBelowThreshold", gateTiny.FailureReason);
     }
 
     [Fact]

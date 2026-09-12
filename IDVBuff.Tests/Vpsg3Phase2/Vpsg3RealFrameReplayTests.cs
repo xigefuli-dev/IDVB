@@ -13,7 +13,18 @@ public sealed class Vpsg3RealFrameReplayTests(ITestOutputHelper output)
     public void ReplayCapturedFrames()
     {
         var root = Environment.GetEnvironmentVariable("VPSG3_REPLAY_ROOT");
-        Assert.False(string.IsNullOrWhiteSpace(root), "Set VPSG3_REPLAY_ROOT to a nonempty frozen certification dataset.");
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(Path.Combine(root, "samples")))
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var candidates = new[]
+            {
+                Path.Combine(localAppData, "IDVB", "Logs", "Vpsg3Certification"),
+                Path.Combine(localAppData, "IDVB", "Vpsg3Certification"),
+                Path.Combine(localAppData, "IDVB")
+            };
+            root = candidates.FirstOrDefault(c => Directory.Exists(Path.Combine(c, "samples")));
+        }
+        Assert.False(string.IsNullOrWhiteSpace(root), "Set VPSG3_REPLAY_ROOT or ensure samples exist in %LocalAppData%/IDVB.");
         var samples = Path.Combine(root!, "samples");
         Assert.True(Directory.Exists(samples), $"Replay samples directory missing: {samples}");
         var paths = Directory.GetFiles(samples, "sample.json", SearchOption.AllDirectories).Order().ToArray();
@@ -52,7 +63,7 @@ public sealed class Vpsg3RealFrameReplayTests(ITestOutputHelper output)
                 certifiedWithGroundTruth++;
                 if (gt.TryGetProperty("expectedAccepted", out var ea))
                 {
-                    Assert.Equal(ea.GetBoolean(), result.IsAccepted);
+                    Assert.True(result.IsAccepted == ea.GetBoolean(), $"{id}: expectedAccepted={ea.GetBoolean()}, actual={result.IsAccepted}, reason={result.FallbackReason}, margin={result.ApertureMargin:F3}, score={result.Confidence:F3}");
                 }
                 if (result.IsAccepted && gt.TryGetProperty("trueScale", out var ts))
                 {

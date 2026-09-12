@@ -185,10 +185,11 @@ internal static partial class MapCvAlignmentService
             // 找到双门、仅 14 次找到单个门且还要过身份确认门槛，白白付出
             // 150ms+。有 NoDoor 预算且门对已锁定时直接走结构配准，跳过
             // CreateMatchImage + FullSearch/WarmScaleSearch。尚未锁定门对的会话
-            // 绝不能跳过门检测，否则无法求解尺度。
-            || (route == SelectedAlignmentRoute.Default
-                && compatibleSession is { HasGatePairLock: true }
-                && hasAlignmentDeadline);
+            // 绝不能跳过门检测，否则无法求解尺度（刚切换过来的地图变体正是这种情况）。
+            || MapOpenAlignmentRouteRules.CanSkipGateDetectionForLockedGatePair(
+                route,
+                compatibleSession,
+                hasAlignmentDeadline);
         var stopwatch = Stopwatch.StartNew();
         using var inputPreprocess = MapOperationTraceAmbient.StartChild(
             "alignment_input_preprocess",

@@ -7,7 +7,45 @@ internal static partial class MapCvAlignmentService
 {
     internal static MapRecognitionAttempt AlignStructureOnly(MapCvRecognitionService service, CapturedGameFrame frame, Guid selectedMapId, string floorKey, MapOverlayTransform scaleSeed, MapOverlayAlignmentMode alignmentMode, MapRecognitionTuning tuning, MapStructureRegistrationTuning? structureTuning, MapReferencePoint? playerPrior, MapViewportOrigin? predictedViewportOrigin, IReadOnlyList<NormalizedRectangle>? liveIgnoreRegions, IReadOnlyList<MapSimilarityTransform>? candidateHistory, bool isTracking, bool useProjectedBoundaryMask, bool allowPrimaryFloor, MapScaleSearchPolicy scaleSearchPolicy, double identityPriorConfidence, bool restrictTranslationToSeed, LowStructureAlignmentPlan? lowStructurePlan = null)
     {
-        ObjectDisposedException.ThrowIf(service.IsDisposed, service); tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning); tuning.ForceBestRecognitionResult = false; alignmentMode = MapOverlayAlignmentMode.Uniform; structureTuning ??= new MapStructureRegistrationTuning(); structureTuning = structureTuning.Clone(); structureTuning.Normalize(); var livePreprocessingProfile = ResolveLiveStructurePreprocessingProfile(scaleSearchPolicy, isTracking, structureTuning); if (livePreprocessingProfile == MapStructurePreprocessingProfile.EdgesOnly)
+        ObjectDisposedException.ThrowIf(service.IsDisposed, service); tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning); tuning.ForceBestRecognitionResult = false; alignmentMode = MapOverlayAlignmentMode.Uniform; structureTuning ??= new MapStructureRegistrationTuning(); structureTuning = structureTuning.Clone(); structureTuning.Normalize();
+        // 中性种子是占位符，不是尺度证据：调用方写死的 Fixed 必须在这里降级为
+        // 真正的全尺度搜索，否则只会围绕错误尺度造出唯一一个假设
+        // （scaleHypotheses=1）然后必然失败。带真实门/锚点/缓存/会话证据的
+        // 路线 seed 不是中性占位符，因此不受影响；ScanVerification 的固定尺度
+        // 校验闸门也照旧。
+        var sealedScaleSearchPolicy =
+            MapOpenAlignmentRouteRules.ResolveStructureOnlyScaleSearchPolicy(
+                scaleSearchPolicy,
+                scaleSeed,
+                structureTuning.Mode == MapStructureRegistrationMode.ScanVerification);
+        if (sealedScaleSearchPolicy != scaleSearchPolicy)
+        {
+            scaleSearchPolicy = sealedScaleSearchPolicy;
+            // 没有真实 transform 时不得把平移盆地钉在中性 (0,0)。
+            restrictTranslationToSeed = false;
+            MapOpenAlignmentRouteRules.ApplyUnknownScaleGlobalRecoveryPolicy(
+                structureTuning,
+                hasCalibration: false);
+            MapLogCollector.Instance.Append(
+                MapLogCategory.StructureRegistration,
+                MapLogLevel.Info,
+                $"中性结构种子冷启动 · floor={floorKey} · 已封锁 Fixed 占位尺度",
+                details: new()
+                {
+                    ["mapId"] = service.TryGetMap(selectedMapId)?.Id ?? selectedMapId,
+                    ["floor"] = floorKey,
+                    ["seedKind"] = nameof(MapStructureSeedKind.Neutral).ToLowerInvariant(),
+                    ["unknownTransformColdStart"] = true,
+                    ["scaleSearchPolicy"] = scaleSearchPolicy.ToString(),
+                    ["scaleSeed"] = scaleSeed.ScaleX,
+                    ["scaleSearchRadius"] = structureTuning.ScaleSearchRadius,
+                    ["disableScaleEarlyTermination"] =
+                        structureTuning.DisableScaleEarlyTermination,
+                    ["enableFastAlignment"] = structureTuning.EnableFastAlignment,
+                    ["restrictedSearch"] = false
+                });
+        }
+        var livePreprocessingProfile = ResolveLiveStructurePreprocessingProfile(scaleSearchPolicy, isTracking, structureTuning); if (livePreprocessingProfile == MapStructurePreprocessingProfile.EdgesOnly)
         {             // Edge-only inputs intentionally cannot contribute descriptor
             // votes. Avoid entering the feature-voting branch at all.
             structureTuning.EnableFeatureVoting = false;

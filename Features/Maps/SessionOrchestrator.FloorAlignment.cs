@@ -290,15 +290,15 @@ public sealed partial class SessionOrchestrator
                 firstAttempt?.Diagnostics);
         }
 
+        // VPSG 失败保护：seed scale 可能错误（跨楼层 KEEP-1.0）。全局恢复必须做
+        // 真正的 scale 搜索，禁止固定 scale 快速粗搜索与单假设早停。
+        // 与结构 fallback 的中性种子冷启动共用同一份参数，避免两处各自演化。
         var recoveryRadius =
             MapOpenAlignmentRouteRules.ResolveSingleGlobalRecoveryRadius(
                 hasFloorCalibration);
-        recoveryTuning.ScaleSearchRadius = recoveryRadius;
-        recoveryTuning.TrackingScaleSearchRadius = 0d;
-        // VPSG 失败保护：seed scale 可能错误（跨楼层 KEEP-1.0）。全局恢复必须做
-        // 真正的 scale 搜索，禁止固定 scale 快速粗搜索与单假设早停。
-        recoveryTuning.EnableFastAlignment = false;
-        recoveryTuning.DisableScaleEarlyTermination = true;
+        MapOpenAlignmentRouteRules.ApplyUnknownScaleGlobalRecoveryPolicy(
+            recoveryTuning,
+            hasFloorCalibration);
         if (NoDoorAlignmentDeadline.Current is { } recoveryDeadline
             && recoveryDeadline.RemainingMilliseconds
                 < MapOpenAlignmentRouteRules
@@ -309,7 +309,6 @@ public sealed partial class SessionOrchestrator
             // more useful here than spending the remainder on AKAZE alone.
             recoveryTuning.EnableFeatureVoting = false;
         }
-        recoveryTuning.Normalize();
         var recoverySeed = vpsgScale is { } vpsgEstimate
             ? MapFeatureCacheRules.CreateScaleSeed(locked.Map, floorKey, vpsgEstimate)
             : scaleSeed;

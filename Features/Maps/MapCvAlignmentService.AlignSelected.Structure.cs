@@ -173,6 +173,20 @@ internal static partial class MapCvAlignmentService
         var restrictStructureSearch = isSideEntranceStructureRoute
             || hasAnchorSeed
             || searchCtx?.UseLockedFixedStructureValidation == true;
+        // 中性种子是占位符，不是尺度证据。地图变体切换后主楼层会落到这里：
+        // 此时既没有本帧单门/锚点测量，也没有会话级变换，如果沿用普通
+        // Default 路径的 Fixed + scaleSeed=1，就只会围着错误尺度做一次注定
+        // 失败的局部搜索。契约集中解析，避免三处判断各自漂移。
+        var structureRoute = MapOpenAlignmentRouteRules.ApplyStructureSearchRoutePolicy(
+            structureSearchTuning,
+            structureSeed,
+            hasFreshAnchorTransform: freshAnchorTransform is not null,
+            hasSingleGateProposal: singleGateProposal is not null,
+            isScanVerification,
+            isSideEntranceStructureRoute,
+            restrictStructureSearch,
+            searchCtx,
+            hasCalibration: false);
         if (ApplyNoDoorBudgetBeforeLocalSearch(
                 structureSearchTuning,
                 isSideEntranceStructureRoute,
@@ -181,6 +195,20 @@ internal static partial class MapCvAlignmentService
         {
             return budgetFailure;
         }
+        MapOpenAlignmentRouteRules.LogStructureSearchRoute(
+            structureRoute,
+            structureSeed,
+            structureSearchTuning,
+            fingerprint.Map.Id,
+            fingerprint.FloorKey,
+            isScanVerification,
+            isInitialSideEntranceSeed,
+            isSideEntranceStructureRoute,
+            route == SelectedAlignmentRoute.SideEntrance,
+            searchCtx?.UseLockedFixedStructureValidation == true,
+            gates.Count,
+            singleGateProposal is not null,
+            freshAnchorTransform is not null);
         var structureRequest = new MapStructureRegistrationRequest
         {
             ReferenceImage = reference,
@@ -191,20 +219,15 @@ internal static partial class MapCvAlignmentService
             ViewportBounds = frame.ViewportBounds,
             LockedTransform = structureSeed,
             Tuning = structureSearchTuning,
-            ScaleSearchPolicy = isScanVerification
-                ? MapScaleSearchPolicy.Fixed
-                : isSideEntranceStructureRoute
-                    ? MapScaleSearchPolicy.Search
-                : MapScaleSearchPolicy.Fixed,
-            RestrictSearchToLockedTransform = isScanVerification
-                || restrictStructureSearch,
+            ScaleSearchPolicy = structureRoute.ScaleSearchPolicy,
+            // 未知 transform 冷启动不得继承受限搜索：把搜索钉在 (0,0) 附近等于
+            // 放弃这次对齐。
+            RestrictSearchToLockedTransform =
+                structureRoute.RestrictSearchToLockedTransform,
             // 侧门初次配准的 seed 是扫描种子（不可靠），不应卡在 tracking 窄窗
             // （±0.5% scale / 48px）。非 tracking 改用 ScaleSearchRadius / 96px，
             // 给 seed 的尺度偏差更多纠正空间；非侧门路由仍保持 tracking。
-            TrackingMode = !isScanVerification
-                && MapAlignmentSearchPolicy.UseTrackingForStructureValidation(
-                    isSideEntranceStructureRoute,
-                    searchCtx),
+            TrackingMode = structureRoute.TrackingMode,
             ForceBestCandidate = false,
             PreparedReference = preparedReference,
             PreparedLive = preparedLive,
@@ -219,37 +242,6 @@ internal static partial class MapCvAlignmentService
             CandidateHistory = candidateHistory ?? [],
             SideEntrancePrior = 0d
         };
-        MapLogCollector.Instance.Append(
-            MapLogCategory.StructureRegistration,
-            MapLogLevel.Info,
-            $"侧门结构验证路线 · {(isScanVerification
-                ? "scan-verification"
-                : isInitialSideEntranceSeed
-                    ? "initial-seed"
-                : isSideEntranceStructureRoute
-                    ? "tracking-repair"
-                    : route == SelectedAlignmentRoute.SideEntrance
-                        ? searchCtx?.UseLockedFixedStructureValidation == true
-                            ? "locked-fixed"
-                            : "standard"
-                        : "standard")}",
-            details: new()
-            {
-                ["route"] = isScanVerification
-                    ? "scan-verification"
-                    : isInitialSideEntranceSeed
-                        ? "initial-seed"
-                    : isSideEntranceStructureRoute
-                        ? "tracking-repair"
-                        : route == SelectedAlignmentRoute.SideEntrance
-                            ? searchCtx?.UseLockedFixedStructureValidation == true
-                                ? "locked-fixed"
-                                : "standard"
-                            : "standard",
-                ["scaleSearchPolicy"] = structureRequest.ScaleSearchPolicy.ToString(),
-                ["trackingMode"] = structureRequest.TrackingMode,
-                ["restrictedSearch"] = structureRequest.RestrictSearchToLockedTransform
-            });
         var scanCheapRejectWouldReject = false;
         var scanCheapRejectMilliseconds = 0d;
         var scanCheapRejectReason = string.Empty;

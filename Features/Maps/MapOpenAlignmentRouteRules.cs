@@ -1,6 +1,6 @@
 namespace IDVBuff.Features.Maps;
 
-internal static class MapOpenAlignmentRouteRules
+internal static partial class MapOpenAlignmentRouteRules
 {
     internal const int MinimumNoDoorStageBudgetMilliseconds = 250;
     internal const int InitialAlignmentMaximumMilliseconds = 1000;
@@ -326,47 +326,6 @@ internal static class MapOpenAlignmentRouteRules
     internal static double ResolveSingleGlobalRecoveryRadius(
         bool hasFloorCalibration) =>
         MapFloorScaleSearchPolicy.GetRadii(hasFloorCalibration).ExpandedRadius;
-
-    internal static bool IsCompatibleReliableFloorSession(
-        MapAlignmentSession? session,
-        Guid mapId,
-        DateTimeOffset mapUpdatedAt,
-        string floorKey,
-        double minimumConfidence)
-    {
-        if (session is null
-            || session.MapId != mapId
-            || session.MapUpdatedAt != mapUpdatedAt
-            || !string.Equals(
-                session.FloorKey,
-                floorKey,
-                StringComparison.Ordinal)
-            || !double.IsFinite(session.LastConfidence)
-            || session.LastConfidence < Math.Clamp(minimumConfidence, 0d, 1d))
-        {
-            return false;
-        }
-
-        return MapSimilarityTransform.FromOverlay(session.LockedTransform)
-            .IsValid;
-    }
-
-    internal static bool CanCompareMapOpenDrift(
-        RuntimeMapRecognition previous,
-        RuntimeMapRecognition current,
-        string targetFloorKey) =>
-        previous.Map.Id == current.Map.Id
-        && previous.Map.UpdatedAt == current.Map.UpdatedAt
-        && previous.Result.MapId == previous.Map.Id
-        && current.Result.MapId == current.Map.Id
-        && string.Equals(
-            previous.Result.Floor,
-            targetFloorKey,
-            StringComparison.Ordinal)
-        && string.Equals(
-            current.Result.Floor,
-            targetFloorKey,
-            StringComparison.Ordinal);
 }
 
 internal static class MapNoDoorAlignmentBudgetContext

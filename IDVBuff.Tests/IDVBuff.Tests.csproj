@@ -162,6 +162,7 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionDiagnostics.cs" Link="Production\MapCvRecognitionDiagnostics.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionHelpers.cs" Link="Production\MapCvRecognitionHelpers.cs" />
     <Compile Include="..\Features\Maps\MapOpenAlignmentRouteRules.cs" Link="Production\MapOpenAlignmentRouteRules.cs" />
+    <Compile Include="..\Features\Maps\MapOpenAlignmentRouteRules.ColdStart.cs" Link="Production\MapOpenAlignmentRouteRules.ColdStart.cs" />
     <Compile Include="..\Features\Maps\MapAnchorTracker.cs" Link="Production\MapAnchorTracker.cs" />
     <Compile Include="..\Features\Maps\MapAnchorTracker.Part*.cs" />
     <Compile Include="..\Features\Maps\MapOrbTrackingModels.cs" Link="Production\MapOrbTrackingModels.cs" />

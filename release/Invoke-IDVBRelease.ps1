@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$ManifestPath,
@@ -628,6 +628,7 @@ function Invoke-BuildPayload($Manifest, $Context) {
         '-p:PublishTrimmed=false'
         '-p:PublishReadyToRun=true'
         '-p:WindowsAppSDKSelfContained=true'
+        '-p:ErrorOnDuplicatePublishOutputFiles=false'
         '-p:DebugSymbols=false'
         '-p:DebugType=None'
         "-p:IDVBBuildVersion=$($Manifest.PublicVersion)"

@@ -1054,9 +1054,9 @@ function Invoke-AuditSource {
     Write-Host '=== Staged files ==='
     git -C $repositoryRoot diff --cached --name-status
     Assert-Success 'Inspect staged files'
-    Write-Host '=== HEAD files changed from remaster ==='
-    git -C $repositoryRoot diff --name-status remaster...HEAD
-    Assert-Success 'Inspect branch file list'
+    Write-Host '=== Recent commits ==='
+    git -C $repositoryRoot log -n 5 --oneline
+    Assert-Success 'Inspect recent commits'
 }
 
 $manifest = Read-ReleaseManifest

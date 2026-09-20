@@ -214,7 +214,7 @@ function Read-ReleaseTargets {
         }
         [void]$selected.Add($number)
     }
-    return ,$selected
+    return $selected
 }
 
 function Read-ProductVersion {
@@ -703,7 +703,7 @@ function Assert-WorkingTreeCleanAfterPreparation {
 try {
     Invoke-EnvironmentPreflight
 
-    $targets = Read-ReleaseTargets
+    [System.Collections.Generic.HashSet[int]]$targets = Read-ReleaseTargets
     Write-Step '版本信息'
     $versionInfo = Read-ProductVersion
     $releaseLine = 'b{0:D2}.{1}' -f $versionInfo.Major, $versionInfo.Minor

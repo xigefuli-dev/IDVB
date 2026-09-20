@@ -3,7 +3,10 @@ param(
     [string]$PrivateKeyPath = '.\.secrets\idvb-update-2026-01-private.pem',
     [string]$R2Bucket = 'idvb-installer',
     [string]$GitHubRepository = 'xigefuli-dev/IDVB',
-    [switch]$MigrationBaseline
+    [switch]$MigrationBaseline,
+    [string[]]$Targets,
+    [string]$ProductVersion,
+    [string[]]$ReleaseNotesLines
 )
 
 $ErrorActionPreference = 'Stop'
@@ -193,7 +196,11 @@ function Read-ReleaseTargets {
     Write-Host '[2] 官网 / Updater 测试通道'
     Write-Host '[3] 官网 / Updater 稳定通道'
     Write-Host ''
-    $raw = (Read-Host '请输入序号，多个目标使用 "," 分隔').Trim()
+    $raw = if ($null -ne $Targets -and $Targets.Count -gt 0) {
+        ($Targets -join ',').Trim()
+    } else {
+        (Read-Host '请输入序号，多个目标使用 "," 分隔').Trim()
+    }
     if ([string]::IsNullOrWhiteSpace($raw)) {
         throw 'At least one publication target is required.'
     }
@@ -211,7 +218,11 @@ function Read-ReleaseTargets {
 }
 
 function Read-ProductVersion {
-    $raw = (Read-Host '请输入产品版本，例如 v1.6.0-unstable.2').Trim()
+    $raw = if (-not [string]::IsNullOrWhiteSpace($ProductVersion)) {
+        $ProductVersion.Trim()
+    } else {
+        (Read-Host '请输入产品版本，例如 v1.6.0-unstable.2').Trim()
+    }
     if ($raw.StartsWith('v', [StringComparison]::OrdinalIgnoreCase)) {
         $raw = $raw.Substring(1)
     }
@@ -341,11 +352,16 @@ function New-AutomaticReleaseNotes([string]$ProductVersion, [string]$PublicVersi
     }
 
     $commitLines = @()
-    try {
-        $commitLines = @(& git -C $repositoryRoot log -n 30 --no-merges --pretty=format:'- %s' 'origin/master..HEAD')
-        if ($LASTEXITCODE -ne 0) { $commitLines = @() }
+    if ($null -ne $ReleaseNotesLines -and $ReleaseNotesLines.Count -gt 0) {
+        $commitLines = @($ReleaseNotesLines | ForEach-Object { if ($_.StartsWith('- ')) { $_ } else { "- $_" } })
     }
-    catch { $commitLines = @() }
+    else {
+        try {
+            $commitLines = @(& git -C $repositoryRoot log -n 30 --no-merges --pretty=format:'- %s' 'origin/master..HEAD')
+            if ($LASTEXITCODE -ne 0) { $commitLines = @() }
+        }
+        catch { $commitLines = @() }
+    }
 
     if ($commitLines.Count -eq 0) {
         $commitLines = @('- Maintenance, fixes, and release preparation for this build.')

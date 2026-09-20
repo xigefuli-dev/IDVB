@@ -15,6 +15,15 @@ public partial class App
 {
     private bool _startupPresentationPending;
     private bool _startupTransitionComplete;
+    private readonly TaskCompletionSource _mainWindowPresentationCompleted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Completes only after the startup splash transition has yielded a usable main window.
+    /// Secondary windows must wait for this instead of appearing over an incomplete shell.
+    /// </summary>
+    internal static Task MainWindowPresentationCompleted =>
+        _currentApp?._mainWindowPresentationCompleted.Task ?? Task.CompletedTask;
 
     private async Task CompleteStartupPresentationAsync(bool startMinimized)
     {
@@ -90,6 +99,7 @@ public partial class App
         {
             ShowMainWindow(bringToForeground: true);
         }
+        _mainWindowPresentationCompleted.TrySetResult();
         WriteStartupTrace("Startup presentation complete; main page ready.");
         StartupTimeline.StopSampling();
     }

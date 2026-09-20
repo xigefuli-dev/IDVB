@@ -42,7 +42,7 @@ public sealed class AnnouncementFeatureTests
                 Summary = "开局3秒定位侧门",
                 Content = "### 技巧\n\n红教堂小地图...",
                 IsPinned = false,
-                Priority = 5,
+                Priority = 0,
                 PublishAt = DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"),
             }
         };
@@ -89,11 +89,7 @@ public sealed class AnnouncementFeatureTests
             await service.MarkAsReadAsync("notice-001");
             Assert.True(list[0].IsRead);
 
-            // 标记不再提示
-            await service.DismissPopupAsync("notice-001");
-            Assert.True(list[0].IsDismissed);
-
-            // 再次检查重要公告（notice-001 已读且 dismissed，不应再被作为重要未读返回）
+            // 再次检查重要公告（已读后不再作为重要未读返回）
             var nextImportant = await service.GetImportantUnreadAsync();
             Assert.Null(nextImportant);
         }
@@ -130,6 +126,109 @@ public sealed class AnnouncementFeatureTests
         finally
         {
             AnnouncementService.CustomHttpClient = prevClient;
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AnnouncementService_ForceRefresh_ReplacesExistingCacheWithLatestServerAnnouncements()
+    {
+        var responseBodies = new Queue<string>([
+            JsonSerializer.Serialize(new AnnouncementResponse
+            {
+                Announcements = [new AnnouncementItem { Id = "cached", Title = "旧公告" }]
+            }),
+            JsonSerializer.Serialize(new AnnouncementResponse
+            {
+                Announcements = [new AnnouncementItem { Id = "latest", Title = "新公告", IsPinned = true }]
+            })
+        ]);
+
+        var previousClient = AnnouncementService.CustomHttpClient;
+        AnnouncementService.CustomHttpClient = new HttpClient(new TestHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseBodies.Dequeue(), System.Text.Encoding.UTF8, "application/json")
+            }))
+        {
+            BaseAddress = new Uri("https://community.idvb.xgflee.com/")
+        };
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "IDVB_Test_Announce_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new AnnouncementService(tempDir);
+            var cached = await service.GetAnnouncementsAsync(forceRefresh: true);
+            var refreshed = await service.GetAnnouncementsAsync(forceRefresh: true);
+
+            Assert.Equal("cached", cached.Single().Id);
+            Assert.Equal("latest", refreshed.Single().Id);
+            Assert.Equal("latest", service.GetCachedAnnouncements().Single().Id);
+        }
+        finally
+        {
+            AnnouncementService.CustomHttpClient = previousClient;
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AnnouncementService_OnlyPopupEnabledUnreadItemsTriggerStartupPopup()
+    {
+        var response = JsonSerializer.Serialize(new AnnouncementResponse
+        {
+            Announcements =
+            [
+                new AnnouncementItem
+                {
+                    Id = "pinned-update-without-popup",
+                    Category = AnnouncementCategories.Update,
+                    IsPinned = true,
+                    Priority = 0,
+                },
+                new AnnouncementItem
+                {
+                    Id = "popup-enabled",
+                    Category = AnnouncementCategories.Notice,
+                    Priority = 1,
+                }
+            ]
+        });
+
+        var previousClient = AnnouncementService.CustomHttpClient;
+        AnnouncementService.CustomHttpClient = new HttpClient(new TestHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, System.Text.Encoding.UTF8, "application/json")
+            }))
+        {
+            BaseAddress = new Uri("https://community.idvb.xgflee.com/")
+        };
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "IDVB_Test_Announce_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new AnnouncementService(tempDir);
+
+            var popup = await service.GetImportantUnreadAsync(forceRefresh: true);
+
+            Assert.NotNull(popup);
+            Assert.Equal("popup-enabled", popup.Id);
+            Assert.Equal(2, service.GetUnreadCount());
+
+            await service.MarkAsReadAsync("popup-enabled");
+            Assert.Null(await service.GetImportantUnreadAsync());
+            Assert.Equal(1, service.GetUnreadCount());
+        }
+        finally
+        {
+            AnnouncementService.CustomHttpClient = previousClient;
             if (Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, true); } catch { }

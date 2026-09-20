@@ -236,14 +236,17 @@ public sealed class HomePage : Page
         _successRateValue.Text = "…";
         _successRateDetail.Text = string.Empty;
 
-        // 重要公告后台静默检查，如需启动弹窗则自动显示
+        // 公告仍在后台刷新，以便未读红点及时更新；但独立窗口必须等主界面完整呈现。
         _ = Task.Run(async () =>
         {
             try
             {
-                var important = await AnnouncementService.Instance.GetImportantUnreadAsync();
+                // 本地缓存只用于窗口的即时首帧；启动检查必须刷新远端，
+                // 否则首次成功拉取后会永久看不到后来发布的公告。
+                var important = await AnnouncementService.Instance.GetImportantUnreadAsync(forceRefresh: true);
                 if (important != null)
                 {
+                    await App.MainWindowPresentationCompleted;
                     DispatcherQueue?.TryEnqueue(() => AnnouncementWindow.Show(important.Id));
                 }
             }

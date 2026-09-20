@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Windows.Graphics;
 using Microsoft.UI.Windowing;
@@ -16,17 +17,47 @@ namespace IDVBuff.Views;
 /// </summary>
 public sealed partial class AnnouncementWindow
 {
+    private const uint WmNcHitTest = 0x0084;
+    private const uint WmSysCommand = 0x0112;
+    private const int HtCaption = 2;
+    private const int HtClient = 1;
+    private const int ScMove = 0xF010;
+    private const int SysCommandMask = 0xFFF0;
+    private const nuint NonMovableWindowSubclassId = 0x49445642;
+
     private static AnnouncementWindow? _currentInstance;
+    private static readonly WindowSubclassProcedure NonMovableWindowProcedure =
+        PreventWindowMove;
 
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public int X;
-        public int Y;
-    }
+    private delegate IntPtr WindowSubclassProcedure(
+        IntPtr window,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam,
+        nuint subclassId,
+        UIntPtr referenceData);
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out POINT lpPoint);
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowSubclass(
+        IntPtr window,
+        WindowSubclassProcedure procedure,
+        nuint subclassId,
+        UIntPtr referenceData);
+
+    [DllImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveWindowSubclass(
+        IntPtr window,
+        WindowSubclassProcedure procedure,
+        nuint subclassId);
+
+    [DllImport("comctl32.dll")]
+    private static extern IntPtr DefSubclassProc(
+        IntPtr window,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam);
 
     private readonly Window _window;
     private readonly AppWindow _appWindow;
@@ -38,12 +69,10 @@ public sealed partial class AnnouncementWindow
     private readonly TextBlock _detailMetaBlock;
     private readonly Border _categoryBadge;
     private readonly TextBlock _categoryBadgeText;
-    private readonly CheckBox _dismissCheckBox;
 
     private List<AnnouncementItem> _allAnnouncements = [];
     private List<AnnouncementItem> _filteredAnnouncements = [];
     private AnnouncementItem? _selectedItem;
-    private string? _currentCategory;
     private bool _webViewReady;
 
     private AnnouncementWindow()
@@ -56,6 +85,8 @@ public sealed partial class AnnouncementWindow
 
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
+            // 公告是启动后的固定提醒窗口：保持在最前，且不提供拖动或调整大小入口。
+            presenter.IsAlwaysOnTop = true;
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
@@ -64,6 +95,15 @@ public sealed partial class AnnouncementWindow
 
         var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
         IDVBuff.Features.Maps.BorderlessWindowHelper.Apply(hWnd);
+        if (!SetWindowSubclass(
+                hWnd,
+                NonMovableWindowProcedure,
+                NonMovableWindowSubclassId,
+                UIntPtr.Zero))
+        {
+            throw new InvalidOperationException(
+                $"无法安装公告窗口防移动处理（Win32 {Marshal.GetLastWin32Error()}）。");
+        }
 
         _appWindow.Closing += (sender, args) =>
         {
@@ -108,7 +148,7 @@ public sealed partial class AnnouncementWindow
 
         _detailTitleBlock = new TextBlock
         {
-            FontSize = 18,
+            FontSize = 23,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
@@ -117,6 +157,7 @@ public sealed partial class AnnouncementWindow
         _detailMetaBlock = new TextBlock
         {
             FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
             Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
         };
 
@@ -136,17 +177,10 @@ public sealed partial class AnnouncementWindow
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        _dismissCheckBox = new CheckBox
-        {
-            Content = "不再自动提示此条通知",
-            FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        _dismissCheckBox.Click += DismissCheckBox_Click;
-
         _window.Content = BuildLayout();
         _window.Closed += (_, _) =>
         {
+            RemoveWindowSubclass(hWnd, NonMovableWindowProcedure, NonMovableWindowSubclassId);
             if (_currentInstance == this) _currentInstance = null;
         };
 
@@ -162,6 +196,28 @@ public sealed partial class AnnouncementWindow
         PlaceAndSizeWindow();
     }
 
+    private static IntPtr PreventWindowMove(
+        IntPtr window,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam,
+        nuint subclassId,
+        UIntPtr referenceData)
+    {
+        // AppWindow can still report a caption hit after its title bar has been hidden.
+        // Convert that hit to client content and also reject keyboard/system-menu moves.
+        if (message == WmSysCommand
+            && ((long)wParam & SysCommandMask) == ScMove)
+        {
+            return IntPtr.Zero;
+        }
+
+        var result = DefSubclassProc(window, message, wParam, lParam);
+        return message == WmNcHitTest && result == new IntPtr(HtCaption)
+            ? new IntPtr(HtClient)
+            : result;
+    }
+
     /// <summary>
     /// 显示公告大窗口。若窗口已存在，则激活并置顶；支持跳转至指定公告。
     /// </summary>
@@ -175,7 +231,8 @@ public sealed partial class AnnouncementWindow
             {
                 _currentInstance.SelectAnnouncementById(targetAnnouncementId);
             }
-            _currentInstance.LoadDataAsync(targetAnnouncementId, silent: true);
+            // 先保留当前内容，再刷新远端，避免旧缓存阻止新公告显示。
+            _currentInstance.LoadDataAsync(targetAnnouncementId, forceRefresh: true, silent: true);
             return;
         }
 
@@ -183,7 +240,11 @@ public sealed partial class AnnouncementWindow
         _currentInstance = instance;
         instance._appWindow.Show();
         instance._window.Activate();
-        instance.LoadDataAsync(targetAnnouncementId, silent: instance._allAnnouncements.Count > 0);
+        // 构造函数已同步展示缓存；随后总是请求远端以合并最新公告。
+        instance.LoadDataAsync(
+            targetAnnouncementId,
+            forceRefresh: true,
+            silent: instance._allAnnouncements.Count > 0);
     }
 
     private async void InitializeWebView()
@@ -250,8 +311,8 @@ public sealed partial class AnnouncementWindow
             var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
             var workArea = displayArea.WorkArea;
 
-            int width = Math.Clamp((int)(workArea.Width * 0.65), 860, 1160);
-            int height = Math.Clamp((int)(workArea.Height * 0.70), 560, 760);
+            int width = Math.Clamp((int)(workArea.Width * 0.70), 860, 1160);
+            int height = Math.Clamp((int)(workArea.Height * 0.60), 520, 680);
 
             if (width > workArea.Width) width = (int)(workArea.Width * 0.95);
             if (height > workArea.Height) height = (int)(workArea.Height * 0.95);
@@ -298,16 +359,7 @@ public sealed partial class AnnouncementWindow
 
     private void ApplyFilter()
     {
-        if (string.IsNullOrEmpty(_currentCategory))
-        {
-            _filteredAnnouncements = [.. _allAnnouncements];
-        }
-        else
-        {
-            _filteredAnnouncements = _allAnnouncements
-                .Where(a => string.Equals(a.Category, _currentCategory, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-        }
+        _filteredAnnouncements = [.. _allAnnouncements];
 
         _announcementsListView.Items.Clear();
         foreach (var item in _filteredAnnouncements)
@@ -352,13 +404,11 @@ public sealed partial class AnnouncementWindow
         _categoryBadgeText.Text = AnnouncementCategories.GetDisplayName(item.Category);
         _categoryBadge.Background = GetCategoryBrush(item.Category);
 
-        var meta = $"发布时间：{FormatDate(item.PublishAt)}";
-        if (!string.IsNullOrEmpty(item.AuthorName)) meta += $"  ·  作者：{item.AuthorName}";
-        if (!string.IsNullOrEmpty(item.Tag)) meta += $"  ·  标签：{item.Tag}";
+        _categoryBadge.Visibility = Visibility.Visible;
+        var meta = FormatDate(item.PublishAt);
+        if (!string.IsNullOrEmpty(item.AuthorName)) meta += $"  ·  {item.AuthorName}";
+        if (!string.IsNullOrEmpty(item.Tag)) meta += $"  ·  {item.Tag}";
         _detailMetaBlock.Text = meta;
-
-        _dismissCheckBox.IsChecked = item.IsDismissed;
-        _dismissCheckBox.Visibility = item.Priority > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         RenderCurrentItemMarkdown();
     }
@@ -384,21 +434,9 @@ public sealed partial class AnnouncementWindow
         _detailTitleBlock.Text = string.Empty;
         _detailMetaBlock.Text = string.Empty;
         _categoryBadge.Visibility = Visibility.Collapsed;
-        _dismissCheckBox.Visibility = Visibility.Collapsed;
         if (_webViewReady)
         {
             _webView.ExecuteScriptAsync("window.setMarkdown('');").AsTask();
-        }
-    }
-
-    private void DismissCheckBox_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedItem == null) return;
-        bool isDismissed = _dismissCheckBox.IsChecked == true;
-        _selectedItem.IsDismissed = isDismissed;
-        if (isDismissed)
-        {
-            _ = AnnouncementService.Instance.DismissPopupAsync(_selectedItem.Id);
         }
     }
 

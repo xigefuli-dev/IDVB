@@ -67,8 +67,6 @@ public sealed class AnnouncementItem
     [JsonIgnore]
     public bool IsRead { get; set; }
 
-    [JsonIgnore]
-    public bool IsDismissed { get; set; }
 }
 
 public sealed class AnnouncementResponse
@@ -84,9 +82,6 @@ public sealed class AnnouncementLocalState
 {
     [JsonPropertyName("readIds")]
     public HashSet<string> ReadIds { get; set; } = [];
-
-    [JsonPropertyName("dismissedIds")]
-    public HashSet<string> DismissedIds { get; set; } = [];
 
     [JsonPropertyName("lastCheckedAt")]
     public string? LastCheckedAt { get; set; }

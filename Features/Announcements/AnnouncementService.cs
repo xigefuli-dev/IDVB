@@ -155,15 +155,22 @@ public sealed class AnnouncementService
         }).ConfigureAwait(false);
     }
 
-    public async Task<AnnouncementItem?> GetImportantUnreadAsync()
+    /// <summary>
+    /// 获取需要在客户端启动后自动弹出的未读公告。
+    /// <para>
+    /// <see cref="AnnouncementItem.Priority"/> 是网页端“客户端启动弹窗提醒”的唯一映射；
+    /// 分类、置顶状态和未读状态只影响列表与红点，不能隐式触发启动弹窗。
+    /// </para>
+    /// 调用方可要求跳过内存/磁盘缓存，确保启动检查不会永久停留在旧公告列表。
+    /// </summary>
+    public async Task<AnnouncementItem?> GetImportantUnreadAsync(bool forceRefresh = false)
     {
-        var list = await GetAnnouncementsAsync().ConfigureAwait(false);
+        var list = await GetAnnouncementsAsync(forceRefresh: forceRefresh).ConfigureAwait(false);
         lock (_stateLock)
         {
             return list.FirstOrDefault(item =>
                 !item.IsRead &&
-                !item.IsDismissed &&
-                (item.Category == AnnouncementCategories.Update || item.IsPinned || item.Priority >= 10));
+                item.Priority > 0);
         }
     }
 
@@ -197,33 +204,11 @@ public sealed class AnnouncementService
         }
     }
 
-    public async Task DismissPopupAsync(string announcementId)
-    {
-        if (string.IsNullOrEmpty(announcementId)) return;
-
-        bool changed = false;
-        lock (_stateLock)
-        {
-            if (_state.DismissedIds.Add(announcementId))
-            {
-                changed = true;
-                var item = _cachedAnnouncements.FirstOrDefault(a => a.Id == announcementId);
-                if (item != null) item.IsDismissed = true;
-            }
-        }
-
-        if (changed)
-        {
-            await SaveStateAsync().ConfigureAwait(false);
-        }
-    }
-
     private void UpdateItemReadStates(List<AnnouncementItem> items)
     {
         foreach (var item in items)
         {
             item.IsRead = _state.ReadIds.Contains(item.Id);
-            item.IsDismissed = _state.DismissedIds.Contains(item.Id);
         }
     }
 

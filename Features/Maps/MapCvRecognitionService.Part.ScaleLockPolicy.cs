@@ -80,7 +80,20 @@ public sealed partial class MapCvRecognitionService
                 return cached;
             if (!_coverageReferences.TryGetValue(key, out points!))
             {
-                var path = _repository.GetPrebuiltStructureLinePath(recognition.Map, recognition.Result.Floor);
+                // Coverage is an advisory post-alignment measurement.  A resident VPSG3 index
+                // may still be valid while its on-disk source is being repaired or has changed;
+                // that condition must not turn an already accepted alignment into an exception.
+                if (!_repository.HasPrebuiltStructureLine(recognition.Map, recognition.Result.Floor))
+                    return null;
+                string path;
+                try
+                {
+                    path = _repository.GetPrebuiltStructureLinePath(recognition.Map, recognition.Result.Floor);
+                }
+                catch (InvalidDataException)
+                {
+                    return null;
+                }
                 if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
                     return null;
                 using var lines = Cv2.ImRead(path, ImreadModes.Grayscale);

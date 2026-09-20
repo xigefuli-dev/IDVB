@@ -5,6 +5,11 @@ namespace IDVBuff.Features.Maps.AdaptiveScaleAlignment;
 /// <summary>Monotonic floor-local milestones. A failed refresh never consumes the pending request.</summary>
 internal sealed class AdaptiveScaleCoverageMilestones
 {
+    // Milestones only ever advance.  Individual frame coverage may fall when
+    // the player moves into a corner, but that must neither roll this state
+    // back nor schedule an already-consumed refresh again.
+    private static readonly int[] MilestonePercents = [10, 15, 20, 25, 30, 40, 50];
+
     internal static int CountCoveredPoints(IReadOnlyList<Point> referencePoints, Mat observedEdges,
         MapOverlayTransform transform, MapScreenRect viewport)
     {
@@ -32,7 +37,14 @@ internal sealed class AdaptiveScaleCoverageMilestones
             RefreshPending = false;
         if (!double.IsFinite(coverage) || coverage < 0d || coverage > 1d)
             return;
-        var reached = Math.Min(5, (int)Math.Floor(coverage * 10d + 1e-9)) * 10;
+        var coveragePercent = coverage * 100d;
+        var reached = 0;
+        foreach (var milestone in MilestonePercents)
+        {
+            if (coveragePercent + 1e-9 < milestone)
+                break;
+            reached = milestone;
+        }
         if (reached <= ReachedPercent)
             return;
         ReachedPercent = reached;

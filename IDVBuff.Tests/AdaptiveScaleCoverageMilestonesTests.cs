@@ -44,18 +44,54 @@ public sealed class AdaptiveScaleCoverageMilestonesTests
     }
 
     [Fact]
-    public void CrossingSchedulesNextAlignmentAndDoesNotRepeat()
+    public void CrossingSchedules15And25PercentRefreshesWithoutRepeating()
     {
         var state = new AdaptiveScaleCoverageMilestones();
-        state.Observe(0.09, false);
-        Assert.False(state.RefreshPending);
         state.Observe(0.10, false);
+        Assert.Equal(10, state.ReachedPercent);
         Assert.True(state.RefreshPending);
-        state.Observe(0.11, true);
+        state.Observe(0.14, true);
         Assert.False(state.RefreshPending);
-        state.Observe(0.19, false);
+
+        state.Observe(0.15, false);
+        Assert.Equal(15, state.ReachedPercent);
+        Assert.True(state.RefreshPending);
+        state.Observe(0.16, true);
+        Assert.False(state.RefreshPending);
+
+        state.Observe(0.20, false);
+        Assert.Equal(20, state.ReachedPercent);
+        Assert.True(state.RefreshPending);
+        state.Observe(0.24, true);
+        Assert.False(state.RefreshPending);
+
+        state.Observe(0.249, false);
+        Assert.False(state.RefreshPending);
+        state.Observe(0.25, false);
+        Assert.Equal(25, state.ReachedPercent);
+        Assert.True(state.RefreshPending);
+    }
+
+    [Fact]
+    public void CoverageRegressionAfter15PercentDoesNotRearm10Or15Percent()
+    {
+        var state = new AdaptiveScaleCoverageMilestones();
+        state.Observe(0.15, false);
+        Assert.Equal(15, state.ReachedPercent);
+        Assert.True(state.RefreshPending);
+
+        // The refresh succeeds while this frame sees less structure.  The
+        // monotonic milestone remains at 15%, rather than falling back to 10%
+        // or scheduling 15% again when coverage later recovers.
+        state.Observe(0.06, true);
+        Assert.Equal(15, state.ReachedPercent);
+        Assert.False(state.RefreshPending);
+        state.Observe(0.14, false);
+        Assert.False(state.RefreshPending);
+        state.Observe(0.15, false);
         Assert.False(state.RefreshPending);
         state.Observe(0.20, false);
+        Assert.Equal(20, state.ReachedPercent);
         Assert.True(state.RefreshPending);
     }
 

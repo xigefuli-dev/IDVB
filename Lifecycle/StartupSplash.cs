@@ -109,6 +109,9 @@ internal static class StartupSplash
             StartPosition = Forms.FormStartPosition.Manual;
             ShowInTaskbar = false;
             MaximizeBox = MinimizeBox = false;
+            // The splash has its own UI thread and must remain visible while WinUI is loading.
+            // Waiting until the handoff leaves it behind whichever window activated meanwhile.
+            TopMost = true;
             // One scale for layout, fonts and logo; avoid automatic DPI plus manual scaling twice.
             AutoScaleMode = Forms.AutoScaleMode.None;
             ClientSize = new Size(460, 260);
@@ -127,10 +130,8 @@ internal static class StartupSplash
             _timer.Tick += (_, _) =>
             {
                 if (Volatile.Read(ref _closed) != 0) { Close(); return; }
-                if (Volatile.Read(ref _transition) != 0 && !TopMost)
+                if (Volatile.Read(ref _transition) != 0)
                 {
-                    TopMost = true;
-                    Refresh();
                     TransitionReady.TrySetResult();
                 }
                 var fade = Volatile.Read(ref _fadeStarted);

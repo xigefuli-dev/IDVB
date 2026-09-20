@@ -53,7 +53,7 @@ public sealed class QuickStartTests
         Assert.Equal(MapRuntimeSettings.CurrentSchemaVersion, recommended.SchemaVersion);
         Assert.False(recommended.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, recommended.FirstScanStrategy);
-        Assert.True(recommended.BackgroundScanEnabled);
+        Assert.False(recommended.BackgroundScanEnabled);
         Assert.False(recommended.EnableContinuousAlignment);
         Assert.Null(recommended.SelectedResolutionPreset);
         Assert.False(recommended.AllowAutomaticMapCache);

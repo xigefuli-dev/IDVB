@@ -204,9 +204,56 @@ public static class Vpsg3FastBootstrapSolver
         swGate.Stop();
         var gateMs = swGate.Elapsed.TotalMilliseconds;
 
+        // The 1D projection is a seed from the currently visible subset, not
+        // a calibrated scale. If refinement reaches its outer search edge,
+        // the best geometry may still lie beyond that edge. Probe the next
+        // scale basin with a full translation solve before accepting the
+        // boundary result as a new floor baseline.
+        Vpsg3BootstrapResult? expanded = null;
+        if (!knownScaleSeed.HasValue && scaleResult.Success
+            && double.IsFinite(refinedCandidate1.Scale))
+        {
+            var displacement = refinedCandidate1.Scale - estimatedScale;
+            if (Math.Abs(displacement) >= 0.044d)
+            {
+                var nextScale = refinedCandidate1.Scale + Math.Sign(displacement) * 0.03d;
+                if (nextScale >= cfg.MinSupportedScale && nextScale <= cfg.MaxSupportedScale)
+                {
+                    expanded = TrySolve(observation, preparedFloor, cfg, sc,
+                        knownScaleSeed: nextScale);
+                }
+            }
+        }
+
         swTotal.Stop();
         var fullTiming = new Vpsg3SolverStageTiming(
-            extractionMs, scaleMs, transMs, refineMs, verMs, gateMs, extractionMs + swTotal.Elapsed.TotalMilliseconds);
+            extractionMs, scaleMs,
+            transMs + (expanded?.Timing.TranslationMs ?? 0d),
+            refineMs + (expanded?.Timing.RefineMs ?? 0d),
+            verMs + (expanded?.Timing.VerificationMs ?? 0d),
+            gateMs + (expanded?.Timing.GateMs ?? 0d),
+            extractionMs + swTotal.Elapsed.TotalMilliseconds);
+
+        if (expanded is { IsAccepted: true }
+            && (!gateDecision.Passed
+                || expanded.Confidence > refinedCandidate1.WeightedScore + 0.015d))
+        {
+            return new Vpsg3BootstrapResult(
+                isAccepted: true,
+                fallbackReason: string.Empty,
+                scale: expanded.Scale,
+                offsetX: expanded.OffsetX,
+                offsetY: expanded.OffsetY,
+                confidence: expanded.Confidence,
+                apertureMargin: expanded.ApertureMargin,
+                hasDistinctRunnerUp: expanded.HasDistinctRunnerUp,
+                passedPartitions: expanded.PassedPartitions,
+                scaleResult: scaleResult,
+                bestCandidate: expanded.BestCandidate,
+                runnerUpCandidate: expanded.RunnerUpCandidate,
+                timing: fullTiming,
+                testedScaleHypotheses: 1 + (expanded?.TestedScaleHypotheses ?? 0));
+        }
 
         if (!gateDecision.Passed)
         {
@@ -223,7 +270,8 @@ public static class Vpsg3FastBootstrapSolver
                 scaleResult: scaleResult,
                 bestCandidate: refinedCandidate1,
                 runnerUpCandidate: refinedCandidate2,
-                timing: fullTiming);
+                timing: fullTiming,
+                testedScaleHypotheses: 1 + (expanded?.TestedScaleHypotheses ?? 0));
         }
 
         return new Vpsg3BootstrapResult(
@@ -239,7 +287,8 @@ public static class Vpsg3FastBootstrapSolver
             scaleResult: scaleResult,
             bestCandidate: refinedCandidate1,
             runnerUpCandidate: refinedCandidate2,
-            timing: fullTiming);
+            timing: fullTiming,
+            testedScaleHypotheses: 1 + (expanded?.TestedScaleHypotheses ?? 0));
     }
 
     private static bool SameSeed(Vpsg3TranslationCandidate candidate, Vpsg3TranslationCandidate? other) =>

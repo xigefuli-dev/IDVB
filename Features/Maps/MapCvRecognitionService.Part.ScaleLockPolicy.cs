@@ -18,6 +18,7 @@ public sealed partial class MapCvRecognitionService
     private sealed record ScaleRefreshFrame(AdaptiveScaleKey Key, long Generation)
     {
         public bool Completed { get; set; }
+        public bool ScaleChanged { get; set; }
     }
 
     internal bool CanReuseScale(CapturedGameFrame frame, Guid mapId, string floor)
@@ -32,26 +33,36 @@ public sealed partial class MapCvRecognitionService
             return !_coverageMilestones.TryGetValue(key, out var state) || !state.RefreshPending;
     }
 
-    private void CompleteVpsgScaleRefresh(CapturedGameFrame frame)
+    private void CompleteVpsgScaleRefresh(CapturedGameFrame frame, bool scaleChanged)
     {
         lock (_scalePolicyGate)
             if (_scaleRefreshFrames.TryGetValue(frame, out var value))
+            {
                 value.Completed = true;
+                value.ScaleChanged = scaleChanged;
+            }
     }
 
-    private double? ResolveVpsgScaleLock(CapturedGameFrame frame, MapRecord map, string floor, double? seed)
+    private (double? Lock, double? RefreshPrior) ResolveVpsgScaleLock(
+        CapturedGameFrame frame, MapRecord map, string floor, double? seed)
     {
         var key = AdaptiveScaleKey.Create(map, floor, frame.ClientBounds, frame.ViewportBounds);
         lock (_scalePolicyGate)
         {
-            if (!ScaleLockingAllowed()
-                || (_coverageMilestones.TryGetValue(key, out var state) && state.RefreshPending))
+            if (!ScaleLockingAllowed())
+            {
+                _scaleRefreshFrames.Remove(frame);
+                return (null, null);
+            }
+            if (_coverageMilestones.TryGetValue(key, out var state) && state.RefreshPending)
             {
                 _scaleRefreshFrames.Remove(frame);
                 _scaleRefreshFrames.Add(frame, new(key, _scalePolicyGeneration));
-                return null;
+                // Keep the exact floor's prior for a same-frame comparison. The
+                // independent solve must earn the right to replace it.
+                return (null, seed);
             }
-            return seed;
+            return (seed, null);
         }
     }
 
@@ -61,6 +72,15 @@ public sealed partial class MapCvRecognitionService
         lock (_scalePolicyGate)
             return _scaleRefreshFrames.TryGetValue(frame, out var value)
                 && value.Completed && value.Key == key && value.Generation == _scalePolicyGeneration;
+    }
+
+    internal bool DidChangeScaleOnRefresh(CapturedGameFrame frame, MapRecord map, string floor)
+    {
+        var key = AdaptiveScaleKey.Create(map, floor, frame.ClientBounds, frame.ViewportBounds);
+        lock (_scalePolicyGate)
+            return _scaleRefreshFrames.TryGetValue(frame, out var value)
+                && value.Completed && value.ScaleChanged
+                && value.Key == key && value.Generation == _scalePolicyGeneration;
     }
 
     private CoverageFrame? MeasureAlignmentCoverage(CapturedGameFrame frame, RuntimeMapRecognition recognition,

@@ -126,9 +126,83 @@ public sealed partial class MapCvRecognitionService
 
         using (lease)
         {
-            knownScaleSeed = ResolveVpsgScaleLock(frame, map, floorKey, knownScaleSeed);
+            (knownScaleSeed, var refreshPrior) = ResolveVpsgScaleLock(
+                frame, map, floorKey, knownScaleSeed);
             using var observation = Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds);
             var result = Vpsg3FastBootstrapSolver.TrySolve(observation, lease.Floor, knownScaleSeed: knownScaleSeed);
+            var refreshComparisonMs = 0d;
+            var refreshScaleCount = result.TestedScaleHypotheses;
+            if (refreshPrior is { } prior
+                && double.IsFinite(prior)
+                && prior >= Vpsg3TuningConfig.Default.MinSupportedScale
+                && prior <= Vpsg3TuningConfig.Default.MaxSupportedScale)
+            {
+                var fresh = result;
+                var comparison = CompareVpsg3ScaleRefresh(
+                    observation, lease.Floor, fresh, prior);
+                result = comparison.Selected;
+                knownScaleSeed = comparison.SelectedPriorHypothesis
+                    ? result.Scale : null;
+                refreshComparisonMs = comparison.AdditionalMilliseconds;
+                refreshScaleCount = comparison.TestedScaleCount;
+                MapLogCollector.Instance.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    "VPSG3 scale refresh compared on same frame",
+                    details: new()
+                    {
+                        ["mapId"] = map.Id,
+                        ["floor"] = floorKey,
+                        ["priorScale"] = prior,
+                        ["priorAccepted"] = comparison.Baseline?.IsAccepted,
+                        ["priorConfidence"] = comparison.Baseline?.Confidence,
+                        ["freshAccepted"] = fresh.IsAccepted,
+                        ["freshScale"] = fresh.Scale,
+                        ["freshConfidence"] = fresh.Confidence,
+                        ["bestPriorScale"] = comparison.BestPrior?.Scale,
+                        ["bestPriorConfidence"] = comparison.BestPrior?.Confidence,
+                        ["selectedScale"] = result.Scale,
+                        ["selectedPriorHypothesis"] = comparison.SelectedPriorHypothesis,
+                        ["testedScaleCount"] = refreshScaleCount
+                    });
+            }
+            else if (knownScaleSeed.HasValue
+                && result.IsAccepted
+                && result.Confidence < 0.75d)
+            {
+                // A wrong scale can still pass the permissive sparse gate and
+                // otherwise remain locked after all coverage milestones end.
+                // Recheck weak steady fits against an independent floor solve.
+                var lockedResult = result;
+                var fresh = Vpsg3FastBootstrapSolver.TrySolve(observation, lease.Floor);
+                refreshComparisonMs = Math.Max(0d,
+                    fresh.Timing.TotalMs - observation.ExtractionMilliseconds);
+                refreshScaleCount = lockedResult.TestedScaleHypotheses
+                    + fresh.TestedScaleHypotheses;
+                if (fresh.IsAccepted
+                    && fresh.Confidence >= lockedResult.Confidence + 0.05d
+                    && Math.Abs(fresh.Scale - knownScaleSeed.Value) / knownScaleSeed.Value > 0.005d)
+                {
+                    result = fresh;
+                    knownScaleSeed = null;
+                    refreshComparisonMs += lockedResult.Timing.TotalMs - fresh.Timing.TotalMs;
+                }
+                MapLogCollector.Instance.Append(
+                    MapLogCategory.StructureRegistration,
+                    MapLogLevel.Info,
+                    "VPSG3 weak steady scale rechecked",
+                    details: new()
+                    {
+                        ["mapId"] = map.Id,
+                        ["floor"] = floorKey,
+                        ["lockedScale"] = lockedResult.Scale,
+                        ["lockedConfidence"] = lockedResult.Confidence,
+                        ["freshScale"] = fresh.Scale,
+                        ["freshConfidence"] = fresh.Confidence,
+                        ["freshAccepted"] = fresh.IsAccepted,
+                        ["selectedScale"] = result.Scale
+                    });
+            }
             var score = Vpsg3LocalRefiner.CountHits(observation.SparseEdgePoints, lease.Floor, result.Scale, result.OffsetX, result.OffsetY, frame.ViewportBounds);
             var sampling = observation.GetSparseSamplingDiagnostics();
             MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, result.IsAccepted ? MapLogLevel.Info : MapLogLevel.Warning, "VPSG3VoteDiagnostics", details: new() { ["mapId"] = map.Id, ["floor"] = floorKey, ["totalEdgePoints"] = sampling.TotalEdgePoints, ["requestedSparsePoints"] = sampling.RequestedSparsePoints, ["actualSparsePoints"] = sampling.ActualSparsePoints, ["samplingStep"] = sampling.SamplingStep, ["sparsePointHash"] = sampling.SparsePointHash, ["quadrantPointCounts"] = new[] { sampling.TopLeftCount, sampling.TopRightCount, sampling.BottomLeftCount, sampling.BottomRightCount }, ["sparsePointCount"] = score.PointCount, ["hitsK5"] = score.HitsK5, ["hitsK3"] = score.HitsK3, ["weightedNumerator"] = score.HitsK5 + 2 * score.HitsK3, ["weightedDenominator"] = 3 * score.PointCount, ["weightedScore"] = result.Confidence, ["minimumVerificationScore"] = Vpsg3TuningConfig.Default.MinVerificationScore, ["scoreUnitsBelowThreshold"] = Math.Max(0, (int)Math.Ceiling(Vpsg3TuningConfig.Default.MinVerificationScore * 3 * score.PointCount) - (score.HitsK5 + 2 * score.HitsK3)) });
@@ -297,7 +371,8 @@ public sealed partial class MapCvRecognitionService
             MeasureAlignmentCoverage(frame, recognition, observation);
             coverageTimer.Stop();
 
-            var totalTime = result.Timing.TotalMs + (refineTime - result.Timing.RefineMs) + coverageTimer.Elapsed.TotalMilliseconds;
+            var totalTime = result.Timing.TotalMs + refreshComparisonMs
+                + (refineTime - result.Timing.RefineMs) + coverageTimer.Elapsed.TotalMilliseconds;
             var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(ReadyMapCount, TotalMapCount);
             diagnostics.ScaleBootstrapAttempted = true;
             diagnostics.ScaleBootstrapSucceeded = true;
@@ -310,7 +385,7 @@ public sealed partial class MapCvRecognitionService
             diagnostics.ScaleBootstrapMargin = result.ApertureMargin;
             diagnostics.ScaleBootstrapCandidateCount = result.HasDistinctRunnerUp ? 2 : 1;
             diagnostics.ScaleBootstrapSelectedCandidateIndex = 0;
-            diagnostics.ScaleBootstrapTestedScaleCount = 1;
+            diagnostics.ScaleBootstrapTestedScaleCount = refreshScaleCount;
             diagnostics.ScaleBootstrapStructureMilliseconds = result.Timing.ScaleMs;
             diagnostics.LiveStructurePreprocessMilliseconds = result.Timing.ExtractionMs;
             diagnostics.StructurePreprocessMilliseconds = result.Timing.ExtractionMs;
@@ -367,8 +442,58 @@ public sealed partial class MapCvRecognitionService
                     ["totalMs"] = totalTime
                 });
 
-            CompleteVpsgScaleRefresh(frame);
+            CompleteVpsgScaleRefresh(frame,
+                !refreshPrior.HasValue
+                || Math.Abs(finalScale - refreshPrior.Value) / refreshPrior.Value > 0.005d);
             return true;
         }
     }
+
+    internal static Vpsg3ScaleRefreshComparison CompareVpsg3ScaleRefresh(
+        Vpsg3LiveObservation observation,
+        Vpsg3PreparedFloor floor,
+        Vpsg3BootstrapResult fresh,
+        double prior)
+    {
+        Vpsg3BootstrapResult? bestPrior = null;
+        Vpsg3BootstrapResult? baseline = null;
+        var additionalMs = 0d;
+        var testedScaleCount = fresh.TestedScaleHypotheses;
+        foreach (var candidateScale in new[] { prior, prior * 0.995d, prior * 1.005d })
+        {
+            if (candidateScale < Vpsg3TuningConfig.Default.MinSupportedScale
+                || candidateScale > Vpsg3TuningConfig.Default.MaxSupportedScale)
+                continue;
+            var candidate = Vpsg3FastBootstrapSolver.TrySolve(
+                observation, floor, knownScaleSeed: candidateScale);
+            additionalMs += Math.Max(0d,
+                candidate.Timing.TotalMs - observation.ExtractionMilliseconds);
+            testedScaleCount += candidate.TestedScaleHypotheses;
+            if (baseline is null)
+                baseline = candidate;
+            // One sparse weighted hit is 1/450 at 150 points. Require about
+            // seven extra vote units before replacing an accepted incumbent.
+            if (candidate.IsAccepted
+                && (bestPrior is null
+                    || candidate.Confidence > bestPrior.Confidence + 0.015d))
+                bestPrior = candidate;
+        }
+
+        var selectedPrior = bestPrior is not null
+            && (!fresh.IsAccepted
+                || fresh.Confidence <= bestPrior.Confidence + 0.015d);
+        var selected = selectedPrior ? bestPrior! : fresh;
+        additionalMs += fresh.Timing.TotalMs - selected.Timing.TotalMs;
+        return new Vpsg3ScaleRefreshComparison(
+            selected, baseline, bestPrior, selectedPrior,
+            additionalMs, testedScaleCount);
+    }
 }
+
+internal sealed record Vpsg3ScaleRefreshComparison(
+    Vpsg3BootstrapResult Selected,
+    Vpsg3BootstrapResult? Baseline,
+    Vpsg3BootstrapResult? BestPrior,
+    bool SelectedPriorHypothesis,
+    double AdditionalMilliseconds,
+    int TestedScaleCount);

@@ -109,6 +109,7 @@ public sealed class Vpsg3BootstrapResult
     public Vpsg3RefinedCandidate BestCandidate { get; }
     public Vpsg3RefinedCandidate? RunnerUpCandidate { get; }
     public Vpsg3SolverStageTiming Timing { get; }
+    public int TestedScaleHypotheses { get; }
 
     public Vpsg3BootstrapResult(
         bool isAccepted,
@@ -123,7 +124,8 @@ public sealed class Vpsg3BootstrapResult
         Vpsg3ScaleResult scaleResult,
         Vpsg3RefinedCandidate bestCandidate,
         Vpsg3RefinedCandidate? runnerUpCandidate,
-        Vpsg3SolverStageTiming timing)
+        Vpsg3SolverStageTiming timing,
+        int testedScaleHypotheses = 1)
     {
         IsAccepted = isAccepted;
         FallbackReason = fallbackReason ?? string.Empty;
@@ -138,6 +140,7 @@ public sealed class Vpsg3BootstrapResult
         BestCandidate = bestCandidate;
         RunnerUpCandidate = runnerUpCandidate;
         Timing = timing;
+        TestedScaleHypotheses = testedScaleHypotheses;
     }
 
     public static Vpsg3BootstrapResult Fallback(

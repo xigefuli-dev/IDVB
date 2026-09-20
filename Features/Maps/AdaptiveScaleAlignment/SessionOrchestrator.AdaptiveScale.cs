@@ -75,7 +75,7 @@ public sealed partial class SessionOrchestrator
         // every accepted alignment, including provisional/disabled adaptive
         // results that are intentionally excluded from automatic cache writes.
         RememberAlignmentCaptureContext(frame);
-        if (_recognition.WasScaleRefresh(frame, recognition.Map, recognition.Result.Floor))
+        if (_recognition.DidChangeScaleOnRefresh(frame, recognition.Map, recognition.Result.Floor))
         {
             var refreshedKey = AdaptiveScaleKey.Create(recognition.Map, recognition.Result.Floor, frame.ClientBounds, frame.ViewportBounds);
             await _adaptiveScale.ResetForScaleRecoveryAsync(refreshedKey);

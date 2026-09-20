@@ -9,6 +9,7 @@
     <UseSystemDrawing>true</UseSystemDrawing>
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**</DefaultItemExcludes>
     <RunSettingsFilePath>test.runsettings</RunSettingsFilePath>
+    <DefineConstants>$(DefineConstants);IDVB_UNIT_TEST</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

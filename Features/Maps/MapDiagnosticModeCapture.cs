@@ -11,7 +11,11 @@ internal static class MapDiagnosticModeCapture
     private static int _attemptId;
 
     internal static string RootDirectory => Path.Combine(
+#if IDVB_UNIT_TEST
+        Path.GetTempPath(), $"IDVB-UnitTests-{Environment.ProcessId}",
+#else
         global::IDVBuff.AppDataPaths.RootDirectory,
+#endif
         "诊断模式");
 
     internal static bool IsActive

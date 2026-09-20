@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+        <OutputType>WinExe</OutputType>
+
+        <!-- WinUI 3 -->
+        <UseWinUI>true</UseWinUI>
+        <EnableDefaultPageItems>false</EnableDefaultPageItems>
+        <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+        <EnableMsixTooling>true</EnableMsixTooling>
+        <WindowsPackageType>None</WindowsPackageType>
+        <!-- Keep ordinary build output runnable without a separately installed Windows App Runtime. -->
+        <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+        <!-- Updater is an independent WinForms executable built and copied as a deployment artifact,
+             not an executable assembly reference. Do not compare its self-contained mode with IDVB. -->
+        <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+
+        <!-- Project Options -->
+        <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+        <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+        <RootNamespace>IDVBuff</RootNamespace>
+        <!-- Public distribution identity. Internal namespaces and data paths retain their legacy compatibility names. -->
+        <AssemblyName>IDVB</AssemblyName>
+        <PackageId>IdentityVisionBridge</PackageId>
+        <Product>Identity Vision Bridge</Product>
+        <Company>Identity Vision Bridge</Company>
+        <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
+        <IDVBProductVersion>1.6.1-preview</IDVBProductVersion>
+        <IDVBReleaseLine>b01.6</IDVBReleaseLine>
+        <Version>$(IDVBProductVersion)</Version>
+        <AssemblyVersion>1.6.1.0</AssemblyVersion>
+        <FileVersion>1.6.1.0</FileVersion>
+        <InformationalVersion>$(IDVBProductVersion)</InformationalVersion>
+        <UseSystemDrawing>true</UseSystemDrawing>
+        <Configurations>Debug;Release;Test</Configurations>
+        <!-- OpenCvSharp4.runtime.win ships the native matcher used by dwrg.exe scanning for Windows x64. -->
+        <PlatformTarget>x64</PlatformTarget>
+
+        <!-- App Options -->
+        <UseRidGraph>true</UseRidGraph>
+        <Platforms>x86;x64;ARM64</Platforms>
+        <!-- Direct project builds/runs do not use the solution's x64 mapping. -->
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and ('$(Platform)' == 'AnyCPU' or '$(Platform)' == 'Any CPU')">win-x64</RuntimeIdentifier>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <ApplicationIcon>Assets\Icons\IDVB_icon_multisize.ico</ApplicationIcon>
+        <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+        <RuntimeIdentifiers Condition="$([MSBuild]::GetTargetFrameworkVersion('$(TargetFramework)')) >= 8">win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+        <RuntimeIdentifiers Condition="$([MSBuild]::GetTargetFrameworkVersion('$(TargetFramework)')) &lt; 8">win10-x86;win10-x64;win10-arm64</RuntimeIdentifiers>
+        <DefaultItemExcludes>$(DefaultItemExcludes);Tools\**</DefaultItemExcludes>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(Configuration)' == 'Test'">
+        <DefineConstants>$(DefineConstants);IDVBUFF_TEST_BUILD</DefineConstants>
+        <AssemblyName>IDVB.Test</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+        <ProjectReference Include="Core\IDVBuff.Core.csproj" />
+        <ProjectReference Include="Infrastructure\IDVBuff.Infrastructure.csproj" />
+        <ProjectReference Include="Services\IDVBuff.Services.csproj" />
+        <ProjectReference Include="Pipeline\IDVBuff.Pipeline.csproj" />
+        <ProjectReference Include="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
+        <ProjectReference Include="UpdateCore\IDVBuff.UpdateCore.csproj" />
+        <ProjectReference Include="Updater\IDVBuff.Updater.csproj"
+                          ReferenceOutputAssembly="false"
+                          AdditionalProperties="SelfContained=false" />
+        <ProjectReference Include="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
+        <ProjectReference Include="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
+        <ProjectReference Include="Survey\Application\IDVBuff.Survey.Application.csproj" />
+        <ProjectReference Include="Survey\Persistence\IDVBuff.Survey.Persistence.Sqlite.csproj" />
+        <ProjectReference Include="Survey\Editor\IDVBuff.Survey.Editor.WinUI.csproj"
+                          AdditionalProperties="WindowsAppSDKSelfContained=false" />
+        <ProjectReference Include="Survey\Preprocessing\IDVBuff.Survey.Preprocessing.OpenCv.csproj" />
+        <ProjectReference Include="Survey\Registration\IDVBuff.Survey.Registration.OpenCv.csproj" />
+        <ProjectReference Include="Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
+        <ProjectReference Include="Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
+        <ProjectReference Include="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
+        <ProjectReference Include="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+        <ProjectReference Include="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+        <ProjectReference Include="IDVB.PluginSdk.Abstractions\IDVB.PluginSdk.Abstractions.csproj" />
+        <ProjectReference Include="IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
+        <ProjectReference Include="IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
+        <ProjectReference Include="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
+        <ProjectReference Include="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
+        <ProjectReference Include="Plugins\NoRecoveryDelay\IDVBuff.NoRecoveryDelay.csproj" />
+        <ProjectReference Include="Plugins\NightVision\IDVBuff.NightVision.csproj" />
+        <ProjectReference Include="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
+        <ProjectReference Include="Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
+        <ProjectReference Include="Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
+
+        <Content Include="Assets\SplashScreen.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\LockScreenLogo.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Square150x150Logo.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Square44x44Logo.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\StoreLogo.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Wide310x150Logo.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Icons\*.ico" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Algorithms\structure-native-observed-v2.idva"
+                 CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Algorithms\structure-doom-girl-hard-wangqingxin-v1.idva"
+                 CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\FloorIndicators\**\*" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Guide\*.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Markdown\**\*" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="release\trust\idvb-update-2026-01.pem"
+                 Link="MapTrust\idvb-update-2026-01.pem"
+                 CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\1F.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\2F.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\player_01.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\player_02.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\player_03.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\player_04.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Update="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <Target Name="CopyUpdaterToApplicationOutput"
+            AfterTargets="Build">
+        <ItemGroup>
+            <_UpdaterDeploymentFile Include="$(MSBuildProjectDirectory)\Updater\bin\$(Configuration)\net10.0-windows\win-x64\**\*" />
+        </ItemGroup>
+        <RemoveDir Directories="$(TargetDir)Updater" />
+        <Copy SourceFiles="@(_UpdaterDeploymentFile)"
+              DestinationFiles="@(_UpdaterDeploymentFile->'$(TargetDir)Updater\%(RecursiveDir)%(Filename)%(Extension)')"
+              SkipUnchangedFiles="true" />
+    </Target>
+
+    <ItemGroup>
+        <Compile Remove="Core\**\*.cs" />
+        <Compile Remove="Infrastructure\**\*.cs" />
+        <Compile Remove="Services\**\*.cs" />
+        <Compile Remove="Pipeline\**\*.cs" />
+        <Compile Remove="IDVBuff.ModuleContracts\**\*.cs" />
+        <Compile Remove="IDVBuff.Tests\**\*.cs" />
+        <Compile Remove="IDVBuff.MapAlignment.Probe\**\*.cs" />
+        <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
+        <!-- The desktop client only collects and uploads training samples.
+             Torch training/inference stays in the user-provided RealCLI sidecar. -->
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Evaluation.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Helpers.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Spatial.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.State.cs" />
+        <Compile Remove="Features\Maps\MapCandidateLearningEngine.Versions.cs" />
+        <Compile Remove="Features\Maps\MapLearningPreprocessor.Torch.cs" />
+        <Compile Remove="Features\Maps\MapLearningRepository.Models.cs" />
+        <Compile Remove="Features\Maps\SiameseMapNetwork.cs" />
+        <Compile Remove="Features\Maps\TorchRuntimeConfiguration.cs" />
+        <Compile Remove="UpdateCore\**\*.cs" />
+        <Compile Remove="Updater\**\*.cs" />
+        <!-- The Updater is an independent WinForms application under this
+             repository. Removing only its .cs files is insufficient: SDK XAML
+             globs would still import stale Updater/App.xaml as a second
+             ApplicationDefinition and break the main application build. -->
+        <ApplicationDefinition Remove="Updater\**\*.xaml" />
+        <Page Remove="Updater\**\*.xaml" />
+        <Compile Remove="release\**\*.cs" />
+        <Compile Remove="Survey\**\*.cs" />
+        <Compile Remove="IDVBuff.PluginContracts\**\*.cs" />
+        <Compile Remove="IDVBuff.PluginHostMessages\**\*.cs" />
+        <Compile Remove="IDVB.PluginSdk.Abstractions\**\*.cs" />
+        <Compile Remove="IDVB.PluginPackaging\**\*.cs" />
+        <Compile Remove="IDVB.PluginRuntime\**\*.cs" />
+        <Compile Remove="IDVB.PluginTool\**\*.cs" />
+        <Compile Remove="IDVB.PluginTestHost\**\*.cs" />
+        <Compile Remove="IDVB.PluginSystem.Tests\**\*.cs" />
+        <Compile Remove="PluginTemplates\**\*.cs" />
+        <Compile Remove="IDVBuff.PluginContracts.Tests\**\*.cs" />
+        <Compile Remove="Plugins\**\*.cs" />
+        <!-- Local validation/release snapshots and auxiliary worktrees can
+             contain complete copies of the repository. They must never be
+             picked up by the main project's implicit source or XAML globs. -->
+        <Compile Remove="artifacts\**\*.cs" />
+        <Compile Remove=".verify\**\*.cs" />
+        <Compile Remove=".claude\**\*.cs" />
+        <Compile Remove="scratch\**\*.cs" />
+        <Page Remove="artifacts\**\*.xaml" />
+        <Page Remove=".verify\**\*.xaml" />
+        <Page Remove=".claude\**\*.xaml" />
+        <Page Remove="scratch\**\*.xaml" />
+        <Page Include="Views\MainPage.xaml" />
+        <None Remove="IDVBuff.slnx" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.0" />
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+        <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.*" />
+        <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
+        <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
+        <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+        <PackageReference Include="Velopack" Version="1.2.0" />
+
+        <Manifest Include="$(ApplicationManifest)" />
+    </ItemGroup>
+
+    <!-- 
+        Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+        Tools extension to be activated for this project even if the Windows App SDK Nuget
+        package has not yet been restored.
+    -->
+    <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+        <ProjectCapability Include="Msix"/>
+    </ItemGroup>
+
+    <!-- 
+        Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 
+        Explorer "Package and Publish" context menu entry to be enabled for this project even if 
+        the Windows App SDK Nuget package has not yet been restored.
+    -->
+    <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+        <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+    </PropertyGroup>
+</Project>

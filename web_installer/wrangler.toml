@@ -1,0 +1,12 @@
+name = "idvb-web-installer"
+main = "src/index.js"
+compatibility_date = "2026-08-11"
+workers_dev = true
+
+routes = [
+  { pattern = "download.xgflee.com", custom_domain = true },
+]
+
+[[r2_buckets]]
+binding = "INSTALLER_BUCKET"
+bucket_name = "idvb-installer"

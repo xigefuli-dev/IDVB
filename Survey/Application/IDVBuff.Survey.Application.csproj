@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>IDVBuff.Survey.Application</RootNamespace>
+    <AssemblyName>IDVB.Survey.Application</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Contracts\IDVBuff.Survey.Contracts.csproj" />
+    <ProjectReference Include="..\Domain\IDVBuff.Survey.Domain.csproj" />
+  </ItemGroup>
+</Project>

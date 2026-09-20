@@ -1,0 +1,13 @@
+{
+  "name": "idvb-map-community",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "node --test",
+    "check": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.33.1"
+  }
+}

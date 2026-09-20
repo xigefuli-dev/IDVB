@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-color-mode="dark" data-dark-theme="dark" data-light-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IDVB Announcement</title>
+  <link rel="stylesheet" href="github-markdown.min.css">
+  <script src="marked.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; padding: 28px 40px; box-sizing: border-box; background-color: transparent !important; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica, Arial, sans-serif; overflow-y: auto; user-select: text; }
+    .markdown-body { box-sizing: border-box; min-width: 200px; max-width: 960px; margin: 0 auto; background-color: transparent !important; font-size: 15px; line-height: 1.68; }
+    .markdown-body img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); margin: 12px 0; display: inline-block; }
+    .markdown-body pre { border-radius: 8px; padding: 16px; }
+    .markdown-body table { display: table; width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .markdown-alert { padding: 10px 16px; margin-bottom: 16px; color: inherit; border-left: .25em solid; border-radius: 6px; }
+    .markdown-alert.markdown-alert-note { border-left-color: #2f81f7; background-color: rgba(56, 139, 253, 0.1); }
+    .markdown-alert.markdown-alert-tip { border-left-color: #3fb950; background-color: rgba(63, 185, 80, 0.1); }
+    .markdown-alert.markdown-alert-important { border-left-color: #a371f7; background-color: rgba(163, 113, 247, 0.1); }
+    .markdown-alert.markdown-alert-warning { border-left-color: #d29922; background-color: rgba(210, 153, 34, 0.1); }
+    .markdown-alert.markdown-alert-caution { border-left-color: #f85149; background-color: rgba(248, 81, 73, 0.1); }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.5); }
+  </style>
+</head>
+<body class="markdown-body">
+  <div id="content"></div>
+  <script>
+    if (typeof marked !== "undefined") { marked.use({ gfm: true, breaks: true }); }
+    function applyTheme(theme) {
+      var mode = theme === "light" ? "light" : "dark";
+      document.documentElement.setAttribute("data-color-mode", mode);
+      document.documentElement.setAttribute("data-dark-theme", "dark");
+      document.documentElement.setAttribute("data-light-theme", "light");
+    }
+    window.setTheme = function(theme) { applyTheme(theme); };
+    window.setMarkdown = function(mdText) {
+      if (typeof marked !== "undefined") { document.getElementById("content").innerHTML = marked.parse(mdText || ""); }
+      else { document.getElementById("content").textContent = mdText || ""; }
+    };
+    document.addEventListener("click", function(e) {
+      var anchor = e.target.closest("a");
+      if (anchor && anchor.href && !anchor.href.startsWith("javascript:")) {
+        e.preventDefault();
+        if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage({ type: "open_url", url: anchor.href }); }
+      }
+    });
+    if (window.chrome && window.chrome.webview) { window.chrome.webview.postMessage({ type: "ready" }); }
+  </script>
+</body>
+</html>

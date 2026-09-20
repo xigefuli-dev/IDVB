@@ -1,0 +1,5 @@
+[survey.preprocessing]
+maximum_feature_count = 2600
+
+[survey.registration]
+maximum_residual_pixels = 4.5

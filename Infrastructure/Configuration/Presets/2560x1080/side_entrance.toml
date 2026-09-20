@@ -1,0 +1,16 @@
+# IDVB Side-Entrance Scan Parameters — 2560x1080 @ 120 DPI (21:9)
+# 21:9 宽度 2560 与 2560x1440 相同，扫描参数复用
+# 1440p 帧大，扫描慢（实测约 1033ms）。保持默认网格密度（粗步长 0.06），
+# 并行度拉满换速度；粗分数剪枝默认只精化前 5 张，必要时可调低阈值加速。
+
+[side_entrance]
+clamp_feature_to_bounds = true
+feature_region_ratio = 0.40
+coarse_scale_step = 0.06
+refine_steps_per_side = 3
+coarse_pyramid_factor = 4
+refine_candidate_top_k = 5
+coarse_score_prune_threshold = 0.0
+scan_parallelism = 4
+minimum_scale = 0.45
+maximum_scale = 2.2

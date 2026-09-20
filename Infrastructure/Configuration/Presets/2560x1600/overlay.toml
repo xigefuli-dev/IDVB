@@ -1,0 +1,33 @@
+# IDVB Overlay Parameters — 2560x1600 @ 120 DPI
+
+[overlay]
+# ── status ──
+show_overlay_status = true
+reverse_alternate_display = false
+status_opacity = 1.0
+status_scale = 1.0
+status_offset_x = 0.0
+status_offset_y = 0.0
+
+# ── minimap ──
+persistent_minimap_enabled = false
+minimap_opacity = 0.55
+minimap_offset_x = 0.0
+minimap_offset_y = 0.0
+minimap_scale = 0.25
+
+# ── main map markers ──
+show_gate_markers = true
+show_auxiliary_anchors = true
+show_text_annotations = true
+show_box_annotations = true
+show_line_annotations = true
+allow_map_extend_beyond_bounds = false
+
+# ── minimap markers ──
+show_gate_markers_on_minimap = true
+show_auxiliary_anchors_on_minimap = true
+show_text_annotations_on_minimap = true
+show_box_annotations_on_minimap = true
+show_line_annotations_on_minimap = true
+show_floor_on_minimap = false

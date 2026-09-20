@@ -1,0 +1,80 @@
+namespace IDVBuff.Features.Maps;
+
+public sealed partial class SessionOrchestrator
+{
+    private void ShowTransientOverlayStatus(
+        MapOverlayStatusLevel level,
+        string title,
+        string message,
+        string? detail,
+        MapScreenRect gameBounds,
+        IntPtr gameWindowHandle)
+    {
+        RealtimePerformanceOverlay.Instance?.UpdateGameBounds(gameBounds);
+        IDVBuff.Features.Notifications.OverlayNotificationCenter.UpdateGameBounds(gameBounds);
+        _overlayStatus.Show(
+            new MapOverlayStatus(level, title, message, detail ?? string.Empty),
+            gameBounds,
+            gameWindowHandle,
+            _settings?.ShowOverlayStatus ?? true,
+            transient: true);
+    }
+
+    private void ShowTransientAlignmentSuccess(
+        RuntimeMapRecognition recognition,
+        MapScreenRect gameBounds,
+        IntPtr gameWindowHandle,
+        MapScanDiagnostics? diagnostics = null)
+    {
+        var route = MapAlignmentStatusText.Describe(recognition, diagnostics);
+        ShowTransientOverlayStatus(
+            MapOverlayStatusLevel.Success,
+            route,
+            $"{recognition.Map.DisplayName} · {recognition.Result.Floor.ToUpperInvariant()}",
+            $"置信度 {recognition.Result.Confidence:P0}",
+            gameBounds,
+            gameWindowHandle);
+    }
+    private readonly HashSet<string> _notifiedVpsg3DegradationKeys = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 当 VPSG 3.0 快速对齐发生特定非算法级失效（缺少预制线图或核心服务失效）时，触发浮层提示并进行会话级防抖。
+    /// </summary>
+    private void NotifyVpsg3DegradationIfNeeded(
+        Guid mapId,
+        string floorKey,
+        IDVBuff.Core.Diagnostics.IdvbStatus? status)
+    {
+        if (!Vpsg3DegradationNotificationPolicy.TryClassifyNotification(
+                status,
+                out var isWarning,
+                out var message,
+                out var category))
+        {
+            return;
+        }
+
+        var debounceKey = $"{mapId}:{floorKey}:{category}";
+        lock (_notifiedVpsg3DegradationKeys)
+        {
+            if (!_notifiedVpsg3DegradationKeys.Add(debounceKey))
+                return;
+        }
+
+        if (isWarning)
+        {
+            IDVBuff.Features.Notifications.OverlayNotificationCenter.Warning(message!);
+        }
+        else
+        {
+            IDVBuff.Features.Notifications.OverlayNotificationCenter.Error(message!);
+        }
+    }
+}
+/*
+ * 文件职责：SessionOrchestrator.OverlayStatus。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

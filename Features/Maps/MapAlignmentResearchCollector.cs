@@ -1,0 +1,433 @@
+using OpenCvSharp;
+using System.Text.Json;
+using System.Threading.Channels;
+
+namespace IDVBuff.Features.Maps;
+
+/// <summary>
+/// 独立的研究数据采集器。将每次对齐的图像和诊断数据按
+/// session/map/floor/outcome 分类保存，便于离线复现和批量分析。
+/// </summary>
+public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
+{
+    private sealed record WriteRequest(
+        string CaseDirectory,
+        string ManifestJson,
+        string? AttemptJsonLine,
+        IReadOnlyDictionary<string, byte[]> Artifacts,
+        PendingEncode? Encode = null);
+
+    /// <summary>
+    /// 待编码的 case 图像。PNG 编码（4 张，其中 viewport / overlay 各约 256KB）
+    /// 实测约 70ms，此前发生在对齐结果与 overlay 发布之间的同步段上。改为只在
+    /// 采集线程克隆像素（约 1~2ms），编码本身交给后台写入器。
+    /// </summary>
+    private sealed record PendingEncode(
+        MapAlignmentResearchAttempt Attempt,
+        Mat Viewport);
+
+    private static readonly IReadOnlyDictionary<string, byte[]> NoArtifacts =
+        new Dictionary<string, byte[]>();
+
+    private readonly MapStructurePreprocessor? _preprocessor;
+    private readonly object _gate = new();
+    private readonly Dictionary<string, int> _caseCounts = new();
+    private readonly HashSet<string> _referenceSaved = new();
+    private readonly Dictionary<string, int> _successSampleCounts = new();
+    private int _totalCaseCount;
+    private Channel<WriteRequest>? _channel;
+    private Task? _worker;
+    private Task? _cleanupTask;
+    private string? _sessionDirectory;
+    private long _recordCount;
+    private bool _disposed;
+    private readonly TimeSpan _retention;
+    private readonly long _maximumBytes;
+
+    private const int MaxSuccessHighConfPerMapFloor = 3;
+    private const int MaxSuccessLowConfPerMapFloor = 5;
+    private const int MaxCasesPerSession = 200;
+    private const int MaxFailedPerMapFloor = 50;
+
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
+
+    public string RootDirectory { get; }
+
+    public MapAlignmentResearchCollector(
+        MapStructurePreprocessor? preprocessor = null,
+        string? rootDirectory = null,
+        TimeSpan? retention = null,
+        long maximumBytes = 2L * 1024L * 1024L * 1024L)
+    {
+        _preprocessor = preprocessor;
+        RootDirectory = Path.GetFullPath(rootDirectory ?? Path.Combine(
+            global::IDVBuff.AppDataPaths.RootDirectory,
+            "AlignmentResearch"));
+        _retention = retention ?? TimeSpan.FromDays(30);
+        _maximumBytes = Math.Max(1L, maximumBytes);
+    }
+
+    public bool IsEnabled => Volatile.Read(ref _channel) is not null;
+    public long RecordCount => Interlocked.Read(ref _recordCount);
+    public string? CurrentSessionDirectory => _sessionDirectory;
+    public Task? CleanupTask => Volatile.Read(ref _cleanupTask);
+
+    public async Task WaitForCleanupAsync()
+    {
+        if (Volatile.Read(ref _cleanupTask) is { } task)
+            await task;
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 生命周期
+    // ═════════════════════════════════════════════════════════════
+
+    public async Task SetEnabledAsync(bool enabled)
+    {
+        Channel<WriteRequest>? channelToClose = null;
+        Task? workerToWait = null;
+        string? sessionDirToClean = null;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (enabled == (_channel is not null))
+                return;
+            if (enabled)
+            {
+                Directory.CreateDirectory(RootDirectory);
+                var sessionsRoot = Path.Combine(RootDirectory, "sessions");
+                Directory.CreateDirectory(sessionsRoot);
+                _sessionDirectory = Path.Combine(
+                    sessionsRoot,
+                    $"{DateTime.UtcNow:yyyy-MM-dd_HHmmss}--{Guid.NewGuid().ToString("N")[..8]}");
+                Directory.CreateDirectory(_sessionDirectory);
+                _channel = Channel.CreateUnbounded<WriteRequest>(
+                    new UnboundedChannelOptions
+                    {
+                        SingleReader = true,
+                        SingleWriter = false
+                    });
+                _worker = RunWriterAsync(_channel.Reader, _sessionDirectory);
+                _caseCounts.Clear();
+                _referenceSaved.Clear();
+                _successSampleCounts.Clear();
+                _totalCaseCount = 0;
+                Interlocked.Exchange(ref _recordCount, 0);
+                WriteSessionManifest(_sessionDirectory);
+                sessionDirToClean = _sessionDirectory;
+            }
+            else
+            {
+                channelToClose = _channel;
+                workerToWait = _worker;
+                _channel = null;
+                _worker = null;
+            }
+        }
+
+        if (sessionDirToClean is not null)
+        {
+            // 后台异步执行清理，不阻塞启动链路与锁
+            _cleanupTask = Task.Run(() => CleanupSessions(sessionDirToClean));
+            return;
+        }
+
+        channelToClose?.Writer.TryComplete();
+        if (workerToWait is not null)
+        {
+            try { await workerToWait.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (Exception ex) { Warn(ex); }
+        }
+    }
+
+    /// <summary>
+    /// Stops the writer and removes all collected research samples, including
+    /// session manifests, JSONL records, images, and temporary files.
+    /// </summary>
+    public async Task ClearDataAsync()
+    {
+        await SetEnabledAsync(false);
+
+        lock (_gate)
+        {
+            _sessionDirectory = null;
+            _caseCounts.Clear();
+            _referenceSaved.Clear();
+            _successSampleCounts.Clear();
+            _totalCaseCount = 0;
+            Interlocked.Exchange(ref _recordCount, 0);
+        }
+
+        try
+        {
+            if (!Directory.Exists(RootDirectory))
+                return;
+
+            foreach (var path in Directory.EnumerateFileSystemEntries(RootDirectory))
+            {
+                try
+                {
+                    if (Directory.Exists(path))
+                        Directory.Delete(path, recursive: true);
+                    else if (File.Exists(path))
+                        File.Delete(path);
+                }
+                catch (Exception exception)
+                {
+                    Warn(exception);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Warn(exception);
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 采集入口
+    // ═════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 记录一次对齐 attempt。始终写入 attempts.jsonl；如果满足采集策略则额外保存图片。
+    /// </summary>
+    public void RecordAttempt(
+        MapAlignmentResearchAttempt attempt,
+        MapRecord map,
+        string floorKey,
+        Mat liveViewport)
+    {
+        var channel = Volatile.Read(ref _channel);
+        var sessionDir = Volatile.Read(ref _sessionDirectory);
+        if (channel is null || sessionDir is null)
+            return;
+        try
+        {
+            // 决定 case 分类
+            var outcome = DetermineOutcome(attempt);
+            var mapShort = map.Id.ToString("N")[..8];
+            var caseKey = $"{mapShort}:{floorKey}:{outcome}";
+
+            // 采集策略
+            if (!ShouldCaptureCase(attempt, caseKey))
+            {
+                // 只写 JSONL，不存图片
+                var request = new WriteRequest(
+                    string.Empty,
+                    string.Empty,
+                    JsonSerializer.Serialize(attempt, SerializerOptions),
+                    NoArtifacts);
+                channel.Writer.TryWrite(request);
+                Interlocked.Increment(ref _recordCount);
+                return;
+            }
+
+            // 只克隆像素，PNG 编码推迟到后台写入器执行：编码约 70ms，而这里
+            // 位于对齐结果与 overlay 发布之间，必须保持在毫秒级。
+            var pendingEncode = liveViewport is null || liveViewport.Empty()
+                ? null
+                : new PendingEncode(attempt, liveViewport.Clone());
+
+            // 路径
+            var caseDir = Path.Combine(
+                sessionDir, mapShort, floorKey,
+                $"{GetNextCaseSeq(caseKey):D3}-{outcome}");
+            if (attempt.Confidence > 0.01)
+                caseDir += $"-{attempt.Confidence:P0}".Replace(" ", "");
+
+            var manifestJson = JsonSerializer.Serialize(
+                BuildCaseManifest(attempt, map, floorKey),
+                SerializerOptions);
+
+            var attemptLine = JsonSerializer.Serialize(attempt, SerializerOptions);
+
+            var request2 = new WriteRequest(
+                caseDir, manifestJson, attemptLine, NoArtifacts, pendingEncode);
+            if (channel.Writer.TryWrite(request2))
+            {
+                Interlocked.Increment(ref _recordCount);
+            }
+            else
+            {
+                // 通道已关闭：克隆帧不会再有人消费，必须就地释放。
+                pendingEncode?.Viewport.Dispose();
+            }
+        }
+        catch (Exception exception)
+        {
+            Warn(exception);
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 采集策略
+    // ═════════════════════════════════════════════════════════════
+
+    private static string DetermineOutcome(MapAlignmentResearchAttempt attempt)
+    {
+        if (attempt.CalibrationUpdated)
+            return "calibrated";
+        if (!attempt.Accepted)
+            return attempt.FailureCategory switch
+            {
+                MapAlignmentResearchFailureCategory.WeakFit => "rejected-weakfit",
+                MapAlignmentResearchFailureCategory.AmbiguousCandidates => "rejected-ambiguous",
+                MapAlignmentResearchFailureCategory.InsufficientStructure => "rejected-nostructure",
+                MapAlignmentResearchFailureCategory.NoVisualFeatures => "rejected-novisual",
+                _ => "rejected"
+            };
+        return attempt.Confidence >= 0.65 ? "ok-high" : "ok-low";
+    }
+
+    private bool ShouldCaptureCase(
+        MapAlignmentResearchAttempt attempt,
+        string caseKey)
+    {
+        // 失败案例：始终保存
+        if (!attempt.Accepted)
+        {
+            var count = GetCaseCount(caseKey);
+            return count < MaxFailedPerMapFloor;
+        }
+
+        // 校准更新：始终保存
+        if (attempt.CalibrationUpdated)
+            return true;
+
+        // 成功案例：采样限制
+        var maxPerTier = attempt.Confidence >= 0.65
+            ? MaxSuccessHighConfPerMapFloor
+            : MaxSuccessLowConfPerMapFloor;
+
+        lock (_gate)
+        {
+            if (_totalCaseCount >= MaxCasesPerSession)
+            {
+                // 超限时只接受失败案例
+                return false;
+            }
+
+            var key = $"success:{caseKey}";
+            if (!_successSampleCounts.TryGetValue(key, out var sampled))
+                sampled = 0;
+            if (sampled >= maxPerTier)
+                return false;
+
+            _successSampleCounts[key] = sampled + 1;
+            _totalCaseCount++;
+            return true;
+        }
+    }
+
+    private int GetNextCaseSeq(string caseKey)
+    {
+        lock (_gate)
+        {
+            if (!_caseCounts.TryGetValue(caseKey, out var count))
+                count = 0;
+            count++;
+            _caseCounts[caseKey] = count;
+            return count;
+        }
+    }
+
+    private int GetCaseCount(string caseKey)
+    {
+        lock (_gate)
+        {
+            _caseCounts.TryGetValue(caseKey, out var count);
+            return count;
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════
+    // 图片编码
+    // ═════════════════════════════════════════════════════════════
+
+    private static IReadOnlyDictionary<string, byte[]> EncodeCase(
+        MapAlignmentResearchAttempt attempt,
+        Mat liveViewport)
+    {
+        var result = new Dictionary<string, byte[]>();
+        if (liveViewport is null || liveViewport.Empty())
+            return result;
+
+        // 截帧原图
+        Cv2.ImEncode(".png", liveViewport, out var liveBytes);
+        result["viewport.png"] = liveBytes;
+
+        // Canny 边缘
+        using var edges = GateTemplateDetector.CreateEdges(liveViewport);
+        Cv2.ImEncode(".png", edges, out var edgeBytes);
+        result["edges.png"] = edgeBytes;
+
+        // 有效范围 mask
+        using var mask = new Mat(
+            liveViewport.Size(), MatType.CV_8UC1, Scalar.Black);
+        if (attempt.ValidMapBounds is { IsValid: true } bounds
+            && attempt.FinalTransform is { } transform
+            && attempt.WindowSignature is { } signature)
+        {
+            var left = (int)Math.Floor(
+                bounds.X * transform.ScaleX + transform.OffsetX - signature.ViewportX);
+            var top = (int)Math.Floor(
+                bounds.Y * transform.ScaleY + transform.OffsetY - signature.ViewportY);
+            var right = (int)Math.Ceiling(
+                bounds.Right * transform.ScaleX + transform.OffsetX - signature.ViewportX);
+            var bottom = (int)Math.Ceiling(
+                bounds.Bottom * transform.ScaleY + transform.OffsetY - signature.ViewportY);
+            left = Math.Clamp(left, 0, liveViewport.Width);
+            top = Math.Clamp(top, 0, liveViewport.Height);
+            right = Math.Clamp(right, left, liveViewport.Width);
+            bottom = Math.Clamp(bottom, top, liveViewport.Height);
+            if (right > left && bottom > top)
+                Cv2.Rectangle(
+                    mask,
+                    new Rect(left, top, right - left, bottom - top),
+                    Scalar.White,
+                    -1);
+        }
+        else
+        {
+            mask.SetTo(Scalar.White);
+        }
+        Cv2.ImEncode(".png", mask, out var maskBytes);
+        result["valid-mask.png"] = maskBytes;
+
+        // 叠加图
+        using var overlay = liveViewport.Clone();
+        using (var maskPoints = new Mat())
+        {
+            Cv2.FindNonZero(mask, maskPoints);
+            if (!maskPoints.Empty())
+            {
+                var projectedBounds = Cv2.BoundingRect(maskPoints);
+                Cv2.Rectangle(overlay, projectedBounds, Scalar.LimeGreen, 2);
+            }
+        }
+        var text = attempt.Accepted
+            ? $"accepted {attempt.Confidence:P0}"
+            : attempt.FailureCategory.ToString();
+        Cv2.PutText(
+            overlay, text, new Point(12, 28),
+            HersheyFonts.HersheySimplex, 0.7, Scalar.Red, 2);
+        Cv2.ImEncode(".png", overlay, out var overlayBytes);
+        result["overlay.png"] = overlayBytes;
+
+        return result;
+    }
+
+    // ═════════════════════════════════════════════════════════════
+
+}
+/*
+ * 文件职责：MapAlignmentResearchCollector。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

@@ -1,0 +1,35 @@
+# IDVB Pipeline Configuration
+# 定义扫描/对齐管线的阶段顺序、降级链和超时参数
+
+[scan]
+# 扫描管线阶段执行顺序
+stages = ["capture", "floor_detect", "gate_detect", "map_identify"]
+# 单阶段超时（毫秒）
+capture_timeout_ms = 3000
+floor_detect_timeout_ms = 500
+gate_detect_timeout_ms = 2000
+map_identify_timeout_ms = 1000
+
+[scan.fallback]
+# map_identify 失败时: show_candidate_ui 或 retry_once
+map_identify_on_failure = "show_candidate_ui"
+# 低置信度时也触发候选UI
+low_confidence_action = "show_candidate_ui"
+
+[align]
+# 对齐管线阶段执行顺序
+stages = ["strategy_select", "transform_calc", "refine", "validate", "project"]
+transform_calc_timeout_ms = 2000
+refine_timeout_ms = 1500
+validate_timeout_ms = 500
+
+[align.strategies]
+# 策略降级链（按优先级排序）
+# dual_gate -> single_gate -> structure_only -> hold_last
+dual_gate = { fallback = "single_gate" }
+single_gate = { fallback = "structure_only" }
+structure_only = { fallback = "hold_last" }
+hold_last = { fallback = "lost" }
+
+# 侧门扫描链路（完全独立，不与双门链交叉）
+side_entrance = { fallback = "single_gate" }

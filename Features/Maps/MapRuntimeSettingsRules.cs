@@ -1,0 +1,267 @@
+namespace IDVBuff.Features.Maps;
+
+/// <summary>User-adjustable recognition thresholds persisted with runtime settings.</summary>
+public sealed class MapRecognitionTuning
+{
+    public const double DefaultGateTemplateThreshold = 0.72d;
+    public const double DefaultMinimumConfidence = 0.50d;
+    public const double DefaultVectorErrorTolerance = 0.15d;
+    public const double DefaultAmbiguityMargin = 0.015d;
+    public const double DefaultConfirmationAdvantage = 0.08d;
+
+    public double GateTemplateThreshold { get; set; } = DefaultGateTemplateThreshold;
+    public double MinimumConfidence { get; set; } = DefaultMinimumConfidence;
+    public double VectorErrorTolerance { get; set; } = DefaultVectorErrorTolerance;
+    public double AmbiguityMargin { get; set; } = DefaultAmbiguityMargin;
+    public double ConfirmationAdvantage { get; set; } = DefaultConfirmationAdvantage;
+    public bool ForceBestRecognitionResult { get; set; } = false;
+    public bool ForceCandidateSelection { get; set; } = false;
+    /// <summary>
+    /// 开启后每次扫描成功都会弹出变换窗口，由玩家决定叠加地图的缩放与位置，
+    /// 确认结果直接渲染并以最高信任来源写入缩放缓存。
+    /// </summary>
+    public bool PlayerDecidesScale { get; set; } = false;
+
+    public int WarmGateSearchBudgetMs { get; set; } = 120;
+    public int ConfirmationGateSearchBudgetMs { get; set; }
+
+    public double ConfirmationRoiTemplatePaddingFactor { get; set; } = 1.0d;
+    public int ConfirmationRoiMinimumPaddingPixels { get; set; } = 24;
+    /// <summary>Maximum map drag speed in pixels/second, used to size confirmation ROI.</summary>
+    public double ConfirmationMaximumMapDragPixelsPerSecond { get; set; } = 600d;
+    /// <summary>Scheduling slack for confirmation ROI (frame interval + capture delay).</summary>
+    public int ConfirmationSchedulingSlackMilliseconds { get; set; } = 100;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int ConfirmationMaximumMotionPixels =>
+        (int)Math.Round(
+            ConfirmationMaximumMapDragPixelsPerSecond
+            * ConfirmationSchedulingSlackMilliseconds
+            / 1000d);
+
+    public MapRecognitionTuning Clone() => new()
+    {
+        GateTemplateThreshold = GateTemplateThreshold,
+        MinimumConfidence = MinimumConfidence,
+        VectorErrorTolerance = VectorErrorTolerance,
+        AmbiguityMargin = AmbiguityMargin,
+        ConfirmationAdvantage = ConfirmationAdvantage,
+        ForceBestRecognitionResult = ForceBestRecognitionResult,
+        ForceCandidateSelection = ForceCandidateSelection,
+        PlayerDecidesScale = PlayerDecidesScale,
+        WarmGateSearchBudgetMs = WarmGateSearchBudgetMs,
+        ConfirmationGateSearchBudgetMs = ConfirmationGateSearchBudgetMs,
+        ConfirmationRoiTemplatePaddingFactor = ConfirmationRoiTemplatePaddingFactor,
+        ConfirmationRoiMinimumPaddingPixels = ConfirmationRoiMinimumPaddingPixels,
+        ConfirmationMaximumMapDragPixelsPerSecond =
+            ConfirmationMaximumMapDragPixelsPerSecond,
+        ConfirmationSchedulingSlackMilliseconds =
+            ConfirmationSchedulingSlackMilliseconds,
+    };
+
+    public void Normalize()
+    {
+        GateTemplateThreshold = NormalizeFinite(
+            GateTemplateThreshold,
+            DefaultGateTemplateThreshold,
+            0.50d,
+            0.95d);
+        MinimumConfidence = NormalizeFinite(
+            MinimumConfidence,
+            DefaultMinimumConfidence,
+            0.20d,
+            0.95d);
+        VectorErrorTolerance = NormalizeFinite(
+            VectorErrorTolerance,
+            DefaultVectorErrorTolerance,
+            0.01d,
+            2.0d);
+        AmbiguityMargin = NormalizeFinite(
+            AmbiguityMargin,
+            DefaultAmbiguityMargin,
+            0.001d,
+            0.05d);
+        ConfirmationAdvantage = NormalizeFinite(
+            ConfirmationAdvantage,
+            DefaultConfirmationAdvantage,
+            0.01d,
+            0.25d);
+        WarmGateSearchBudgetMs = Math.Clamp(WarmGateSearchBudgetMs, 0, 1000);
+        ConfirmationGateSearchBudgetMs = Math.Clamp(
+            ConfirmationGateSearchBudgetMs,
+            0,
+            500);
+        ConfirmationRoiTemplatePaddingFactor = NormalizeFinite(
+            ConfirmationRoiTemplatePaddingFactor,
+            1.0d,
+            0.5d,
+            3.0d);
+        ConfirmationRoiMinimumPaddingPixels = Math.Clamp(
+            ConfirmationRoiMinimumPaddingPixels,
+            8,
+            100);
+        ConfirmationMaximumMapDragPixelsPerSecond = NormalizeFinite(
+            ConfirmationMaximumMapDragPixelsPerSecond,
+            600d,
+            100d,
+            3000d);
+        ConfirmationSchedulingSlackMilliseconds = Math.Clamp(
+            ConfirmationSchedulingSlackMilliseconds,
+            30,
+            500);
+    }
+
+    private static double NormalizeFinite(
+        double value,
+        double fallback,
+        double minimum,
+        double maximum) =>
+        double.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
+}
+
+public sealed class MapFloorRecognitionTuning
+{
+    public double MinimumConfidence { get; set; } =
+        FloorRecognitionRules.DefaultMinimumConfidence;
+    public double MinimumLocalizationConfidence { get; set; } =
+        FloorRecognitionRules.DefaultMinimumLocalizationConfidence;
+    public int MaximumRecognitionWindowMilliseconds { get; set; } =
+        FloorRecognitionRules.DefaultRecognitionWindowMilliseconds;
+    public int FirstFloorConfirmationFrames { get; set; } =
+        FloorRecognitionRules.DefaultFirstFloorConfirmationFrames;
+    public int SecondFloorConfirmationFrames { get; set; } =
+        FloorRecognitionRules.DefaultSecondFloorConfirmationFrames;
+
+    public MapFloorRecognitionTuning Clone() => new()
+    {
+        MinimumConfidence = MinimumConfidence,
+        MinimumLocalizationConfidence = MinimumLocalizationConfidence,
+        MaximumRecognitionWindowMilliseconds = MaximumRecognitionWindowMilliseconds,
+        FirstFloorConfirmationFrames = FirstFloorConfirmationFrames,
+        SecondFloorConfirmationFrames = SecondFloorConfirmationFrames
+    };
+
+    public void Normalize()
+    {
+        MinimumConfidence = NormalizeFinite(
+            MinimumConfidence,
+            FloorRecognitionRules.DefaultMinimumConfidence,
+            0.30d,
+            0.99d);
+        MinimumLocalizationConfidence = NormalizeFinite(
+            MinimumLocalizationConfidence,
+            FloorRecognitionRules.DefaultMinimumLocalizationConfidence,
+            0.30d,
+            0.99d);
+        MaximumRecognitionWindowMilliseconds = Math.Clamp(
+            MaximumRecognitionWindowMilliseconds,
+            500,
+            10000);
+        FirstFloorConfirmationFrames = Math.Clamp(
+            FirstFloorConfirmationFrames,
+            1,
+            8);
+        SecondFloorConfirmationFrames = Math.Clamp(
+            SecondFloorConfirmationFrames,
+            1,
+            8);
+    }
+
+    private static double NormalizeFinite(
+        double value,
+        double fallback,
+        double minimum,
+        double maximum) =>
+        double.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
+}
+
+public sealed class MapPlayerTrackingTuning
+{
+    public double MinimumConfidence { get; set; } =
+        PlayerTrackingRules.DefaultMinimumConfidence;
+    public int LocalSearchFailureLimit { get; set; } =
+        PlayerTrackingRules.DefaultLocalSearchFailureLimit;
+    public int StaleHideMilliseconds { get; set; } =
+        PlayerTrackingRules.DefaultStaleHideMilliseconds;
+
+    public MapPlayerTrackingTuning Clone() => new()
+    {
+        MinimumConfidence = MinimumConfidence,
+        LocalSearchFailureLimit = LocalSearchFailureLimit,
+        StaleHideMilliseconds = StaleHideMilliseconds
+    };
+
+    public void Normalize()
+    {
+        MinimumConfidence = NormalizeFinite(
+            MinimumConfidence,
+            PlayerTrackingRules.DefaultMinimumConfidence,
+            0.30d,
+            0.99d);
+        LocalSearchFailureLimit = Math.Clamp(LocalSearchFailureLimit, 1, 20);
+        StaleHideMilliseconds = Math.Clamp(StaleHideMilliseconds, 100, 5000);
+    }
+
+    private static double NormalizeFinite(
+        double value,
+        double fallback,
+        double minimum,
+        double maximum) =>
+        double.IsFinite(value) ? Math.Clamp(value, minimum, maximum) : fallback;
+}
+
+/// <summary>Platform-neutral normalization rules for persisted map runtime settings.</summary>
+public static class MapRuntimeSettingsRules
+{
+    public const int CurrentCalibrationVersion = 2;
+
+    /// <summary>
+    /// Resolves a persisted map Class against the currently available catalog
+    /// entries and returns the catalog's canonical spelling.
+    /// </summary>
+    public static string? ResolveMapClass(
+        IReadOnlyList<string> availableClasses,
+        string? preferredClass)
+    {
+        var classes = availableClasses
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (classes.Length == 0)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(preferredClass))
+        {
+            var normalized = preferredClass.Trim();
+            var match = classes.FirstOrDefault(name => string.Equals(
+                name,
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+                return match;
+        }
+
+        return classes[0];
+    }
+
+    public static MapOverlayAlignmentMode NormalizeAlignmentMode(MapOverlayAlignmentMode mode) =>
+        Enum.IsDefined(mode) ? mode : MapOverlayAlignmentMode.IndependentAxes;
+
+    public static bool IsCalibrationCurrent(
+        bool regionIsValid,
+        int clientWidth,
+        int clientHeight,
+        int calibrationVersion) =>
+        regionIsValid
+        && clientWidth > 0
+        && clientHeight > 0
+        && calibrationVersion >= CurrentCalibrationVersion;
+}
+/*
+ * 文件职责：MapRuntimeSettingsRules。
+ * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
+ * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
+ * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
+ * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
+ */

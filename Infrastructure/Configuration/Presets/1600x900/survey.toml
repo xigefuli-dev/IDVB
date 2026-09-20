@@ -1,0 +1,8 @@
+# IDVB Survey Parameters — 1600x900 @ 120 DPI
+# 复用 1920x1080 参数（16:9 同宽高比）
+
+[survey.preprocessing]
+maximum_feature_count = 2600
+
+[survey.registration]
+maximum_residual_pixels = 4.5

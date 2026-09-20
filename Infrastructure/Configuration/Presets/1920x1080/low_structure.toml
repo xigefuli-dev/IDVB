@@ -1,0 +1,17 @@
+# Low-structure floor channel. Values are intentionally independent from alignment.toml.
+[low_structure]
+fast_coarse_downsample_factor = 4
+fast_coarse_top_k = 1
+minimum_scale = 0.35
+maximum_scale = 1.70
+scale_hypothesis_count = 15
+maximum_chamfer_pixels = 3.0
+minimum_edge_coverage = 0.30
+minimum_occupancy_coverage = 0.25
+minimum_candidate_margin = 0.08
+minimum_consistent_partitions = 1
+top_candidate_count = 3
+edge_coverage_weight = 5.0
+occupancy_coverage_weight = 0.75
+reference_coverage_weight = 5.0
+enable_feature_scale_estimate = false

@@ -1,0 +1,26 @@
+name: 功能建议
+description: 为 Identity Vision Bridge 提出可讨论的改进建议。
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 需求或问题
+      description: 说明希望改善的实际场景。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 可包含替代方案、兼容性影响和非目标。
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我确认建议不包含个人信息、未授权素材或安全漏洞细节。
+          required: true

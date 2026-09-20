@@ -1,0 +1,18 @@
+# IDVB Detection Parameters — 2560x1600 @ 120 DPI
+
+[gate]
+template_scale_factor = 1.5
+match_threshold = 0.72
+nms_window_size = 40
+roi_margin_top = 120
+roi_margin_bottom = 90
+
+[floor]
+template_scale_factor = 1.5
+match_threshold = 0.85
+
+[player_marker]
+min_radius = 6
+max_radius = 20
+color_hue_range = [200, 260]
+match_threshold = 0.70

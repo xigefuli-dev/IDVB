@@ -1,0 +1,141 @@
+namespace IDVBuff.Tests;
+
+public sealed class MapListPackageActionPolicyTests
+{
+    [Fact]
+    public void SubscriptionEntryBelongsToTheImportTeachingTip()
+    {
+        var list = Read("Views", "MapListPage.Part1.cs");
+        var catalog = Read("Views", "MapListPage.Catalog.cs");
+
+        Assert.DoesNotContain("CreateActionButton(\"更新订阅\"", list);
+        Assert.Contains("choices.Children.Add(updateSubscriptions)", catalog);
+        Assert.Contains("ShowMapSubscriptionsDialogAsync(importButton, exportButton)", catalog);
+    }
+
+    [Fact]
+    public void PublishButtonUsesOneTeachingTipThenOrdinaryDialogs()
+    {
+        var list = Read("Views", "MapListPage.Part1.cs");
+        var catalog = Read("Views", "MapListPage.Catalog.cs");
+        var actions = Read("Views", "MapListPage.ExportPublishing.cs");
+
+        Assert.Contains("CreateActionButton(GetWebsiteActionText()", list);
+        Assert.DoesNotContain("CreateActionButton(\"导出\"", list);
+        Assert.Contains("CreatePublishTeachingTip(importButton, publishButton)", list);
+        Assert.Contains("root.Children.Add(teachingTip)", list);
+        Assert.Contains("root.Children.Add(publishTeachingTip)", list);
+        Assert.DoesNotContain("root.Children.Add(exportTeachingTip)", list);
+        Assert.DoesNotContain("root.Children.Add(websiteTeachingTip)", list);
+        Assert.Equal(1, CountOccurrences(actions, "CreatePackageActionTeachingTip("));
+        Assert.Contains("CreateTeachingTipChoiceButton(\"导出地图包\")", actions);
+        Assert.Contains("CreateTeachingTipChoiceButton(updating ? \"更新到官网\" : \"发布到官网\")", actions);
+        Assert.Contains("await CloseTeachingTipAsync(tip)", actions);
+        Assert.Contains("ShowExportIdvmDialogAsync(importButton, publishButton)", actions);
+        Assert.Contains("ShowWebsitePublishDialogAsync(importButton, publishButton)", actions);
+        Assert.Contains("sender.Closed -= Complete", actions);
+        Assert.Contains("publishButton,", actions);
+        Assert.Contains("importButton,", catalog);
+        Assert.Contains("PublishMapsAsync", actions);
+        Assert.Contains("ExportIdvmAsync", actions);
+        Assert.DoesNotContain("tip.Title =", actions);
+        Assert.DoesNotContain("tip.Subtitle =", actions);
+        Assert.DoesNotContain("tip.Content =", actions);
+        Assert.DoesNotContain("选择发布目标", actions);
+        Assert.Equal(2, CountOccurrences(actions, "new ContentDialog"));
+        Assert.Contains("new ComboBox", actions);
+        Assert.Contains("new TextBox", actions);
+        Assert.Contains("Title = \"选择导出范围\"", actions);
+        Assert.Contains("Title = isUpdate ? \"更新 IDVB 官网地图包\" : \"发布到 IDVB 官网\"", actions);
+    }
+
+    [Fact]
+    public void MapListVisibleCopyCallsClassesMapClasses()
+    {
+        var source = string.Join(
+            Environment.NewLine,
+            Directory.EnumerateFiles(
+                    Path.Combine(RepositoryRoot, "Views"),
+                    "MapListPage*.cs")
+                .Select(File.ReadAllText));
+
+        foreach (var oldCopy in new[]
+                 {
+                     "当前 Class",
+                     "非空 Class",
+                     "新建 Class",
+                     "重命名 Class",
+                     "删除 Class",
+                     "创建 Class"
+                 })
+        {
+            Assert.DoesNotContain(oldCopy, source);
+        }
+        Assert.Contains("当前地图类", source);
+        Assert.Contains("新建地图类", source);
+    }
+
+    [Fact]
+    public void PublicationRejectsMapsObtainedFromSubscriptions()
+    {
+        var service = Read("Features", "Maps", "MapPublicationService.cs");
+
+        Assert.Contains("map.AcquisitionKind == MapAcquisitionKind.Subscription", service);
+        Assert.Contains("只有发布者自己的已发布地图类可以更新", service);
+    }
+
+    [Fact]
+    public void OwnedPublicationAllowsNewLocalMapsInItsClass()
+    {
+        var actions = Read("Views", "MapListPage.ExportPublishing.cs");
+
+        Assert.Contains("maps.Where(map => map.AcquisitionKind == MapAcquisitionKind.Subscription)", actions);
+        Assert.DoesNotContain("maps.Any(map => map.AcquisitionKind != MapAcquisitionKind.Subscription)", actions);
+    }
+
+    [Fact]
+    public void WebsitePublicationRejectsOversizedPackagesBeforeUploading()
+    {
+        var session = Read("Features", "Accounts", "AccountSession.cs");
+
+        Assert.Contains("MaximumPublicationPackageBytes = 90L * 1024 * 1024", session);
+        Assert.Contains("超过官网 90 MB 限制", session);
+        Assert.True(
+            session.IndexOf("packageLength > MaximumPublicationPackageBytes", StringComparison.Ordinal)
+            < session.IndexOf("File.OpenRead(packagePath)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PublicationUpdateReplacesCurrentFeedAndUploadsItsNewPackage()
+    {
+        var publication = Read("Features", "Maps", "MapPublicationService.cs");
+        var session = Read("Features", "Accounts", "AccountSession.cs");
+
+        Assert.Contains("File.Move(packageTemporary, packagePath, overwrite: true)", publication);
+        Assert.Contains("File.Move(feedTemporary, feedPath, overwrite: true)", publication);
+        Assert.Contains("string PackagePath", publication);
+        Assert.Contains("var packagePath = publication.PackagePath", session);
+        Assert.DoesNotContain("Directory.EnumerateFiles(", session);
+    }
+
+    private static string Read(params string[] components) =>
+        File.ReadAllText(Path.Combine(new[] { RepositoryRoot }.Concat(components).ToArray()));
+
+    private static int CountOccurrences(string source, string value) =>
+        source.Split(value, StringSplitOptions.None).Length - 1;
+
+    private static string RepositoryRoot
+    {
+        get
+        {
+            for (var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+                 current is not null;
+                 current = current.Parent)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "IDVBuff.slnx")))
+                    return current.FullName;
+            }
+            throw new DirectoryNotFoundException("Unable to locate the repository root.");
+        }
+    }
+}

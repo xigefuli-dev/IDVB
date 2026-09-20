@@ -1,0 +1,14 @@
+DefaultItemExcludes:
+bin\Debug\/**
+obj\Debug\/**
+bin\/**
+obj\/**
+bin\Debug\net10.0\publish\/**
+**/*.user
+**/*.*proj
+**/*.sln
+**/*.slnx
+**/*.vssscc
+**/.DS_Store
+DefaultExcludesInProjectFolder:
+**/.*/**

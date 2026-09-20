@@ -1,0 +1,21 @@
+name = "idvb-model-improvement"
+main = "src/index.js"
+compatibility_date = "2026-08-31"
+workers_dev = false
+
+routes = [
+  { pattern = "idvb.xgflee.com/api/model-improvement/*", zone_name = "xgflee.com" },
+  { pattern = "idvb.xgflee.com/model-improvement-admin/*", zone_name = "xgflee.com" },
+]
+
+[[r2_buckets]]
+binding = "TRAINING_BUCKET"
+bucket_name = "idvb-model-improvement-private"
+
+[[ratelimits]]
+name = "UPLOAD_RATE_LIMITER"
+namespace_id = "2026083101"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60

@@ -1,0 +1,19 @@
+# IDVB Detection Parameters — 1600x900 @ 120 DPI
+# 复用 1920x1080 参数（16:9 同宽高比）。这些值覆盖该分辨率的全局默认值。
+
+[gate]
+template_scale_factor = 1.0
+match_threshold = 0.72
+nms_window_size = 30
+roi_margin_top = 80
+roi_margin_bottom = 60
+
+[floor]
+template_scale_factor = 1.0
+match_threshold = 0.85
+
+[player_marker]
+min_radius = 4
+max_radius = 14
+color_hue_range = [200, 260]
+match_threshold = 0.70

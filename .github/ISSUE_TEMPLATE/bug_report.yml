@@ -1,0 +1,42 @@
+name: 缺陷报告
+description: 报告可复现的问题；请勿提交安全漏洞或任何敏感数据。
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全漏洞请使用私密漏洞报告，不要在此公开 Issue 中披露利用细节。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      placeholder: 例如 b01.2-26.08.09.0000
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、可复现的步骤；不要包含用户数据或隐私信息。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: checkboxes
+    id: data
+    attributes:
+      label: 数据确认
+      options:
+        - label: 我确认未附带密钥、个人信息、用户日志、未授权素材或安全漏洞利用细节。
+          required: true

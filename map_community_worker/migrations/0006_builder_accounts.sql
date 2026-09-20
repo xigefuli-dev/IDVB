@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN is_builder INTEGER NOT NULL DEFAULT 0 CHECK (is_builder IN (0, 1));

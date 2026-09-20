@@ -1,0 +1,48 @@
+<Solution>
+    <Configurations>
+        <Platform Name="x64" />
+    </Configurations>
+    <Project Path="IDVBuff.csproj">
+        <Platform Project="x64" />
+        <Deploy />
+    </Project>
+    <Project Path="Core\IDVBuff.Core.csproj" />
+    <Project Path="Infrastructure\IDVBuff.Infrastructure.csproj" />
+    <Project Path="Services\IDVBuff.Services.csproj" />
+    <Project Path="Pipeline\IDVBuff.Pipeline.csproj" />
+    <Project Path="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
+    <Project Path="UpdateCore\IDVBuff.UpdateCore.csproj" />
+    <Project Path="Updater\IDVBuff.Updater.csproj" />
+    <Project Path="release\IDVBuff.ReleaseTool\IDVBuff.ReleaseTool.csproj" />
+    <Project Path="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
+    <Project Path="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
+    <Project Path="Survey\Application\IDVBuff.Survey.Application.csproj" />
+    <Project Path="Survey\Persistence\IDVBuff.Survey.Persistence.Sqlite.csproj" />
+    <Project Path="Survey\Editor\IDVBuff.Survey.Editor.WinUI.csproj" />
+    <Project Path="Survey\Preprocessing\IDVBuff.Survey.Preprocessing.OpenCv.csproj" />
+    <Project Path="Survey\Registration\IDVBuff.Survey.Registration.OpenCv.csproj" />
+    <Project Path="Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
+    <Project Path="Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
+    <Project Path="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
+    <Project Path="IDVBuff.Tests\IDVBuff.Tests.csproj" />
+    <Project Path="IDVBuff.MapAlignment.Probe\IDVBuff.MapAlignment.Probe.csproj" />
+    <Project Path="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <Project Path="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+    <Project Path="IDVB.PluginSdk.Abstractions\IDVB.PluginSdk.Abstractions.csproj" />
+    <Project Path="IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
+    <Project Path="IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
+    <Project Path="IDVB.PluginTool\IDVB.PluginTool.csproj" />
+    <Project Path="IDVB.PluginTestHost\IDVB.PluginTestHost.csproj" />
+    <Project Path="IDVB.PluginSystem.Tests\IDVB.PluginSystem.Tests.csproj" />
+    <Project Path="Plugins\Samples\MatchNotifier\IDVB.Sample.MatchNotifier.csproj" />
+    <Project Path="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
+    <Project Path="Plugins\AutoGatling\IDVBuff.AutoGatling.csproj" />
+    <Project Path="Plugins\NoRecoveryDelay\IDVBuff.NoRecoveryDelay.csproj" />
+    <Project Path="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
+    <Project Path="Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
+    <Project Path="IDVBuff.PluginContracts.Tests\IDVBuff.PluginContracts.Tests.csproj" />
+    <Properties Name="Visual Studio">
+        <!-- Support is provisionally available on Visual Studio 17.10 and later versions. -->
+        <Property Name="OpenWith" Value="17" />
+    </Properties>
+</Solution>

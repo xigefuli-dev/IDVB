@@ -1,0 +1,119 @@
+bin/
+obj/
+.verify/
+.artifacts/
+
+# Visual Studio
+.vs/
+
+*.user
+*.suo
+*.cache
+alignment-debug/
+
+# Build and test outputs
+**/artifacts/
+publish/
+buildverify/
+build-verifyViews/
+binDebugverify-buildViews/
+TestResults/
+*.trx
+
+# Local screenshots
+_shot_conv.jpg
+
+# CV 调试产物与本地实验（非交付物，不入库）
+.tmp-*
+cluster_viz.png
+color_quantized.png
+compare_canny_screenshot.png
+crop_C1_door_region.png
+crop_C2_green_region.png
+crop_C7_grayblue_region.png
+diff_edges_screenshot.png
+non_blue_pixels.png
+non_blue_strong.png
+remove_mask_screenshot.png
+report_fullpage.png
+v3_compare.png
+v3_diff.png
+v5_compare.png
+color_cleaning_test/
+
+# 本地测试工具产物
+RealCLI_Tests_Screenshot/
+.playwright-mcp/
+
+# 旧源码备份
+*.old.txt
+
+# Local agent workspaces and verification scratch files
+.claude/
+.codex/
+.verify/
+.temp-settings/
+.temp-settings-*/
+.workbuddy/
+_artifact_work/
+scratch/
+
+# Markdown documents are kept out of the public source snapshot.
+*.md
+!/README.md
+!release/UPDATE_PROCESS.md
+!release/notes/*.md
+
+# Reproducible build, package and test outputs
+**/bin/
+**/obj/
+**/artifacts/
+Tools/overlay_game/build/
+artifacts/
+buildverify/
+build-verify*.xbf
+binDebugverify-*.xbf
+publish/
+TestResults/
+*.trx
+*.dll
+*.exe
+*.pdb
+*.pri
+*.xbf
+
+# Local application data, diagnostics and package samples
+settings.json
+recognition-statistics.json
+maps.json
+attempts.jsonl
+startup.log
+Logs/
+MapRuntime/
+AlignmentResearch/
+*.idvm
+
+# Locally acquired installer tooling and redistributables. Build-Release.ps1 verifies their hashes.
+installer/tools/
+installer/dependencies/*.exe
+installer/dependencies/*.zip
+
+# Local build counter used to generate the next IDVB build version.
+.idvb-build-count
+.idvb-build-count.lock
+
+# Local release credentials. Only public trust material is committed under release/trust/.
+.secrets/
+.idvb-home-deploy/
+.wrangler/
+web_installer/.wrangler/
+
+# Ad-hoc debugging fixtures produced by RealCLI verification runs. Never pushed.
+.claude-tmp-fixture/
+
+# Optional local CUDA sidecar. Prepared on demand and never shipped or committed.
+.idvb-gpu/
+
+# Local archives and one-off captures; source assets remain under Assets/.
+Assets.zip
+_shot_conv.jpg

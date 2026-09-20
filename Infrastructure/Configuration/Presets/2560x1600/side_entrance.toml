@@ -1,0 +1,16 @@
+# IDVB Side-Entrance Scan Parameters — 2560x1600 @ 120 DPI
+# 1600p (16:10) 帧最大，扫描最慢（实测约 1110ms）。并行度拉满换速度；
+# 粗分数剪枝默认只精化前 5 张。若该分辨率下匹配率下降，可加密网格
+# （coarse_scale_step = 0.05）并用并行度补偿。
+
+[side_entrance]
+clamp_feature_to_bounds = true
+feature_region_ratio = 0.40
+coarse_scale_step = 0.06
+refine_steps_per_side = 3
+coarse_pyramid_factor = 4
+refine_candidate_top_k = 5
+coarse_score_prune_threshold = 0.0
+scan_parallelism = 4
+minimum_scale = 0.50
+maximum_scale = 2.2

@@ -1,0 +1,15 @@
+# IDVB Side-Entrance Scan Parameters — 1920x1080 @ 120 DPI
+# 1080p 帧最小，扫描本身最快（实测约 570ms）。网格加密求准（粗步长 0.05），
+# 并行度适度（帧小，跨图并行收益有限，过高反而与 OpenCV 内部线程过订阅）。
+
+[side_entrance]
+clamp_feature_to_bounds = true
+feature_region_ratio = 0.40
+coarse_scale_step = 0.05
+refine_steps_per_side = 3
+coarse_pyramid_factor = 4
+refine_candidate_top_k = 5
+coarse_score_prune_threshold = 0.0
+scan_parallelism = 2
+minimum_scale = 0.40
+maximum_scale = 2.2

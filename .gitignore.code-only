@@ -1,0 +1,21 @@
+# Public code-only snapshot policy.
+# Use with: git -c core.excludesFile=.gitignore.code-only check-ignore --no-index <path>
+#
+# Everything is excluded by default.  Only application source, project files,
+# solution metadata, and the two required Windows application manifests are
+# allowed into a code-only snapshot.
+*
+!*/
+!**/*.cs
+!**/*.xaml
+!**/*.csproj
+!**/*.slnx
+!/Package.appxmanifest
+!/app.manifest
+!/README.md
+!/LICENSE
+!/Assets/Icons/IDVB_icon_square_master.png
+!/Assets/Guide/control-panel-start.png
+!/Assets/Guide/quick-scan-map-open.png
+!/Assets/Guide/quick-scan-select-map.png
+!/Assets/Guide/switch-floor.png

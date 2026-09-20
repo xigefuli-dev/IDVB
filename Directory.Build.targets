@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!--
+    Windows App SDK 1.8.260804001 ships a component-version verifier that uses
+    Regex.IsMatch metadata expressions. MSBuild 18.9 (bundled with .NET SDK
+    10.0.401) rejects that expression before compiling the WinUI editor.
+    The package's component versions are already resolved as one locked
+    Microsoft.WindowsAppSDK dependency graph, so keep the runtime reference and
+    replace only that incompatible diagnostic target.
+  -->
+  <Target Name="VerifyReferencedWindowsAppSdkComponentVersions"
+          Condition="'$(MSBuildProjectName)' == 'IDVBuff.Survey.Editor.WinUI'" />
+
+  <!-- ============================================================
+       IDVB Remaster — Line Count Enforcement
+
+       Rules:
+       - Any first-party source file >= 501 lines: emit a warning (IDVB0002)
+       - Any first-party source file >= 801 lines: fail the build (IDVB0001)
+
+       Exclusions: generated files (*.g.cs, *.g.i.cs), obj/, bin/
+
+       To disable for a specific build:
+         dotnet build -p:DisableLineCountEnforcement=true
+       ============================================================ -->
+
+  <Target Name="CheckFileLineCounts"
+          BeforeTargets="CoreCompile"
+          Condition="'$(DisableLineCountEnforcement)' != 'true' And '$(MSBuildProjectName)' == 'IDVBuff'">
+
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)Tools\check-line-counts.ps1&quot; -ProjectDir &quot;$(MSBuildProjectDirectory)&quot; -WarningThreshold 501 -ErrorThreshold 801" />
+  </Target>
+
+  <PropertyGroup>
+    <!-- Exec may run from a parallel MSBuild node whose current directory is not
+         the project directory. Keep the generated source path absolute so the
+         PowerShell version generator writes the same file in every invocation. -->
+    <IDVBBuildVersionOutputPath Condition="'$(IDVBBuildVersionOutputPath)' == ''">$(MSBuildProjectDirectory)\$(IntermediateOutputPath)IDVB.BuildVersion.g.cs</IDVBBuildVersionOutputPath>
+    <IDVBBuildCounterPath Condition="'$(IDVBBuildCounterPath)' == ''">$(MSBuildProjectDirectory)\.idvb-build-count</IDVBBuildCounterPath>
+  </PropertyGroup>
+
+  <!-- 版本生成只在项目声明了 IDVBProductVersion/IDVBReleaseLine 时启用。
+       旧分支 / worktree 的 csproj 未声明这些属性（也没有 installer\ReleaseVersion.psm1），
+       此时跳过生成目标与 Compile Include，避免空字符串参数导致 MSB3073。 -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'IDVBuff' And '$(IDVBProductVersion)' != '' And '$(IDVBReleaseLine)' != ''">
+    <Compile Include="$(IDVBBuildVersionOutputPath)" AutoGen="true" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateIDVBBuildVersion"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(MSBuildProjectName)' == 'IDVBuff' And '$(DisableBuildVersioning)' != 'true' And '$(IDVBProductVersion)' != '' And '$(IDVBReleaseLine)' != ''">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Exec Condition="'$(IDVBBuildVersion)' == ''"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)Tools\Generate-IDVBBuildVersion.ps1&quot; -RepositoryRoot &quot;$(MSBuildProjectDirectory)&quot; -OutputPath &quot;$(IDVBBuildVersionOutputPath)&quot; -ProductVersion &quot;$(IDVBProductVersion)&quot; -ReleaseLine &quot;$(IDVBReleaseLine)&quot; -CounterPath &quot;$(IDVBBuildCounterPath)&quot;" />
+    <Exec Condition="'$(IDVBBuildVersion)' != ''"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)Tools\Generate-IDVBBuildVersion.ps1&quot; -RepositoryRoot &quot;$(MSBuildProjectDirectory)&quot; -OutputPath &quot;$(IDVBBuildVersionOutputPath)&quot; -ProductVersion &quot;$(IDVBProductVersion)&quot; -ReleaseLine &quot;$(IDVBReleaseLine)&quot; -BuildVersion &quot;$(IDVBBuildVersion)&quot; -CounterPath &quot;$(IDVBBuildCounterPath)&quot;" />
+  </Target>
+</Project>

@@ -1,0 +1,8 @@
+# IDVB Survey Parameters — 3440x1440 @ 120 DPI (21:9)
+# 21:9 帧最宽（3440px），画面内容多，特征上限取较高值
+
+[survey.preprocessing]
+maximum_feature_count = 4200
+
+[survey.registration]
+maximum_residual_pixels = 4.0

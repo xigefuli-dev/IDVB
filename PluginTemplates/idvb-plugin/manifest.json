@@ -1,0 +1,26 @@
+{
+  "format": "idvb-plugin",
+  "formatVersion": 1,
+  "id": "example.plugin",
+  "displayName": "IdvbPluginTemplate",
+  "version": "1.0.0",
+  "description": "An Identity Vision Bridge plugin.",
+  "publisher": { "id": "example.publisher", "name": "Example Publisher" },
+  "entryPoint": { "assembly": "IdvbPluginTemplate.dll", "type": "IdvbPluginTemplate.Plugin" },
+  "compatibility": {
+    "pluginApi": ">=2.0.0 <3.0.0",
+    "host": ">=1.5.0 <2.0.0",
+    "targetFramework": "net10.0",
+    "runtimeIdentifier": "win-x64"
+  },
+  "capabilities": [],
+  "risks": {
+    "nativeCode": false,
+    "networkAccess": false,
+    "externalFileAccess": false,
+    "inputAutomation": false
+  },
+  "settings": [],
+  "commands": [],
+  "files": []
+}

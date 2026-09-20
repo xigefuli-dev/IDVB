@@ -1,0 +1,71 @@
+name = "idvb-map-community"
+main = "src/index.js"
+compatibility_date = "2026-07-08"
+workers_dev = true
+routes = [
+  { pattern = "community.idvb.xgflee.com", custom_domain = true },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "auto-trailing-slash"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "COMMUNITY_DB"
+database_name = "idvb-map-community"
+database_id = "3dc9fac4-be65-41cd-8418-c2b221266e91"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "MAP_BUCKET"
+bucket_name = "idvb-installer"
+
+[[send_email]]
+name = "PASSWORD_RESET_EMAIL"
+
+[vars]
+PASSWORD_RESET_EMAIL_FROM = "accounts@idvb.xgflee.com"
+TURNSTILE_SITE_KEY = "0x4AAAAAAEjqL2F7E06oWCov"
+
+[[ratelimits]]
+name = "LOGIN_RATE_LIMITER"
+namespace_id = "2026083102"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+[[ratelimits]]
+name = "REGISTER_RATE_LIMITER"
+namespace_id = "2026083103"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60
+
+[[ratelimits]]
+name = "PASSWORD_RESET_RATE_LIMITER"
+namespace_id = "2026090101"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60
+
+[[ratelimits]]
+name = "PUBLISH_TOKEN_RATE_LIMITER"
+namespace_id = "2026083104"
+
+  [ratelimits.simple]
+  limit = 10
+  period = 60
+
+[[ratelimits]]
+name = "FEEDBACK_RATE_LIMITER"
+namespace_id = "2026091701"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60

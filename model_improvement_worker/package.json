@@ -1,0 +1,8 @@
+{
+  "name": "idvb-model-improvement-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

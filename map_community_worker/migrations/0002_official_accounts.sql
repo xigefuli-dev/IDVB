@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN is_official INTEGER NOT NULL DEFAULT 0 CHECK (is_official IN (0, 1));

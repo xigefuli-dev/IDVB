@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <TargetPlatform>x64</TargetPlatform>
+    <EnvironmentVariables>
+      <DOTNET_ROOT>C:\Program Files\dotnet</DOTNET_ROOT>
+    </EnvironmentVariables>
+  </RunConfiguration>
+  <!-- Release verification is deliberately single-threaded. Parallel xUnit
+       collections caused transient image-file locks during cleanup and made
+       timing-sensitive classifier tests compete for CPU. Keep all 717 tests;
+       serialize them instead of skipping flaky-looking failures. -->
+  <xUnit>
+    <MaxParallelThreads>1</MaxParallelThreads>
+    <ParallelizeTestCollections>false</ParallelizeTestCollections>
+  </xUnit>
+</RunSettings>

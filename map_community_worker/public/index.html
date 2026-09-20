@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="浏览与分享 Identity Vision Bridge 社区地图。">
+  <title>IDVB 地图社区</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="preconnect" href="https://challenges.cloudflare.com">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+  <script type="module" src="/app.js?v=feedback-download-20260918-1"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到地图列表</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="IDVB 地图社区首页"><span class="brand-mark" aria-hidden="true">I</span><span>IDVB 地图社区</span></a>
+    <div class="account-actions">
+      <button class="text-button signed-out-only" type="button" data-auth-mode="login">登录</button>
+      <button class="pill-button signed-out-only" type="button" data-auth-mode="register">注册</button>
+      <button class="pill-button builder-only" type="button" id="builder-entry-btn" hidden style="background: linear-gradient(135deg, #e98522, #c76a10); color: #fff; border: 0; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;"><svg viewBox="0 0 18 18" width="14" height="14" fill="currentColor"><path d="M2 1h13v4h-5v12H6V5H2zm12 1h3v4h-4V5h1z"/></svg>管理后台</button>
+      <button class="profile-button signed-in-only" type="button" id="profile-button" hidden><span class="avatar" id="header-avatar">I</span><span id="header-name">社区成员</span><span class="official-mark" id="header-official" title="官方认证" aria-label="官方认证" hidden>✓</span><span class="builder-mark" id="header-builder" title="建设者认证" aria-label="建设者认证" hidden><svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2 1h13v4h-5v12H6V5H2zm12 1h3v4h-4V5h1z"/></svg></span></button>
+    </div>
+  </header>
+
+  <main id="main" class="community-main">
+    <section class="map-browser" aria-label="社区地图">
+      <div class="map-toolbar">
+        <label class="search-box" for="map-search"><span aria-hidden="true">⌕</span><input id="map-search" type="search" placeholder="搜索地图或发布者" autocomplete="off"></label>
+        <span class="map-count" id="map-count">正在读取地图…</span>
+      </div>
+
+      <div class="map-grid" id="map-grid" aria-live="polite"></div>
+      <p class="empty-state" id="empty-state" hidden>没有找到符合条件的地图。</p>
+    </section>
+  </main>
+
+  <section class="builder-console-section" id="builder-console-section" hidden>
+    <div class="builder-header">
+      <div class="builder-header-left">
+        <button class="text-button" type="button" id="builder-back-btn">← 返回社区地图</button>
+        <h2>IDVB 管理后台</h2>
+      </div>
+      <div class="builder-badge-tag"><svg viewBox="0 0 18 18" width="14" height="14" fill="currentColor"><path d="M2 1h13v4h-5v12H6V5H2zm12 1h3v4h-4V5h1z"/></svg> 已认证管理</div>
+    </div>
+
+    <div class="builder-layout">
+      <nav class="builder-nav" aria-label="管理后台导航">
+        <button type="button" class="builder-nav-item active" data-tab="users">
+          <svg class="nav-icon-svg" viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+          <span>用户数据</span>
+        </button>
+        <button type="button" class="builder-nav-item" data-tab="feedbacks">
+          <svg class="nav-icon-svg" viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zm-4 0h-2v2h2V9z" clip-rule="evenodd"/></svg>
+          <span>反馈结果</span>
+        </button>
+        <button type="button" class="builder-nav-item" data-tab="maps">
+          <svg class="nav-icon-svg" viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 1.586l-4 4v12.828l4-4V1.586zM3.707 3.293A1 1 0 002 4v10a1 1 0 00.553.894l4 2A1 1 0 008 16V3.172L3.707 3.293zm10.74 1.293L18 6.414V16a1 1 0 01-1.447.894l-4-2A1 1 0 0112 14V1.586l2.447 1.22a1 1 0 01.553.894v.886z" clip-rule="evenodd"/></svg>
+          <span>地图管理</span>
+        </button>
+        <button type="button" class="builder-nav-item" data-tab="announcements">
+          <svg class="nav-icon-svg" viewBox="0 0 20 20" width="16" height="16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 3a1 1 0 00-1.447-.894L8.763 6H5a3 3 0 000 6h.28l1.771 5.316A1 1 0 008 18h1a1 1 0 001-1v-4.39l6.553 3.277a1 1 0 001.447-.894V3zm-2 9.382l-5-2.5V6.118l5-2.5v8.764z" clip-rule="evenodd"/></svg>
+          <span>公告管理</span>
+        </button>
+      </nav>
+
+      <div class="builder-content">
+        <!-- 导航 1: 用户数据 -->
+        <div class="builder-tab-panel" id="panel-builder-users">
+          <div class="panel-toolbar">
+            <div class="stats-row">
+              <div class="stat-card"><span class="stat-num" id="stat-total-users">-</span><span class="stat-lbl">全部用户</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-certified-users">-</span><span class="stat-lbl">已认证用户</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-builder-users">-</span><span class="stat-lbl">建设者</span></div>
+            </div>
+            <input type="search" class="console-search" id="user-search-input" placeholder="搜索用户 ID、昵称或邮箱..." autocomplete="off">
+          </div>
+          <div class="table-responsive">
+            <table class="builder-table">
+              <thead>
+                <tr>
+                  <th>用户 ID</th>
+                  <th>昵称</th>
+                  <th>邮箱</th>
+                  <th>认证情况</th>
+                  <th>注册时间</th>
+                  <th>管理操作</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody">
+                <tr><td colspan="6" class="loading-td">正在加载用户数据...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 导航 2: 反馈结果 -->
+        <div class="builder-tab-panel" id="panel-builder-feedbacks" hidden>
+          <div class="panel-toolbar">
+            <div class="stats-row">
+              <div class="stat-card"><span class="stat-num" id="stat-total-feedbacks">-</span><span class="stat-lbl">收到反馈</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-logs-feedbacks">-</span><span class="stat-lbl">包含日志</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-diags-feedbacks">-</span><span class="stat-lbl">包含诊断</span></div>
+            </div>
+          </div>
+          <div class="feedbacks-list" id="feedbacks-list">
+            <p class="loading-state">正在加载反馈数据...</p>
+          </div>
+        </div>
+
+        <!-- 导航 3: 地图管理 -->
+        <div class="builder-tab-panel" id="panel-builder-maps" hidden>
+          <div class="panel-toolbar">
+            <div class="stats-row">
+              <div class="stat-card"><span class="stat-num" id="stat-total-maps">-</span><span class="stat-lbl">全部地图</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-visible-maps">-</span><span class="stat-lbl">展示中</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-hidden-maps">-</span><span class="stat-lbl">已隐藏</span></div>
+            </div>
+            <input type="search" class="console-search" id="map-search-input" placeholder="搜索地图名称、发布者或版本..." autocomplete="off">
+          </div>
+          <div class="table-responsive">
+            <table class="builder-table">
+              <thead>
+                <tr>
+                  <th style="width: 60px;">封面</th>
+                  <th>地图名称</th>
+                  <th>发布者</th>
+                  <th>版本</th>
+                  <th>状态</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="maps-tbody">
+                <tr><td colspan="7" class="loading-td">正在加载地图数据...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 导航 4: 公告管理 -->
+        <div class="builder-tab-panel" id="panel-builder-announcements" hidden>
+          <div class="panel-toolbar">
+            <div class="stats-row">
+              <div class="stat-card"><span class="stat-num" id="stat-total-announcements">-</span><span class="stat-lbl">全部公告</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-published-announcements">-</span><span class="stat-lbl">已发布</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-popup-announcements">-</span><span class="stat-lbl">启动弹窗</span></div>
+              <div class="stat-card"><span class="stat-num" id="stat-pinned-announcements">-</span><span class="stat-lbl">置顶条数</span></div>
+            </div>
+            <div class="announcements-toolbar-actions">
+              <button type="button" class="action-btn primary" id="btn-create-announcement" style="padding: 8px 16px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+                <span>发布新公告</span>
+              </button>
+              <div class="filter-group">
+                <select id="announcement-category-filter" class="console-select">
+                  <option value="">全部分类</option>
+                  <option value="update">更新说明</option>
+                  <option value="tips">冷知识与技巧</option>
+                  <option value="notice">系统通知</option>
+                </select>
+                <input type="search" class="console-search" id="announcement-search-input" placeholder="搜索标题、标签或内容..." autocomplete="off">
+              </div>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="builder-table">
+              <thead>
+                <tr>
+                  <th>标题</th>
+                  <th style="width: 100px;">分类</th>
+                  <th style="width: 100px;">标签</th>
+                  <th style="width: 130px;">状态</th>
+                  <th style="width: 120px;">发布时间</th>
+                  <th style="width: 170px;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="announcements-tbody">
+                <tr><td colspan="6" class="loading-td">正在加载公告数据...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer"><span>Identity Vision Bridge</span><span>IDVM 社区地图</span></footer>
+
+  <div class="copy-toast" id="copy-toast" role="status" hidden><strong>订阅链接已复制</strong><span>请切换回 IDVB</span></div>
+
+  <dialog class="auth-dialog" id="auth-dialog">
+    <div class="auth-shell">
+      <button class="dialog-close" type="button" id="auth-close" aria-label="关闭">×</button>
+      <div class="auth-content">
+        <div class="auth-tabs" role="tablist" aria-label="账户操作"><button type="button" role="tab" data-tab="login">登录</button><button type="button" role="tab" data-tab="register">注册</button></div>
+        <form id="auth-form" novalidate>
+          <div class="field register-field"><label for="display-name">社区昵称</label><input id="display-name" name="displayName" autocomplete="nickname" minlength="2" maxlength="32" placeholder="如何称呼你"><small data-error-for="displayName"></small></div>
+          <div class="field"><label for="email">邮箱</label><input id="email" name="email" type="email" autocomplete="email" placeholder="name@example.com" required><small data-error-for="email"></small></div>
+          <div class="field"><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" minlength="10" maxlength="128" placeholder="至少 10 个字符" required><small data-error-for="password"></small></div>
+          <div class="field reset-code-field" hidden><label for="reset-code">验证码</label><input id="reset-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="邮件中的 6 位验证码"><small data-error-for="code"></small></div>
+          <button class="forgot-password login-field" id="forgot-password" type="button">忘记密码</button>
+          <div class="turnstile-field" id="turnstile-field"><div id="turnstile-widget"></div></div>
+          <p class="form-message" id="form-message" role="status"></p>
+          <button class="submit-button" type="submit"><span id="submit-label">登录</span><span aria-hidden="true">→</span></button>
+        </form>
+        <p class="auth-note">从 IDVB 打开时，登录完成后会自动安全地返回客户端。</p>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="profile-dialog" id="profile-dialog">
+    <button class="dialog-close" type="button" id="profile-close" aria-label="关闭">×</button><label class="profile-avatar avatar" id="profile-avatar" for="avatar-input" title="更换头像">I</label><input id="avatar-input" type="file" accept="image/png,image/jpeg,image/webp" hidden><p class="avatar-help" id="avatar-message">点击头像更换，最大 2 MB</p><p class="eyebrow">Community account</p><h2 id="profile-name">社区成员</h2><p class="official-label" id="profile-official" hidden><span class="official-mark" aria-hidden="true">✓</span> 官方认证</p><p class="official-label" id="profile-builder" hidden><span class="builder-mark" aria-hidden="true"><svg viewBox="0 0 18 18"><path d="M2 1h13v4h-5v12H6V5H2zm12 1h3v4h-4V5h1z"/></svg></span> 建设者认证</p><p id="profile-email"></p><div class="profile-status"><span></span><div><strong>账户已连接</strong><small>可以在这台设备上继续访问社区</small></div></div><button class="logout-button" type="button" id="logout-button">退出登录</button>
+  </dialog>
+
+  <dialog class="profile-dialog" id="oauth-dialog">
+    <div class="profile-avatar avatar">I</div><p class="eyebrow">IDVB</p><h2>确认登录 Identity Vision Bridge</h2><p id="oauth-account"></p><p class="form-message" id="oauth-message" role="status"></p><button class="submit-button" type="button" id="oauth-allow"><span>确认并返回 IDVB</span><span aria-hidden="true">→</span></button><button class="logout-button" type="button" id="oauth-deny">取消</button>
+  </dialog>
+
+  <dialog class="announcement-dialog" id="announcement-dialog">
+    <div class="announcement-dialog-shell">
+      <div class="announcement-dialog-header">
+        <h3 id="announcement-dialog-title">发布新公告</h3>
+        <button class="dialog-close" type="button" id="announcement-dialog-close" aria-label="关闭">×</button>
+      </div>
+      <div class="template-bar">
+        <span class="template-label">常用模板：</span>
+        <div class="template-buttons">
+          <button type="button" class="template-btn" data-announcement-template="update">更新公告专用模板</button>
+          <button type="button" class="template-btn" data-announcement-template="tips">技巧与冷知识模板</button>
+          <button type="button" class="template-btn" data-announcement-template="notice">常规通知模板</button>
+          <button type="button" class="template-btn" data-announcement-template="clear">清空正文</button>
+        </div>
+      </div>
+      <form id="announcement-form" novalidate>
+        <input type="hidden" id="announcement-edit-id" name="id">
+        <div class="field">
+          <label for="announcement-title">标题 *</label>
+          <input id="announcement-title" name="title" required placeholder="如：v1.4.3 版本更新说明 或 地图避障冷知识">
+          <small data-error-for="announcement-title"></small>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="announcement-category">分类 *</label>
+            <select id="announcement-category" name="category" class="console-select">
+              <option value="update">更新说明 (update)</option>
+              <option value="tips">冷知识与技巧 (tips)</option>
+              <option value="notice">系统通知 (notice)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="announcement-tag">标签 (可选)</label>
+            <input id="announcement-tag" name="tag" placeholder="如：v1.4.3 或 监管技巧">
+          </div>
+        </div>
+        <div class="field">
+          <label for="announcement-summary">摘要 (可选，用于卡片与弹窗简述)</label>
+          <textarea id="announcement-summary" name="summary" rows="2" placeholder="简短总结公告要点，不填则默认自动截取正文开头..."></textarea>
+        </div>
+        <div class="field">
+          <label for="announcement-content">正文 Markdown *</label>
+          <textarea id="announcement-content" name="content" rows="9" required placeholder="支持标准 Markdown、表格、图片、GIF、超链接及 GitHub Alert 语法..."></textarea>
+          <small data-error-for="announcement-content"></small>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="announcement-cover">封面图片 URL (可选)</label>
+            <input id="announcement-cover" name="coverImageUrl" placeholder="https://...">
+          </div>
+          <div class="field">
+            <label for="announcement-min-version">最低客户端版本 (可选)</label>
+            <input id="announcement-min-version" name="minClientVersion" placeholder="如：1.4.0">
+          </div>
+        </div>
+        <div class="checkbox-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="announcement-published" name="isPublished" checked>
+            <span>立即发布</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="announcement-pinned" name="isPinned">
+            <span>置顶显示</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="announcement-popup" name="isPopup">
+            <span>客户端启动弹窗提醒</span>
+          </label>
+        </div>
+        <p class="form-message" id="announcement-form-message" role="status"></p>
+        <div class="announcement-dialog-actions">
+          <button class="pill-button secondary" type="button" id="announcement-cancel-btn">取消</button>
+          <button class="pill-button primary" type="submit" id="announcement-submit-btn">保存公告</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+</body>
+</html>

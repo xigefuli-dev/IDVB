@@ -1,0 +1,290 @@
+{
+  "format": "IDVA",
+  "format_name": "Identity Vision Algorithm",
+  "schema_version": "1.1",
+  "algorithm_id": "structure.doom-girl.hard.wangqingxin.v1",
+  "display_name": "S0 厄运之女困难专属结构线图（王清心）",
+  "profile_family": "structure-map",
+  "profile_style": "doom-girl-hard-wangqingxin",
+  "geometry_policy": {
+    "preserve_input_size": true,
+    "allow_resize": false,
+    "allow_rotation": false,
+    "allow_warp": false
+  },
+  "runtime": {
+    "engine": "idvb-opencv-pipeline",
+    "language": "declarative-json",
+    "minimum_engine_version": "1.0"
+  },
+  "input": {
+    "type": "raster-image",
+    "color_order": "BGR"
+  },
+  "output": {
+    "type": "binary-edge-map",
+    "background": 0,
+    "edge": 255,
+    "line_width_px": 2
+  },
+  "pipeline": [
+    {
+      "stage": "color_classification",
+      "mode": "HSV_RANGE"
+    },
+    {
+      "stage": "class_conflict_resolution",
+      "mode": "room_wins"
+    },
+    {
+      "stage": "ignore_route_overlays",
+      "mode": "HSV_RANGES"
+    },
+    {
+      "stage": "class_conflict_resolution",
+      "mode": "room_wins"
+    },
+    {
+      "stage": "wall_barrier_separation",
+      "wall_min_brightness": 108,
+      "exclude_room": true,
+      "wall_min_contrast": 12,
+      "wall_contrast_kernel": [
+        9,
+        9
+      ],
+      "exclude_routes": true
+    },
+    {
+      "stage": "morph_open",
+      "kernel": [
+        3,
+        3
+      ]
+    },
+    {
+      "stage": "remove_small_components",
+      "room_min_area": 120,
+      "corridor_min_area": 120
+    },
+    {
+      "stage": "directional_bridge",
+      "horizontal_gap_px": 21,
+      "vertical_gap_px": 21
+    },
+    {
+      "stage": "wall_barrier_separation",
+      "wall_min_brightness": 108,
+      "exclude_room": true,
+      "wall_min_contrast": 12,
+      "wall_contrast_kernel": [
+        9,
+        9
+      ],
+      "exclude_routes": true
+    },
+    {
+      "stage": "morph_close",
+      "kernels": [
+        [
+          3,
+          3
+        ]
+      ]
+    },
+    {
+      "stage": "wall_barrier_separation",
+      "wall_min_brightness": 108,
+      "exclude_room": true,
+      "wall_min_contrast": 12,
+      "wall_contrast_kernel": [
+        9,
+        9
+      ],
+      "exclude_routes": true
+    },
+    {
+      "stage": "fill_small_holes",
+      "room_max_hole_area": 4000,
+      "corridor_max_hole_area": 120
+    },
+    {
+      "stage": "remove_small_components",
+      "room_min_area": 200,
+      "corridor_min_area": 200
+    },
+    {
+      "stage": "separate_classes",
+      "gap_px": 2,
+      "shrink_target": "corridor"
+    },
+    {
+      "stage": "room_contours",
+      "retrieval": "RETR_EXTERNAL",
+      "chain": "CHAIN_APPROX_SIMPLE",
+      "approx_poly_dp_epsilon": 2.5,
+      "min_perimeter_px": 40,
+      "orthogonal_snap_px": 3
+    },
+    {
+      "stage": "corridor_contours",
+      "retrieval": "RETR_CCOMP",
+      "chain": "CHAIN_APPROX_SIMPLE",
+      "approx_poly_dp_epsilon": 2.5,
+      "min_perimeter_px": 40,
+      "min_hole_area_px": 200,
+      "orthogonal_snap_px": 3
+    },
+    {
+      "stage": "draw_edges",
+      "line_width_px": 2,
+      "antialias": false
+    }
+  ],
+  "parameters": {
+    "room_hsv_ranges": [
+      {
+        "lo": [
+          5,
+          25,
+          40
+        ],
+        "hi": [
+          32,
+          255,
+          255
+        ]
+      }
+    ],
+    "corridor_hsv_ranges": [
+      {
+        "lo": [
+          0,
+          0,
+          62
+        ],
+        "hi": [
+          179,
+          72,
+          185
+        ]
+      }
+    ],
+    "room_hsv_lo": [
+      5,
+      25,
+      40
+    ],
+    "room_hsv_hi": [
+      32,
+      255,
+      255
+    ],
+    "corridor_hsv_lo": [
+      0,
+      0,
+      62
+    ],
+    "corridor_hsv_hi": [
+      179,
+      72,
+      185
+    ],
+    "route_hsv_ranges": [
+      {
+        "lo": [
+          0,
+          100,
+          100
+        ],
+        "hi": [
+          12,
+          255,
+          255
+        ]
+      },
+      {
+        "lo": [
+          165,
+          100,
+          100
+        ],
+        "hi": [
+          179,
+          255,
+          255
+        ]
+      },
+      {
+        "lo": [
+          75,
+          100,
+          130
+        ],
+        "hi": [
+          105,
+          255,
+          255
+        ]
+      },
+      {
+        "lo": [
+          105,
+          130,
+          90
+        ],
+        "hi": [
+          130,
+          255,
+          255
+        ]
+      },
+      {
+        "lo": [
+          18,
+          100,
+          130
+        ],
+        "hi": [
+          35,
+          255,
+          255
+        ]
+      },
+      {
+        "lo": [
+          35,
+          100,
+          100
+        ],
+        "hi": [
+          75,
+          255,
+          255
+        ]
+      },
+      {
+        "lo": [
+          135,
+          100,
+          100
+        ],
+        "hi": [
+          165,
+          255,
+          255
+        ]
+      }
+    ],
+    "route_mask_dilate_kernel": [
+      5,
+      5
+    ],
+    "route_repair_radius_px": 5.0
+  },
+  "provenance": {
+    "status": "local-validation-candidate",
+    "target_map_class": "S0 厄运之女 · 困难",
+    "note": "Dedicated Wang Qingxin pipeline. Local-contrast wall separation preserves bright floors; saturated annotation ranges preserve navy voids. Requires an engine supporting wall_min_contrast and exclude_routes. Shadow boundaries still require visual review."
+  }
+}

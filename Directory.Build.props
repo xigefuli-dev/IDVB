@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/node_modules/**;.claude/**;.workbuddy/**;.codex/**;map_community_worker/**;model_improvement_worker/**;web_installer/**;_artifact_work/**;artifacts/**;scratch/**;.verify/**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

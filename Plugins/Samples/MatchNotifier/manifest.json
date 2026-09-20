@@ -1,0 +1,43 @@
+{
+  "format": "idvb-plugin",
+  "formatVersion": 1,
+  "id": "idvb.sample.match-notifier",
+  "displayName": "Match Notifier Sample",
+  "version": "1.0.0",
+  "description": "Shows read-only match events, declarative settings, commands and notifications.",
+  "publisher": { "id": "idvb.samples", "name": "Identity Vision Bridge Samples" },
+  "entryPoint": {
+    "assembly": "IDVB.Sample.MatchNotifier.dll",
+    "type": "IDVB.Sample.MatchNotifier.MatchNotifierPlugin"
+  },
+  "compatibility": {
+    "pluginApi": ">=2.0.0 <3.0.0",
+    "host": ">=1.5.0 <2.0.0",
+    "targetFramework": "net10.0",
+    "runtimeIdentifier": "win-x64"
+  },
+  "capabilities": [ "host.events.read", "notifications.post" ],
+  "risks": {
+    "nativeCode": false,
+    "networkAccess": false,
+    "externalFileAccess": false,
+    "inputAutomation": false
+  },
+  "settings": [
+    { "key": "notify", "type": "toggle", "displayName": "Notify on match changes", "default": true },
+    {
+      "key": "prefix",
+      "type": "choice",
+      "displayName": "Notification title",
+      "default": "Match",
+      "options": [
+        { "value": "Match", "displayName": "Match" },
+        { "value": "IDVB", "displayName": "IDVB" }
+      ]
+    }
+  ],
+  "commands": [
+    { "id": "test-notification", "displayName": "Test notification" }
+  ],
+  "files": []
+}

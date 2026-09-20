@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Identity Vision Bridge (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Identity Vision Bridge (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

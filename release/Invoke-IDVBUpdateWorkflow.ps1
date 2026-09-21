@@ -270,6 +270,17 @@ function Copy-CodeOnlySnapshot([string]$SnapshotRoot, [string]$BaseCommit) {
 
 function Invoke-PublicCodeOnlyCommit([switch]$PlanOnly) {
     if (-not [string]::Equals($TargetCommit, 'origin/master', [StringComparison]::OrdinalIgnoreCase)) {
+        if ($PlanOnly) {
+            $resolvedTarget = (git -C $repositoryRoot rev-parse --verify "$TargetCommit^{commit}").Trim()
+            Assert-Success "Resolve local release target $TargetCommit"
+            $headCommit = (git -C $repositoryRoot rev-parse --verify 'HEAD^{commit}').Trim()
+            Assert-Success 'Resolve current HEAD for local release target'
+            if ($resolvedTarget -ne $headCommit) {
+                throw "A non-origin release target must resolve to the current local HEAD. Target: $resolvedTarget; HEAD: $headCommit."
+            }
+            Write-Host "Using committed local release target without code-only publication: $resolvedTarget"
+            return $resolvedTarget
+        }
         throw 'Code-only source publication requires the default TargetCommit origin/master.'
     }
 

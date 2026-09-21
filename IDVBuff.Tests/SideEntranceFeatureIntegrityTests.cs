@@ -5,7 +5,7 @@ namespace IDVBuff.Tests;
 
 public sealed class SideEntranceFeatureIntegrityTests
 {
-    [Fact(Skip = "等待接上新版真·快速扫描二值结构特征后适配")]
+    [Fact]
     public async Task MissingVersionAndTamperedFeatureAreRebuiltBeforeCacheUse()
     {
         var root = Path.Combine(
@@ -55,6 +55,10 @@ public sealed class SideEntranceFeatureIntegrityTests
                 ],
                 Recognition = recognition
             });
+
+            var algorithmPath = Path.Combine(root, "structure.idva");
+            await File.WriteAllTextAsync(algorithmPath, IdvmPackageServiceTests.NormalIdva);
+            await repository.GeneratePrebuiltStructureLinesAsync("S1", algorithmPath);
 
             var map = (await repository.GetMapsAsync()).Single();
             var profile = MapFloorRules.GetFloorProfile(map, "1f")!;

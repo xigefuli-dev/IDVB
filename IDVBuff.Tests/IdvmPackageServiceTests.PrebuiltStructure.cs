@@ -91,7 +91,7 @@ public sealed partial class IdvmPackageServiceTests
         public void Report(T value) => report(value);
     }
 
-    private const string NormalIdva = """
+    internal const string NormalIdva = """
         {
           "format":"IDVA","schema_version":"1.1","algorithm_id":"structure.normal.test",
           "display_name":"Normal test","profile_family":"structure-map","profile_style":"normal",

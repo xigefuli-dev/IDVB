@@ -10,7 +10,7 @@ using Windows.UI;
 
 namespace IDVBuff.Views;
 
-public sealed class HomePage : Page
+public sealed partial class HomePage : Page
 {
     private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
     private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
@@ -74,12 +74,12 @@ public sealed class HomePage : Page
         page.Children.Add(_scanModeBloom);
 
         var root = new StackPanel { Spacing = 32 };
-        var topBand = new Grid { Height = 270 };
+        var topBand = new Grid { MinHeight = 344 };
         topBand.ColumnDefinitions.Add(new ColumnDefinition
             { Width = new GridLength(1, GridUnitType.Star) });
         topBand.ColumnDefinitions.Add(new ColumnDefinition
             { Width = new GridLength(452) });
-        topBand.RowDefinitions.Add(new RowDefinition { Height = new GridLength(270) });
+        topBand.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         topBand.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
 
         var welcome = new StackPanel
@@ -102,14 +102,20 @@ public sealed class HomePage : Page
                 }
             }
         };
-        Grid.SetColumn(welcome, 0);
-        topBand.Children.Add(welcome);
-
-        _launchGameButton.VerticalAlignment = VerticalAlignment.Center;
-        _launchGameButton.Margin = new Thickness(0, 112, 0, 0);
-        _launchGameButton.VerticalAlignment = VerticalAlignment.Top;
-        Grid.SetColumn(_launchGameButton, 0);
-        topBand.Children.Add(_launchGameButton);
+        var primaryControls = new StackPanel
+        {
+            Spacing = 18,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Children =
+            {
+                welcome,
+                CreateGameShelf(),
+                _launchGameButton
+            }
+        };
+        Grid.SetColumn(primaryControls, 0);
+        topBand.Children.Add(primaryControls);
 
         var scanControls = new StackPanel
         {
@@ -127,7 +133,7 @@ public sealed class HomePage : Page
         root.Children.Add(topBand);
 
         page.SizeChanged += (_, args) =>
-            UpdateResponsiveLayout(args.NewSize.Width, topBand, scanControls);
+            UpdateResponsiveLayout(args.NewSize.Width, topBand, primaryControls, scanControls);
 
         var cards = new StackPanel
         {
@@ -168,7 +174,7 @@ public sealed class HomePage : Page
     }
 
     private void UpdateResponsiveLayout(double availableWidth, Grid topBand,
-        FrameworkElement scanControls)
+        FrameworkElement primaryControls, FrameworkElement scanControls)
     {
         // WinUI layout units are DIPs. Sizing from the available DIP width keeps
         // the bloom and card stable across display scaling as well as resolution.
@@ -177,16 +183,20 @@ public sealed class HomePage : Page
         _scanModeBloom.Height = Math.Clamp(bloomWidth * .46, 300, 396);
 
         var stackControls = availableWidth < 980;
-        topBand.Height = stackControls ? 440 : 270;
+        topBand.MinHeight = stackControls ? 0 : 344;
         topBand.RowDefinitions[1].Height = stackControls
-            ? new GridLength(170)
+            ? GridLength.Auto
             : new GridLength(0);
+        Grid.SetColumnSpan(primaryControls, stackControls ? 2 : 1);
         Grid.SetRow(scanControls, stackControls ? 1 : 0);
         Grid.SetColumn(scanControls, stackControls ? 0 : 1);
         Grid.SetColumnSpan(scanControls, stackControls ? 2 : 1);
         scanControls.HorizontalAlignment = stackControls
             ? HorizontalAlignment.Left
             : HorizontalAlignment.Right;
+        scanControls.Margin = stackControls
+            ? new Thickness(0, 24, 0, 0)
+            : new Thickness(0);
     }
 
     internal void SetAmbientAccent(Color color) => _scanModeBloom.AccentColor = color;

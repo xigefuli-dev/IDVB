@@ -102,6 +102,7 @@
         <Content Include="Assets\Wide310x150Logo.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Icons\*.ico" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Icons\*.png" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="Assets\Games\*.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Algorithms\structure-native-observed-v2.idva"
                  CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Algorithms\structure-doom-girl-hard-wangqingxin-v1.idva"

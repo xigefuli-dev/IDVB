@@ -42,6 +42,9 @@ public sealed partial class MapScanDiagnostics
     // Scan verification diagnostics
     public int ScanCandidateCount { get; set; }
     public int ScanVerificationCandidateCount { get; set; }
+    public int ScanVerifiedCandidateCount { get; set; }
+    public bool ScanEarlyExited { get; set; }
+    public bool ScanVerificationTimedOut { get; set; }
     public int ScanCheapRejectCount { get; set; }
     public double ScanCheapRejectMilliseconds { get; set; }
     public int ScanFormalStructureAttemptCount { get; set; }

@@ -47,6 +47,19 @@ public sealed class MapRuntimeSettingsRepository
                     json,
                     SerializerOptions)
                 ?? new MapRuntimeSettings();
+            var hasUnsupportedProductOptions =
+                settings.FirstScanStrategy != FirstScanStrategy.SideEntrance
+                || settings.BackgroundScanEnabled
+                || settings.SilentScanEnabled
+                || settings.AllowAutomaticMapCache
+                || !string.IsNullOrWhiteSpace(settings.SelectedResolutionPreset)
+                || !settings.ShowOverlayStatus
+                || settings.ReverseAlternateDisplay
+                || !settings.AllowMapExtendBeyondBounds
+                || !settings.PersistentMiniMapEnabled
+                || settings.PlayerTrackingEnabled
+                || settings.RecognitionTuning?.ForceBestRecognitionResult is true
+                || settings.RecognitionTuning?.PlayerDecidesScale is true;
             if (!hasDeclaredSchema)
                 settings.SchemaVersion = 0;
             var requiresMigration =
@@ -54,7 +67,8 @@ public sealed class MapRuntimeSettingsRepository
                 || settings.SchemaVersion
                     < MapRuntimeSettings.CurrentSchemaVersion
                 || settings.OverlayAlignmentMode
-                    != MapOverlayAlignmentMode.Uniform;
+                    != MapOverlayAlignmentMode.Uniform
+                || hasUnsupportedProductOptions;
             settings.Normalize();
             if (requiresMigration)
             {

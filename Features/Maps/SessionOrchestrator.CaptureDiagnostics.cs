@@ -14,14 +14,17 @@ public sealed partial class SessionOrchestrator
             ["capture"] = elapsedMs,
             ["wall_clock"] = elapsedMs
         };
-        _statusMessage = string.IsNullOrWhiteSpace(failureReason)
+        var message = string.IsNullOrWhiteSpace(failureReason)
             ? "地图截图失败。"
             : failureReason;
         _logCollector.Append(
             MapLogCategory.ViewportCapture,
             MapLogLevel.Warning,
-            _statusMessage,
+            message,
             elapsedMs: elapsedMs);
+        if (_silentScanActive)
+            return;
+        _statusMessage = message;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 }

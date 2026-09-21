@@ -5,6 +5,7 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
     private BackgroundScanStatus _backgroundScanStatus;
+    private bool _silentScanActive;
     private RuntimeMapRecognition? _pendingBackgroundIdentity;
     private IReadOnlyList<MapRecognitionChoice>? _pendingBackgroundChoices;
     // 与候选列表一同冻结的模型评分快照。开图事件只能消费该快照，不能
@@ -58,6 +59,24 @@ public sealed partial class SessionOrchestrator
             state.Recognition,
             state.PendingChoices,
             state.FailureReason);
+        if (_silentScanActive)
+        {
+            // A candidate list is ambiguous. Silent mode never guesses or opens UI.
+            ClearPendingBackgroundScan();
+            if (outcome.Status == BackgroundScanStatus.CompletedIdentified)
+            {
+                var recognized = outcome.Identity!;
+                _pendingBackgroundIdentity =
+                    BackgroundScanRules.BuildIdentityOnlyRecognition(
+                        recognized.Map,
+                        recognized.Result.Floor,
+                        recognized.Result.IdentityConfidence,
+                        _mapRepository.GetFloorOverlayPath);
+                _pendingBackgroundSeed = state.PendingSideEntranceSeed;
+                _backgroundScanStatus = BackgroundScanStatus.CompletedIdentified;
+            }
+            return;
+        }
         _pendingBackgroundIdentity = outcome.Identity;
         _pendingBackgroundChoices = outcome.Choices;
         _pendingBackgroundChoicesReason = state.PendingChoicesReason;

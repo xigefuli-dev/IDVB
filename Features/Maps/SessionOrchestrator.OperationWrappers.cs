@@ -145,13 +145,15 @@ public sealed partial class SessionOrchestrator
         var cancellationToken = CurrentMatchCancellationToken;
         if (!await _scanGate.WaitAsync(0))
         {
+            if (_silentScanActive)
+                return;
             _statusMessage = "已有扫描正在进行，请稍候。";
             StateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
         var trace = BeginMapOperationTrace(
-            _settings!.BackgroundScanEnabled
+            (_settings!.BackgroundScanEnabled || _silentScanActive)
                 ? MapOperationTypes.BackgroundScan
                 : MapOperationTypes.QuickScan,
             QuickScanTracePhases);

@@ -46,6 +46,10 @@ public sealed partial class SessionOrchestrator
         }
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
+        else if (_settings.SilentScanEnabled
+            && _pendingAlignmentIdentity is null
+            && _lastRecognition is null)
+            await RunSilentScanAsync(toggle);
         else if (_backgroundScanStatus == BackgroundScanStatus.CompletedFailed)
         {
             // 后台扫描失败：无身份可消费，提示后走标准「尚未锁定地图」路径，

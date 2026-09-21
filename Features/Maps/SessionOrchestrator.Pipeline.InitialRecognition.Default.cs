@@ -132,7 +132,8 @@ public sealed partial class SessionOrchestrator
             alignmentTuning.GateTemplateThreshold = GateTemplateRules.FallbackPairThreshold;
 
         // ── 强制候选选择：对齐所有候选，让用户从中选择 ──
-        if ((alignmentTuning.ForceCandidateSelection
+        if (!_silentScanActive
+            && (alignmentTuning.ForceCandidateSelection
                 || _settings.CandidateDecisionMode
                     != MapCandidateDecisionMode.Traditional)
             && scanCtx.Candidates.Count >= 1)

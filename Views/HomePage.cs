@@ -1,5 +1,6 @@
 using IDVBuff.Features.Maps;
 using IDVBuff.Features.Announcements;
+using IDVBuff.Features.GameLaunch;
 using System.Diagnostics;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -135,20 +136,24 @@ public sealed class HomePage : Page
         return button;
     }
 
-    private void LaunchGameButton_Click(object sender, RoutedEventArgs e)
+    private async void LaunchGameButton_Click(object sender, RoutedEventArgs e)
     {
         if (IsGameRunning())
             return;
 
-        try
+        if (!FeverGamesGameLauncher.TryLaunch(out var failureReason))
         {
-            Process.Start(new ProcessStartInfo("fevergames://mygame/?gameId=73") { UseShellExecute = true });
-            UpdateGameStatus();
+            await new ContentDialog
+            {
+                XamlRoot = XamlRoot,
+                Title = "无法启动游戏",
+                Content = failureReason,
+                CloseButtonText = "知道了"
+            }.ShowAsync();
+            return;
         }
-        catch
-        {
-            // The shell owns the custom protocol. Keep the button usable if it is not registered.
-        }
+
+        UpdateGameStatus();
     }
 
     private void UpdateGameStatus()

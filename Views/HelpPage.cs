@@ -1,12 +1,15 @@
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.System;
 
 namespace IDVBuff.Views;
 
 /// <summary>Library of guided tutorials.</summary>
 public sealed class HelpPage : Page
 {
+    private const string OnboardingVideoBaseUri = "https://download.xgflee.com/guides/onboarding/";
+
     public event EventHandler? ActivateGuideRequested;
     public event EventHandler? SubscribeMapsGuideRequested;
 
@@ -32,6 +35,11 @@ public sealed class HelpPage : Page
             VerticalAlignment = VerticalAlignment.Center
         };
         subscribeTutorialButton.Click += (_, _) => SubscribeMapsGuideRequested?.Invoke(this, EventArgs.Empty);
+
+        var calibrationVideoButton = CreateVideoButton("vid1.mp4");
+        var startMatchVideoButton = CreateVideoButton("vid2.mp4");
+        var inGameVideoButton = CreateVideoButton("vid3.mp4");
+        var endMatchVideoButton = CreateVideoButton("vid4.mp4");
 
         var tutorialContent = new StackPanel
         {
@@ -130,6 +138,18 @@ public sealed class HelpPage : Page
                     Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
                 },
                 CreateCompactTutorialCard(subscribeTutorialButton),
+                new TextBlock
+                {
+                    Text = "视频教程",
+                    Margin = new Thickness(0, 16, 0, 0),
+                    FontSize = 16,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+                },
+                CreateCompactTutorialCard(calibrationVideoButton, "校准显示区域", "框选完整的游戏地图画布，让 IDVB 正确识别地图区域。", Symbol.Video),
+                CreateCompactTutorialCard(startMatchVideoButton, "如何开始对局", "打开外置控件层、选择本局地图并开始对局。", Symbol.Video),
+                CreateCompactTutorialCard(inGameVideoButton, "游戏实机操作", "在游戏中打开地图、快捷扫描并选择对应地图。", Symbol.Video),
+                CreateCompactTutorialCard(endMatchVideoButton, "结束游戏", "通过外置控件层结束本局。", Symbol.Video),
                 new Border
                 {
                     Padding = new Thickness(24, 20, 24, 20),
@@ -145,17 +165,43 @@ public sealed class HelpPage : Page
         };
     }
 
-    private static Border CreateCompactTutorialCard(Button button)
+    private static Button CreateVideoButton(string fileName)
+    {
+        var button = new Button
+        {
+            Content = "观看视频",
+            MinWidth = 104,
+            MinHeight = 34,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        button.Click += async (_, _) =>
+        {
+            try
+            {
+                await Launcher.LaunchUriAsync(new Uri(OnboardingVideoBaseUri + fileName));
+            }
+            catch
+            {
+                // Keep the tutorial page available when the shell cannot open the video URL.
+            }
+        };
+        return button;
+    }
+
+    private static Border CreateCompactTutorialCard(Button button) =>
+        CreateCompactTutorialCard(button, "订阅地图", "从地图社区选择地图包，并在 IDVB 中添加订阅。", Symbol.Download);
+
+    private static Border CreateCompactTutorialCard(Button button, string title, string description, Symbol icon)
     {
         var text = new StackPanel
         {
             Spacing = 3,
             Children =
             {
-                new TextBlock { Text = "订阅地图", FontSize = 16, FontWeight = FontWeights.SemiBold },
+                new TextBlock { Text = title, FontSize = 16, FontWeight = FontWeights.SemiBold },
                 new TextBlock
                 {
-                    Text = "从地图社区选择地图包，并在 IDVB 中添加订阅。",
+                    Text = description,
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
                 }
@@ -186,7 +232,7 @@ public sealed class HelpPage : Page
                         Width = 36, Height = 36, CornerRadius = new CornerRadius(18),
                         VerticalAlignment = VerticalAlignment.Center,
                         Background = FluentTheme.Brush("AccentFillColorSecondaryBrush"),
-                        Child = new SymbolIcon { Symbol = Symbol.Download, Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush") }
+                        Child = new SymbolIcon { Symbol = icon, Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush") }
                     },
                     text,
                     button

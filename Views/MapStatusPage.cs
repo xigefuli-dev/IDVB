@@ -31,6 +31,7 @@ public sealed partial class MapStatusPage : UserControl
             AttachTagSelectionToggle();
             AttachDiagnosticModeToggle();
             AttachMapLearningPanel();
+            ApplySimplifiedOptions();
             _viewBuilt = true;
         }
         catch (Exception exception)
@@ -63,6 +64,75 @@ public sealed partial class MapStatusPage : UserControl
         content.Children.Insert(backgroundScanIndex >= 0 ? backgroundScanIndex + 1 : 0,
             _selectMapByTagsToggle);
         _selectMapByTagsToggle.Toggled += SelectMapByTags_Toggled;
+    }
+
+    private void ApplySimplifiedOptions()
+    {
+        if (_root is null
+            || _root.Children.Count < 2
+            || _root.Children[1] is not StackPanel content)
+            return;
+
+        foreach (var control in new UIElement[]
+        {
+            _firstScanStrategyToggle,
+            _backgroundScanToggle,
+            _silentScanToggle,
+            _presetSelector,
+            _allowAutomaticMapCacheToggle,
+            _surveyStatusCard
+        })
+        {
+            content.Children.Remove(control);
+        }
+
+        foreach (var button in content.Children
+                     .OfType<Button>()
+                     .Where(button => button.Content is "校准原生小地图区域" or "校准楼层显示区")
+                     .ToArray())
+        {
+            content.Children.Remove(button);
+        }
+
+        foreach (var actions in content.Children.OfType<StackPanel>().ToArray())
+        {
+            actions.Children.Remove(_scanButton);
+            actions.Children.Remove(_manualButton);
+        }
+
+        var displayPanel = content.Children
+            .OfType<Expander>()
+            .FirstOrDefault(expander => expander.Header is "显示与渲染")
+            ?.Content as StackPanel;
+        if (displayPanel is not null)
+        {
+            foreach (var control in new UIElement[]
+            {
+                _overlayStatusToggle,
+                _reverseAlternateDisplayToggle,
+                _allowExtendToggle,
+                _miniMapEnabledToggle,
+                _playerTrackingToggle,
+                _forceBestResultToggle,
+                _playerDecidesScaleToggle,
+                _alignmentMode
+            })
+            {
+                displayPanel.Children.Remove(control);
+            }
+        }
+
+        var recognitionHeaderIndex = content.Children
+            .IndexOf(content.Children.OfType<TextBlock>()
+                .FirstOrDefault(text => text.Text == "识别参数"));
+        while (recognitionHeaderIndex >= 0 && content.Children.Count > recognitionHeaderIndex)
+            content.Children.RemoveAt(recognitionHeaderIndex);
+
+        // Diagnostics are mounted as a separate grid row, not below the
+        // recognition header. Remove that row as well so none of the retired
+        // recognition/configuration detail leaks back onto the simplified page.
+        if (_root.Children.Count > 2)
+            _root.Children.RemoveAt(2);
     }
 
     private void MapStatusPage_Loaded(object sender, RoutedEventArgs e)

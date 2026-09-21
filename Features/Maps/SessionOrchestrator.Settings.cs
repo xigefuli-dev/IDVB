@@ -112,8 +112,8 @@ public sealed partial class SessionOrchestrator
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    public async Task SetOverlayStatusVisibleAsync(bool v) { _settings!.ShowOverlayStatus = v; await SaveSettingsAsync(); _overlay.SetStatusVisible(v); await SaveOverlayConfigToPresetAsync(); }
-    public async Task SetReverseAlternateDisplayAsync(bool v) { _settings!.ReverseAlternateDisplay = v; await SaveSettingsAsync(); _overlay.SetReverseAlternateDisplay(v); await SaveOverlayConfigToPresetAsync(); }
+    public async Task SetOverlayStatusVisibleAsync(bool v) { _settings!.ShowOverlayStatus = true; await SaveSettingsAsync(); _overlay.SetStatusVisible(true); await SaveOverlayConfigToPresetAsync(); }
+    public async Task SetReverseAlternateDisplayAsync(bool v) { _settings!.ReverseAlternateDisplay = false; await SaveSettingsAsync(); _overlay.SetReverseAlternateDisplay(false); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetMapOpacityAsync(double v) { _settings!.MapOpacity = v; await SaveSettingsAsync(); _overlay.SetMapOpacity(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetShowGateMarkersAsync(bool v) { _settings!.ShowGateMarkers = v; await SaveSettingsAsync(); _overlay.SetShowGateMarkers(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetShowAuxiliaryAnchorsAsync(bool v) { _settings!.ShowAuxiliaryAnchors = v; await SaveSettingsAsync(); _overlay.SetShowAuxiliaryAnchors(v); await SaveOverlayConfigToPresetAsync(); }
@@ -253,10 +253,11 @@ public sealed partial class SessionOrchestrator
 
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
-    public async Task SetAllowMapExtendBeyondBoundsAsync(bool v) { _settings!.AllowMapExtendBeyondBounds = v; await SaveSettingsAsync(); _overlay.SetAllowExtend(v); await SaveOverlayConfigToPresetAsync(); }
-    public async Task SetPersistentMiniMapEnabledAsync(bool v) { _settings!.PersistentMiniMapEnabled = v; await SaveSettingsAsync(); }
-    public async Task SetPlayerTrackingEnabledAsync(bool v) { _settings!.PlayerTrackingEnabled = v; await SaveSettingsAsync(); }
-    public async Task SetAllowAutomaticMapCacheAsync(bool v) { _settings!.AllowAutomaticMapCache = v; await SaveSettingsAsync(); }
+    public async Task SetAllowMapExtendBeyondBoundsAsync(bool v) { _settings!.AllowMapExtendBeyondBounds = true; await SaveSettingsAsync(); _overlay.SetAllowExtend(true); await SaveOverlayConfigToPresetAsync(); }
+    public async Task SetPersistentMiniMapEnabledAsync(bool v) { _settings!.PersistentMiniMapEnabled = true; await SaveSettingsAsync(); }
+    public async Task SetPlayerTrackingEnabledAsync(bool v) { _settings!.PlayerTrackingEnabled = false; await SaveSettingsAsync(); }
+    public async Task SetAllowAutomaticMapCacheAsync(bool v)
+    { _settings!.AllowAutomaticMapCache = false; await SaveSettingsAsync(); }
     public async Task SetSkipFloorRecognitionAsync(bool v) { _settings!.SkipFloorRecognition = v; await SaveSettingsAsync(); }
     public async Task SetSkipStabilityConfirmationAsync(bool v) { await SaveSettingsAsync(); }
     public async Task SetMediumConfidenceAsync(double v) { await SaveSettingsAsync(); }
@@ -420,7 +421,7 @@ public sealed partial class SessionOrchestrator
 
     // Tuning
     public async Task SetRecognitionTuningAsync(MapRecognitionTuning t)
-    { _settings!.RecognitionTuning = t; await SaveSettingsAsync(); }
+    { t.ForceBestRecognitionResult = false; t.PlayerDecidesScale = false; _settings!.RecognitionTuning = t; await SaveSettingsAsync(); }
     public async Task SetStructureRegistrationTuningAsync(MapStructureRegistrationTuning t)
     { _settings!.StructureRegistrationTuning = t; await SaveSettingsAsync(); }
     public async Task SetSessionTuningAsync(MapSessionTuning t)
@@ -442,19 +443,19 @@ public sealed partial class SessionOrchestrator
     { _settings!.PlayerTrackingTuning = new MapPlayerTrackingTuning(); await SaveSettingsAsync(); }
 
     public async Task SetOverlayAlignmentModeAsync(MapOverlayAlignmentMode m)
-    { _settings!.OverlayAlignmentMode = m; await SaveSettingsAsync(); }
+    { _settings!.OverlayAlignmentMode = MapOverlayAlignmentMode.Uniform; await SaveSettingsAsync(); }
     public async Task SetFirstScanStrategyAsync(FirstScanStrategy s)
-    { _settings!.FirstScanStrategy = s; await SaveSettingsAsync(); }
+    { _settings!.FirstScanStrategy = FirstScanStrategy.SideEntrance; await SaveSettingsAsync(); }
 
     /// <summary>
-    /// 后台扫描开关：开启后快捷扫描仅识别不对齐；关闭时防御性作废未消费的后台结果。
+    /// 后台扫描已从产品路径移除；保留此兼容入口只会确保它保持关闭。
     /// </summary>
     public async Task SetBackgroundScanEnabledAsync(bool enabled)
     {
-        _settings!.BackgroundScanEnabled = enabled;
+        _settings!.BackgroundScanEnabled = false;
+        _settings.SilentScanEnabled = false;
         await SaveSettingsAsync();
-        if (!enabled)
-            ClearPendingBackgroundScan();
+        ClearPendingBackgroundScan();
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -468,23 +469,20 @@ public sealed partial class SessionOrchestrator
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>会话级后台扫描开关（非持久化）：仅本次运行生效，不写回 settings。</summary>
+    /// <summary>后台扫描已移除；兼容调用不能在会话内重新启用它。</summary>
     public void SetBackgroundScanEnabledForSession(bool enabled)
     {
         if (_settings is null)
             return;
-        _settings.BackgroundScanEnabled = enabled;
-        if (!enabled)
-            ClearPendingBackgroundScan();
+        _settings.BackgroundScanEnabled = false;
+        ClearPendingBackgroundScan();
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>记录「使用配置文件」的用户选择（null/空 = 自动）并持久化。</summary>
+    /// <summary>配置文件选择已移除；运行时始终使用自动解析。</summary>
     public async Task SetSelectedResolutionPresetAsync(string? presetNameOrNull)
     {
-        var normalized = string.IsNullOrWhiteSpace(presetNameOrNull)
-            ? null
-            : presetNameOrNull.Trim();
+        string? normalized = null;
         if (_settings!.SelectedResolutionPreset == normalized)
             return;
         _settings.SelectedResolutionPreset = normalized;

@@ -376,19 +376,9 @@ public sealed partial class MapRepository
                 await ImportPrebuiltStructureLineAsync(stagingDirectory, floor, key, draft);
 
                 // 侧门特征预处理：若侧门锚点已标注，生成特征图
-                // IDVM 导入时优先复制包内预计算特征；普通编辑时重新生成
-                if (draft.SideEntranceFeaturePaths.TryGetValue(key, out var importedFeaturePath)
-                    && File.Exists(importedFeaturePath)
-                    && profile.SideEntranceFeatureRadius > 0)
-                {
-                    await CopySideEntranceFeatureAsync(
-                        importedFeaturePath, stagingDirectory, profile);
-                }
-                else
-                {
-                    await TryGenerateSideEntranceFeatureAsync(
-                        stagingDirectory, profile);
-                }
+                // Imported feature metadata does not include the current source
+                // hash or algorithm version. Generate against the staged prebuilt.
+                await TryGenerateSideEntranceFeatureAsync(stagingDirectory, profile);
 
                 var recognitionSourcePath = needsIndependentRecognition || !UsesWholeSourceImage(profile)
                     ? Path.Combine(stagingDirectory, recognitionFileName)

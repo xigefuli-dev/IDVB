@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 17;
+    public const int CurrentSchemaVersion = 18;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -17,6 +17,8 @@ public sealed partial class MapRuntimeSettings
     /// 扫描被标记为完成状态；玩家第一次打开游戏地图时才按顺序进入候选/缩放并尝试对齐。
     /// </summary>
     public bool BackgroundScanEnabled { get; set; }
+    /// <summary>开图时自动识别；仅接受确定的地图身份，不显示候选或扫描错误。</summary>
+    public bool SilentScanEnabled { get; set; }
     /// <summary>
     /// 通过标签选择地图：开启后快捷扫描不再触发原本的录制截图和批量比对，
     /// 而是直接给出当前地图类的全部结果，并在候选界面通过绑定的标签组进行手动筛选。
@@ -52,8 +54,8 @@ public sealed partial class MapRuntimeSettings
     /// 尚未手动切换时使用地图主层。
     /// </summary>
     public bool SkipFloorRecognition { get; set; }
-    public bool AllowMapExtendBeyondBounds { get; set; }
-    public bool PersistentMiniMapEnabled { get; set; }
+    public bool AllowMapExtendBeyondBounds { get; set; } = true;
+    public bool PersistentMiniMapEnabled { get; set; } = true;
     public double MiniMapScale { get; set; } = 0.25d;
     public bool PlayerTrackingEnabled { get; set; } = false;
     public bool AllowAutomaticMapCache { get; set; }
@@ -123,6 +125,7 @@ public sealed partial class MapRuntimeSettings
         IsEnabled = false,
         FirstScanStrategy = FirstScanStrategy.SideEntrance,
         BackgroundScanEnabled = false,
+        SilentScanEnabled = false,
         SelectMapByTagsEnabled = false,
         RequireStrictStructureRegistrationDuringScan = true,
         EnableContinuousAlignment = false,
@@ -134,8 +137,8 @@ public sealed partial class MapRuntimeSettings
         ContinuousMapLearningEnabled = false,
         AutomaticMapModelTrainingEnabled = false,
         SkipFloorRecognition = false,
-        AllowMapExtendBeyondBounds = false,
-        PersistentMiniMapEnabled = false,
+        AllowMapExtendBeyondBounds = true,
+        PersistentMiniMapEnabled = true,
         MiniMapScale = 0.25d,
         PlayerTrackingEnabled = false,
         AllowAutomaticMapCache = false,
@@ -301,6 +304,7 @@ public sealed partial class MapRuntimeSettings
         IsEnabled = IsEnabled,
         FirstScanStrategy = FirstScanStrategy,
         BackgroundScanEnabled = BackgroundScanEnabled,
+        SilentScanEnabled = SilentScanEnabled,
         SelectMapByTagsEnabled = SelectMapByTagsEnabled,
         RequireStrictStructureRegistrationDuringScan =
             RequireStrictStructureRegistrationDuringScan,

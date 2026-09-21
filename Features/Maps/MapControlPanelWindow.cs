@@ -322,7 +322,6 @@ public sealed partial class MapControlPanelWindow : IDisposable
         content.Children.Add(_stateText);
         _classComboBox.SelectionChanged += ClassComboBox_SelectionChanged;
         content.Children.Add(_classComboBox);
-        content.Children.Add(_surveyModeToggle);
         content.Children.Add(_variantHeading);
         _variantScroller.Content = _variantButtons;
         content.Children.Add(_variantScroller);

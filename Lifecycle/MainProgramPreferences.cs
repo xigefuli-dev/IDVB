@@ -32,7 +32,13 @@ public sealed class MainProgramPreferences
             try
             {
                 if (File.Exists(FilePath))
-                    return JsonSerializer.Deserialize<MainProgramPreferences>(File.ReadAllText(FilePath)) ?? new();
+                {
+                    var preferences = JsonSerializer.Deserialize<MainProgramPreferences>(File.ReadAllText(FilePath)) ?? new();
+                    // Survey is temporarily unavailable in the public surface.
+                    // Imported preference files cannot restore its entry point.
+                    preferences.AllowSurveyMode = false;
+                    return preferences;
+                }
             }
             catch (Exception exception)
             {

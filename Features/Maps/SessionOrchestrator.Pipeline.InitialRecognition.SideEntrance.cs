@@ -137,6 +137,29 @@ public sealed partial class SessionOrchestrator
                 sideAlignmentTuning,
                 sideTimings);
 
+            // The ordinary first-accepted shortcut cannot prove uniqueness.
+            // Silent scanning has no user confirmation, so incomplete coverage
+            // must never become a locked map identity.
+            if (_silentScanActive
+                && (_lastDiagnostics?.ScanVerifiedCandidateCount != candidates.Count
+                    || _lastDiagnostics.ScanEarlyExited
+                    || _lastDiagnostics.ScanVerificationTimedOut))
+            {
+                failureReason = "静默扫描未完整评估全部候选，结果已丢弃。";
+                _logCollector.Append(
+                    MapLogCategory.ScanLifecycle,
+                    MapLogLevel.Info,
+                    failureReason,
+                    details: new()
+                    {
+                        ["candidateCount"] = candidates.Count,
+                        ["verifiedCount"] = _lastDiagnostics?.ScanVerifiedCandidateCount,
+                        ["earlyExited"] = _lastDiagnostics?.ScanEarlyExited,
+                        ["timedOut"] = _lastDiagnostics?.ScanVerificationTimedOut
+                    });
+                return;
+            }
+
             if (sideSw.ElapsedMilliseconds > SideEntranceScanRules.MaximumScanDurationMs)
             {
                 failureReason =
@@ -174,9 +197,10 @@ public sealed partial class SessionOrchestrator
             // Ambiguity is a valid empty-recognition outcome. Never promote
             // the highest template maximum merely to fill the chooser.
             if (reliable.Count != 1
-                || _settings.RecognitionTuning.ForceCandidateSelection
-                || _settings.CandidateDecisionMode
-                    != MapCandidateDecisionMode.Traditional)
+                || (!_silentScanActive
+                    && (_settings.RecognitionTuning.ForceCandidateSelection
+                        || _settings.CandidateDecisionMode
+                            != MapCandidateDecisionMode.Traditional)))
             {
                 var candidateRouteReason = reliable.Count != 1
                     ? (reliable.Count == 0 ? "无可靠验证候选" : $"存在多个可靠验证候选 (count={reliable.Count})")

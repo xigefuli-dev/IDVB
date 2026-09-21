@@ -88,19 +88,6 @@ public sealed partial class MainSettingsPage : Page
 
         content.Children.Add(new TextBlock
         {
-            Text = "测绘",
-            FontSize = 18,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Margin = new Thickness(0, 12, 0, 4)
-        });
-        content.Children.Add(CreateToggleCard(
-            "允许进入测绘模式",
-            "启用后，对局控件才可以选择测绘模式；关闭时只能进入正常对局",
-            _preferences.AllowSurveyMode,
-            value => SavePreferenceAsync(() => _preferences.AllowSurveyMode = value)));
-
-        content.Children.Add(new TextBlock
-        {
             Text = "插件",
             FontSize = 18,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,

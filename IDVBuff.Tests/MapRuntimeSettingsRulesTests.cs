@@ -166,7 +166,7 @@ public sealed partial class MapRuntimeSettingsRulesTests
     }
 
     [Fact]
-    public void ForceBestRecognitionResultPersistsWithRuntimeSettings()
+    public void ForceBestRecognitionResultIsDisabledWhenRuntimeSettingsAreNormalized()
     {
         var settings = new MapRuntimeSettings
         {
@@ -180,7 +180,7 @@ public sealed partial class MapRuntimeSettingsRulesTests
         var restored = JsonSerializer.Deserialize<MapRuntimeSettings>(json)!;
         restored.Normalize();
 
-        Assert.True(
+        Assert.False(
             restored.RecognitionTuning.ForceBestRecognitionResult);
     }
 
@@ -210,7 +210,7 @@ public sealed partial class MapRuntimeSettingsRulesTests
     }
 
     [Fact]
-    public void VersionThreeSettingsKeepExistingRecognitionPreferences()
+    public void VersionThreeSettingsCannotRestoreRetiredRecognitionPreferences()
     {
         var settings = new MapRuntimeSettings
         {
@@ -226,7 +226,7 @@ public sealed partial class MapRuntimeSettingsRulesTests
         Assert.Equal(
             MapRuntimeSettings.CurrentSchemaVersion,
             settings.SchemaVersion);
-        Assert.True(settings.RecognitionTuning.ForceBestRecognitionResult);
+        Assert.False(settings.RecognitionTuning.ForceBestRecognitionResult);
         Assert.False(settings.ControlPanelToggleBinding.IsConfigured);
     }
 

@@ -64,11 +64,26 @@ public sealed partial class MapRuntimeSettingsRulesTests
     }
 
     [Fact]
-    public void BackgroundScanEnabledRoundTripsWithCurrentSchema()
+    public void ProductOwnedOptionsAreForcedToTheirSupportedValuesAfterDeserialization()
     {
         var settings = new MapRuntimeSettings
         {
-            BackgroundScanEnabled = true
+            FirstScanStrategy = FirstScanStrategy.DoubleGate,
+            BackgroundScanEnabled = true,
+            SilentScanEnabled = true,
+            AllowAutomaticMapCache = true,
+            SelectedResolutionPreset = "imported-profile",
+            ShowOverlayStatus = false,
+            ReverseAlternateDisplay = true,
+            AllowMapExtendBeyondBounds = false,
+            PersistentMiniMapEnabled = false,
+            PlayerTrackingEnabled = true,
+            OverlayAlignmentMode = MapOverlayAlignmentMode.IndependentAxes,
+            RecognitionTuning = new MapRecognitionTuning
+            {
+                ForceBestRecognitionResult = true,
+                PlayerDecidesScale = true
+            }
         };
 
         var json = JsonSerializer.Serialize(settings);
@@ -78,7 +93,58 @@ public sealed partial class MapRuntimeSettingsRulesTests
         Assert.Equal(
             MapRuntimeSettings.CurrentSchemaVersion,
             restored.SchemaVersion);
-        Assert.True(restored.BackgroundScanEnabled);
+        Assert.Equal(FirstScanStrategy.SideEntrance, restored.FirstScanStrategy);
+        Assert.False(restored.BackgroundScanEnabled);
+        Assert.False(restored.SilentScanEnabled);
+        Assert.False(restored.AllowAutomaticMapCache);
+        Assert.Null(restored.SelectedResolutionPreset);
+        Assert.True(restored.ShowOverlayStatus);
+        Assert.False(restored.ReverseAlternateDisplay);
+        Assert.True(restored.AllowMapExtendBeyondBounds);
+        Assert.True(restored.PersistentMiniMapEnabled);
+        Assert.False(restored.PlayerTrackingEnabled);
+        Assert.Equal(MapOverlayAlignmentMode.Uniform, restored.OverlayAlignmentMode);
+        Assert.False(restored.RecognitionTuning.ForceBestRecognitionResult);
+        Assert.False(restored.RecognitionTuning.PlayerDecidesScale);
+    }
+
+    [Fact]
+    public async Task ImportedCurrentSchemaSettingsCannotReenableProductOwnedOptions()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"IDVBuff.Settings.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var imported = new MapRuntimeSettings
+            {
+                FirstScanStrategy = FirstScanStrategy.DoubleGate,
+                BackgroundScanEnabled = true,
+                SilentScanEnabled = true,
+                AllowAutomaticMapCache = true,
+                SelectedResolutionPreset = "imported-profile"
+            };
+            var path = Path.Combine(root, "settings.json");
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(imported));
+
+            var restored = await new MapRuntimeSettingsRepository(root).LoadAsync();
+
+            Assert.Equal(FirstScanStrategy.SideEntrance, restored.FirstScanStrategy);
+            Assert.False(restored.BackgroundScanEnabled);
+            Assert.False(restored.SilentScanEnabled);
+            Assert.False(restored.AllowAutomaticMapCache);
+            Assert.Null(restored.SelectedResolutionPreset);
+            using var stored = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            Assert.False(stored.RootElement.GetProperty("BackgroundScanEnabled").GetBoolean());
+            Assert.False(stored.RootElement.GetProperty("SilentScanEnabled").GetBoolean());
+            Assert.False(stored.RootElement.GetProperty("AllowAutomaticMapCache").GetBoolean());
+            Assert.Equal(JsonValueKind.Null,
+                stored.RootElement.GetProperty("SelectedResolutionPreset").ValueKind);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

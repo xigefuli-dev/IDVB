@@ -36,6 +36,12 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "扫描后立即确认",
         OnContent = "仅识别，开图后确认"
     };
+    private readonly ToggleSwitch _silentScanToggle = new()
+    {
+        Header = "静默扫描",
+        OffContent = "关闭",
+        OnContent = "开图自动扫描，确定后直接对齐"
+    };
     private readonly ToggleSwitch _selectMapByTagsToggle = new()
     {
         Header = "强制只用标签筛选候选地图",

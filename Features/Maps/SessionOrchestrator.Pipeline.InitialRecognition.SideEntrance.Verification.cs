@@ -56,6 +56,9 @@ public sealed partial class SessionOrchestrator
             diagnostics.ScanCandidateCount = candidates.Count;
             diagnostics.ScanVerificationCandidateCount =
                 verificationCandidates.Count;
+            diagnostics.ScanVerifiedCandidateCount = verifiedCount;
+            diagnostics.ScanEarlyExited = scanEarlyExited;
+            diagnostics.ScanVerificationTimedOut = scanVerificationTimedOut;
             diagnostics.ScanCheapRejectCount = scanCheapRejectCount;
             diagnostics.ScanCheapRejectMilliseconds =
                 scanCheapRejectMilliseconds;
@@ -230,7 +233,7 @@ public sealed partial class SessionOrchestrator
 
             // 早停机制：在非 shadow 收集模式下，只要候选通过严格结构验证且定位有效，
             // 即代表当前地图结构完全吻合，无需强行跑满后续无意义候选。
-            if (!scanShadowCollectionEnabled && isReliable)
+            if (!scanShadowCollectionEnabled && !_silentScanActive && isReliable)
             {
                 scanEarlyExited = true;
                 scanEarlyExitReason = $"候选 #{candidateIndex} ({candidate.Map.DisplayName}) 已通过严格结构验证，提前终止后续候选验证";
@@ -338,6 +341,9 @@ public sealed partial class SessionOrchestrator
         target.ScanCandidateCount = source.ScanCandidateCount;
         target.ScanVerificationCandidateCount =
             source.ScanVerificationCandidateCount;
+        target.ScanVerifiedCandidateCount = source.ScanVerifiedCandidateCount;
+        target.ScanEarlyExited = source.ScanEarlyExited;
+        target.ScanVerificationTimedOut = source.ScanVerificationTimedOut;
         target.ScanCheapRejectCount = source.ScanCheapRejectCount;
         target.ScanCheapRejectMilliseconds =
             source.ScanCheapRejectMilliseconds;

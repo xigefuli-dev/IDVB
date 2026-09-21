@@ -74,6 +74,24 @@ public sealed partial class MapRepository
                     item.ImportedClassName, map.Class, StringComparison.OrdinalIgnoreCase)))
                 .Select(map => map.Id)
                 .ToHashSet();
+            // Validate before retiring a healthy installed version. SaveCore may
+            // succeed even when an imported derived asset could not be rebuilt.
+            var oldMaps = catalog.Maps.Where(map => oldMapIds.Contains(map.Id)).ToArray();
+            if (oldMaps.Any(HasCompletePrebuiltStructureLines))
+            {
+                foreach (var map in catalog.Maps.Where(map => newMapIds.Contains(map.Id)))
+                {
+                    if (!HasCompletePrebuiltStructureLines(map))
+                        throw new InvalidOperationException($"订阅地图 {map.DisplayName} 的预制结构图不完整。");
+                    foreach (var floor in MapFloorRules.GetOrderedFloors(map))
+                    {
+                        if (MapScanFloorRules.GetScanFeatureAnchor(map, floor.Key)
+                                is { IsMarked: true }
+                            && !TryGetValidSideEntranceFeaturePath(map, floor.Key, out _, out var reason))
+                            throw new InvalidOperationException($"订阅地图 {map.DisplayName} 的侧门特征无效：{reason}");
+                    }
+                }
+            }
             oldMapIds.ExceptWith(newMapIds);
             catalog.Maps.RemoveAll(map => oldMapIds.Contains(map.Id));
             catalog.VariantGroups.RemoveAll(group => group.MapIds.Any(oldMapIds.Contains));
@@ -110,7 +128,15 @@ public sealed partial class MapRepository
                     group.Class, importedCanonical, StringComparison.OrdinalIgnoreCase)))
                     group.Class = desiredClass;
                 if (catalog.ClassProperties.TryGetValue(importedCanonical, out var importedProperties))
-                    catalog.ClassProperties[desiredClass] = importedProperties;
+                {
+                    var merged = importedProperties.Clone();
+                    if (catalog.ClassProperties.TryGetValue(desiredClass, out var localProperties))
+                    {
+                        merged.ImageDownsampleFactor = localProperties.ImageDownsampleFactor;
+                        merged.BackgroundRemovalIntensity = localProperties.BackgroundRemovalIntensity;
+                    }
+                    catalog.ClassProperties[desiredClass] = merged;
+                }
                 catalog.ClassProperties.Remove(importedCanonical);
                 catalog.Classes.Remove(importedCanonical);
             }

@@ -139,6 +139,7 @@ public sealed partial class MapStatusPage : UserControl
         _firstScanStrategyToggle.IsOn =
             _runtime.Settings.FirstScanStrategy == FirstScanStrategy.SideEntrance;
         _backgroundScanToggle.IsOn = _runtime.Settings.BackgroundScanEnabled;
+        _silentScanToggle.IsOn = _runtime.Settings.SilentScanEnabled;
         _selectMapByTagsToggle.IsOn = _runtime.Settings.SelectMapByTagsEnabled;
         _candidateDecisionMode.SelectedItem = _candidateDecisionMode.Items
             .OfType<MapDecisionModeChoice>()
@@ -249,6 +250,7 @@ public sealed partial class MapStatusPage : UserControl
         _alignmentMode.IsEnabled = controlsEnabled;
         _firstScanStrategyToggle.IsEnabled = controlsEnabled;
         _backgroundScanToggle.IsEnabled = controlsEnabled;
+        _silentScanToggle.IsEnabled = controlsEnabled;
         _selectMapByTagsToggle.IsEnabled = controlsEnabled;
         _scanButton.IsEnabled =
             controlsEnabled && _runtime.MatchSnapshot.IsStarted;

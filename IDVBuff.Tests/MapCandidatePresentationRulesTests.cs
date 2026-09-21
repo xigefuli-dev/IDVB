@@ -5,6 +5,28 @@ namespace IDVBuff.Tests;
 public sealed class MapCandidatePresentationRulesTests
 {
     [Fact]
+    public void ScanReferencesKeepBestStructuralMatchBeforeTruncationAndCatalogAppend()
+    {
+        var winner = new SideEntranceScanCandidate
+        {
+            Map = CreateMap(14, "S1"), MatchScore = .94, GateSpatialResidualPixels = 4.24,
+            IdentityEvidence = new(ScanIdentityState.Excluded, 100, 100, 1, .94, 31, "visible-contour-conflict")
+        };
+        var weaker = Enumerable.Range(1, 8).Select(i => new SideEntranceScanCandidate
+        {
+            Map = CreateMap(i, "S1"), MatchScore = .60 - i * .01, GateSpatialResidualPixels = 0
+        }).ToArray();
+        var references = MapCandidatePresentationRules.SelectScanReferences([.. weaker, winner], 5);
+        Assert.Equal(5, references.Length);
+        Assert.Same(winner, references[0]);
+        Assert.Equal(ScanIdentityState.Excluded, winner.IdentityEvidence.State);
+        var displayed = MapCandidatePresentationRules.AppendCatalogMaps(
+            references.Select(c => CreateChoice(c.Map)).ToArray(),
+            weaker.Select(c => c.Map).Append(winner.Map), "S1", (_, _) => "preview.png");
+        Assert.Equal(winner.Map.Id, displayed[0].Recognition.Map.Id);
+    }
+
+    [Fact]
     public void CandidateOrderIsPreservedAndRemainingMapsFollowSequence()
     {
         var map1 = CreateMap(1, "S1");

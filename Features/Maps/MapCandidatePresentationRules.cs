@@ -12,6 +12,16 @@ internal static class MapCandidatePresentationRules
     internal const double SecondaryFloorMapPreviewZoom = 3.00d;
     internal const double PreviewSafeInset = 0.10d;
 
+    internal static SideEntranceScanCandidate[] SelectScanReferences(
+        IEnumerable<SideEntranceScanCandidate> candidates, int maximum) => candidates
+        .Where(candidate => candidate.Disposition != SideEntranceCandidateDisposition.Reliable)
+        // All seeds have already been anchored to a detected gate. Its small residual
+        // is a search constraint, not cross-map identity evidence. Rank before Take.
+        .OrderByDescending(candidate => double.IsFinite(candidate.MatchScore)
+            ? candidate.MatchScore : double.NegativeInfinity)
+        .Take(Math.Max(1, maximum))
+        .ToArray();
+
     internal sealed record MapPreviewPlan(
         MapNormalizedPoint Center,
         double Zoom,

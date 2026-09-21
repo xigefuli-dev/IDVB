@@ -34,17 +34,8 @@ public sealed partial class SessionOrchestrator
             });
         }
 
-        referenceCandidates = candidates
-            .Where(candidate => candidate.Disposition !=
-                SideEntranceCandidateDisposition.Reliable)
-            .OrderBy(candidate => candidate.RejectionReason ==
-                SideEntranceRejectionReason.StructureRejected ? 1 : 0)
-            .ThenBy(candidate => double.IsFinite(candidate.GateSpatialResidualPixels)
-                ? candidate.GateSpatialResidualPixels
-                : 999d)
-            .ThenByDescending(candidate => candidate.MatchScore)
-            .Take(SideEntranceScanRules.MaximumReferenceCandidates)
-            .ToArray();
+        referenceCandidates = MapCandidatePresentationRules.SelectScanReferences(
+            candidates, SideEntranceScanRules.MaximumReferenceCandidates);
         for (var index = 0; index < referenceCandidates.Length; index++)
         {
             var candidate = referenceCandidates[index];

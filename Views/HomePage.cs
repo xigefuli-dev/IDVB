@@ -25,6 +25,10 @@ public sealed class HomePage : Page
     private readonly SymbolIcon _launchGameIcon;
     private readonly TextBlock _launchGameLabel;
     private readonly DispatcherTimer _gameStatusTimer;
+    private readonly ScanModeSelector _scanModeSelector = new();
+    private readonly TextBlock _scanModeSaveError;
+    private bool _savingScanMode;
+    private ScanPerformanceMode? _requestedScanMode;
 
     public HomePage()
     {
@@ -33,6 +37,14 @@ public sealed class HomePage : Page
         _launchGameButton = CreateLaunchGameButton();
         _gameStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _gameStatusTimer.Tick += (_, _) => UpdateGameStatus();
+        _scanModeSaveError = new TextBlock
+        {
+            FontSize = 12,
+            Foreground = FluentTheme.Brush("SystemFillColorCriticalBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed
+        };
+        _scanModeSelector.ModeChanged += ScanModeSelector_ModeChanged;
         Content = CreateContent();
         Loaded += HomePage_Loaded;
         Unloaded += (_, _) =>
@@ -71,7 +83,22 @@ public sealed class HomePage : Page
             }
         });
 
-        root.Children.Add(_launchGameButton);
+        _launchGameButton.VerticalAlignment = VerticalAlignment.Center;
+        var quickControls = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            Children =
+            {
+                _launchGameButton,
+                new StackPanel
+                {
+                    Spacing = 6,
+                    Children = { _scanModeSelector, _scanModeSaveError }
+                }
+            }
+        };
+        root.Children.Add(quickControls);
 
         var cards = new StackPanel
         {
@@ -237,6 +264,12 @@ public sealed class HomePage : Page
     {
         UpdateGameStatus();
         _gameStatusTimer.Start();
+        if (!_savingScanMode)
+        {
+            _scanModeSelector.SetMode(
+                App.Session.Settings.ScanPerformanceMode,
+                App.Session.Settings.SelectMapByTagsEnabled);
+        }
         _mapCountValue.Text = "…";
         _successRateValue.Text = "…";
         _successRateDetail.Text = string.Empty;
@@ -301,4 +334,40 @@ public sealed class HomePage : Page
         FontSize = 12,
         Foreground = SecondaryTextBrush
     };
+
+    private async void ScanModeSelector_ModeChanged(ScanPerformanceMode mode)
+    {
+        _requestedScanMode = mode;
+        if (_savingScanMode)
+            return;
+
+        _savingScanMode = true;
+        _scanModeSaveError.Visibility = Visibility.Collapsed;
+        try
+        {
+            // Preserve the last click if the user changes modes while the
+            // preceding settings write is still in flight.
+            while (_requestedScanMode is { } requested)
+            {
+                _requestedScanMode = null;
+                try
+                {
+                    await App.Session.SetScanPerformanceModeAsync(requested);
+                }
+                catch (Exception exception)
+                {
+                    _scanModeSaveError.Text =
+                        $"扫描模式保存失败：{exception.Message}";
+                    _scanModeSaveError.Visibility = Visibility.Visible;
+                }
+            }
+        }
+        finally
+        {
+            _savingScanMode = false;
+            _scanModeSelector.SetMode(
+                App.Session.Settings.ScanPerformanceMode,
+                App.Session.Settings.SelectMapByTagsEnabled);
+        }
+    }
 }

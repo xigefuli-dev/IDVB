@@ -129,6 +129,13 @@ public sealed partial class SessionOrchestrator
                 requireStrictStructureRegistration, out _);
             if (selectedId is null)
             {
+                var diagnosticPath = MapDiagnosticModeCapture.WriteUnresolvedScan(
+                    frame, context?.Frame, candidates,
+                    context?.Policy.Mode ?? ScanPerformanceMode.Balanced);
+                if (diagnosticPath is not null)
+                    _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                        "未确定身份的扫描原始证据已保存",
+                        details: new() { ["path"] = diagnosticPath });
                 pendingChoices = choices;
                 pendingChoicesReason = "地图尚未确定：当前类别中仍有未排除的竞争结果，或可见结构证据不足。";
                 failureReason = pendingChoicesReason;

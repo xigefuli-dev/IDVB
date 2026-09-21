@@ -1,3 +1,4 @@
+using System.Numerics;
 using IDVBuff.Features.Maps;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
@@ -5,75 +6,166 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using Windows.UI.ViewManagement;
 
 namespace IDVBuff.Views;
 
-/// <summary>A native three-position slider owns input and accessibility; Composition only draws.</summary>
-public sealed class ScanModeSelector : UserControl
+/// <summary>
+/// Three independent scan-budget choices. The native slider owns input and accessibility;
+/// the surrounding layers provide the segmented visual treatment and mode-specific motion.
+/// </summary>
+public sealed partial class ScanModeSelector : UserControl
 {
-    private readonly Slider _input = new() { Minimum = 0, Maximum = 2, StepFrequency = 1,
-        TickFrequency = 1, Value = 1, Opacity = 0, IsThumbToolTipEnabled = false };
-    private readonly TextBlock _title = new() { FontSize = 18, HorizontalAlignment = HorizontalAlignment.Center };
-    private readonly TextBlock _hint = new() { FontSize = 12, Opacity = .75, TextWrapping = TextWrapping.Wrap };
-    private readonly Border _fill = new() { CornerRadius = new(18), HorizontalAlignment = HorizontalAlignment.Left };
-    private readonly Border _thumb = new() { Width = 34, Height = 34, CornerRadius = new(17),
-        Background = new SolidColorBrush(Microsoft.UI.Colors.White), HorizontalAlignment = HorizontalAlignment.Left,
-        BorderThickness = new(1), BorderBrush = new SolidColorBrush(Color.FromArgb(35, 80, 80, 80)) };
-    private readonly Border _glow = new() { Width = 65, CornerRadius = new(18), Opacity = .2,
-        Background = new SolidColorBrush(Microsoft.UI.Colors.White), HorizontalAlignment = HorizontalAlignment.Left };
-    private readonly TextBlock _stars = new() { Text = "·    ˙    ·     ✧     ·      ˙    ·", FontSize = 16,
-        Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), VerticalAlignment = VerticalAlignment.Center,
-        HorizontalAlignment = HorizontalAlignment.Center, IsHitTestVisible = false };
-    private readonly Grid _track = new() { Height = 36 };
+    private static readonly string[] ModeNames = ["极速", "均衡", "质量"];
+    private static readonly string[] ModeDescriptions =
+    [
+        "更快的响应速度",
+        "兼顾响应速度与扫描质量",
+        "更细致的扫描结果"
+    ];
+    private static readonly Color[] ModeColors =
+    [
+        Color.FromArgb(255, 50, 218, 137),
+        Color.FromArgb(255, 48, 151, 255),
+        Color.FromArgb(255, 182, 91, 242)
+    ];
+
+    private readonly Slider _input = new()
+    {
+        Minimum = 0,
+        Maximum = 2,
+        StepFrequency = 1,
+        TickFrequency = 1,
+        Value = 1,
+        Opacity = 0,
+        IsThumbToolTipEnabled = false,
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        VerticalAlignment = VerticalAlignment.Stretch
+    };
+    private readonly TextBlock _title = new()
+    {
+        Text = "扫描模式",
+        FontSize = 18,
+        HorizontalAlignment = HorizontalAlignment.Center
+    };
+    private readonly TextBlock _hint = new()
+    {
+        FontSize = 12,
+        Opacity = .75,
+        TextWrapping = TextWrapping.Wrap
+    };
+    private readonly Grid _track = new() { Height = 58 };
+    private readonly Border _trackSurface = new()
+    {
+        CornerRadius = new CornerRadius(29),
+        Background = new SolidColorBrush(Color.FromArgb(62, 128, 128, 128)),
+        BorderBrush = new SolidColorBrush(Color.FromArgb(42, 128, 128, 128)),
+        BorderThickness = new Thickness(1)
+    };
+    private readonly Border _glowOuter = CreateEffectPill(88, 44);
+    private readonly Border _glowInner = CreateEffectPill(72, 36);
+    private readonly Border _fastGlow = CreateEffectPill(46, 23);
+    private readonly Border _qualityHaloOuter = CreateEffectPill(62, 31);
+    private readonly Border _qualityHaloInner = CreateEffectPill(52, 26);
+    private readonly Border _selection = new()
+    {
+        Height = 46,
+        CornerRadius = new CornerRadius(23),
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Center,
+        BorderThickness = new Thickness(1),
+        IsHitTestVisible = false
+    };
+    private readonly Grid _speedField = new()
+    {
+        Height = 52,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Center,
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed
+    };
+    private readonly List<Border> _speedLines = [];
+    private readonly TextBlock[] _labels = new TextBlock[3];
     private readonly UISettings _ui = new();
-    private AppWindow? _window;
     private readonly List<(UIElement Element, long Token)> _ancestors = [];
+    private readonly Border _card;
+    private AppWindow? _window;
     private bool _updating;
     private bool _tagOnly;
+    private double _selectedPosition;
     private double _lastPosition;
+    private double _segmentWidth;
+
     public event Action<ScanPerformanceMode>? ModeChanged;
     public ScanPerformanceMode Mode => (ScanPerformanceMode)(int)Math.Round(_input.Value);
 
     public ScanModeSelector()
     {
-        Width = 340;
-        MaxWidth = 400;
+        // The card remains 380px wide. Extra transparent gutters belong to the
+        // control so Composition effects can breathe past the rounded card edge.
+        Width = 452;
+        MaxWidth = 452;
         HorizontalAlignment = HorizontalAlignment.Left;
-        var stack = new StackPanel { Spacing = 12 };
-        _track.Children.Add(new Border { CornerRadius = new(18),
-            Background = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128)) });
-        _track.Children.Add(_fill);
-        _track.Children.Add(_glow);
-        _track.Children.Add(_stars);
-        foreach (var alignment in new[] { HorizontalAlignment.Left, HorizontalAlignment.Center, HorizontalAlignment.Right })
-            _track.Children.Add(new Border { Width = 5, Height = 5, CornerRadius = new(3),
-                Margin = new(14, 0, 14, 0), HorizontalAlignment = alignment,
-                VerticalAlignment = VerticalAlignment.Center, Opacity = .4,
-                Background = new SolidColorBrush(Microsoft.UI.Colors.White), IsHitTestVisible = false });
-        _track.Children.Add(_thumb);
+
+        _track.Children.Add(_glowOuter);
+        _track.Children.Add(_glowInner);
+        _track.Children.Add(_fastGlow);
+        _track.Children.Add(_trackSurface);
+        _track.Children.Add(_qualityHaloOuter);
+        _track.Children.Add(_qualityHaloInner);
+        _track.Children.Add(_selection);
+
+        BuildSpeedLines();
+        _track.Children.Add(_speedField);
+        _track.Children.Add(BuildSegmentLabels());
         _track.Children.Add(_input);
-        stack.Children.Add(_title);
-        stack.Children.Add(_track);
-        stack.Children.Add(_hint);
-        var card = new Border { Padding = new(16), CornerRadius = new(28), Child = stack,
-            BorderThickness = new(1), BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)),
-            Background = new SolidColorBrush(Color.FromArgb(35, 128, 128, 128)) };
-        Content = card;
-        // Translation is a XAML-injected property, not an intrinsic Visual property.
-        // Register it before SizeChanged/Visibility can stop or start any animation,
-        // including the glow that starts out inactive in the default Balanced mode.
-        ElementCompositionPreview.SetIsTranslationEnabled(_thumb, true);
-        ElementCompositionPreview.SetIsTranslationEnabled(_glow, true);
+
+        var layout = new Grid
+        {
+            Width = 348,
+            Margin = new Thickness(0, 16, 0, 16),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(58) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(_title, 0);
+        Grid.SetRow(_track, 2);
+        Grid.SetRow(_hint, 4);
+        layout.Children.Add(_title);
+        layout.Children.Add(_track);
+        layout.Children.Add(_hint);
+
+        _card = new Border
+        {
+            Width = 380,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            CornerRadius = new CornerRadius(28),
+            BorderThickness = new Thickness(1),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(48, 128, 128, 128)),
+            Background = new SolidColorBrush(Color.FromArgb(35, 128, 128, 128))
+        };
+        var root = new Grid();
+        root.Children.Add(_card);
+        root.Children.Add(layout);
+        Content = root;
+
+        foreach (var element in EnumerateTranslatedElements())
+            ElementCompositionPreview.SetIsTranslationEnabled(element, true);
+
         _input.ValueChanged += (_, _) =>
         {
             UpdateAppearance(true);
-            if (!_updating) ModeChanged?.Invoke(Mode);
+            if (!_updating)
+                ModeChanged?.Invoke(Mode);
         };
-        _input.GotFocus += (_, _) => card.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
-        _input.LostFocus += (_, _) => card.BorderBrush = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128));
+        _track.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(TrackPointerPressed), true);
         _track.SizeChanged += (_, _) => UpdateAppearance(false);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
@@ -82,7 +174,11 @@ public sealed class ScanModeSelector : UserControl
 
     public void SetMode(ScanPerformanceMode mode, bool tagOnly)
     {
-        if (mode == Mode && tagOnly == _tagOnly) return;
+        if (!Enum.IsDefined(mode))
+            mode = ScanPerformanceMode.Balanced;
+        if (mode == Mode && tagOnly == _tagOnly)
+            return;
+
         _updating = true;
         _tagOnly = tagOnly;
         _input.Value = (int)mode;
@@ -90,112 +186,221 @@ public sealed class ScanModeSelector : UserControl
         UpdateAppearance(false);
     }
 
+    private static Border CreateEffectPill(double height, double radius) => new()
+    {
+        Height = height,
+        CornerRadius = new CornerRadius(radius),
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Center,
+        IsHitTestVisible = false
+    };
+
+    private void BuildSpeedLines()
+    {
+        var definitions = new (double Width, double Top)[]
+        {
+            (27, 12),
+            (17, 25),
+            (35, 38)
+        };
+        foreach (var (width, top) in definitions)
+        {
+            var line = new Border
+            {
+                Width = width,
+                Height = 2,
+                CornerRadius = new CornerRadius(1),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, top, 0, 0),
+                Background = new SolidColorBrush(Color.FromArgb(235, 219, 255, 237)),
+                IsHitTestVisible = false
+            };
+            ElementCompositionPreview.SetIsTranslationEnabled(line, true);
+            _speedLines.Add(line);
+            _speedField.Children.Add(line);
+        }
+    }
+
+    private Grid BuildSegmentLabels()
+    {
+        var labels = new Grid { IsHitTestVisible = false };
+        for (var index = 0; index < 3; index++)
+        {
+            labels.ColumnDefinitions.Add(new ColumnDefinition
+                { Width = new GridLength(1, GridUnitType.Star) });
+            var label = new TextBlock
+            {
+                Text = ModeNames[index],
+                FontSize = 15,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            _labels[index] = label;
+            Grid.SetColumn(label, index);
+            labels.Children.Add(label);
+
+            if (index == 0)
+                continue;
+            var divider = new Border
+            {
+                Width = 1,
+                Height = 22,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = new SolidColorBrush(Color.FromArgb(48, 128, 128, 128)),
+                IsHitTestVisible = false
+            };
+            Grid.SetColumn(divider, index);
+            labels.Children.Add(divider);
+        }
+        return labels;
+    }
+
+    private IEnumerable<UIElement> EnumerateTranslatedElements()
+    {
+        yield return _selection;
+        yield return _glowOuter;
+        yield return _glowInner;
+        yield return _fastGlow;
+        yield return _qualityHaloOuter;
+        yield return _qualityHaloInner;
+        yield return _speedField;
+    }
+
+    private void TrackPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (_track.ActualWidth <= 0)
+            return;
+        var x = args.GetCurrentPoint(_track).Position.X;
+        var index = Math.Clamp((int)(x / _track.ActualWidth * 3), 0, 2);
+        _input.Value = index;
+        _input.Focus(FocusState.Pointer);
+    }
+
     private void UpdateAppearance(bool animate)
     {
-        var index = (int)Mode;
-        string[] names = ["极速", "均衡", "质量"];
-        string[] descriptions = ["快速筛选", "充分比较", "精细复核"];
-        var budget = ScanExecutionPolicy.For(Mode).BudgetMilliseconds;
-        _title.Text = $"扫描模式 · {names[index]}";
-        _hint.Text = $"{descriptions[index]} · {budget} ms 内" + (_tagOnly ? " · 用于正常扫描" : "");
-        AutomationProperties.SetName(_input, $"扫描模式，{names[index]}，{descriptions[index]}，{budget} 毫秒内");
-        AutomationProperties.SetHelpText(_input, "使用方向键选择极速、均衡或质量。切换在下一次扫描生效。");
-        _fill.Background = index == 2
-            ? new LinearGradientBrush { StartPoint = new(0, .5), EndPoint = new(1, .5), GradientStops = {
-                new GradientStop { Color = Color.FromArgb(255, 101, 42, 166), Offset = 0 },
-                new GradientStop { Color = Color.FromArgb(255, 183, 105, 236), Offset = 1 } } }
-            : new SolidColorBrush(index == 1 ? Microsoft.UI.Colors.DodgerBlue : Color.FromArgb(110, 190, 190, 190));
-        var position = Math.Max(0, _track.ActualWidth - 34) * index / 2;
-        _fill.Width = position + 34;
-        var fillVisual = ElementCompositionPreview.GetElementVisual(_fill);
-        fillVisual.StopAnimation("Scale.X");
-        fillVisual.StopAnimation("Opacity");
-        fillVisual.Scale = System.Numerics.Vector3.One;
-        fillVisual.Opacity = 1;
-        var visual = ElementCompositionPreview.GetElementVisual(_thumb);
-        visual.StopAnimation("Translation.X");
-        visual.Properties.InsertVector3("Translation", new((float)position, 0, 0));
+        var index = Math.Clamp((int)Mode, 0, 2);
+        var color = ModeColors[index];
+        _hint.Text = ModeDescriptions[index];
+        AutomationProperties.SetName(_input,
+            $"扫描模式，{ModeNames[index]}，{ModeDescriptions[index]}");
+        AutomationProperties.SetHelpText(_input,
+            "这是三段式选择器。点击一档，或使用左右方向键选择极速、均衡或质量；切换在下一次扫描生效。");
+        AutomationProperties.SetItemStatus(_input, $"已选择{ModeNames[index]}");
+
+        for (var labelIndex = 0; labelIndex < _labels.Length; labelIndex++)
+        {
+            var selected = labelIndex == index;
+            _labels[labelIndex].Opacity = selected ? 1 : .58;
+            if (selected)
+                _labels[labelIndex].Foreground = new SolidColorBrush(Microsoft.UI.Colors.White);
+            else
+                _labels[labelIndex].ClearValue(TextBlock.ForegroundProperty);
+        }
+
+        _selection.Background = CreateSelectionBrush(index);
+        _selection.BorderBrush = new SolidColorBrush(WithAlpha(color, 205));
+        _glowOuter.Background = new SolidColorBrush(WithAlpha(color, 255));
+        _glowInner.Background = new SolidColorBrush(WithAlpha(color, 255));
+        _fastGlow.Background = new SolidColorBrush(WithAlpha(color, 255));
+        var haloBackground = new SolidColorBrush(WithAlpha(color, 40));
+        var haloBorder = new SolidColorBrush(WithAlpha(color, 130));
+        foreach (var halo in new[] { _qualityHaloOuter, _qualityHaloInner })
+        {
+            halo.Background = haloBackground;
+            halo.BorderBrush = haloBorder;
+            halo.BorderThickness = new Thickness(1);
+        }
+
+        _segmentWidth = _track.ActualWidth / 3;
+        if (_segmentWidth <= 0)
+        {
+            UpdateMotion();
+            return;
+        }
+
+        var selectionWidth = Math.Max(1, _segmentWidth - 8);
+        _selectedPosition = index * _segmentWidth + 4;
+        _selection.Width = selectionWidth;
+        _fastGlow.Width = selectionWidth;
+        _qualityHaloInner.Width = selectionWidth + 10;
+        _qualityHaloOuter.Width = selectionWidth + 26;
+        _glowInner.Width = selectionWidth + 44;
+        _glowOuter.Width = selectionWidth + 72;
+        _speedField.Width = _segmentWidth;
+        _speedField.Clip = new RectangleGeometry
+        {
+            Rect = new Windows.Foundation.Rect(0, 0, _segmentWidth, _speedField.Height)
+        };
+
+        SetCenterPoint(_selection);
+        SetCenterPoint(_fastGlow);
+        SetCenterPoint(_glowOuter);
+        SetCenterPoint(_glowInner);
+        SetCenterPoint(_qualityHaloOuter);
+        SetCenterPoint(_qualityHaloInner);
+
+        SetTranslation(_fastGlow, _selectedPosition);
+        SetTranslation(_glowOuter, _selectedPosition - 36);
+        SetTranslation(_glowInner, _selectedPosition - 22);
+        SetTranslation(_qualityHaloOuter, _selectedPosition - 13);
+        SetTranslation(_qualityHaloInner, _selectedPosition - 5);
+        SetTranslation(_speedField, index * _segmentWidth);
+
+        var selectionVisual = ElementCompositionPreview.GetElementVisual(_selection);
+        selectionVisual.StopAnimation("Translation.X");
+        selectionVisual.Properties.InsertVector3("Translation",
+            new Vector3((float)_selectedPosition, 0, 0));
         if (animate && CanAnimate())
         {
-            var slide = visual.Compositor.CreateScalarKeyFrameAnimation();
+            var slide = selectionVisual.Compositor.CreateScalarKeyFrameAnimation();
             slide.InsertKeyFrame(0, (float)_lastPosition);
-            slide.InsertKeyFrame(1, (float)position);
-            slide.Duration = TimeSpan.FromMilliseconds(index == 0 ? 120 : 240);
-            visual.StartAnimation("Translation.X", slide);
-            var fill = fillVisual.Compositor.CreateScalarKeyFrameAnimation();
-            fill.InsertKeyFrame(0, (float)((_lastPosition + 34) / (position + 34)));
-            fill.InsertKeyFrame(1, 1);
-            fill.Duration = slide.Duration;
-            fillVisual.StartAnimation("Scale.X", fill);
-            if (index == 0)
-            {
-                var flash = fillVisual.Compositor.CreateScalarKeyFrameAnimation();
-                flash.InsertKeyFrame(0, .65f); flash.InsertKeyFrame(.4f, 1); flash.InsertKeyFrame(1, .8f);
-                flash.Duration = TimeSpan.FromMilliseconds(180);
-                fillVisual.StartAnimation("Opacity", flash);
-            }
+            slide.InsertKeyFrame(1, (float)_selectedPosition);
+            slide.Duration = TimeSpan.FromMilliseconds(index == 0 ? 150 : 230);
+            selectionVisual.StartAnimation("Translation.X", slide);
         }
-        _lastPosition = position;
-        _stars.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        _lastPosition = _selectedPosition;
         UpdateMotion();
     }
 
-    private bool CanAnimate() => IsLoaded && Visibility == Visibility.Visible && _ui.AnimationsEnabled
-        && _ancestors.All(item => item.Element.Visibility == Visibility.Visible)
-        && _window is { IsVisible: true }
-        && _window.Presenter is not OverlappedPresenter { State: OverlappedPresenterState.Minimized };
-
-    private void UpdateMotion()
+    private static Brush CreateSelectionBrush(int index)
     {
-        var glow = ElementCompositionPreview.GetElementVisual(_glow);
-        var stars = ElementCompositionPreview.GetElementVisual(_stars);
-        glow.StopAnimation("Translation.X");
-        stars.StopAnimation("Opacity");
-        stars.Opacity = .75f;
-        _glow.Visibility = Visibility.Collapsed;
-        if (!CanAnimate())
+        var (start, end) = index switch
         {
-            ElementCompositionPreview.GetElementVisual(_thumb).StopAnimation("Translation.X");
-            ElementCompositionPreview.GetElementVisual(_fill).StopAnimation("Scale.X");
-            ElementCompositionPreview.GetElementVisual(_fill).StopAnimation("Opacity");
-        }
-        if (!CanAnimate() || Mode != ScanPerformanceMode.Quality) return;
-        _glow.Visibility = Visibility.Visible;
-        var motion = glow.Compositor.CreateScalarKeyFrameAnimation();
-        motion.InsertKeyFrame(0, 0);
-        motion.InsertKeyFrame(.5f, (float)Math.Max(0, _track.ActualWidth - 65));
-        motion.InsertKeyFrame(1, 0);
-        motion.Duration = TimeSpan.FromSeconds(7);
-        motion.IterationBehavior = AnimationIterationBehavior.Forever;
-        glow.StartAnimation("Translation.X", motion);
-        var shimmer = stars.Compositor.CreateScalarKeyFrameAnimation();
-        shimmer.InsertKeyFrame(0, .35f); shimmer.InsertKeyFrame(.5f, .8f); shimmer.InsertKeyFrame(1, .35f);
-        shimmer.Duration = TimeSpan.FromSeconds(4);
-        shimmer.IterationBehavior = AnimationIterationBehavior.Forever;
-        stars.StartAnimation("Opacity", shimmer);
+            0 => (Color.FromArgb(225, 24, 139, 84), Color.FromArgb(238, 39, 205, 124)),
+            2 => (Color.FromArgb(225, 115, 51, 190), Color.FromArgb(238, 190, 94, 237)),
+            _ => (Color.FromArgb(225, 25, 105, 211), Color.FromArgb(238, 52, 160, 247))
+        };
+        return new LinearGradientBrush
+        {
+            StartPoint = new Windows.Foundation.Point(0, .5),
+            EndPoint = new Windows.Foundation.Point(1, .5),
+            GradientStops =
+            {
+                new GradientStop { Color = start, Offset = 0 },
+                new GradientStop { Color = end, Offset = 1 }
+            }
+        };
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private static Color WithAlpha(Color color, byte alpha) =>
+        Color.FromArgb(alpha, color.R, color.G, color.B);
+
+    private static void SetCenterPoint(FrameworkElement element)
     {
-        for (var parent = VisualTreeHelper.GetParent(this); parent is not null; parent = VisualTreeHelper.GetParent(parent))
-            if (parent is UIElement element)
-                _ancestors.Add((element, element.RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => UpdateMotion())));
-        _window = ((App)Application.Current).MainWindow.AppWindow;
-        _window.Changed += WindowChanged;
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            _ui.AnimationsEnabledChanged += AnimationsChanged;
-        UpdateAppearance(false);
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        visual.CenterPoint = new Vector3((float)(element.Width / 2),
+            (float)(element.Height / 2), 0);
     }
-    private void OnUnloaded(object sender, RoutedEventArgs e)
+
+    private static void SetTranslation(UIElement element, double x)
     {
-        foreach (var (element, token) in _ancestors) element.UnregisterPropertyChangedCallback(VisibilityProperty, token);
-        _ancestors.Clear();
-        if (_window is not null) _window.Changed -= WindowChanged;
-        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-            _ui.AnimationsEnabledChanged -= AnimationsChanged;
-        _window = null;
-        UpdateMotion();
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        visual.StopAnimation("Translation.X");
+        visual.Properties.InsertVector3("Translation", new Vector3((float)x, 0, 0));
     }
-    private void WindowChanged(AppWindow sender, AppWindowChangedEventArgs args) => UpdateMotion();
-    private void AnimationsChanged(UISettings sender, object args) => DispatcherQueue.TryEnqueue(UpdateMotion);
+
 }

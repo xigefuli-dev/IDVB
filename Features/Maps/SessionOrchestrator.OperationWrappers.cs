@@ -166,6 +166,7 @@ public sealed partial class SessionOrchestrator
                 return;
             }
             scanExecution.CatalogRevision = _recognition.CatalogRevision;
+            scanExecution.VariantGroups = _recognition.ScanVariantGroups;
 
             var trace = BeginMapOperationTrace(
                 (_settings!.BackgroundScanEnabled || _silentScanActive)
@@ -179,10 +180,6 @@ public sealed partial class SessionOrchestrator
             {
                 using (trace.StartTopLevel("route_prepare"))
                     UnlockMapForRescan();
-                if (scanExecution.Policy.Mode == ScanPerformanceMode.Quality)
-                {
-                    scanExecution.VariantGroups = _recognition.ScanVariantGroups;
-                }
                 await RunRecognitionPipelineCoreAsync(
                     operationMatch,
                     cancellationToken);

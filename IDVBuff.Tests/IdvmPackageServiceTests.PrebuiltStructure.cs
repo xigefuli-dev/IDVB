@@ -8,6 +8,35 @@ namespace IDVBuff.Tests;
 public sealed partial class IdvmPackageServiceTests
 {
     [Fact]
+    public async Task OutdatedPrebuiltAssetIsRegeneratedBeforeCacheLoad()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var repositoryRoot = Path.Combine(root, "maps");
+            var repository = new MapRepository(repositoryRoot);
+            var draft = CreateDraft(root, "migration.png", "S1", "Migration");
+            await repository.SaveAsync(draft);
+            var algorithm = Path.Combine(root, "migration.idva");
+            await File.WriteAllTextAsync(algorithm, NormalIdva);
+            await repository.GeneratePrebuiltStructureLinesAsync("S1", algorithm);
+            var before = Assert.Single((await repository.GetCatalogSnapshotAsync()).Maps);
+            var expectedHash = before.Floors[0].PrebuiltStructureLine!.Sha256;
+            var catalogPath = Path.Combine(repositoryRoot, "maps.json");
+            var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(catalogPath))!;
+            node["Maps"]![0]!["Floors"]![0]!["PrebuiltStructureLine"]!["EngineRevision"] = 0;
+            await File.WriteAllTextAsync(catalogPath, node.ToJsonString());
+            using var service = new MapCvRecognitionService(repository);
+            await service.RefreshCacheAsync();
+            var migrated = Assert.Single((await repository.GetCatalogSnapshotAsync()).Maps).Floors[0].PrebuiltStructureLine!;
+            Assert.True(migrated.IsCurrent);
+            Assert.Equal(expectedHash, migrated.Sha256);
+            Assert.True(migrated.Clone().IsCurrent);
+        }
+        finally { DeleteRoot(root); }
+    }
+
+    [Fact]
     public async Task PrebuiltStructureLinesUseCroppedImageAndRoundTripThroughIdvm()
     {
         var root = CreateRoot();

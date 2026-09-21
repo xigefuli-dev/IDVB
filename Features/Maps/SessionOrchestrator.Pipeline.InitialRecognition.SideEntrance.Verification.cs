@@ -26,7 +26,7 @@ public sealed partial class SessionOrchestrator
             foreach (var variant in candidates.Where(c => group.Contains(c.Map.Id)))
             {
                 var refined = SideEntranceScanPipeline.RefineVariant(variant, evidenceFrame, frame.ViewportBounds, context);
-                if (refined.Count == variant.SearchHypotheses.Count && refined.Count > 0)
+                if (refined.Count >= variant.SearchHypotheses.Count && refined.Count > 0)
                     variant.SearchHypotheses = refined;
             }
         }
@@ -49,7 +49,8 @@ public sealed partial class SessionOrchestrator
                     || !_recognition.TryCreateSideEntranceAlignmentSeed(hypothesis, frame.ViewportBounds, out var seed, out _))
                 { complete = false; continue; }
                 var evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, seed.LockedTransform, frame.ViewportBounds, context);
-                candidate.IdentityEvidence = evidence;
+                hypothesis.IdentityEvidence = evidence;
+                if (ReferenceEquals(hypothesis, hypotheses[0])) candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
                 if (evidence.State != ScanIdentityState.Supported) continue;
                 LogScanVerificationCandidateSelected(hypothesis, completed);
@@ -63,15 +64,19 @@ public sealed partial class SessionOrchestrator
                 formal++;
                 if (attempt.Recognition?.Result.OverlayTransform is not { } finalTransform || !attempt.StructureAccepted)
                 {
-                    candidate.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
+                    hypothesis.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
                     complete = false;
                     continue;
                 }
                 // Re-evaluate the transform that will actually be consumed, including rescue/precision changes.
                 evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, finalTransform, frame.ViewportBounds, context);
-                candidate.IdentityEvidence = evidence;
+                hypothesis.VerifiedTransform = finalTransform;
+                hypothesis.IdentityEvidence = evidence;
+                if (ReferenceEquals(hypothesis, hypotheses[0])) candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
-                if (evidence.State != ScanIdentityState.Supported) continue;
+                // Rejection of the moved transform does not disprove the original
+                // supported identity; registration has not confirmed a usable pose.
+                if (evidence.State != ScanIdentityState.Supported) { complete = false; continue; }
                 if (bestEvidence is null || evidence.ForwardMeanPixels < bestEvidence.ForwardMeanPixels)
                 {
                     bestEvidence = evidence;
@@ -79,12 +84,20 @@ public sealed partial class SessionOrchestrator
                     bestAttempt = attempt;
                 }
                 supported = true;
-                if (context.Policy.Mode != ScanPerformanceMode.Quality) break;
+                // One confirmed pose establishes this identity's supported fit.
+                // Spend the remaining shared budget on competing identities, not
+                // repeated registrations of this already usable map.
+                break;
             }
-            if (supported && complete && bestEvidence is not null)
+            // Alternative poses belong to the same identity. A failed alternative
+            // cannot revoke a pose that passed both formal registration and final
+            // evidence verification. Other identities and the shared deadline are
+            // still checked independently by SelectIdentity and the commit guard.
+            if (supported && bestEvidence is not null)
             {
                 SideEntranceCandidateEvidence.ApplyStructureAttempt(candidate, bestAttempt!);
                 candidate.IdentityEvidence = bestEvidence;
+                candidate.VerifiedTransform = bestAttempt!.Recognition!.Result.OverlayTransform;
                 candidate.RawChamferPixels = bestEvidence.ForwardMeanPixels;
                 candidate.IdentityConfidence = bestEvidence.SupportedFraction;
                 candidate.Disposition = SideEntranceCandidateDisposition.Reliable;

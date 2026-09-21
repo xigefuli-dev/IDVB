@@ -12,6 +12,8 @@ public sealed class PrebuiltStructureLineAsset
     public string AlgorithmFileName { get; set; } = string.Empty;
     public string AlgorithmSha256 { get; set; } = string.Empty;
     public string AlgorithmSchemaVersion { get; set; } = string.Empty;
+    public int EngineRevision { get; set; }
+    public bool IsCurrent => EngineRevision == IdvaStructureLineEngine.CurrentRevision;
 
     public bool IsComplete => !string.IsNullOrWhiteSpace(FileName)
         && Sha256.Length == 64
@@ -35,6 +37,7 @@ public sealed class PrebuiltStructureLineAsset
         AlgorithmId = AlgorithmId,
         AlgorithmFileName = AlgorithmFileName,
         AlgorithmSha256 = AlgorithmSha256,
-        AlgorithmSchemaVersion = AlgorithmSchemaVersion
+        AlgorithmSchemaVersion = AlgorithmSchemaVersion,
+        EngineRevision = EngineRevision
     };
 }

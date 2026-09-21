@@ -4,4 +4,4 @@ clamp_feature_to_bounds = true
 feature_region_ratio = 0.40
 scan_parallelism = 4
 minimum_scale = 0.45
-maximum_scale = 2.2
+maximum_scale = 5.0

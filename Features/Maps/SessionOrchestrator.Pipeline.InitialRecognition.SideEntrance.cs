@@ -124,7 +124,7 @@ public sealed partial class SessionOrchestrator
             var context = ScanExecutionContext.Current;
             var selectedId = ScanIdentityVerifier.SelectIdentity(candidates,
                 context?.RetrievalCompleted == true && candidates.Count == sideScan.EligibleMapCount,
-                context?.CanCompute == true);
+                context?.CanCompute == true, context?.VariantGroups);
             var choices = BuildScanVerificationChoices(reliable, candidates, frame,
                 requireStrictStructureRegistration, out _);
             if (selectedId is null)

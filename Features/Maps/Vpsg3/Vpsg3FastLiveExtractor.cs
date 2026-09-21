@@ -59,6 +59,11 @@ public static class Vpsg3FastLiveExtractor
 
         // 5. Semantic candidate edge extraction via contour approximation
         ExtractSemanticCandidateEdges(s);
+        // Clearing HUD pixels before contour extraction creates artificial boundaries.
+        // Keep those boundaries out of both edge streams, including their drawn rim,
+        // before photometric support can promote them back to valid observations.
+        Cv2.Dilate(s.Exclusion, s.DilatedExclusion, s.K5);
+        s.CandidateEdges.SetTo(Scalar.Black, s.DilatedExclusion);
 
         // 6. Strong edge support via Canny on grayscale + dilation
         ComputeStrongSourceEdgeSupport(bgr, s);
@@ -76,9 +81,6 @@ public static class Vpsg3FastLiveExtractor
 
         // In-place dilation on uncertain frontier
         Cv2.Dilate(s.UncertainFrontier, s.UncertainFrontier, s.K11);
-
-        // Exclusion dilation
-        Cv2.Dilate(s.Exclusion, s.DilatedExclusion, s.K5);
 
         // Combined invalid mask
         Cv2.BitwiseOr(s.UncertainFrontier, s.DilatedExclusion, s.Invalid);

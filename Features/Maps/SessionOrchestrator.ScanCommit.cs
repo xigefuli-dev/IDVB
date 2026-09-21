@@ -66,7 +66,8 @@ public sealed partial class SessionOrchestrator
             && c.FloorKey == recognition.Result.Floor);
         if (candidate?.StructureIndex is not { } index
             || ScanIdentityVerifier.SelectIdentity(scan!.Candidates, execution.RetrievalCompleted
-                && scan.Candidates.Count == scan.EligibleMapCount, execution.CanCompute) != recognition.Map.Id)
+                && scan.Candidates.Count == scan.EligibleMapCount, execution.CanCompute,
+                execution.VariantGroups) != recognition.Map.Id)
             return false;
         var final = ScanIdentityVerifier.Verify(observation, index, transform, frame.ViewportBounds, execution);
         if (final.State != ScanIdentityState.Supported || !execution.CanCompute

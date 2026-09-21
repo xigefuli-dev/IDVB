@@ -205,10 +205,13 @@ public sealed partial class SessionOrchestrator
         if (resetAutomaticCacheSamples)
             ResetAutomaticMapCacheSamples();
 
+        // This reset runs both when a match starts and when it ends. Keep the
+        // lifecycle probe observational: a blocking compacting Gen2 collection
+        // plus EmptyWorkingSet here made "Start match" page out the whole
+        // process and disguised resident startup caches as released memory.
         RealtimePerformanceTracker.AuditLifecycle(
             "ResetMatchTransientState",
-            detail: $"resetAutoSamples={resetAutomaticCacheSamples}",
-            triggerGcAudit: true);
+            detail: $"resetAutoSamples={resetAutomaticCacheSamples}");
     }
 
     // ════════════════ ISessionOrchestrator ════════════════

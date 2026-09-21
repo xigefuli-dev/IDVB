@@ -28,7 +28,7 @@ public sealed class SideEntranceScanConfig
     /// <summary>允许的最小缩放（识别图 → 实时帧）。</summary>
     public double MinimumScale { get; set; } = 0.55d;
     /// <summary>允许的最大缩放（识别图 → 实时帧）。</summary>
-    public double MaximumScale { get; set; } = 2.2d;
+    public double MaximumScale { get; set; } = 5d;
 }
 
 /// <summary>
@@ -57,7 +57,7 @@ internal static class SideEntranceScanRules
     public static double MinimumScale => double.IsFinite(_config.MinimumScale)
         ? Math.Clamp(_config.MinimumScale, .1, 4) : .55;
     public static double MaximumScale => double.IsFinite(_config.MaximumScale)
-        ? Math.Clamp(_config.MaximumScale, MinimumScale, 5) : Math.Max(MinimumScale, 2.2);
+        ? Math.Clamp(_config.MaximumScale, MinimumScale, 5) : 5;
 
     /// <summary>Apply a pre-populated <see cref="SideEntranceScanConfig"/> instance.</summary>
     internal static void ApplyConfig(SideEntranceScanConfig config)

@@ -44,8 +44,8 @@ public sealed record ScanExecutionPolicy(
     public double MaximumScale { get; init; } = SideEntranceScanRules.MaximumScale;
     public static ScanExecutionPolicy For(ScanPerformanceMode mode) => mode switch
     {
-        ScanPerformanceMode.Fast => new(mode, 500, 128, .08, .02, 1, 3),
-        ScanPerformanceMode.Quality => new(mode, 2000, 512, .02, .005, 3, 1),
+        ScanPerformanceMode.Fast => new(mode, 500, 256, .08, .02, 1, 3),
+        ScanPerformanceMode.Quality => new(mode, 1000, 256, .02, .005, 3, 1),
         _ => new(ScanPerformanceMode.Balanced, 1000, 256, .04, .01, 2, 3)
     };
 }
@@ -132,6 +132,7 @@ internal sealed class ScanFrameEvidence : IDisposable
     {
         Source = frame;
         Observation = Vpsg3FastLiveExtractor.Extract(frame, viewport, policy.SparsePoints);
+        MaskColoredAnnotations(frame, Observation);
         // Remove icons in evidence space, not by painting artificial edges into the source frame.
         var bounds = new Rect(0, 0, frame.Width, frame.Height);
         foreach (var gate in gates)
@@ -182,6 +183,40 @@ internal sealed class ScanFrameEvidence : IDisposable
             for (var i = 0; i < count; i++) result.Add(cell[i * cell.Count / count]);
         }
         return result.ToArray();
+    }
+
+    private static void MaskColoredAnnotations(Mat source, Vpsg3LiveObservation observation)
+    {
+        if (source.Channels() is not (3 or 4)) return;
+        using var bgr = new Mat();
+        if (source.Channels() == 4) Cv2.CvtColor(source, bgr, ColorConversionCodes.BGRA2BGR);
+        else source.CopyTo(bgr);
+        using var hsv = new Mat();
+        using var markers = new Mat();
+        Cv2.CvtColor(bgr, hsv, ColorConversionCodes.BGR2HSV);
+        // Saturated yellow/green player markers lie outside both floor color classes.
+        // Remove only compact annotations, in evidence space, on the same frame for
+        // every candidate. Their white rims must not become negative wall evidence.
+        Cv2.InRange(hsv, new Scalar(10, 170, 170), new Scalar(90, 255, 255), markers);
+        using var labels = new Mat();
+        using var stats = new Mat();
+        using var centroids = new Mat();
+        var count = Cv2.ConnectedComponentsWithStats(markers, labels, stats, centroids);
+        var bounds = new Rect(0, 0, source.Width, source.Height);
+        for (var i = 1; i < count; i++)
+        {
+            var area = stats.At<int>(i, (int)ConnectedComponentsTypes.Area);
+            var width = stats.At<int>(i, (int)ConnectedComponentsTypes.Width);
+            var height = stats.At<int>(i, (int)ConnectedComponentsTypes.Height);
+            if (area < 6 || width > 64 || height > 64) continue;
+            var padding = Math.Max(8, (int)Math.Ceiling(Math.Max(width, height) * .75));
+            var rect = new Rect(stats.At<int>(i, (int)ConnectedComponentsTypes.Left) - padding,
+                stats.At<int>(i, (int)ConnectedComponentsTypes.Top) - padding,
+                width + 2 * padding, height + 2 * padding).Intersect(bounds);
+            Cv2.Rectangle(observation.ObservedEdges, rect, Scalar.Black, -1);
+            Cv2.Rectangle(observation.ProposalEdges, rect, Scalar.Black, -1);
+            Cv2.Rectangle(observation.ValidMask, rect, Scalar.Black, -1);
+        }
     }
     public void Dispose() => Observation.Dispose();
 }

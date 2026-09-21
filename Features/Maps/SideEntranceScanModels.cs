@@ -33,7 +33,14 @@ public sealed class SideEntranceScanCandidate
     public double? ReferenceCenterY { get; init; }
     internal ScanStructureIndex? StructureIndex { get; init; }
     internal IReadOnlyList<SideEntranceScanCandidate> SearchHypotheses { get; set; } = [];
+    internal SideEntranceScanCandidate WithHypotheses(IReadOnlyList<SideEntranceScanCandidate> hypotheses)
+    {
+        var aggregate = (SideEntranceScanCandidate)MemberwiseClone();
+        aggregate.SearchHypotheses = hypotheses;
+        return aggregate;
+    }
     public ScanIdentityEvidence IdentityEvidence { get; set; } = ScanIdentityEvidence.Unverified("not-verified");
+    public MapOverlayTransform? VerifiedTransform { get; set; }
     public MapRecord Map { get; init; } = new();
     public string FloorKey { get; init; } = string.Empty;
     public double MatchScore { get; init; }

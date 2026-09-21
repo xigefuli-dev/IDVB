@@ -50,6 +50,7 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+        InitializeScanModeVisuals();
         DisplaySkeletonPreviewHost.Children.Add(_displaySkeletonPreview);
         PrepareDisplayPreviewMotion();
         FluentTheme.RegisterThemeRoot(this);

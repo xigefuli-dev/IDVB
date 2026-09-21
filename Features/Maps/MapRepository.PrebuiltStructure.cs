@@ -21,7 +21,7 @@ public sealed record PrebuiltStructureBatchResult(
 public sealed partial class MapRepository
 {
     public async Task HealMissingPrebuiltStructureLinesAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool onlyOutdated = false)
     {
         var snapshot = await GetCatalogSnapshotAsync();
         foreach (var mapClass in snapshot.Classes)
@@ -29,7 +29,11 @@ public sealed partial class MapRepository
             cancellationToken.ThrowIfCancellationRequested();
             var maps = snapshot.Maps.Where(map => string.Equals(
                 map.Class, mapClass, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (maps.Length == 0 || maps.All(HasCompletePrebuiltStructureLines))
+            if (onlyOutdated && !maps.SelectMany(MapFloorRules.GetOrderedFloors)
+                .Any(floor => floor.PrebuiltStructureLine is { IsComplete: true, IsCurrent: false }))
+                continue;
+            if (maps.Length == 0 || maps.All(map => HasCompletePrebuiltStructureLines(map)
+                && MapFloorRules.GetOrderedFloors(map).All(floor => floor.PrebuiltStructureLine!.IsCurrent)))
                 continue;
 
             string? algorithmPath = null;
@@ -253,7 +257,8 @@ public sealed partial class MapRepository
                     AlgorithmId = algorithm.AlgorithmId,
                     AlgorithmFileName = algorithmFileName,
                     AlgorithmSha256 = algorithm.Sha256,
-                    AlgorithmSchemaVersion = algorithm.SchemaVersion
+                    AlgorithmSchemaVersion = algorithm.SchemaVersion,
+                    EngineRevision = IdvaStructureLineEngine.CurrentRevision
                 };
                 var profile = MapFloorRules.GetFloorProfile(map, floor.Key);
                 if (profile is not null)
@@ -314,7 +319,7 @@ public sealed partial class MapRepository
         var sourceMatches = string.Equals(floor.RecognitionSha256, asset.SourceSha256,
             StringComparison.OrdinalIgnoreCase);
         var outputSource = lineSource;
-        if (!sourceMatches)
+        if (!sourceMatches || !asset.IsCurrent)
         {
             // Recognition PNG bytes can change during import. Rebuild from the
             // current recognition image so the line and source hash stay bound.
@@ -330,6 +335,7 @@ public sealed partial class MapRepository
             }
             asset.SourceSha256 = floor.RecognitionSha256;
             asset.Sha256 = await ComputeFileSha256Async(outputSource, CancellationToken.None);
+            asset.EngineRevision = IdvaStructureLineEngine.CurrentRevision;
         }
         const string algorithmFileName = "prebuilt-structure.idva";
         var lineFileName = $"prebuilt-{floorKey}.png";

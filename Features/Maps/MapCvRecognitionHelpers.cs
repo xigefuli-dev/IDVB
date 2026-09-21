@@ -323,8 +323,10 @@ internal static class MapCvRecognitionHelpers
     }
 
     /// <summary>
-    /// Builds the side-entrance feature cache: loads valid feature images for
-    /// every registered map floor as grayscale <see cref="Mat"/> objects.
+    /// Builds the side-entrance feature cache: loads the valid entry/scan-floor
+    /// feature image for every registered map as a grayscale <see cref="Mat"/>.
+    /// Other floors can participate in post-lock alignment, but never in the
+    /// initial identity scan and therefore must not retain a full distance index.
     /// </summary>
     internal static Dictionary<(Guid, string), Mat> BuildSideEntranceFeatureCache(
         MapRepository repository,
@@ -333,8 +335,15 @@ internal static class MapCvRecognitionHelpers
         var cache = new Dictionary<(Guid, string), Mat>();
         foreach (var map in maps)
         {
+            var scanFloorKey = MapScanFloorRules.ResolveScanFloorKey(map);
             foreach (var floorDef in MapFloorRules.GetOrderedFloors(map))
             {
+                if (!string.Equals(
+                        MapScanFloorRules.NormalizeFloorIdentity(floorDef.Key),
+                        MapScanFloorRules.NormalizeFloorIdentity(scanFloorKey),
+                        StringComparison.Ordinal))
+                    continue;
+
                 var profile = MapFloorRules.GetFloorProfile(map, floorDef.Key);
                 if (profile is null
                     || !repository.TryGetValidSideEntranceFeaturePath(

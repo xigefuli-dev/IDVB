@@ -6,6 +6,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace IDVBuff.Views;
 
@@ -26,9 +27,13 @@ public sealed class HomePage : Page
     private readonly TextBlock _launchGameLabel;
     private readonly DispatcherTimer _gameStatusTimer;
     private readonly ScanModeSelector _scanModeSelector = new();
+    private readonly ScanModeBloom _scanModeBloom = new();
     private readonly TextBlock _scanModeSaveError;
     private bool _savingScanMode;
     private ScanPerformanceMode? _requestedScanMode;
+
+    public event Action<Color, bool>? ScanModeVisualChanged;
+    public Color CurrentScanModeAccent => _scanModeSelector.AccentColor;
 
     public HomePage()
     {
@@ -45,6 +50,7 @@ public sealed class HomePage : Page
             Visibility = Visibility.Collapsed
         };
         _scanModeSelector.ModeChanged += ScanModeSelector_ModeChanged;
+        _scanModeBloom.AccentColor = _scanModeSelector.AccentColor;
         Content = CreateContent();
         Loaded += HomePage_Loaded;
         Unloaded += (_, _) =>
@@ -55,14 +61,28 @@ public sealed class HomePage : Page
 
     private FrameworkElement CreateContent()
     {
-        var root = new StackPanel
+        var page = new Grid
         {
             Margin = new Thickness(40, 36, 40, 64),
-            Spacing = 32,
-            MaxWidth = 1040,
-            HorizontalAlignment = HorizontalAlignment.Left
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        root.Children.Add(new StackPanel
+
+        _scanModeBloom.Margin = new Thickness(0, -36, -40, 0);
+        _scanModeBloom.HorizontalAlignment = HorizontalAlignment.Right;
+        _scanModeBloom.VerticalAlignment = VerticalAlignment.Top;
+        Canvas.SetZIndex(_scanModeBloom, -1);
+        page.Children.Add(_scanModeBloom);
+
+        var root = new StackPanel { Spacing = 32 };
+        var topBand = new Grid { Height = 270 };
+        topBand.ColumnDefinitions.Add(new ColumnDefinition
+            { Width = new GridLength(1, GridUnitType.Star) });
+        topBand.ColumnDefinitions.Add(new ColumnDefinition
+            { Width = new GridLength(452) });
+        topBand.RowDefinitions.Add(new RowDefinition { Height = new GridLength(270) });
+        topBand.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
+
+        var welcome = new StackPanel
         {
             Spacing = 8,
             Children =
@@ -81,24 +101,33 @@ public sealed class HomePage : Page
                     Foreground = SecondaryTextBrush
                 }
             }
-        });
+        };
+        Grid.SetColumn(welcome, 0);
+        topBand.Children.Add(welcome);
 
         _launchGameButton.VerticalAlignment = VerticalAlignment.Center;
-        var quickControls = new StackPanel
+        _launchGameButton.Margin = new Thickness(0, 112, 0, 0);
+        _launchGameButton.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(_launchGameButton, 0);
+        topBand.Children.Add(_launchGameButton);
+
+        var scanControls = new StackPanel
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
+            Spacing = 6,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
             Children =
             {
-                _launchGameButton,
-                new StackPanel
-                {
-                    Spacing = 6,
-                    Children = { _scanModeSelector, _scanModeSaveError }
-                }
+                _scanModeSelector,
+                _scanModeSaveError
             }
         };
-        root.Children.Add(quickControls);
+        Grid.SetColumn(scanControls, 1);
+        topBand.Children.Add(scanControls);
+        root.Children.Add(topBand);
+
+        page.SizeChanged += (_, args) =>
+            UpdateResponsiveLayout(args.NewSize.Width, topBand, scanControls);
 
         var cards = new StackPanel
         {
@@ -134,8 +163,33 @@ public sealed class HomePage : Page
             Content = cards
         });
         root.Children.Add(section);
-        return root;
+        page.Children.Add(root);
+        return page;
     }
+
+    private void UpdateResponsiveLayout(double availableWidth, Grid topBand,
+        FrameworkElement scanControls)
+    {
+        // WinUI layout units are DIPs. Sizing from the available DIP width keeps
+        // the bloom and card stable across display scaling as well as resolution.
+        var bloomWidth = Math.Clamp(availableWidth * .52, 560, 860);
+        _scanModeBloom.Width = bloomWidth;
+        _scanModeBloom.Height = Math.Clamp(bloomWidth * .46, 300, 396);
+
+        var stackControls = availableWidth < 980;
+        topBand.Height = stackControls ? 440 : 270;
+        topBand.RowDefinitions[1].Height = stackControls
+            ? new GridLength(170)
+            : new GridLength(0);
+        Grid.SetRow(scanControls, stackControls ? 1 : 0);
+        Grid.SetColumn(scanControls, stackControls ? 0 : 1);
+        Grid.SetColumnSpan(scanControls, stackControls ? 2 : 1);
+        scanControls.HorizontalAlignment = stackControls
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
+    }
+
+    internal void SetAmbientAccent(Color color) => _scanModeBloom.AccentColor = color;
 
     public Task InitialReady => _initialReady.Task;
 
@@ -269,6 +323,7 @@ public sealed class HomePage : Page
             _scanModeSelector.SetMode(
                 App.Session.Settings.ScanPerformanceMode,
                 App.Session.Settings.SelectMapByTagsEnabled);
+            ScanModeVisualChanged?.Invoke(_scanModeSelector.AccentColor, false);
         }
         _mapCountValue.Text = "…";
         _successRateValue.Text = "…";
@@ -337,6 +392,7 @@ public sealed class HomePage : Page
 
     private async void ScanModeSelector_ModeChanged(ScanPerformanceMode mode)
     {
+        ScanModeVisualChanged?.Invoke(ScanModeSelector.GetAccentColor(mode), true);
         _requestedScanMode = mode;
         if (_savingScanMode)
             return;
@@ -368,6 +424,7 @@ public sealed class HomePage : Page
             _scanModeSelector.SetMode(
                 App.Session.Settings.ScanPerformanceMode,
                 App.Session.Settings.SelectMapByTagsEnabled);
+            ScanModeVisualChanged?.Invoke(_scanModeSelector.AccentColor, true);
         }
     }
 }

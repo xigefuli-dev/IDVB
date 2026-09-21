@@ -14,6 +14,7 @@ public sealed partial class IdvmPackageService
         public string AlgorithmFile { get; set; } = string.Empty;
         public string AlgorithmSha256 { get; set; } = string.Empty;
         public string AlgorithmSchemaVersion { get; set; } = string.Empty;
+        public int EngineRevision { get; set; }
     }
 
     private sealed record ImportedPrebuiltStructure(
@@ -51,7 +52,8 @@ public sealed partial class IdvmPackageService
                 AlgorithmId = prebuilt.AlgorithmId,
                 AlgorithmFileName = Path.GetFileName(prebuilt.AlgorithmFile),
                 AlgorithmSha256 = prebuilt.AlgorithmSha256,
-                AlgorithmSchemaVersion = prebuilt.AlgorithmSchemaVersion
+                AlgorithmSchemaVersion = prebuilt.AlgorithmSchemaVersion,
+                EngineRevision = prebuilt.EngineRevision
             },
             linePath,
             algorithmPath);

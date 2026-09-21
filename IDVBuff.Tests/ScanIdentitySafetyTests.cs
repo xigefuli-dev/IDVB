@@ -92,6 +92,75 @@ public sealed class ScanIdentitySafetyTests
     }
 
     [Fact]
+    public void FailedAlternativePoseDoesNotInvalidateConfirmedIdentity()
+    {
+        var confirmed = Candidate(ScanIdentityState.Supported, .2);
+        var failedPose = new SideEntranceScanCandidate
+        {
+            Map = confirmed.Map,
+            IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed")
+        };
+        var identity = confirmed.WithHypotheses([confirmed, failedPose]);
+        Assert.Equal(confirmed.Map.Id, ScanIdentityVerifier.SelectIdentity([identity], true, true));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([identity], true, false));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity(
+            [identity, Candidate(ScanIdentityState.Unverified, 0)], true, true));
+    }
+
+    [Fact]
+    public void AggregateEvidenceDoesNotOverwriteBestSearchHypothesis()
+    {
+        var seed = Candidate(ScanIdentityState.Excluded, 3);
+        var alternate = Candidate(ScanIdentityState.Excluded, 12);
+        var candidate = seed.WithHypotheses([seed, alternate]);
+        candidate.IdentityEvidence = Candidate(ScanIdentityState.Supported, .2).IdentityEvidence;
+        Assert.Equal(ScanIdentityState.Excluded, seed.IdentityEvidence.State);
+        Assert.Equal(3d, seed.IdentityEvidence.ForwardMeanPixels);
+        Assert.NotSame(candidate, candidate.SearchHypotheses[0]);
+    }
+
+    [Fact]
+    public void SmallClosedGlyphDoesNotBecomeLongWallByPerimeter()
+    {
+        Assert.InRange(ScanIdentityVerifier.MeasureStraightConflict(
+            [new(0,0), new(12,0), new(12,12), new(0,12)], _ => 20), 11, 13);
+        Assert.True(ScanIdentityVerifier.MeasureStraightConflict(
+            [new(0,0), new(60,0), new(60,40), new(0,40)], _ => 20)
+            >= ScanIdentityVerifier.MaximumContinuousConflictPixels);
+        // A real matching stretch splits the conflict instead of summing both sides.
+        Assert.True(ScanIdentityVerifier.MeasureStraightConflict(
+            [new(0,0), new(60,0)], p => p.X is > 20 and < 40 ? 0 : 20)
+            < ScanIdentityVerifier.MaximumContinuousConflictPixels);
+    }
+
+    [Fact]
+    public void SmallerMeanDistanceCannotResolveContradictoryVariantCoverage()
+    {
+        var winner = Candidate(ScanIdentityState.Supported, .4406356);
+        winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = .9774476 };
+        var sibling = Candidate(ScanIdentityState.Supported, .9453689);
+        sibling.IdentityEvidence = sibling.IdentityEvidence with { SupportedFraction = .9896524 };
+        Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = .995 };
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+    }
+
+    [Fact]
+    public void LocalVetoCannotEliminateWellSupportedVariant()
+    {
+        var winner = Candidate(ScanIdentityState.Supported, .23);
+        var sibling = Candidate(ScanIdentityState.Excluded, .88);
+        sibling.IdentityEvidence = sibling.IdentityEvidence with
+        { SupportedFraction = .97, Reason = "visible-contour-conflict", LongestConflictPixels = 30 };
+        Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        // An actually dissimilar sibling still permits a unique supported winner.
+        sibling.IdentityEvidence = sibling.IdentityEvidence with { SupportedFraction = .3 };
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+    }
+
+    [Fact]
     public void OutOfReferencePointsRemainInScoreDenominator()
     {
         using var line = new Mat(100, 100, MatType.CV_8UC1, Scalar.Black);
@@ -109,7 +178,7 @@ public sealed class ScanIdentitySafetyTests
         Assert.Equal(settings.ScanPerformanceMode, settings.Clone().ScanPerformanceMode);
         using var context = ScanExecutionContext.Enter(settings.ScanPerformanceMode);
         settings.ScanPerformanceMode = ScanPerformanceMode.Fast;
-        Assert.Equal(512, context.Policy.SparsePoints);
+        Assert.Equal(256, context.Policy.SparsePoints);
         settings.ScanPerformanceMode = (ScanPerformanceMode)99;
         settings.Normalize();
         Assert.Equal(ScanPerformanceMode.Balanced, settings.ScanPerformanceMode);

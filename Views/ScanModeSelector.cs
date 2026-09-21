@@ -101,6 +101,13 @@ public sealed partial class ScanModeSelector : UserControl
 
     public event Action<ScanPerformanceMode>? ModeChanged;
     public ScanPerformanceMode Mode => (ScanPerformanceMode)(int)Math.Round(_input.Value);
+    public Color AccentColor => GetAccentColor(Mode);
+
+    public static Color GetAccentColor(ScanPerformanceMode mode)
+    {
+        var index = Enum.IsDefined(mode) ? (int)mode : (int)ScanPerformanceMode.Balanced;
+        return ModeColors[index];
+    }
 
     public ScanModeSelector()
     {
@@ -147,11 +154,42 @@ public sealed partial class ScanModeSelector : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             CornerRadius = new CornerRadius(28),
             BorderThickness = new Thickness(1),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(48, 128, 128, 128)),
-            Background = new SolidColorBrush(Color.FromArgb(35, 128, 128, 128))
+            BorderBrush = new LinearGradientBrush
+            {
+                StartPoint = new Windows.Foundation.Point(0, 0),
+                EndPoint = new Windows.Foundation.Point(1, 1),
+                GradientStops =
+                {
+                    new GradientStop { Color = Color.FromArgb(105, 255, 255, 255), Offset = 0 },
+                    new GradientStop { Color = Color.FromArgb(34, 255, 255, 255), Offset = .48 },
+                    new GradientStop { Color = Color.FromArgb(54, 0, 0, 0), Offset = 1 }
+                }
+            },
+            Background = CreateGlassBrush()
         };
         var root = new Grid();
         root.Children.Add(_card);
+        root.Children.Add(new Border
+        {
+            Width = 354,
+            Height = 74,
+            Margin = new Thickness(0, 7, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            CornerRadius = new CornerRadius(23),
+            IsHitTestVisible = false,
+            Background = new LinearGradientBrush
+            {
+                StartPoint = new Windows.Foundation.Point(0, 0),
+                EndPoint = new Windows.Foundation.Point(0, 1),
+                GradientStops =
+                {
+                    new GradientStop { Color = Color.FromArgb(30, 255, 255, 255), Offset = 0 },
+                    new GradientStop { Color = Color.FromArgb(8, 255, 255, 255), Offset = .45 },
+                    new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 1 }
+                }
+            }
+        });
         root.Children.Add(layout);
         Content = root;
 
@@ -171,6 +209,14 @@ public sealed partial class ScanModeSelector : UserControl
         Unloaded += OnUnloaded;
         RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => UpdateMotion());
     }
+
+    private static AcrylicBrush CreateGlassBrush() => new()
+    {
+        TintColor = Color.FromArgb(255, 48, 50, 54),
+        TintOpacity = .46,
+        TintLuminosityOpacity = .16,
+        FallbackColor = Color.FromArgb(245, 45, 46, 49)
+    };
 
     public void SetMode(ScanPerformanceMode mode, bool tagOnly)
     {
@@ -301,7 +347,7 @@ public sealed partial class ScanModeSelector : UserControl
                 _labels[labelIndex].ClearValue(TextBlock.ForegroundProperty);
         }
 
-        _selection.Background = CreateSelectionBrush(index);
+        _selection.Background = CreateSelectionBrush(color);
         _selection.BorderBrush = new SolidColorBrush(WithAlpha(color, 205));
         _glowOuter.Background = new SolidColorBrush(WithAlpha(color, 255));
         _glowInner.Background = new SolidColorBrush(WithAlpha(color, 255));
@@ -366,14 +412,10 @@ public sealed partial class ScanModeSelector : UserControl
         UpdateMotion();
     }
 
-    private static Brush CreateSelectionBrush(int index)
+    private static Brush CreateSelectionBrush(Color color)
     {
-        var (start, end) = index switch
-        {
-            0 => (Color.FromArgb(225, 24, 139, 84), Color.FromArgb(238, 39, 205, 124)),
-            2 => (Color.FromArgb(225, 115, 51, 190), Color.FromArgb(238, 190, 94, 237)),
-            _ => (Color.FromArgb(225, 25, 105, 211), Color.FromArgb(238, 52, 160, 247))
-        };
+        var start = Shade(color, .66, 226);
+        var end = Shade(color, 1.03, 242);
         return new LinearGradientBrush
         {
             StartPoint = new Windows.Foundation.Point(0, .5),
@@ -385,6 +427,13 @@ public sealed partial class ScanModeSelector : UserControl
             }
         };
     }
+
+    private static Color Shade(Color color, double amount, byte alpha) =>
+        Color.FromArgb(
+            alpha,
+            (byte)Math.Clamp(Math.Round(color.R * amount), 0, 255),
+            (byte)Math.Clamp(Math.Round(color.G * amount), 0, 255),
+            (byte)Math.Clamp(Math.Round(color.B * amount), 0, 255));
 
     private static Color WithAlpha(Color color, byte alpha) =>
         Color.FromArgb(alpha, color.R, color.G, color.B);

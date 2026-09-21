@@ -27,6 +27,9 @@ public sealed record PrebuiltStructureLineResult(
 /// <summary>Loads and executes the restricted IDVA structure-map DSL.</summary>
 public sealed partial class IdvaStructureLineEngine
 {
+    // Persisted separately from the IDVA package hash: execution semantics can change
+    // without changing a user-supplied algorithm package.
+    public const int CurrentRevision = 1;
     private const int MaximumPackageBytes = 1024 * 1024;
     private const int MaximumStages = 64;
     private static readonly HashSet<string> SupportedStages =
@@ -158,6 +161,7 @@ public sealed partial class IdvaStructureLineEngine
                     Math.Clamp(fraction, 0d, 1d),
                     stageName)),
                 cancellationToken);
+            state.RestoreProtectedBackground();
             progress?.Invoke(new IdvaStageProgress(index + 1, algorithm.Pipeline.Count, 0d, stageName));
         }
         if (state.Edges is null || state.Edges.Empty())
@@ -239,6 +243,7 @@ public sealed partial class IdvaStructureLineEngine
                 ReplaceMasks(state, FillAllHoles(state.Room), FillAllHoles(state.Corridor));
                 break;
             case "directional_bridge":
+                state.ProtectSourceBackground();
                 ReplaceMasks(state,
                     DirectionalBridge(state.Room, ReadBoundedInt(stage, "horizontal_gap_px", 1, 255),
                         ReadBoundedInt(stage, "vertical_gap_px", 1, 255)),

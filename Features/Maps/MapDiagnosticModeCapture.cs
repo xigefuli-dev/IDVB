@@ -163,12 +163,12 @@ internal static class MapDiagnosticModeCapture
                         retrievalRank = rank + 1, candidate.Map.Id, candidate.Map.Class,
                         candidate.Map.SequenceNumber, candidate.FloorKey,
                         candidate.MatchScore, candidate.MatchScale, candidate.MatchLocation,
-                        candidate.IdentityEvidence,
+                        candidate.IdentityEvidence, candidate.VerifiedTransform,
                         hypotheses = (candidate.SearchHypotheses.Count > 0
                             ? candidate.SearchHypotheses : new[] { candidate }).Select(h => new
                             {
                                 h.MatchScore, h.MatchScale, h.MatchLocation,
-                                h.GateSpatialResidualPixels, h.AssociatedGate
+                                h.GateSpatialResidualPixels, h.AssociatedGate, h.IdentityEvidence, h.VerifiedTransform
                             })
                     })
                 };

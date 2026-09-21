@@ -163,6 +163,7 @@ public sealed partial class IdvaStructureLineEngine
         private Mat? _routeMask;
         private Mat? _sourceEdgeEvidence;
         private Mat? _edges;
+        private Mat? _protectedBackground;
 
         private PipelineState(Mat bgr, Mat room, Mat corridor)
         {
@@ -196,6 +197,21 @@ public sealed partial class IdvaStructureLineEngine
         }
 
         public void ReplaceBgr(Mat value) => Replace(ref _bgr, value);
+        public void ProtectSourceBackground()
+        {
+            if (_protectedBackground is not null) return;
+            _protectedBackground = new Mat();
+            // A route overlay contains image data. Explicit black/transparent void
+            // is geometry, not missing paint that a directional close may repair.
+            Cv2.InRange(Bgr, Scalar.Black, Scalar.Black, _protectedBackground);
+        }
+
+        public void RestoreProtectedBackground()
+        {
+            if (_protectedBackground is null) return;
+            Room.SetTo(Scalar.Black, _protectedBackground);
+            Corridor.SetTo(Scalar.Black, _protectedBackground);
+        }
         public void ReplaceRoom(Mat value) => Replace(ref _room, value);
         public void ReplaceCorridor(Mat value) => Replace(ref _corridor, value);
         public void ReplaceRouteMask(Mat value) => ReplaceNullable(ref _routeMask, value);
@@ -238,6 +254,7 @@ public sealed partial class IdvaStructureLineEngine
             _routeMask?.Dispose();
             _sourceEdgeEvidence?.Dispose();
             _edges?.Dispose();
+            _protectedBackground?.Dispose();
         }
     }
 }

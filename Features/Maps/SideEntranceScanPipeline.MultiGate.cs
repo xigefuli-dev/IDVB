@@ -51,8 +51,7 @@ public sealed partial class SideEntranceScanPipeline
                 var best = alternatives.OrderByDescending(c => c.MatchScore).FirstOrDefault();
                 if (best is not null)
                 {
-                    best.SearchHypotheses = alternatives.OrderByDescending(c => c.MatchScore).ToArray();
-                    found[i] = best;
+                    found[i] = best.WithHypotheses(alternatives.OrderByDescending(c => c.MatchScore).ToArray());
                 }
                 var finished = Interlocked.Increment(ref completed);
                 progress?.Invoke(finished / (double)candidates.Count);

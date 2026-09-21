@@ -17,6 +17,37 @@ public sealed class Vpsg3FastLiveExtractorTests
         _output = output;
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HudExclusion_CannotReappearAsObservedWallsOrValidPixels(bool bottomHud)
+    {
+        using var source = new Mat(400, 600, MatType.CV_8UC3, Scalar.Black);
+        Cv2.Rectangle(source, new Rect(20, 8, 540, 380), new Scalar(80, 80, 160), -1);
+        Cv2.Rectangle(source, new Rect(20, 8, 540, 380), Scalar.White, 2);
+        Rect excluded;
+        if (bottomHud)
+        {
+            Cv2.Rectangle(source, new Rect(30, 320, 20, 20), new Scalar(0, 180, 0), -1);
+            Cv2.Line(source, new Point(20, 288), new Point(200, 288), Scalar.White, 2);
+            excluded = new Rect(0, 288, 144, 112);
+        }
+        else
+        {
+            Cv2.Line(source, new Point(80, 59), new Point(400, 59), Scalar.White, 2);
+            excluded = new Rect(60, 12, 420, 48);
+        }
+
+        using var observation = Vpsg3FastLiveExtractor.Extract(source);
+        using var observed = new Mat(observation.ObservedEdges, excluded);
+        using var proposals = new Mat(observation.ProposalEdges, excluded);
+        using var valid = new Mat(observation.ValidMask, excluded);
+        Assert.Equal(0, Cv2.CountNonZero(observed));
+        Assert.Equal(0, Cv2.CountNonZero(proposals));
+        Assert.Equal(0, Cv2.CountNonZero(valid));
+        Assert.True(observation.EdgePixelCount > 0);
+    }
+
     [Fact]
     public void DifferentialTest_PreservesStrongProposalsAndAddsWeakObservedWalls()
     {
@@ -35,9 +66,12 @@ public sealed class Vpsg3FastLiveExtractorTests
                 // 2. Run Phase 2 production Vpsg3FastLiveExtractor
                 using var obs = Vpsg3FastLiveExtractor.Extract(sample.LiveImage, sample.ViewportBounds);
 
-                // Strong proposal geometry remains stable when weak walls are added to final observations.
+                // Strong geometry outside excluded HUD areas remains stable. The old
+                // prototype can leak the exclusion's own border back into its edges.
+                using var validOldEdges = new Mat();
+                Cv2.BitwiseAnd(a4Result.Edges, obs.ValidMask, validOldEdges);
                 using var diff = new Mat();
-                Cv2.Absdiff(a4Result.Edges, obs.ProposalEdges, diff);
+                Cv2.Absdiff(validOldEdges, obs.ProposalEdges, diff);
                 var diffCount = Cv2.CountNonZero(diff);
 
                 if (diffCount > 0)
@@ -46,8 +80,8 @@ public sealed class Vpsg3FastLiveExtractorTests
                 }
 
                 Assert.Equal(0, diffCount);
-                Cv2.Subtract(a4Result.Edges, obs.ObservedEdges, diff);
-                Assert.Equal(0, Cv2.CountNonZero(diff)); // Never lose an existing strong wall.
+                Cv2.Subtract(validOldEdges, obs.ObservedEdges, diff);
+                Assert.Equal(0, Cv2.CountNonZero(diff)); // Preserve valid strong walls.
             }
 
             Assert.True(evaluated > 0);

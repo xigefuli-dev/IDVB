@@ -128,6 +128,9 @@ public sealed partial class MapCvRecognitionService : IDisposable
             revision = _repository.GetCatalogRevision();
             if (_cacheInitialized && revision == _catalogRevision)
                 return;
+            // Migrate before loading Mats/fingerprints. Background diagnostics alone
+            // could repair files after the first scan had already cached stale lines.
+            await _repository.HealMissingPrebuiltStructureLinesAsync(onlyOutdated: true);
             var catalog = await _repository.GetCatalogSnapshotAsync();
             var maps = catalog.Maps;
             await _repository.EnsureDerivedAssetsAsync(maps);

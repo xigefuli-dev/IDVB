@@ -318,7 +318,8 @@ public sealed partial class IdvmPackageService
             AlgorithmId = asset.AlgorithmId,
             AlgorithmFile = algorithmLogical,
             AlgorithmSha256 = asset.AlgorithmSha256,
-            AlgorithmSchemaVersion = asset.AlgorithmSchemaVersion
+            AlgorithmSchemaVersion = asset.AlgorithmSchemaVersion,
+            EngineRevision = asset.EngineRevision
         };
     }
 

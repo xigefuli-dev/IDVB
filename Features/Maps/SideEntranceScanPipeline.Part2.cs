@@ -17,6 +17,9 @@ public sealed partial class SideEntranceScanPipeline
         var points = ScanFrameEvidence.SampleUniform(frame.DensePoints,
             frame.Observation.ObservedEdges.Width, frame.Observation.ObservedEdges.Height, 1024);
         var refined = new List<SideEntranceScanCandidate>();
+        // Refinement is optional. Leave room for three variant registrations and
+        // final evidence/commit instead of exhausting the scan's shared deadline.
+        const int verificationReserve = 400;
         foreach (var seed in candidate.SearchHypotheses)
         {
             if (seed.AssociatedGate is not { } gate) continue;
@@ -28,7 +31,8 @@ public sealed partial class SideEntranceScanPipeline
                 index.Score(points, seed.MatchScale, seed.MatchLocation.X, seed.MatchLocation.Y));
             for (var step = -4; step <= 4; step++)
             {
-                if (!context.CanCompute) return refined;
+                if (!context.CanCompute || context.RemainingMilliseconds <= verificationReserve)
+                    return RetainProposals();
                 var scale = seed.MatchScale * (1 + step * .0025);
                 if (scale < context.Policy.MinimumScale || scale > context.Policy.MaximumScale) continue;
                 for (var dx = -3; dx <= 3; dx++)
@@ -50,8 +54,18 @@ public sealed partial class SideEntranceScanPipeline
                 GateAssociationKind = SideEntranceGateAssociationKind.DetectedGate
             });
         }
-        context.VariantRefinementCount++;
-        return refined.OrderByDescending(c => c.MatchScore).ToArray();
+        return RetainProposals();
+
+        IReadOnlyList<SideEntranceScanCandidate> RetainProposals()
+        {
+            if (refined.Count > 0) context.VariantRefinementCount++;
+            // Dense-point refinement is a proposal, not permission to discard a seed
+            // that the original search already found. Its different sampling objective
+            // can improve its own score while worsening the full-frame verifier.
+            return candidate.SearchHypotheses.Concat(refined)
+                .DistinctBy(c => (c.MatchScale, c.MatchLocation.X, c.MatchLocation.Y, c.AssociatedGateIndex))
+                .ToArray();
+        }
     }
 
     private static IReadOnlyList<SideEntranceScanCandidate> SearchFloor(
@@ -67,6 +81,43 @@ public sealed partial class SideEntranceScanPipeline
         var ay = (anchor.Bounds.Y + anchor.Bounds.Height / 2) * profile.RecognitionPixelHeight;
         var gx = gate.ScreenBounds.CenterX - viewport.X;
         var gy = gate.ScreenBounds.CenterY - viewport.Y;
+        // Every mode starts with the same points and the same completed fast search.
+        // Additional work retains those winners instead of replacing the sampling
+        // objective and losing a basin that a cheaper mode already found.
+        var retained = new List<SearchPeak>();
+        foreach (var mode in new[] { ScanPerformanceMode.Fast, ScanPerformanceMode.Balanced, ScanPerformanceMode.Quality })
+        {
+            if ((int)mode > (int)policy.Mode) break;
+            var stage = ScanExecutionPolicy.For(mode) with
+            { MinimumScale = policy.MinimumScale, MaximumScale = policy.MaximumScale };
+            retained.AddRange(SearchPeaks(index, frame.SearchPoints, ax, ay, gx, gy, stage, context));
+        }
+        var unique = new List<SearchPeak>();
+        foreach (var peak in retained.OrderByDescending(p => p.Score))
+        {
+            if (unique.Any(p => Math.Abs(Math.Log(p.Scale / peak.Scale)) < policy.FineScaleStep)) continue;
+            unique.Add(peak);
+            if (unique.Count == policy.BasinCount) break;
+        }
+        return unique.Select(p =>
+        {
+            var candidate = new SideEntranceScanCandidate
+            {
+                Map = map, FloorKey = floorKey, MatchScale = p.Scale, MatchScore = p.Score,
+                MatchLocation = new MapScreenRect(p.X, p.Y, line.Width * p.Scale, line.Height * p.Scale),
+                ReferenceCenterX = line.Width / 2d, ReferenceCenterY = line.Height / 2d,
+                StructureIndex = index, AssociatedGate = gate, AssociatedGateIndex = gateIndex,
+                GateAssociationKind = SideEntranceGateAssociationKind.DetectedGate,
+                Disposition = SideEntranceCandidateDisposition.NeedsVerification
+            };
+            candidate.GateSpatialResidualPixels = CalculateGateResidual(candidate, gate, viewport);
+            return candidate;
+        }).ToArray();
+    }
+
+    private static IReadOnlyList<SearchPeak> SearchPeaks(ScanStructureIndex index, Point[] points,
+        double ax, double ay, double gx, double gy, ScanExecutionPolicy policy, ScanExecutionContext? context)
+    {
         var min = policy.MinimumScale;
         var max = policy.MaximumScale;
         var scales = new SortedSet<double> { min, max, Math.Clamp(1d, min, max) };
@@ -92,7 +143,7 @@ public sealed partial class SideEntranceScanPipeline
             {
                 var x = gx + dx - ax * scale;
                 var y = gy + dy - ay * scale;
-                Add(new(scale, x, y, index.Score(frame.SearchPoints, scale, x, y)));
+                Add(new(scale, x, y, index.Score(points, scale, x, y)));
                 if (context is not null) Interlocked.Increment(ref context.TestedHypotheses);
             }
         }
@@ -112,26 +163,13 @@ public sealed partial class SideEntranceScanPipeline
                 {
                     var x = gx + dx - ax * scale;
                     var y = gy + dy - ay * scale;
-                    var score = index.Score(frame.SearchPoints, scale, x, y);
+                    var score = index.Score(points, scale, x, y);
                     if (score > best.Score) best = new(scale, x, y, score);
                     if (context is not null) Interlocked.Increment(ref context.TestedHypotheses);
                 }
             }
             refined.Add(best);
         }
-        return refined.OrderByDescending(p => p.Score).Select(p =>
-        {
-            var candidate = new SideEntranceScanCandidate
-            {
-                Map = map, FloorKey = floorKey, MatchScale = p.Scale, MatchScore = p.Score,
-                MatchLocation = new MapScreenRect(p.X, p.Y, line.Width * p.Scale, line.Height * p.Scale),
-                ReferenceCenterX = line.Width / 2d, ReferenceCenterY = line.Height / 2d,
-                StructureIndex = index, AssociatedGate = gate, AssociatedGateIndex = gateIndex,
-                GateAssociationKind = SideEntranceGateAssociationKind.DetectedGate,
-                Disposition = SideEntranceCandidateDisposition.NeedsVerification
-            };
-            candidate.GateSpatialResidualPixels = CalculateGateResidual(candidate, gate, viewport);
-            return candidate;
-        }).ToArray();
+        return refined;
     }
 }

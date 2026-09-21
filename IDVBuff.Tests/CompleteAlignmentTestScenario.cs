@@ -226,7 +226,8 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
                     Sha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path))).ToLowerInvariant(),
                     Width = line.Width, Height = line.Height, FileLength = new FileInfo(path).Length,
                     AlgorithmFileName = algorithmFileName, AlgorithmSha256 = algoSha,
-                    AlgorithmId = "structure.synthetic.test", AlgorithmSchemaVersion = "1.1"
+                    AlgorithmId = "structure.synthetic.test", AlgorithmSchemaVersion = "1.1",
+                    EngineRevision = IdvaStructureLineEngine.CurrentRevision
                 };
             }
             var catalogPath = Path.Combine(root, "maps", "maps.json");

@@ -185,6 +185,7 @@ public sealed partial class MainPage : Page
     private async void NavigateTo(string moduleId, NavigationEntry? navigationEntry = null)
     {
         DisconnectDisplayPreviewSource();
+        DisconnectScanVisuals();
         SetNavigationCompact(_navigationCompactPreference);
 
         if (navigationEntry is not null)
@@ -215,6 +216,8 @@ public sealed partial class MainPage : Page
                 : _catalog.GetRequired(moduleId).CreateView();
             ModuleContentHost.Content = view;
             ConfigureMainContentScrolling(view);
+            if (view is HomePage homePage)
+                ConnectScanVisuals(homePage);
             if (view is HelpPage helpPage)
             {
                 helpPage.ActivateGuideRequested += HelpPage_ActivateGuideRequested;

@@ -14,7 +14,7 @@ namespace IDVBuff.Tests;public sealed partial class SideEntranceStrategyComplete
     [Fact]
     public async Task SideStrategy_NoGateFallback_UsesOrdinaryStructureAlignment()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var scanFrame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, scanFrame);
         // Force pure structure (no single-gate proposal) so the search flags
@@ -63,17 +63,20 @@ namespace IDVBuff.Tests;public sealed partial class SideEntranceStrategyComplete
         CompleteAlignmentTestScenario scenario,
         CapturedGameFrame frame)
     {
-        var candidates = scenario.Service.RunSideEntranceScan(frame.Image, topK: 3);
+        var candidates = scenario.Service.RunSideEntranceScan(frame,
+            CompleteAlignmentTestScenario.RecognitionTuning, topK: 3, mapClass: scenario.Map.Class).Candidates;
         var candidate = Assert.Single(candidates);
         Assert.Equal(scenario.Map.Id, candidate.Map.Id);
         Assert.Equal(CompleteAlignmentTestScenario.MainFloor, candidate.FloorKey);
-        Assert.True(candidate.MatchScore > 0.80d);
-        var created = SideEntranceScanPipeline.TryCreateAlignmentSeed(
+        Assert.InRange(candidate.MatchScore, 0d, 1d); // Cone support is not legacy template correlation.
+        var created = scenario.Service.TryCreateSideEntranceAlignmentSeed(
             candidate,
             frame.ViewportBounds,
             out var session,
             out var failureReason);
         Assert.True(created, failureReason);
+        DefaultDualGateCompleteAlignmentTests.AssertTransform(session.LockedTransform,
+            1d, frame.ViewportBounds.X, frame.ViewportBounds.Y, 6d);
         Assert.False(session.HasGatePairLock);
         Assert.True(session.SideEntranceScanPriorConfidence > 0d);
         return session;

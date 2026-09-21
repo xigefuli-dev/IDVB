@@ -7,7 +7,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task InitialSideCandidate_ReusesItsCurrentScanGateEvidence()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
         var scan = scenario.Service.RunSideEntranceScan(
             frame,
@@ -41,7 +41,8 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             alignmentSearchContext: context,
             mapClass: scenario.Map.Class);
 
-        Assert.Single(attempt.GateDetectionResult!.Gates);
+        Assert.Single(seed.LockedGateEvidence);
+        Assert.Null(attempt.GateDetectionResult); // Prebuilt alignment consumes the seed without rescanning glyphs.
         Assert.Equal(0d, attempt.Diagnostics.GateDetectionMilliseconds);
         Assert.True(attempt.StructureAttempted);
     }

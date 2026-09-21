@@ -143,9 +143,10 @@ public sealed partial class MapControlPanelWindow : IDisposable
             var saveAutomaticMapCache = _snapshot.Mode != MapRunMode.Survey
                 && _isAutomaticMapCacheEnabled()
                 && await ConfirmAutomaticMapCacheSaveAsync();
-            await _endMatch(saveAutomaticMapCache);
             _variantContext = null;
+            // 确认退出后立即隐藏面板并将焦点还给游戏，耗时的排空与落盘在后台异步执行
             Hide();
+            await _endMatch(saveAutomaticMapCache);
         }
         catch (Exception exception)
         {

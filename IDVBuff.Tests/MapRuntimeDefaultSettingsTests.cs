@@ -9,7 +9,8 @@ public sealed class MapRuntimeDefaultSettingsTests
     {
         var settings = MapRuntimeSettings.CreateDefault();
 
-        Assert.Equal(18, settings.SchemaVersion);
+        Assert.Equal(19, settings.SchemaVersion);
+        Assert.Equal(ScanPerformanceMode.Balanced, settings.ScanPerformanceMode);
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
         Assert.False(settings.BackgroundScanEnabled);

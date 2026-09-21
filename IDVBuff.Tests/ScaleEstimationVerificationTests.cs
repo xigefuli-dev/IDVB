@@ -70,12 +70,11 @@ public sealed class ScaleEstimationVerificationTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 实证 C：CalculateGateResidual 在"特征中心 == anchor 中心"时
-    //         scale 项被精确抵消，残差退化为匹配框中心 vs 门中心。
+    // 整层预制轮廓的门残差必须包含尺度，不得再套用旧特征裁剪中心。
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void CalculateGateResidual_WhenFeatureCenterEqualsAnchorCenter_IgnoresScale()
+    public void CalculateGateResidual_UsesFullLayerOriginAndScale()
     {
         var map = CreateMapWithFeatureCenterAtAnchor();
         var method = typeof(SideEntranceScanPipeline).GetMethod(
@@ -93,21 +92,20 @@ public sealed class ScaleEstimationVerificationTests
         };
         var viewport = new MapScreenRect(0d, 0d, 800d, 600d);
 
-        // 两个候选：匹配框中心相同 (320, 170)，但 MatchScale 与框尺寸成比例。
-        // 这等价于"同一特征被扫出 scale=1.0 或 scale=2.0，匹配位置一致"。
+        // 两个候选的整层原点相同，门投影必须随尺度变化。
         var scale1 = new SideEntranceScanCandidate
         {
             Map = map,
             FloorKey = "1f",
             MatchScale = 1.0d,
-            MatchLocation = new MapScreenRect(300d, 150d, 40d, 40d) // 中心 (320,170)
+            MatchLocation = new MapScreenRect(300d, 150d, 1000d, 800d)
         };
         var scale2 = new SideEntranceScanCandidate
         {
             Map = map,
             FloorKey = "1f",
             MatchScale = 2.0d,
-            MatchLocation = new MapScreenRect(280d, 130d, 80d, 80d) // 中心 (320,170)
+            MatchLocation = new MapScreenRect(300d, 150d, 2000d, 1600d)
         };
 
         var residual1 = (double)method.Invoke(
@@ -118,9 +116,8 @@ public sealed class ScaleEstimationVerificationTests
         _output.WriteLine(
             $"scale=1.0 残差={residual1:F4}px, scale=2.0 残差={residual2:F4}px");
 
-        // 若门空间残差真在验证 scale，residual2 应显著偏离 residual1。
-        // 实测二者相等，说明 scale 被精确抵消，残差只反映中心偏移。
-        Assert.Equal(residual1, residual2, 6);
+        Assert.Equal(Math.Sqrt(140d * 140d + 250d * 250d), residual1, 6);
+        Assert.Equal(Math.Sqrt(340d * 340d + 550d * 550d), residual2, 6);
     }
 
     // ═══════════════════════════════════════════════════════════════

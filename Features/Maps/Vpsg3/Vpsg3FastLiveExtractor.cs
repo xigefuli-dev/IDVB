@@ -66,6 +66,8 @@ public static class Vpsg3FastLiveExtractor
         // 7. Observed edges: semantic candidates supported by strong photometric edges
         var observedEdges = new Mat(size, MatType.CV_8UC1);
         Cv2.BitwiseAnd(s.CandidateEdges, s.Support, observedEdges);
+        var proposalEdges = new Mat(size, MatType.CV_8UC1);
+        Cv2.BitwiseAnd(s.CandidateEdges, s.StrongSupport, proposalEdges);
 
         // 8. Valid mask generation (fog frontier + exclusion masking)
         // Areas with semantic edges but missing strong photometric support represent fog frontiers
@@ -102,7 +104,8 @@ public static class Vpsg3FastLiveExtractor
             viewportBounds: bounds,
             maxSparsePoints: maxSparsePoints,
             sparseEdgePoints: null,
-            extractionMilliseconds: sw.Elapsed.TotalMilliseconds);
+            extractionMilliseconds: sw.Elapsed.TotalMilliseconds,
+            proposalEdges: proposalEdges);
     }
 
     private static Mat NormalizeToBgr(Mat source, Vpsg3LiveExtractorScratch scratch)
@@ -227,10 +230,22 @@ public static class Vpsg3FastLiveExtractor
         }
     }
 
-    private static void ComputeStrongSourceEdgeSupport(Mat bgr, Vpsg3LiveExtractorScratch s)
+    internal static void ComputeStrongSourceEdgeSupport(Mat bgr, Vpsg3LiveExtractorScratch s)
     {
         Cv2.CvtColor(bgr, s.Gray, ColorConversionCodes.BGR2GRAY);
         Cv2.Canny(s.Gray, s.CannyStrong, 80d, 180d, apertureSize: 3, L2gradient: true);
         Cv2.Dilate(s.CannyStrong, s.Support, s.K5);
+        s.Support.CopyTo(s.StrongSupport);
+        // Fog lowers wall contrast. Recover a sharp, bright rim only where the semantic
+        // contour already exists; a smooth fog transition has no such high-frequency ridge.
+        // This never promotes arbitrary grayscale edges to structural observations.
+        Cv2.GaussianBlur(s.Gray, s.SmoothedGray, new Size(5, 5), 1.5);
+        Cv2.Subtract(s.Gray, s.SmoothedGray, s.BrightDetail);
+        Cv2.Threshold(s.BrightDetail, s.BrightDetail, 4d, 255d, ThresholdTypes.Binary);
+        Cv2.Canny(s.Gray, s.CannyWeak, 25d, 65d, apertureSize: 3, L2gradient: true);
+        Cv2.Dilate(s.BrightDetail, s.BrightDetail, s.K3);
+        Cv2.BitwiseAnd(s.CannyWeak, s.BrightDetail, s.CannyWeak);
+        Cv2.Dilate(s.CannyWeak, s.CannyWeak, s.K3);
+        Cv2.BitwiseOr(s.Support, s.CannyWeak, s.Support);
     }
 }

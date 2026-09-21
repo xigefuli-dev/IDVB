@@ -9,7 +9,7 @@ public sealed class GameOverlayProgressBarSourceTests
         var progress = File.ReadAllText(Path.Combine(
             root, "Features", "Maps", "GameOverlayProgressBar.cs"));
         var operations = File.ReadAllText(Path.Combine(
-            root, "Features", "Maps", "SessionOrchestrator.Operations.cs"));
+            root, "Features", "Maps", "SessionOrchestrator.QuickScan.cs"));
 
         Assert.Contains("public void Fail(string message)", progress);
         Assert.Contains("Color.FromArgb(255, 179, 38, 30)", progress);

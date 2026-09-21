@@ -62,16 +62,20 @@ public sealed partial class MapCvRecognitionService
         out double elapsedMilliseconds)
     {
         var timer = Stopwatch.StartNew();
-        var nativeObserved = frame.GetOrCreateNativeObservedStructure();
+        var shared = ScanExecutionContext.Current is { IsAutomatic: true, Frame: { } evidence }
+            && ReferenceEquals(evidence.Source, frame.Image) ? evidence.Observation : null;
+        var nativeObserved = shared is null ? frame.GetOrCreateNativeObservedStructure() : null;
+        var observedEdges = shared?.ObservedEdges ?? nativeObserved!.ObservedEdges;
+        var validMask = shared?.ValidMask ?? nativeObserved!.ValidMask;
         using var computationEdges = new Mat();
         using var computationMask = new Mat();
         Cv2.Resize(
-            nativeObserved.ObservedEdges,
+            observedEdges,
             computationEdges,
             frame.ComputationImage.Size(),
             interpolation: InterpolationFlags.Nearest);
         Cv2.Resize(
-            nativeObserved.ValidMask,
+            validMask,
             computationMask,
             frame.ComputationImage.Size(),
             interpolation: InterpolationFlags.Nearest);
@@ -80,8 +84,8 @@ public sealed partial class MapCvRecognitionService
             computationEdges,
             computationMask);
         original = MapStructurePreprocessor.UseNativeObservedStructureLine(
-            nativeObserved.ObservedEdges,
-            nativeObserved.ValidMask);
+            observedEdges,
+            validMask);
         timer.Stop();
         elapsedMilliseconds = timer.Elapsed.TotalMilliseconds;
     }

@@ -174,6 +174,8 @@ public sealed partial class SessionOrchestrator
         string source,
         int? requestedPosition = null)
     {
+        Interlocked.Increment(ref _scanRequestGeneration);
+        CancelQuickScan();
         var openSession = _mapOpenSession.Snapshot;
         var retargetsPendingVariant =
             openSession.State == MapSessionState.RecalibrationRequired

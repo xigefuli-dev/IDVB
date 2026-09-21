@@ -32,7 +32,11 @@ public sealed class Vpsg3LiveExtractorScratch : IDisposable
     public Mat CandidateEdges { get; } = new();
     public Mat Gray { get; } = new();
     public Mat CannyStrong { get; } = new();
+    public Mat CannyWeak { get; } = new();
+    public Mat SmoothedGray { get; } = new();
+    public Mat BrightDetail { get; } = new();
     public Mat Support { get; } = new();
+    public Mat StrongSupport { get; } = new();
     public Mat NotSupport { get; } = new();
     public Mat UncertainFrontier { get; } = new();
     public Mat DilatedExclusion { get; } = new();
@@ -89,7 +93,11 @@ public sealed class Vpsg3LiveExtractorScratch : IDisposable
         CandidateEdges.Dispose();
         Gray.Dispose();
         CannyStrong.Dispose();
+        CannyWeak.Dispose();
+        SmoothedGray.Dispose();
+        BrightDetail.Dispose();
         Support.Dispose();
+        StrongSupport.Dispose();
         NotSupport.Dispose();
         UncertainFrontier.Dispose();
         DilatedExclusion.Dispose();

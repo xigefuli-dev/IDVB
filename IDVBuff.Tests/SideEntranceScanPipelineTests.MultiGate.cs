@@ -101,10 +101,9 @@ public sealed partial class SideEntranceScanPipelineTests
     }
 
     [Fact]
-    public void GateMaskUsesOriginalMeanForEveryGateWithViewportOffset()
+    public void GateMaskClearsEveryGateWithViewportOffset()
     {
         using var frame = BuildTexture(260, 220, seed: 173);
-        var originalMean = Cv2.Mean(frame).Val0;
         var viewport = new MapScreenRect(100d, 200d, frame.Width, frame.Height);
         var gates = new[]
         {
@@ -128,8 +127,8 @@ public sealed partial class SideEntranceScanPipelineTests
         Cv2.MeanStdDev(second, out var secondMean, out var secondStdDev);
         Assert.InRange(firstStdDev.Val0, 0d, 0.001d);
         Assert.InRange(secondStdDev.Val0, 0d, 0.001d);
-        Assert.InRange(firstMean.Val0, originalMean - 1d, originalMean + 1d);
-        Assert.InRange(secondMean.Val0, originalMean - 1d, originalMean + 1d);
+        Assert.Equal(0d, firstMean.Val0);
+        Assert.Equal(0d, secondMean.Val0);
         Assert.Equal(firstMean.Val0, secondMean.Val0, 8);
     }
 

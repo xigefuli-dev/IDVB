@@ -207,9 +207,9 @@ public sealed partial class GateTemplateDetector : IDisposable
                     break;
                 }
 
-                var width = Math.Max(12, (int)Math.Round(
+                var width = Math.Max((int)Math.Ceiling(12 / physicalPixelsPerImagePixel), (int)Math.Round(
                     _gateSource.Width * scale / physicalPixelsPerImagePixel));
-                var height = Math.Max(12, (int)Math.Round(
+                var height = Math.Max((int)Math.Ceiling(12 / physicalPixelsPerImagePixel), (int)Math.Round(
                     _gateSource.Height * scale / physicalPixelsPerImagePixel));
                 if (width >= liveMatchImage.Width || height >= liveMatchImage.Height)
                     continue;

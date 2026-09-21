@@ -69,8 +69,8 @@ public sealed partial class SideEntranceScanPipeline
         // constant-sized while the map is zoomed and must not replace it.
         var mapScale = candidate.MatchScale;
         if (!double.IsFinite(mapScale)
-            || mapScale < SideEntranceScanRules.MinimumScale
-            || mapScale > SideEntranceScanRules.MaximumScale)
+            || mapScale < (ScanExecutionContext.Current?.Policy.MinimumScale ?? SideEntranceScanRules.MinimumScale)
+            || mapScale > (ScanExecutionContext.Current?.Policy.MaximumScale ?? SideEntranceScanRules.MaximumScale))
         {
             failureReason = "the side-gate scan produced an invalid map scale.";
             return false;
@@ -81,8 +81,8 @@ public sealed partial class SideEntranceScanPipeline
         // image edge; recomputing it from the anchor rectangle would shift the
         // provisional transform before structure alignment gets a chance to
         // refine it.
-        var referenceCenterX = profile.SideEntranceFeatureCenterX;
-        var referenceCenterY = profile.SideEntranceFeatureCenterY;
+        var referenceCenterX = candidate.ReferenceCenterX ?? profile.SideEntranceFeatureCenterX;
+        var referenceCenterY = candidate.ReferenceCenterY ?? profile.SideEntranceFeatureCenterY;
         if (!double.IsFinite(referenceCenterX)
             || referenceCenterX <= 0d
             || !double.IsFinite(referenceCenterY)
@@ -183,8 +183,8 @@ public sealed partial class SideEntranceScanPipeline
             return false;
         }
 
-        var referenceCenterX = profile.SideEntranceFeatureCenterX;
-        var referenceCenterY = profile.SideEntranceFeatureCenterY;
+        var referenceCenterX = candidate.ReferenceCenterX ?? profile.SideEntranceFeatureCenterX;
+        var referenceCenterY = candidate.ReferenceCenterY ?? profile.SideEntranceFeatureCenterY;
         if (!double.IsFinite(referenceCenterX)
             || !double.IsFinite(referenceCenterY)
             || referenceCenterX <= 0d
@@ -264,31 +264,7 @@ public sealed partial class SideEntranceScanPipeline
         return true;
     }
 
-    // 侧门扫描缩放边界已下沉到 SideEntranceScanRules（side_entrance.toml 的
-    // [side_entrance] 段 minimum_scale / maximum_scale），按分辨率预设可单独配置。
-    // 扫描网格密度（粗步长 / 精化档数）、粗降采样倍率、粗分数剪枝与跨地图
-    // 并行度均由 SideEntranceScanRules 提供，三个分辨率预设目录各自通过
-    // side_entrance.toml 覆盖（见 Infrastructure/Configuration/Presets）。
-
-    /// <summary>
-    /// 对捕获帧执行多尺度模板匹配，返回按得分降序排列的前 topK 候选。
-    /// 两阶段搜索：
-    /// <list type="number">
-    /// <item>粗搜索：在 1/<see cref="SideEntranceScanRules.CoarsePyramidFactor"/>
-    /// 降采样帧上对所有候选地图并行遍历缩放网格。降采样帧只计算一次、
-    /// 全部分享（原实现每张地图各降采样一次，29 张地图重复 29 次）。</item>
-    /// <item>精化：对所有通过粗分绝对下限的地图做全分辨率窗口细化；
-    /// topK 只限制最后交给调用方的线索数量，不参与身份召回剪枝。</item>
-    /// </list>
-    /// 粗搜索与精化均按 <see cref="SideEntranceScanRules.ScanParallelism"/> 并行。
-    /// </summary>
-    /// <param name="capturedFrame">捕获的游戏地图区域（灰度或彩色均可）。</param>
-    /// <param name="candidates">
-    ///   候选列表：(地图记录, 楼层键, 预处理特征模板 Mat)。
-    ///   调用方保持模板的生命周期管理。
-    /// </param>
-    /// <param name="topK">返回的最大候选数量，默认 5。</param>
-    /// <returns>按 MatchScore 降序排列的候选列表（长度 ≤ topK）。</returns>
+    /// <summary>Search full prebuilt contours using a frozen observation and door-constrained scale basins.</summary>
     public IReadOnlyList<SideEntranceScanCandidate> RunScan(
         Mat capturedFrame,
         IReadOnlyList<(MapRecord map, string floorKey, Mat featureTemplate)> candidates,

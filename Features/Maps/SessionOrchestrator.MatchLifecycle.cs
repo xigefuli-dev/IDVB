@@ -240,6 +240,9 @@ public sealed partial class SessionOrchestrator
                 MapLogLevel.Info,
                 $"进入对局 · version={match.Version} · class={match.MapClass}");
             StateChanged?.Invoke(this, EventArgs.Empty);
+
+            // 在进入对局时静默预热捕获会话，避免首次开图或扫描时冷启动 D3D11/WGC
+            _ = Task.Run(() => _captureSvc.PrepareViewportCapture());
         }
         finally
         {

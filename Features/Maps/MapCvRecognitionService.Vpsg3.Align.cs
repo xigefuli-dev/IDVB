@@ -128,7 +128,10 @@ public sealed partial class MapCvRecognitionService
         {
             (knownScaleSeed, var refreshPrior) = ResolveVpsgScaleLock(
                 frame, map, floorKey, knownScaleSeed);
-            using var observation = Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds);
+            var scanFrame = ScanExecutionContext.Current is { IsAutomatic: true } scan ? scan.Frame : null;
+            var sharedObservation = ReferenceEquals(scanFrame?.Source, frame.Image) ? scanFrame.Observation : null;
+            using var ownedObservation = sharedObservation is null ? Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds) : null;
+            var observation = sharedObservation ?? ownedObservation!;
             var result = Vpsg3FastBootstrapSolver.TrySolve(observation, lease.Floor, knownScaleSeed: knownScaleSeed);
             var refreshComparisonMs = 0d;
             var refreshScaleCount = result.TestedScaleHypotheses;
@@ -301,9 +304,8 @@ public sealed partial class MapCvRecognitionService
                 orientationDegrees: MapFloorRules.GetFloorProfile(map, floorKey)?.OrientationDegrees ?? 0,
                 alignmentMode: MapOverlayAlignmentMode.Uniform);
 
-            var chamferEstimate = precision?.After?.Loss
-                ?? precision?.Before?.Loss
-                ?? (2.0d * (1.0d - Math.Clamp(result.BestCandidate.K3Score, 0d, 1d)) + 1.0d);
+            var forwardMean = Vpsg3PrecisionRefiner.MeasureForwardMean(observation, lease.Floor, finalScale, finalX, finalY);
+            var chamferEstimate = forwardMean ?? double.PositiveInfinity;
 
             var coverage = (double)result.BestCandidate.Spatial.HitPoints / Math.Max(1, result.BestCandidate.Spatial.TotalValidPoints);
             var breakdown = new MapStructureConfidenceBreakdown
@@ -312,8 +314,9 @@ public sealed partial class MapCvRecognitionService
                 ChamferQuality = Math.Clamp(1.0d - (chamferEstimate / 3.0d), 0d, 1d),
                 EdgeCoverage = coverage,
                 OccupancyCoverage = result.BestCandidate.K5Score,
-                ReferenceCoverage = result.Confidence,
-                ProjectionCorrelation = result.BestCandidate.WeightedScore,
+                MeasuredForwardMeanPixels = forwardMean,
+                VpsgVoteScore = result.BestCandidate.WeightedScore,
+                PrecisionHuberLoss = precision?.After?.Loss ?? precision?.Before?.Loss,
                 ConsistentPartitions = result.PassedPartitions,
                 PartitionQuality = Math.Clamp(result.PassedPartitions / 4.0d, 0d, 1d),
                 StructureQuality = result.Confidence,
@@ -336,7 +339,7 @@ public sealed partial class MapCvRecognitionService
                 OccupancyCoverage = result.BestCandidate.K5Score,
                 ConsistentPartitions = result.PassedPartitions,
                 CompositeCost = result.BestCandidate.WeightedScore,
-                AppearanceCorrelation = result.Confidence
+                AppearanceCorrelation = 0d
             };
 
             var structureResult = new MapStructureRegistrationResult

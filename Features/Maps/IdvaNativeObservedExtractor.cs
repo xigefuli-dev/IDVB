@@ -334,14 +334,9 @@ public sealed class IdvaNativeObservedExtractor
 
     private static (Mat Support, Mat StrongEdges) StrongSourceEdgeSupport(Mat bgr)
     {
-        using var gray = new Mat();
-        Cv2.CvtColor(bgr, gray, ColorConversionCodes.BGR2GRAY);
-        var strong = new Mat();
-        Cv2.Canny(gray, strong, 80d, 180d, apertureSize: 3, L2gradient: true);
-        var support = new Mat();
-        using var k5 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
-        Cv2.Dilate(strong, support, k5);
-        return (support, strong);
+        using var scratch = new Vpsg3LiveExtractorScratch();
+        Vpsg3FastLiveExtractor.ComputeStrongSourceEdgeSupport(bgr, scratch);
+        return (scratch.Support.Clone(), scratch.CannyStrong.Clone());
     }
 
     private static Mat RemoveSmallComponents(Mat mask, int minArea, bool removeBorder = false)

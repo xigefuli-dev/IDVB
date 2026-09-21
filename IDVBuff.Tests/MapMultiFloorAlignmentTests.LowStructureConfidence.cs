@@ -35,8 +35,8 @@ public sealed partial class MapMultiFloorAlignmentTests
             observed.LockConfidence,
             differentGuideMapFill.LockConfidence,
             12);
-        Assert.Equal(0.9260039538839744d, observed.ReferenceCoverage, 12);
-        Assert.Equal(4.198827109693317d, observed.ReverseChamferPixels, 12);
+        Assert.Equal(0.9260039538839744d, Assert.IsType<double>(observed.ReferenceCoverage), 12);
+        Assert.Equal(4.198827109693317d, Assert.IsType<double>(observed.ReverseChamferPixels), 12);
     }
 
     [Fact]

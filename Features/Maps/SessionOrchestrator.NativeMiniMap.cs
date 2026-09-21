@@ -46,6 +46,11 @@ public sealed partial class SessionOrchestrator
                         Report("paused · reason=map_open_or_disabled");
                         continue;
                     }
+                    if (_activeScanOperations > 0)
+                    {
+                        Report("paused · reason=scan_active");
+                        continue;
+                    }
                     if (!Lifecycle.MainProgramPreferences.Load().EnhancedMiniMapEnabled)
                     {
                         Report("paused · reason=enhanced_minimap_disabled");

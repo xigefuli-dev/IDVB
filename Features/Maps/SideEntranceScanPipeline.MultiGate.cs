@@ -4,251 +4,78 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SideEntranceScanPipeline
 {
-    /// <summary>
-    /// Runs the side-feature scan against every detected gate. Each retained
-    /// match carries the gate that produced its constrained search. A map that
-    /// has no valid gate association gets one full-frame template-only rescue.
-    /// </summary>
-    public IReadOnlyList<SideEntranceScanCandidate> RunScan(
-        Mat capturedFrame,
+    public IReadOnlyList<SideEntranceScanCandidate> RunScan(Mat capturedFrame,
         IReadOnlyList<(MapRecord map, string floorKey, Mat featureTemplate)> candidates,
-        IReadOnlyList<GateDetection> detectedGates,
-        int topK = 5,
-        MapScreenRect? viewportBounds = null,
-        Action<double>? progress = null)
+        IReadOnlyList<GateDetection> detectedGates, int topK = 5,
+        MapScreenRect? viewportBounds = null, Action<double>? progress = null)
     {
-        ArgumentNullException.ThrowIfNull(capturedFrame);
-        ArgumentNullException.ThrowIfNull(candidates);
-        ArgumentNullException.ThrowIfNull(detectedGates);
-        if (capturedFrame.Empty() || candidates.Count == 0)
-            return [];
-        topK = Math.Max(1, topK);
-
-        using var maskedFrame = capturedFrame.Clone();
-        MaskDetectedGates(maskedFrame, detectedGates, viewportBounds);
-
-        // 每个门分支和最后的全帧补救分支各占一个真实工作单元。
-        var totalBranches = Math.Max(1, detectedGates.Count + 1);
-
-        var scanSw = System.Diagnostics.Stopwatch.StartNew();
-        var associated = new List<SideEntranceScanCandidate>();
-        for (var gateIndex = 0; gateIndex < detectedGates.Count; gateIndex++)
+        if (capturedFrame.Empty() || candidates.Count == 0 || detectedGates.Count == 0) return [];
+        var context = ScanExecutionContext.Current;
+        var policy = context?.Policy ?? ScanExecutionPolicy.For(ScanPerformanceMode.Balanced);
+        var viewport = viewportBounds ?? new MapScreenRect(0, 0, capturedFrame.Width, capturedFrame.Height);
+        // Authored anchor boxes can be larger than the detected icon. Freeze the union envelope
+        // over the legal scale range for ALL candidates before scoring any candidate. Masked
+        // reference pixels are neutral only inside this shared observation exclusion.
+        var maskWidth = 0d;
+        var maskHeight = 0d;
+        foreach (var (map, floorKey, _) in candidates)
         {
-            if (scanSw.ElapsedMilliseconds > SideEntranceScanRules.MaximumScanDurationMs)
-                break;
-            var gate = detectedGates[gateIndex];
-            if (!gate.ScreenBounds.IsValid)
-                continue;
-            MapLogCollector.Instance.Append(
-                MapLogCategory.GateDetection,
-                MapLogLevel.Info,
-                $"side gate branch started | gate={gateIndex}",
-                details: GateDetails(gate, gateIndex));
-            var branch = RunSingleGateScan(
-                maskedFrame,
-                candidates,
-                candidates.Count,
-                gate,
-                viewportBounds,
-                maskDetectedGate: false,
-                gateIndexForDiagnostics: gateIndex,
-                progress: value => progress?.Invoke((gateIndex + value) / totalBranches));
-            var returnedKeys = branch
-                .Select(candidate => (candidate.Map.Id, candidate.FloorKey))
-                .ToHashSet();
-            foreach (var input in candidates.Where(item =>
-                         !returnedKeys.Contains((item.map.Id, item.floorKey))))
-            {
-                var rejectedDetails = GateDetails(gate, gateIndex);
-                rejectedDetails["mapId"] = input.map.Id;
-                rejectedDetails["floor"] = input.floorKey;
-                rejectedDetails["rejectionReason"] =
-                    "no-eligible-gate-constrained-result";
-                MapLogCollector.Instance.Append(
-                    MapLogCategory.GateDetection,
-                    MapLogLevel.Info,
-                    $"side candidate/gate rejected | "
-                    + $"map={input.map.SequenceNumber}#{input.floorKey} | "
-                    + $"gate={gateIndex}",
-                    details: rejectedDetails);
-            }
-            foreach (var candidate in branch)
-            {
-                candidate.AssociatedGate = gate;
-                candidate.AssociatedGateIndex = gateIndex;
-                candidate.GateAssociationKind =
-                    SideEntranceGateAssociationKind.DetectedGate;
-                associated.Add(candidate);
-                MapLogCollector.Instance.Append(
-                    MapLogCategory.GateDetection,
-                    MapLogLevel.Info,
-                    $"side candidate/gate associated | "
-                    + $"map={candidate.Map.SequenceNumber}#{candidate.FloorKey} | "
-                    + $"gate={gateIndex} | residual={candidate.GateSpatialResidualPixels:F1}px",
-                    details: new()
-                    {
-                        ["mapId"] = candidate.Map.Id,
-                        ["floor"] = candidate.FloorKey,
-                        ["gateIndex"] = gateIndex,
-                        ["gateScore"] = gate.Score,
-                        ["templateSimilarity"] = candidate.MatchScore,
-                        ["gateSpatialResidualPixels"] =
-                            candidate.GateSpatialResidualPixels
-                    });
-            }
+            var profile = MapFloorRules.GetFloorProfile(map, floorKey);
+            var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey);
+            if (profile is null || anchor?.Bounds?.IsValid != true) continue;
+            maskWidth = Math.Max(maskWidth, anchor.Bounds.Width * profile.RecognitionPixelWidth * policy.MaximumScale);
+            maskHeight = Math.Max(maskHeight, anchor.Bounds.Height * profile.RecognitionPixelHeight * policy.MaximumScale);
         }
-
-        var results = associated
-            .GroupBy(candidate => (candidate.Map.Id, candidate.FloorKey))
-            .Select(group => group
-                .OrderBy(candidate => candidate.GateSpatialResidualPixels)
-                .ThenByDescending(candidate => candidate.MatchScore)
-                .First())
-            .ToList();
-
-        var associatedKeys = results
-            .Select(candidate => (candidate.Map.Id, candidate.FloorKey))
-            .ToHashSet();
-        // 只有当检测到的门没有任何候选在几何上契合（疑似门误检/假门），
-        // 或者根本没有检测出门时，才允许对剩余候选执行全帧无门补救搜索。
-        // 若已有候选与检测门高度吻合，则门已确认为真，门位置冲突的错图严禁捞回，
-        // 避免错图在全图盲搜撞出伪高分并抹平真实门候选的 Margin。
-        var shouldAttemptRescue = results.Count == 0
-            && scanSw.ElapsedMilliseconds <= SideEntranceScanRules.MaximumScanDurationMs;
-        var rescueInputs = shouldAttemptRescue
-            ? candidates
-                .Where(item => !associatedKeys.Contains((item.map.Id, item.floorKey)))
-                .ToList()
-            : [];
-        if (rescueInputs.Count > 0)
+        var frame = new ScanFrameEvidence(capturedFrame, viewport, detectedGates, policy, maskWidth, maskHeight);
+        if (context is not null)
         {
-            var rescued = RunSingleGateScan(
-                maskedFrame,
-                rescueInputs,
-                rescueInputs.Count,
-                detectedGate: null,
-                viewportBounds,
-                maskDetectedGate: false,
-                gateIndexForDiagnostics: null,
-                progress: value => progress?.Invoke((detectedGates.Count + value) / totalBranches));
-            foreach (var candidate in rescued)
-            {
-                candidate.AssociatedGate = null;
-                candidate.AssociatedGateIndex = -1;
-                candidate.GateSpatialResidualPixels = double.PositiveInfinity;
-                candidate.GateAssociationKind = detectedGates.Count > 0
-                    ? SideEntranceGateAssociationKind.TemplateOnlyRescue
-                    : SideEntranceGateAssociationKind.None;
-                results.Add(candidate);
-            }
+            context.SetFrame(frame);
+            context.EligibleIdentities = candidates.Select(c => (c.map.Id, c.floorKey)).Distinct().Count();
         }
-
-        // Independent gate branches cannot define each other's ranking. The
-        // final margin is calculated only after duplicate maps are collapsed.
-        results.Sort((left, right) => right.MatchScore.CompareTo(left.MatchScore));
-        for (var index = 0; index < results.Count; index++)
+        try
         {
-            var candidate = results[index];
-            var previousGap = index > 0
-                ? results[index - 1].MatchScore - candidate.MatchScore
-                : double.PositiveInfinity;
-            var nextGap = index + 1 < results.Count
-                ? candidate.MatchScore - results[index + 1].MatchScore
-                : double.PositiveInfinity;
-            candidate.TemplateMargin = results.Count == 1
-                ? candidate.MatchScore
-                : Math.Min(previousGap, nextGap);
-            candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
-            candidate.RejectionReason = SideEntranceRejectionReason.None;
-            candidate.RejectionDetail = string.Empty;
-            ClassifyTemplateEvidence(
-                candidate,
-                candidate.AssociatedGate,
-                viewportBounds);
-            MapLogCollector.Instance.Append(
-                MapLogCategory.GateDetection,
-                candidate.Disposition == SideEntranceCandidateDisposition.Rejected
-                    ? MapLogLevel.Warning
-                    : MapLogLevel.Info,
-                $"side candidate finalized | "
-                + $"map={candidate.Map.SequenceNumber}#{candidate.FloorKey} | "
-                + $"association={candidate.GateAssociationKind} | "
-                + $"reason={candidate.RejectionReason}",
-                details: new()
+            if (frame.SearchPoints.Length == 0) return [];
+            var found = new SideEntranceScanCandidate?[candidates.Count];
+            var completed = 0;
+            Parallel.For(0, candidates.Count, new ParallelOptions
+            { MaxDegreeOfParallelism = Math.Max(1, SideEntranceScanRules.ScanParallelism) }, i =>
+            {
+                if (context is { CanCompute: false }) { context.RetrievalCompleted = false; return; }
+                var (map, floor, line) = candidates[i];
+                var alternatives = new List<SideEntranceScanCandidate>();
+                for (var g = 0; g < detectedGates.Count; g++)
                 {
-                    ["mapId"] = candidate.Map.Id,
-                    ["floor"] = candidate.FloorKey,
-                    ["gateIndex"] = candidate.AssociatedGateIndex,
-                    ["gateAssociation"] =
-                        candidate.GateAssociationKind.ToString(),
-                    ["gateSpatialResidualPixels"] =
-                        candidate.GateSpatialResidualPixels,
-                    ["templateSimilarity"] = candidate.MatchScore,
-                    ["templateMargin"] = candidate.TemplateMargin,
-                    ["rejectionReason"] = candidate.RejectionReason.ToString()
-                });
+                    if (!detectedGates[g].ScreenBounds.IsValid) continue;
+                    alternatives.AddRange(SearchFloor(map, floor, line, frame, detectedGates[g], g, viewport, policy, context));
+                }
+                var best = alternatives.OrderByDescending(c => c.MatchScore).FirstOrDefault();
+                if (best is not null)
+                {
+                    best.SearchHypotheses = alternatives.OrderByDescending(c => c.MatchScore).ToArray();
+                    found[i] = best;
+                }
+                var finished = Interlocked.Increment(ref completed);
+                progress?.Invoke(finished / (double)candidates.Count);
+            });
+            var results = found.Where(c => c is not null).Select(c => c!).OrderByDescending(c => c.MatchScore).ToArray();
+            if (context is not null && (completed != candidates.Count || results.Length != context.EligibleIdentities
+                || topK < results.Length))
+                context.RetrievalCompleted = false;
+            for (var i = 0; i < results.Length; i++)
+                results[i].TemplateMargin = i + 1 < results.Length ? results[i].MatchScore - results[i + 1].MatchScore : 0;
+            return results.Take(Math.Max(1, topK)).ToArray();
         }
-
-        return results
-            .Where(candidate => candidate.Disposition !=
-                SideEntranceCandidateDisposition.Rejected)
-            .Take(topK)
-            .ToList();
+        finally { if (context is null) frame.Dispose(); }
     }
 
-    internal static void MaskDetectedGates(
-        Mat frame,
-        IReadOnlyList<GateDetection> detectedGates,
-        MapScreenRect? viewportBounds)
+    internal static void MaskDetectedGates(Mat frame, IReadOnlyList<GateDetection> gates, MapScreenRect? viewport)
     {
-        if (viewportBounds is not { IsValid: true } viewport
-            || detectedGates.Count == 0)
+        if (viewport is not { IsValid: true } bounds) return;
+        foreach (var gate in gates)
         {
-            return;
-        }
-
-        using var grayFrame = new Mat();
-        if (frame.Channels() == 1)
-            frame.CopyTo(grayFrame);
-        else
-            Cv2.CvtColor(frame, grayFrame, ColorConversionCodes.BGR2GRAY);
-        var mean = Cv2.Mean(grayFrame);
-        var bounds = new Rect(0, 0, frame.Width, frame.Height);
-        foreach (var gate in detectedGates)
-        {
-            if (!gate.ScreenBounds.IsValid)
-                continue;
-            var local = new Rect(
-                (int)Math.Floor(gate.ScreenBounds.X - viewport.X),
-                (int)Math.Floor(gate.ScreenBounds.Y - viewport.Y),
-                (int)Math.Ceiling(gate.ScreenBounds.Width),
-                (int)Math.Ceiling(gate.ScreenBounds.Height))
-                .Intersect(bounds);
-            if (local.Width <= 0 || local.Height <= 0)
-                continue;
-            var fill = frame.Channels() == 1
-                ? new Scalar(mean.Val0)
-                : new Scalar(mean.Val0, mean.Val0, mean.Val0);
-            Cv2.Rectangle(frame, local, fill, -1);
+            var rect = new Rect((int)(gate.ScreenBounds.X - bounds.X), (int)(gate.ScreenBounds.Y - bounds.Y),
+                (int)gate.ScreenBounds.Width, (int)gate.ScreenBounds.Height).Intersect(new Rect(0, 0, frame.Width, frame.Height));
+            if (rect.Width > 0 && rect.Height > 0) Cv2.Rectangle(frame, rect, Scalar.Black, -1);
         }
     }
-
-    private static Dictionary<string, object?> GateDetails(
-        GateDetection gate,
-        int gateIndex) => new()
-    {
-        ["gateIndex"] = gateIndex,
-        ["gateScore"] = gate.Score,
-        ["gateScale"] = gate.Scale,
-        ["gateBounds"] =
-            $"{gate.ScreenBounds.X:F1},{gate.ScreenBounds.Y:F1},"
-            + $"{gate.ScreenBounds.Width:F1},{gate.ScreenBounds.Height:F1}"
-    };
 }
-/*
- * 文件职责：SideEntranceScanPipeline.MultiGate。
- * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。
- * 设计说明：本文件承载一个相对独立的实现片段；它通过公开类型、方法或 partial 类型与同模块的其他文件协作，避免把完整地图流程集中在单个超大文件中。
- * 数据流：输入通常来自截图、识别结果、会话状态、配置或持久化缓存；输出应继续交给识别、对齐、渲染、日志或发布流程使用。调用方应遵守类型契约，并注意空值、超时、置信度和取消状态。
- * 维护约束：这里只补充说明，不改变业务逻辑。涉及楼层尺度时必须保持楼层之间完全独立；涉及 UI、窗口句柄或系统资源时应遵守生命周期与释放约定；调整算法时应同步检查相关规则、诊断和测试。
- */

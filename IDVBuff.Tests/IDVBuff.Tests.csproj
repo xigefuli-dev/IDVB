@@ -155,6 +155,7 @@
     <Compile Include="..\Features\Maps\MapCvRecognitionService.Alignment.cs" Link="Production\MapCvRecognitionService.Alignment.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.Alignment.Part*.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.Fingerprints.cs" Link="Production\MapCvRecognitionService.Fingerprints.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.ScanGates.cs" Link="Production\MapCvRecognitionService.ScanGates.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.SideEntranceTracking.cs" Link="Production\MapCvRecognitionService.SideEntranceTracking.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.cs" Link="Production\MapCvRecognitionService.LockedFloorFeature.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionService.LockedFloorFeature.Part*.cs" />
@@ -316,6 +317,8 @@
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.MultiGate.cs" Link="Production\SideEntranceScanPipeline.MultiGate.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
+    <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
+    <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.cs" Link="Production\IdvmPackageService.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.Part*.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.Reader.cs" Link="Production\IdvmPackageService.Reader.cs" />

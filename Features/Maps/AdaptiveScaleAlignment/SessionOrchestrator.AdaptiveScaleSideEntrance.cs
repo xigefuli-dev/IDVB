@@ -36,6 +36,7 @@ public sealed partial class SessionOrchestrator
             {
                 return scanTemplateAttempt;
             }
+            if (ScanExecutionContext.Current is { CanCompute: false }) return scanTemplateAttempt;
 
             // The mandatory template formal registration establishes the
             // candidate accounting. VPSG is a second, independent scale
@@ -43,7 +44,8 @@ public sealed partial class SessionOrchestrator
             var scanVpsgTuning = MapScaleSeedResolver
                 .CreateStrictVpsgValidationTuning(structureTuning);
             scanVpsgTuning.StructureFallbackBudgetMilliseconds =
-                MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds;
+                Math.Max(1, Math.Min(MapOpenAlignmentRouteRules.ScanVerificationVpsgBudgetMilliseconds,
+                    (ScanExecutionContext.Current?.RemainingMilliseconds ?? int.MaxValue) - 60));
             scanVpsgTuning.Normalize();
             _logCollector.Append(
                 MapLogCategory.StructureRegistration,

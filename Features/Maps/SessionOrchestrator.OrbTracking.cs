@@ -32,8 +32,12 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition recognition,
         CapturedGameFrame seedFrame)
     {
+        var scan = ScanExecutionContext.Current;
         CancelOrbTracking("alignment replaced");
         await DrainOrbTrackingAsync();
+        if (scan is not null && (scan.IsSuperseded || scan.CancellationToken.IsCancellationRequested
+            || scan.Expired || !ReferenceEquals(_lastRecognition, recognition)))
+            return;
         var floorKey = recognition.Result.Floor;
         var useVpsgTracking = _recognition.IsVpsg3Ready(recognition.Map, floorKey);
         if (!useVpsgTracking && _settings?.EnableContinuousAlignment != true)
@@ -76,6 +80,9 @@ public sealed partial class SessionOrchestrator
         lock (_orbTrackingGate)
         {
             _orbTrackingCancellation = linked;
+            // Tracking owns a new lifecycle. It must not inherit the completed scan's
+            // deadline or its soon-to-be-disposed observation through Task.Run.
+            using var suppressScan = ScanExecutionContext.Suppress();
             _orbTrackingTask = useVpsgTracking
                 ? Task.Run(
                     () => RunVpsg3_5TrackingLoopAsync(

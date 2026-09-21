@@ -11,6 +11,37 @@ namespace IDVBuff.Views;
 /// <summary>Runtime control center for scanning, manual recognition, and overlay state.</summary>
 public sealed partial class MapStatusPage : UserControl
 {
+    private readonly ScanModeSelector _scanModeSelector = new();
+    private bool _savingScanMode;
+    private ScanPerformanceMode? _requestedScanMode;
+    private void AttachScanModeSelector()
+    {
+        if (_root?.Children[1] is not StackPanel content) return;
+        content.Children.Insert(content.Children.IndexOf(_enabledToggle) + 1, _scanModeSelector);
+        _scanModeSelector.ModeChanged += async mode =>
+        {
+            if (_refreshing) return;
+            _requestedScanMode = mode;
+            if (_savingScanMode) return;
+            _savingScanMode = true;
+            try
+            {
+                // Keep pointer capture while dragging; serialize saves and retain the last
+                // requested position if another value arrives while storage is pending.
+                while (_requestedScanMode is { } requested)
+                {
+                    _requestedScanMode = null;
+                    try { await _runtime.SetScanPerformanceModeAsync(requested); }
+                    catch (Exception exception) { _status.Text = $"扫描模式保存失败：{exception.Message}"; }
+                }
+            }
+            finally
+            {
+                _savingScanMode = false;
+                _scanModeSelector.SetMode(_runtime.Settings.ScanPerformanceMode, _runtime.Settings.SelectMapByTagsEnabled);
+            }
+        };
+    }
     internal event Action<bool>? DisplayPreviewVisibilityChanged;
     internal event Action<OverlaySkeletonPreviewState>? DisplayPreviewChanged;
 
@@ -32,6 +63,7 @@ public sealed partial class MapStatusPage : UserControl
             AttachDiagnosticModeToggle();
             AttachMapLearningPanel();
             ApplySimplifiedOptions();
+            AttachScanModeSelector();
             _viewBuilt = true;
         }
         catch (Exception exception)

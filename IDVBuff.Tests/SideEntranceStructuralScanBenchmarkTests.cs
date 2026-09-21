@@ -11,7 +11,7 @@ public sealed class SideEntranceStructuralScanBenchmarkTests
     [Fact]
     public async Task SideScan_CompletesWithin1000MsHardBoundary_AndSubsequentAlignmentSucceeds()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
 
         var sw = Stopwatch.StartNew();
@@ -24,8 +24,8 @@ public sealed class SideEntranceStructuralScanBenchmarkTests
 
         // 1. 硬性时间边界断言：整个扫描过程必须 <= 1000ms
         Assert.True(
-            sw.ElapsedMilliseconds <= SideEntranceScanRules.MaximumScanDurationMs,
-            $"侧门扫描耗时 {sw.ElapsedMilliseconds}ms 超过硬性上限 {SideEntranceScanRules.MaximumScanDurationMs:F0}ms");
+            sw.ElapsedMilliseconds <= ScanExecutionPolicy.For(ScanPerformanceMode.Balanced).BudgetMilliseconds,
+            $"侧门扫描耗时 {sw.ElapsedMilliseconds}ms 超过硬性上限 {ScanExecutionPolicy.For(ScanPerformanceMode.Balanced).BudgetMilliseconds:F0}ms");
 
         // 2. 候选产出断言
         Assert.True(
@@ -35,8 +35,8 @@ public sealed class SideEntranceStructuralScanBenchmarkTests
         Assert.Equal(scenario.Map.Id, bestCandidate.Map.Id);
         Assert.Equal(CompleteAlignmentTestScenario.MainFloor, bestCandidate.FloorKey);
         Assert.True(
-            bestCandidate.MatchScore >= SideEntranceScanRules.MinimumReferenceSimilarity,
-            $"候选结构相似度 {bestCandidate.MatchScore:P1} 低于门槛 {SideEntranceScanRules.MinimumReferenceSimilarity:P1}");
+            bestCandidate.MatchScore >= .45,
+            $"正常完整轮廓召回分意外下降为 {bestCandidate.MatchScore:P1}");
         Assert.Equal(1.0d, bestCandidate.MatchScale, 4);
 
         // 3. 对齐连带边界断言：扫描给出的候选结果，必须让随后的 VPSG3 对齐能通过

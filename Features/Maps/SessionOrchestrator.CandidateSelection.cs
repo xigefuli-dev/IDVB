@@ -24,6 +24,8 @@ public sealed partial class SessionOrchestrator
         MapManualCandidateWindow.CandidateLivePreviewAssets? preloadedLivePreview = null,
         MapLearningScoreResult? precomputedLearningResult = null)
     {
+        var selectionExecution = ScanExecutionContext.Current;
+        Action? onPresented = selectionExecution is null ? null : () => FinishScanExecution(selectionExecution);
         var scopedCandidates = candidates
             .Where(candidate => string.Equals(
                 candidate.Recognition.Map.Class,
@@ -37,6 +39,16 @@ public sealed partial class SessionOrchestrator
                 .ThenByDescending(candidate => candidate.RawConfidence)
                 .ToArray()
             : scopedCandidates;
+        if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+            return new CandidateSelectionResolution(null, false);
+        // An unresolved automatic scan has already failed the shared identity decision.
+        // Headless presentation must not turn its first geometrically plausible choice into a lock.
+        if (_headless && _activeCandidateSelector is null && ScanExecutionContext.Current is not null)
+        {
+            _lastCandidateChoices = orderedCandidates;
+            _statusMessage = "地图身份未确定；已保留候选，等待明确选择。";
+            return new CandidateSelectionResolution(null, false);
+        }
         if (_settings?.CandidateDecisionMode
                 is MapCandidateDecisionMode.Fusion
                     or MapCandidateDecisionMode.ModelOnly
@@ -75,6 +87,8 @@ public sealed partial class SessionOrchestrator
             candidates,
             orderedCandidates,
             preloadedChoicePreviews);
+        if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+            return new CandidateSelectionResolution(null, false);
         _lastCandidateChoices = orderedCandidates;
         RememberMapLearningContext(frame, orderedCandidates, mapClass);
         if (CanAcceptModelTopOne(learningResult, orderedCandidates))
@@ -139,16 +153,55 @@ public sealed partial class SessionOrchestrator
                     orderedCandidates,
                     mapClass);
             _lastCandidateChoices = displayChoices;
-            var decision = await MapManualCandidateWindow.ShowAsync(
-                frame,
-                displayChoices,
-                reason,
-                cancellationToken,
-                _captureProtection,
-                _mapRepository,
-                frame.ViewportBounds,
-                orderedPreviews,
-                preloadedLivePreview);
+            if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+                return new CandidateSelectionResolution(null, false);
+            MapCandidateDecision decision;
+            if (_dispatcher.HasThreadAccess)
+            {
+                decision = await MapManualCandidateWindow.ShowAsync(
+                    frame,
+                    displayChoices,
+                    reason,
+                    cancellationToken,
+                    _captureProtection,
+                    _mapRepository,
+                    frame.ViewportBounds,
+                    orderedPreviews,
+                    preloadedLivePreview,
+                    onPresented: onPresented);
+            }
+            else
+            {
+                var tcs = new TaskCompletionSource<MapCandidateDecision>();
+                if (!_dispatcher.TryEnqueue(async () =>
+                {
+                    try
+                    {
+                        var res = await MapManualCandidateWindow.ShowAsync(
+                            frame,
+                            displayChoices,
+                            reason,
+                            cancellationToken,
+                            _captureProtection,
+                            _mapRepository,
+                            frame.ViewportBounds,
+                            orderedPreviews,
+                            preloadedLivePreview,
+                            onPresented: onPresented);
+                        tcs.TrySetResult(res);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }))
+                {
+                    return new CandidateSelectionResolution(null, false);
+                }
+                decision = await tcs.Task;
+            }
+            if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+                return new CandidateSelectionResolution(null, false);
             if (decision.Kind == MapCandidateDecisionKind.StartSurvey)
                 return new CandidateSelectionResolution(null, true);
             if (decision.Kind != MapCandidateDecisionKind.SelectKnownMap
@@ -187,9 +240,15 @@ public sealed partial class SessionOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _statusMessage = "候选地图选择被取消。";
+            if (ScanExecutionContext.Current is not { IsSuperseded: true })
+                _statusMessage = "候选地图选择被取消。";
             return new CandidateSelectionResolution(null, false);
         }
+    }
+
+    private void CompleteCandidatePresentation()
+    {
+        if (ScanExecutionContext.Current is { } scan) FinishScanExecution(scan);
     }
 
     private static IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>?
@@ -238,11 +297,14 @@ public sealed partial class SessionOrchestrator
         if (selector is null)
             return new CandidateSelectionResolution(null, false);
 
+        CompleteCandidatePresentation();
         var decision = await selector.SelectAsync(
             frame,
             candidates,
             reason,
             cancellationToken);
+        if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+            return new CandidateSelectionResolution(null, false);
         if (decision.Kind == MapCandidateDecisionKind.StartSurvey)
             return new CandidateSelectionResolution(null, true);
         if (decision.Kind != MapCandidateDecisionKind.SelectKnownMap
@@ -285,7 +347,8 @@ public sealed partial class SessionOrchestrator
         MapLearningScoreResult result,
         IReadOnlyList<MapRecognitionChoice> choices)
     {
-        if (_settings?.RecognitionTuning.ForceCandidateSelection is not false
+        if (ScanExecutionContext.Current is not null
+            || _settings?.RecognitionTuning.ForceCandidateSelection is not false
             || _settings.CandidateDecisionMode
                 == MapCandidateDecisionMode.Traditional
             || !result.ModelAvailable

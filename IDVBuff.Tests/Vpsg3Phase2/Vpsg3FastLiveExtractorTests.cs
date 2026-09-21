@@ -18,7 +18,7 @@ public sealed class Vpsg3FastLiveExtractorTests
     }
 
     [Fact]
-    public void DifferentialTest_MatchesA4PrototypePixelPerfect()
+    public void DifferentialTest_PreservesStrongProposalsAndAddsWeakObservedWalls()
     {
         var dataset = Vpsg3Phase0DatasetGenerator.GenerateDataset();
         try
@@ -35,9 +35,9 @@ public sealed class Vpsg3FastLiveExtractorTests
                 // 2. Run Phase 2 production Vpsg3FastLiveExtractor
                 using var obs = Vpsg3FastLiveExtractor.Extract(sample.LiveImage, sample.ViewportBounds);
 
-                // 3. Pixel-level comparison of ObservedEdges
+                // Strong proposal geometry remains stable when weak walls are added to final observations.
                 using var diff = new Mat();
-                Cv2.Absdiff(a4Result.Edges, obs.ObservedEdges, diff);
+                Cv2.Absdiff(a4Result.Edges, obs.ProposalEdges, diff);
                 var diffCount = Cv2.CountNonZero(diff);
 
                 if (diffCount > 0)
@@ -46,6 +46,8 @@ public sealed class Vpsg3FastLiveExtractorTests
                 }
 
                 Assert.Equal(0, diffCount);
+                Cv2.Subtract(a4Result.Edges, obs.ObservedEdges, diff);
+                Assert.Equal(0, Cv2.CountNonZero(diff)); // Never lose an existing strong wall.
             }
 
             Assert.True(evaluated > 0);

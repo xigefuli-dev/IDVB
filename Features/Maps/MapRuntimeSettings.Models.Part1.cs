@@ -7,6 +7,8 @@ public sealed partial class MapRuntimeSettings
 
     public void Normalize()
     {
+        if (!Enum.IsDefined(ScanPerformanceMode)) ScanPerformanceMode = ScanPerformanceMode.Balanced;
+        if (!Enum.IsDefined(ScanUncertainAction)) ScanUncertainAction = ScanUncertainAction.ShowCandidates;
         var previousSchema = SchemaVersion;
         SchemaVersion = CurrentSchemaVersion;
         // These are deliberately product-owned choices, rather than user

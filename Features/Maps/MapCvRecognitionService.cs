@@ -128,7 +128,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
             revision = _repository.GetCatalogRevision();
             if (_cacheInitialized && revision == _catalogRevision)
                 return;
-            var maps = await _repository.GetMapsAsync();
+            var catalog = await _repository.GetCatalogSnapshotAsync();
+            var maps = catalog.Maps;
             await _repository.EnsureDerivedAssetsAsync(maps);
 
             var cacheDispatch = MapOperationTraceAmbient.StartChild(
@@ -196,6 +197,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
             TotalMapCount = cache.Maps.Count;
             _maps = cache.Maps;
+            ScanVariantGroups = catalog.VariantGroups.Select(g => g.MapIds.ToArray()).ToArray();
             _fingerprints = cache.Fingerprints;
             _catalogRevision = _repository.GetCatalogRevision();
             _cacheInitialized = true;

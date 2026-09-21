@@ -96,8 +96,12 @@ internal sealed class GameOverlayProgressBar : IDisposable
             if (!completing)
             {
                 await PhaseAsync(version, 0, 1, 0.42, 0);
-                while (Current(version, out var isCompleting) && !isCompleting) { Paint(1, 0); await Task.Delay(FrameMs); }
-                if (!Current(version, out _)) return;
+                while (Current(version, out var isCompleting) && !isCompleting)
+                {
+                    Paint(1, 0);
+                    await Task.Delay(FrameMs);
+                }
+                return;
             }
             await PhaseAsync(version, 1, 1, 0.7, 1);
             await HoldAsync(version, 1.8, 1);

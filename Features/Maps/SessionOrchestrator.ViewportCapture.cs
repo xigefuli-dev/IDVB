@@ -51,7 +51,6 @@ public sealed partial class SessionOrchestrator
         bool prepareVpsg3Structure = false,
         AutoFloorCapture? autoFloor = null)
     {
-        _captureSvc.PrepareViewportCapture();
         var sessionTuning = _settings!.SessionTuning;
         if (_captureSvc.TryGetForegroundClientBounds(
                 out var presetBounds,
@@ -101,6 +100,10 @@ public sealed partial class SessionOrchestrator
         }
 
         var requiredFrames = Math.Max(2, sessionTuning.StableFrameCount);
+        // Fast mode uses two consecutive stable observations; the same full-frame identity
+        // validator remains mandatory. Other modes retain the configured stability sequence.
+        if (ScanExecutionContext.Current is { IsAutomatic: true, Policy.Mode: ScanPerformanceMode.Fast })
+            requiredFrames = 2;
         var maximumDifference = sessionTuning.StableFrameDifference;
         var timeout = surveyTuning is null
             ? Math.Max(
@@ -122,6 +125,7 @@ public sealed partial class SessionOrchestrator
         {
             while (!_disposed
                 && !cancellationToken.IsCancellationRequested
+                && ScanExecutionContext.Current is not { CanCompute: false }
                 && stopwatch.ElapsedMilliseconds <= timeout)
             {
                 attempts++;
@@ -244,7 +248,9 @@ public sealed partial class SessionOrchestrator
                         attemptIndex: attempts);
                     try
                     {
-                        await Task.Delay(interval, cancellationToken);
+                        await Task.Delay(Math.Min(interval,
+                            ScanExecutionContext.Current is { IsAutomatic: true } scan
+                                ? Math.Max(1, scan.RemainingMilliseconds - 60) : interval), cancellationToken);
                     }
                     finally
                     {

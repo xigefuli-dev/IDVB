@@ -251,7 +251,7 @@ public sealed partial class BackgroundScanTests
     }
 
     [Fact]
-    public void AllTemplateCandidatesReceiveMandatoryFormalStructureRegistration()
+    public void AllCandidatesReceiveIdentityVerificationBeforeAutomaticSelection()
     {
         var repoRoot = FindRepositoryRoot();
         var mainSource = File.ReadAllText(Path.Combine(repoRoot, "Features", "Maps", "SessionOrchestrator.Pipeline.InitialRecognition.SideEntrance.cs"));
@@ -266,9 +266,10 @@ public sealed partial class BackgroundScanTests
 
         Assert.True(verificationCallIndex >= 0);
         Assert.True(backgroundCompletionIndex > verificationCallIndex);
-        Assert.Contains("var verificationCandidates = candidates;", verificationSource);
+        Assert.Contains("foreach (var candidate in candidates)", verificationSource);
+        Assert.Contains("ScanIdentityVerifier.Verify(", verificationSource);
+        Assert.Contains("ScanIdentityVerifier.SelectIdentity(", mainSource);
         Assert.Contains("RunMandatoryCandidateStructureRegistration(", verificationSource);
-        Assert.Contains("CreateIndependentCandidateStructureSeed(", verificationSource);
         Assert.DoesNotContain("ScanVerificationMinimumCandidateBudgetMilliseconds", verificationSource);
         Assert.DoesNotContain("SelectVerificationCandidates", verificationSource);
         Assert.DoesNotContain(

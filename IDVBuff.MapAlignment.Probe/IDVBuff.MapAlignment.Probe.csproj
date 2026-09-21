@@ -106,9 +106,12 @@
     <Compile Include="..\Features\Maps\SideEntranceFeaturePreprocessor.cs" Link="Production\SideEntranceFeaturePreprocessor.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.cs" Link="Production\SideEntranceScanPipeline.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Part*.cs" />
+    <Compile Include="..\Features\Maps\SideEntranceScanPipeline.MultiGate.cs" Link="Production\SideEntranceScanPipeline.MultiGate.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Evidence.cs" Link="Production\SideEntranceScanPipeline.Evidence.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
+    <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
+    <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorCaptureService.cs" Link="Production\FloorIndicatorCaptureService.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.cs" Link="Production\FloorIndicatorRecognizer.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.Processing.cs" Link="Production\FloorIndicatorRecognizer.Processing.cs" />

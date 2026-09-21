@@ -5,11 +5,13 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 18;
+    public const int CurrentSchemaVersion = 19;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public bool IsEnabled { get; set; }
+    public ScanPerformanceMode ScanPerformanceMode { get; set; } = ScanPerformanceMode.Balanced;
+    public ScanUncertainAction ScanUncertainAction { get; set; } = ScanUncertainAction.ShowCandidates;
     /// <summary>首次扫描策略：默认双门对齐，可切换为侧门扫描。</summary>
     public FirstScanStrategy FirstScanStrategy { get; set; } = FirstScanStrategy.SideEntrance;
     /// <summary>
@@ -302,6 +304,8 @@ public sealed partial class MapRuntimeSettings
     {
         SchemaVersion = SchemaVersion,
         IsEnabled = IsEnabled,
+        ScanPerformanceMode = ScanPerformanceMode,
+        ScanUncertainAction = ScanUncertainAction,
         FirstScanStrategy = FirstScanStrategy,
         BackgroundScanEnabled = BackgroundScanEnabled,
         SilentScanEnabled = SilentScanEnabled,

@@ -6,13 +6,16 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed record MapStructureConfidenceBreakdown
 {
+    public double? VpsgVoteScore { get; init; }
+    public double? PrecisionHuberLoss { get; init; }
+    public double? MeasuredForwardMeanPixels { get; init; }
     public double ChamferPixels { get; init; }
     public double ChamferQuality { get; init; }
-    public double ReverseChamferPixels { get; init; }
+    public double? ReverseChamferPixels { get; init; }
     public double EdgeCoverage { get; init; }
     public double OccupancyCoverage { get; init; }
-    public double ReferenceCoverage { get; init; }
-    public double ProjectionCorrelation { get; init; }
+    public double? ReferenceCoverage { get; init; }
+    public double? ProjectionCorrelation { get; init; }
     public int ConsistentPartitions { get; init; }
     public double PartitionQuality { get; init; }
     public double StructureQuality { get; init; }
@@ -151,7 +154,7 @@ public static class MapStructureConfidenceCalculator
             // transform from geometric evidence that is meaningful across the
             // two renderings: live-edge fit, covered reference silhouette,
             // Chamfer residual, spatial partitions, uniqueness and prior.
-            var referenceCoverage = Math.Clamp(best.ReferenceCoverage, 0d, 1d);
+            var referenceCoverage = Math.Clamp(best.ReferenceCoverage ?? 0d, 0d, 1d);
             var lowStructureGeometry = Math.Clamp(
                 ((best.EdgeCoverage * 0.30d)
                     + (referenceCoverage * 0.30d)

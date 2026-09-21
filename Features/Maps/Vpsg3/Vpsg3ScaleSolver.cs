@@ -45,7 +45,7 @@ public static class Vpsg3ScaleSolver
                 $"ObservationEdgePixelsBelowThreshold: {observation.EdgePixelCount} < {cfg.MinEdgePixels}");
         }
 
-        var edges = observation.ObservedEdges;
+        var edges = observation.ProposalEdges;
         var width = edges.Width;
         var height = edges.Height;
         sc.EnsureScaleCapacity(width, height);

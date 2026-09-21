@@ -7,6 +7,7 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCvRecognitionService
 {
+    internal IReadOnlyList<Guid[]> ScanVariantGroups { get; private set; } = [];
     public bool RequiresSingleFeatureScan(string? mapClass) => _maps
         .Where(map => string.IsNullOrWhiteSpace(mapClass)
             || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
@@ -187,7 +188,7 @@ public sealed partial class MapCvRecognitionService
         using var gateDetection = MapOperationTraceAmbient.StartChild(
             "side_gate_detection",
             MapOperationWaitKind.Compute);
-        var gateResult = _gateDetector.Detect(
+        var gateResult = DetectScanGates(
             liveMatchImage,
             frame.ViewportBounds,
             frame.ClientBounds.Width,
@@ -195,6 +196,8 @@ public sealed partial class MapCvRecognitionService
             new GateSearchContext
             {
                 Mode = GateSearchMode.FullSearch,
+                TimeBudgetMilliseconds = ScanExecutionContext.Current is { IsAutomatic: true } scan
+                    ? Math.Max(1, scan.RemainingMilliseconds - 60) : null,
                 AllowDualGateEarlyExit = false,
                 AllowSingleGateEarlyExit = false,
                 SingleGateScoreThreshold =
@@ -203,6 +206,9 @@ public sealed partial class MapCvRecognitionService
                 AmbiguityScoreGap = GateTemplateRules.SingleGateAmbiguityGap
             });
         gateDetection.Complete();
+        if (gateResult.StopReason == GateSearchStopReason.BudgetExceeded
+            && ScanExecutionContext.Current is { } incompleteScan)
+            incompleteScan.RetrievalCompleted = false;
         progress?.Invoke(0.12d);
 
         if (gateResult.Gates.Count == 0)
@@ -222,10 +228,7 @@ public sealed partial class MapCvRecognitionService
         repositoryRead.Complete();
         var eligibleMapCount = _maps.Count(map =>
             (string.IsNullOrWhiteSpace(mapClass)
-                || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
-            && MapScanFloorRules.GetScanFeatureAnchor(
-                map,
-                MapScanFloorRules.ResolveScanFloorKey(map))?.IsMarked is true);
+                || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase)));
         var candidates = _sideEntrancePipeline.RunScan(
             frame.Image,
             inputs,

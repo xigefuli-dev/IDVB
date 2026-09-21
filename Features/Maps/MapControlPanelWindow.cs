@@ -442,19 +442,14 @@ public sealed partial class MapControlPanelWindow : IDisposable
                 _messageText.Text = "主设置未允许进入测绘模式，只能开始正常对局。";
                 return;
             }
-            if (startSurvey)
-            {
-                // Survey activation captures immediately. The control panel is
-                // currently foreground, so return focus to dwrg.exe first.
-                Hide();
-            }
+
+            // 无论测绘还是正常对局，点击开始后立即隐藏面板并将前台焦点还给游戏
+            Hide();
 
             var begin = startSurvey
                 ? _beginSurveyMatch
                 : _beginMatch;
             await begin(mapClass);
-            if (!startSurvey)
-                Hide();
         }
         catch (Exception exception)
         {

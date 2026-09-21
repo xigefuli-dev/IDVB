@@ -24,7 +24,8 @@ public readonly record struct Vpsg3SparseSamplingDiagnostics(
     int TopLeftCount,
     int TopRightCount,
     int BottomLeftCount,
-    int BottomRightCount);
+    int BottomRightCount,
+    int ProposalEdgePixelCount);
 
 /// <summary>
 /// Immutable, self-contained live geometry observation extracted from a game frame.
@@ -34,6 +35,9 @@ public sealed class Vpsg3LiveObservation : IDisposable
 {
     private Mat? _observedEdges;
     private Mat? _validMask;
+    private Mat? _proposalEdges;
+    /// <summary>Strong semantic contours for scale proposals; all observed edges still participate in final distance verification.</summary>
+    public Mat ProposalEdges => _proposalEdges ?? ObservedEdges;
     private int _disposed;
 
     /// <summary>Single-channel 8-bit binary image of observed structural edges (255=edge, 0=background).</summary>
@@ -78,7 +82,7 @@ public sealed class Vpsg3LiveObservation : IDisposable
             {
                 if (_sparseEdgePoints is null)
                 {
-                    _sparseEdgePoints = SampleSparseEdgePointsFast(_observedEdges!, EdgePixelCount, _maxSparsePoints);
+                    _sparseEdgePoints = SampleSparseEdgePointsFast(ProposalEdges, Cv2.CountNonZero(ProposalEdges), _maxSparsePoints);
                 }
                 return _sparseEdgePoints;
             }
@@ -106,9 +110,9 @@ public sealed class Vpsg3LiveObservation : IDisposable
             EdgePixelCount,
             _maxSparsePoints,
             points.Count,
-            points.Count == 0 ? 0d : (double)EdgePixelCount / points.Count,
+            points.Count == 0 ? 0d : (double)Cv2.CountNonZero(ProposalEdges) / points.Count,
             hash.ToString("X16"),
-            quadrants[0], quadrants[1], quadrants[2], quadrants[3]);
+            quadrants[0], quadrants[1], quadrants[2], quadrants[3], Cv2.CountNonZero(ProposalEdges));
     }
 
     /// <summary>Total extraction time in milliseconds.</summary>
@@ -126,10 +130,12 @@ public sealed class Vpsg3LiveObservation : IDisposable
         MapScreenRect viewportBounds,
         int maxSparsePoints = 150,
         Point[]? sparseEdgePoints = null,
-        double extractionMilliseconds = 0)
+        double extractionMilliseconds = 0,
+        Mat? proposalEdges = null)
     {
         _observedEdges = observedEdges ?? throw new ArgumentNullException(nameof(observedEdges));
         _validMask = validMask ?? throw new ArgumentNullException(nameof(validMask));
+        _proposalEdges = proposalEdges;
         Width = width;
         Height = height;
         EdgePixelCount = edgePixelCount;
@@ -173,6 +179,8 @@ public sealed class Vpsg3LiveObservation : IDisposable
             _observedEdges = null;
             _validMask?.Dispose();
             _validMask = null;
+            _proposalEdges?.Dispose();
+            _proposalEdges = null;
         }
     }
 }

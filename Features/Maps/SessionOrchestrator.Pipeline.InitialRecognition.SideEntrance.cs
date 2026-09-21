@@ -120,115 +120,21 @@ public sealed partial class SessionOrchestrator
             initialPostProcess.Complete();
             initialPostProcess = null;
 
-            if (sideSw.ElapsedMilliseconds > SideEntranceScanRules.MaximumScanDurationMs)
+            var reliable = VerifySideEntranceCandidates(frame, candidates, sideAlignmentTuning, sideTimings);
+            var context = ScanExecutionContext.Current;
+            var selectedId = ScanIdentityVerifier.SelectIdentity(candidates,
+                context?.RetrievalCompleted == true && candidates.Count == sideScan.EligibleMapCount,
+                context?.CanCompute == true);
+            var choices = BuildScanVerificationChoices(reliable, candidates, frame,
+                requireStrictStructureRegistration, out _);
+            if (selectedId is null)
             {
-                failureReason =
-                    $"识别失败：侧门扫描耗时 {sideSw.ElapsedMilliseconds}ms 超过硬性上限 {SideEntranceScanRules.MaximumScanDurationMs:F0}ms";
-                _logCollector.Append(
-                    MapLogCategory.ScanLifecycle,
-                    MapLogLevel.Warning,
-                    failureReason);
-                return;
-            }
-
-            var reliable = VerifySideEntranceCandidates(
-                frame,
-                candidates,
-                sideAlignmentTuning,
-                sideTimings);
-
-            // The ordinary first-accepted shortcut cannot prove uniqueness.
-            // Silent scanning has no user confirmation, so incomplete coverage
-            // must never become a locked map identity.
-            if (_silentScanActive
-                && (_lastDiagnostics?.ScanVerifiedCandidateCount != candidates.Count
-                    || _lastDiagnostics.ScanEarlyExited
-                    || _lastDiagnostics.ScanVerificationTimedOut))
-            {
-                failureReason = "静默扫描未完整评估全部候选，结果已丢弃。";
-                _logCollector.Append(
-                    MapLogCategory.ScanLifecycle,
-                    MapLogLevel.Info,
-                    failureReason,
-                    details: new()
-                    {
-                        ["candidateCount"] = candidates.Count,
-                        ["verifiedCount"] = _lastDiagnostics?.ScanVerifiedCandidateCount,
-                        ["earlyExited"] = _lastDiagnostics?.ScanEarlyExited,
-                        ["timedOut"] = _lastDiagnostics?.ScanVerificationTimedOut
-                    });
-                return;
-            }
-
-            if (sideSw.ElapsedMilliseconds > SideEntranceScanRules.MaximumScanDurationMs)
-            {
-                failureReason =
-                    $"识别失败：侧门扫描及结构复核总耗时 {sideSw.ElapsedMilliseconds}ms 超过硬性上限 {SideEntranceScanRules.MaximumScanDurationMs:F0}ms";
-                _logCollector.Append(
-                    MapLogCategory.ScanLifecycle,
-                    MapLogLevel.Warning,
-                    failureReason);
-                return;
-            }
-
-            var orderedReliable = SideEntranceCandidateEvidence.OrderVerified(
-                    reliable,
-                    item => item.Candidate)
-                .ToArray();
-            var choices = BuildScanVerificationChoices(
-                orderedReliable,
-                candidates,
-                frame,
-                requireStrictStructureRegistration,
-                out var referenceCandidates);
-
-            if (reliable.Count == 0)
-            {
-                failureReason = $"识别失败：侧门候选均未通过结构配准验证（侧门就绪 {sideScan.ReadyMapCount}/{sideScan.EligibleMapCount}）";
-                _logCollector.Append(
-                    MapLogCategory.ScanLifecycle,
-                    MapLogLevel.Warning,
-                    failureReason);
                 pendingChoices = choices;
-                pendingChoicesReason = failureReason;
+                pendingChoicesReason = "地图尚未确定：当前类别中仍有未排除的竞争结果，或可见结构证据不足。";
+                failureReason = pendingChoicesReason;
                 return;
             }
-
-            // Ambiguity is a valid empty-recognition outcome. Never promote
-            // the highest template maximum merely to fill the chooser.
-            if (reliable.Count != 1
-                || (!_silentScanActive
-                    && (_settings.RecognitionTuning.ForceCandidateSelection
-                        || _settings.CandidateDecisionMode
-                            != MapCandidateDecisionMode.Traditional)))
-            {
-                var candidateRouteReason = reliable.Count != 1
-                    ? (reliable.Count == 0 ? "无可靠验证候选" : $"存在多个可靠验证候选 (count={reliable.Count})")
-                    : _settings.RecognitionTuning.ForceCandidateSelection
-                    ? "已启用「强制进入候选界面 (ForceCandidateSelection)」配置"
-                    : $"决策模式非传统模式 (mode={_settings.CandidateDecisionMode})";
-
-                _logCollector.Append(
-                    MapLogCategory.Session,
-                    MapLogLevel.Info,
-                    $"侧门扫描进入候选选择链路 · reason={candidateRouteReason} · reliableCount={reliable.Count}");
-
-                pendingChoices = choices;
-                pendingChoicesReason = !requireStrictStructureRegistration
-                    ? $"扫描阶段未执行严格结构配准；以下 {referenceCandidates.Length} 项按模板相似度排序，选择后再执行结构对齐。"
-                    : reliable.Count == 0
-                    ? $"0 个已验证结果；以下 {referenceCandidates.Length} 项仅供参考，点击后仍会执行严格结构复核。"
-                    : $"{reliable.Count} 个已验证结果；已验证结果优先，另有 {referenceCandidates.Length} 项仅供参考。";
-                failureReason = requireStrictStructureRegistration
-                    && reliable.Count == 0
-                    ? $"侧门扫描无可靠候选（侧门就绪 {sideScan.ReadyMapCount}/{sideScan.EligibleMapCount}）。"
-                    : null;
-                initialPostProcess?.Complete();
-                initialPostProcess = null;
-                return;
-            }
-
-            var selected = orderedReliable[0];
+            var selected = reliable.First(item => item.Candidate.Map.Id == selectedId);
             var best = selected.Candidate;
             CopyScanDiagnostics(_lastDiagnostics!, selected.Attempt.Diagnostics);
             sideAttempt = selected.Attempt;
@@ -296,13 +202,7 @@ public sealed partial class SessionOrchestrator
             // 后台扫描只产出身份和侧门种子，开图时再提交对齐。
             if (recognizeOnly)
                 return;
-            _lastRecognition = sideRec;
-            _currentFloorKey = sideRec.Result.Floor;
-            _mapLease.Bind(_matchSession.Snapshot, sideRec.Map.Id);
-            // 保留侧门种子，使后续仅对齐调用继续走侧门尺度搜索。
-            _lastAlignmentSession = UpdateAlignmentSession(seed, sideRec);
-            RememberPrimaryFloorSession(sideRec, _lastAlignmentSession);
-            _statusMessage = $"侧门对齐成功：{displayName} · 置信度 {sideRec.Result.Confidence:P0}";
+
         }
         else if (sideAttempt.Choices.Count > 0)
         {

@@ -62,7 +62,8 @@ public sealed partial class MapManualCandidateWindow
         MapRepository repository,
         MapScreenRect recognitionBounds,
         IReadOnlyList<ImageSource?>? preloadedChoicePreviews = null,
-        CandidateLivePreviewAssets? preloadedLivePreview = null)
+        CandidateLivePreviewAssets? preloadedLivePreview = null,
+        Action? onPresented = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var chooser = new MapManualCandidateWindow(
@@ -74,11 +75,11 @@ public sealed partial class MapManualCandidateWindow
             recognitionBounds,
             preloadedChoicePreviews,
             preloadedLivePreview);
-        return await chooser.ShowCoreAsync(cancellationToken);
+        return await chooser.ShowCoreAsync(cancellationToken, onPresented);
     }
 
     private async Task<MapCandidateDecision> ShowCoreAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Action? onPresented)
     {
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         var displayArea = DisplayArea.Primary;
@@ -369,6 +370,7 @@ public sealed partial class MapManualCandidateWindow
         _ = SetLayeredWindowAttributes(hwnd, 0, 230, LWA_ALPHA);
         using var cancellationRegistration = cancellationToken.Register(
             () => CompleteOnDispatcher(dispatcher));
+        onPresented?.Invoke();
         try
         {
             return await _completion.Task;

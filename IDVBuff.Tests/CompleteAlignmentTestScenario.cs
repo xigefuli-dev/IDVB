@@ -95,7 +95,7 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
         }
     }
 
-    public static async Task<CompleteAlignmentTestScenario> CreateAsync()
+    public static async Task<CompleteAlignmentTestScenario> CreateAsync(bool nativeStructure = false)
     {
         var root = Path.Combine(
             Path.GetTempPath(),
@@ -111,6 +111,13 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
             mainImage = BuildStructuredReference(800, 600, variant: 0);
             upperImage = BuildStructuredReference(720, 540, variant: 1);
             basementImage = BuildStructuredReference(680, 520, variant: 2);
+            if (nativeStructure)
+                foreach (var image in new[] { mainImage, upperImage, basementImage })
+                {
+                    using var mask = new Mat();
+                    Cv2.InRange(image, new Scalar(40, 40, 40), Scalar.White, mask);
+                    image.SetTo(new Scalar(110, 97, 88), mask);
+                }
 
             var gatePath = Path.Combine(
                 AppContext.BaseDirectory,
@@ -208,6 +215,24 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
             }
 
             await repository.EnsureDerivedAssetsAsync([map]);
+            // Exercise the same integrity-bound full-floor assets as production, including provenance.
+            foreach (var floor in map.Floors.Where(f => nativeStructure && (f.Key is MainFloor or UpperFloor)))
+            {
+                var path = Path.Combine(mapDir, $"prebuilt-{floor.Key}.png");
+                using var line = Cv2.ImRead(path, ImreadModes.Grayscale);
+                floor.PrebuiltStructureLine = new PrebuiltStructureLineAsset
+                {
+                    FileName = Path.GetFileName(path), SourceSha256 = floor.RecognitionSha256,
+                    Sha256 = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(path))).ToLowerInvariant(),
+                    Width = line.Width, Height = line.Height, FileLength = new FileInfo(path).Length,
+                    AlgorithmFileName = algorithmFileName, AlgorithmSha256 = algoSha,
+                    AlgorithmId = "structure.synthetic.test", AlgorithmSchemaVersion = "1.1"
+                };
+            }
+            var catalogPath = Path.Combine(root, "maps", "maps.json");
+            var catalogNode = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(catalogPath))!;
+            catalogNode["Maps"]![0] = System.Text.Json.JsonSerializer.SerializeToNode(map);
+            await File.WriteAllTextAsync(catalogPath, catalogNode.ToJsonString());
             service = new MapCvRecognitionService(repository);
             await service.RefreshCacheAsync();
             return new CompleteAlignmentTestScenario(

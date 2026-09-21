@@ -24,6 +24,22 @@ internal readonly record struct Vpsg3PrecisionBudget(long Started)
 /// <summary>Shadow-only continuous scale/translation refinement. Never commits a transform or cache.</summary>
 internal static class Vpsg3PrecisionRefiner
 {
+    internal static double? MeasureForwardMean(Vpsg3LiveObservation observation,
+        Vpsg3PreparedFloor floor, double scale, double offsetX, double offsetY)
+    {
+        if (floor.PrecisionDistance.IsEmpty) return null;
+        using var points = observation.ObservedEdges.FindNonZero();
+        var sum = 0d;
+        for (var i = 0; i < points.Total(); i++)
+        {
+            var p = points.At<Point>(i);
+            var x = (p.X + observation.ViewportBounds.X - offsetX) / scale;
+            var y = (p.Y + observation.ViewportBounds.Y - offsetY) / scale;
+            sum += x < 0 || y < 0 || x >= floor.ReferenceWidth - 1 || y >= floor.ReferenceHeight - 1
+                ? 50d : Sample(floor.PrecisionDistance, floor.ReferenceWidth, floor.ReferenceHeight, x, y) * scale;
+        }
+        return points.Total() > 0 ? sum / points.Total() : null;
+    }
     internal static Vpsg3PrecisionResult Refine(Vpsg3LiveObservation observation,
         Vpsg3PreparedFloor floor, double seedScale, double seedX, double seedY,
         Vpsg3PrecisionBudget budget, bool lockScale = false)

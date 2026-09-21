@@ -51,6 +51,8 @@ public sealed partial class MapStatusPage : UserControl
     {
         _refreshing = true;
         _enabledToggle.IsOn = _runtime.Settings.IsEnabled;
+        if (!_savingScanMode)
+            _scanModeSelector.SetMode(_runtime.Settings.ScanPerformanceMode, _runtime.Settings.SelectMapByTagsEnabled);
         _allowAutomaticMapCacheToggle.IsOn =
             _runtime.Settings.AllowAutomaticMapCache;
         _overlayStatusToggle.IsOn = _runtime.Settings.ShowOverlayStatus;

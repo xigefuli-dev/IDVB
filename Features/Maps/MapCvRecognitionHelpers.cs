@@ -346,12 +346,26 @@ internal static class MapCvRecognitionHelpers
 
                 try
                 {
+                    // Retain the derived-feature integrity gate, but search the entire authored floor.
+                    path = repository.GetPrebuiltStructureLinePath(map, floorDef.Key);
                     var mat = Cv2.ImRead(path, ImreadModes.Grayscale);
                     if (mat.Empty())
                     {
                         mat.Dispose();
                         continue;
                     }
+                    Cv2.Threshold(mat, mat, 128, 255, ThresholdTypes.Binary);
+                    var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorDef.Key);
+                    if (anchor?.Bounds?.IsValid is true)
+                    {
+                        var rect = new Rect((int)Math.Floor(anchor.Bounds.X * mat.Width),
+                            (int)Math.Floor(anchor.Bounds.Y * mat.Height),
+                            (int)Math.Ceiling(anchor.Bounds.Width * mat.Width),
+                            (int)Math.Ceiling(anchor.Bounds.Height * mat.Height))
+                            .Intersect(new Rect(0, 0, mat.Width, mat.Height));
+                        if (rect.Width > 0 && rect.Height > 0) Cv2.Rectangle(mat, rect, Scalar.Black, -1);
+                    }
+                    _ = ScanStructureIndex.Get(mat); // Prewarm off the scan critical path.
                     cache[(map.Id, floorDef.Key)] = mat;
                 }
                 catch

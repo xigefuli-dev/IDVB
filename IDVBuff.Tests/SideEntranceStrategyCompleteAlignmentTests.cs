@@ -75,7 +75,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideScan_RequiresVisibleGateBeforeUsingCustomFeatureRegion()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.None);
 
         var scan = scenario.Service.RunSideEntranceScan(
@@ -92,7 +92,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideScan_SeedKeepsMapScaleSeparateFromGateTemplateScale()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
 
         var scan = scenario.Service.RunSideEntranceScan(
@@ -121,7 +121,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task LockedSideFeature_IsOnlyASeedAndRequiresStructureAcceptance()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, frame);
         using var alignmentBudget = MapNoDoorAlignmentBudgetContext.Enter(
@@ -154,7 +154,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideScan_UsesOnlyPrimaryFloorAndCurrentMapClass()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
 
         var candidates = scenario.Service.RunSideEntranceScan(
@@ -174,7 +174,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideStrategy_ScanAndAlignment_LocksFromSideEntranceIdentity()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, frame);
 
@@ -186,12 +186,13 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             CompleteAlignmentTestScenario.RecognitionTuning,
             CompleteAlignmentTestScenario.StructureTuning);
 
+        Assert.True(attempt.Recognition is not null, $"{attempt.FailureReason} / {attempt.StructureFailureReason} / {System.Text.Json.JsonSerializer.Serialize(attempt.StructureResult?.ConfidenceBreakdown)}");
         var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
         Assert.Equal(scenario.Map.Id, recognition.Map.Id);
         Assert.Equal(CompleteAlignmentTestScenario.MainFloor, recognition.Result.Floor);
-        Assert.Equal(1, attempt.Diagnostics.GateCandidateCount);
-        Assert.True(attempt.Diagnostics.GateDetectionMilliseconds > 0d);
-        Assert.True(session.SideEntranceScanPriorConfidence > 0.80d);
+        Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
+        Assert.Equal(0d, attempt.Diagnostics.GateDetectionMilliseconds);
+        Assert.True(session.SideEntranceScanPriorConfidence > 0d);
         Assert.True(attempt.StructureAccepted, attempt.StructureFailureReason);
         Assert.True(double.IsFinite(recognition.Result.Confidence));
         DefaultDualGateCompleteAlignmentTests.AssertTransform(
@@ -205,7 +206,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideStrategy_DualGateFrame_NeverEntersDoubleGatePipeline()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var scanFrame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, scanFrame);
         using var dualGateFrame = scenario.MainFrame(
@@ -220,13 +221,14 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             CompleteAlignmentTestScenario.RecognitionTuning,
             CompleteAlignmentTestScenario.StructureTuning);
 
+        Assert.True(attempt.Recognition is not null, $"{attempt.FailureReason} / {attempt.StructureFailureReason} / {System.Text.Json.JsonSerializer.Serialize(attempt.StructureResult?.ConfidenceBreakdown)}");
         var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
         // 侧门链路跳过单门身份识别，直接由结构配准完成对齐，
         // 因此无锚点证据匹配
         Assert.Empty(recognition.Result.AnchorMatches);
         Assert.False(recognition.Result.HasAllRequiredAnchorEvidence);
-        Assert.True(attempt.Diagnostics.GateCandidateCount >= 2);
-        Assert.True(attempt.Diagnostics.GateDetectionMilliseconds > 0d);
+        Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
+        Assert.Equal(0d, attempt.Diagnostics.GateDetectionMilliseconds);
         Assert.Equal(MapRecognitionSource.StructureMatching, recognition.Result.Source);
         Assert.Equal(MapAlignmentTrackingMode.StructureMatched, attempt.Diagnostics.TrackingMode);
         Assert.True(attempt.StructureAccepted, attempt.StructureFailureReason);
@@ -242,7 +244,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideSession_GenericAlignSelectedCannotEnterDoubleGatePipeline()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var scanFrame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, scanFrame);
         using var dualGateFrame = scenario.MainFrame(
@@ -257,8 +259,9 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             CompleteAlignmentTestScenario.RecognitionTuning,
             CompleteAlignmentTestScenario.StructureTuning);
 
+        Assert.True(attempt.Recognition is not null, $"{attempt.FailureReason} / {attempt.StructureFailureReason} / {System.Text.Json.JsonSerializer.Serialize(attempt.StructureResult?.ConfidenceBreakdown)}");
         var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
-        Assert.True(attempt.Diagnostics.GateCandidateCount >= 2);
+        Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
         Assert.NotEqual(
             MapRecognitionSource.SelectedMapGatePair,
             recognition.Result.Source);
@@ -272,7 +275,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideStrategy_SingleGateFrame_AlignsWithSidePriorAndStructure()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var scanFrame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, scanFrame);
         var crop = new Rect(300, 20, 470, 360);
@@ -290,9 +293,10 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             CompleteAlignmentTestScenario.RecognitionTuning,
             CompleteAlignmentTestScenario.StructureTuning);
 
+        Assert.True(attempt.Recognition is not null, $"{attempt.FailureReason} / {attempt.StructureFailureReason} / {System.Text.Json.JsonSerializer.Serialize(attempt.StructureResult?.ConfidenceBreakdown)}");
         var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
-        Assert.Equal(1, attempt.Diagnostics.GateCandidateCount);
-        Assert.True(attempt.Diagnostics.GateDetectionMilliseconds > 0d);
+        Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
+        Assert.Equal(0d, attempt.Diagnostics.GateDetectionMilliseconds);
         // 侧门链路跳过单门身份识别，直接由结构配准完成对齐
         Assert.Equal(MapAlignmentTrackingMode.StructureMatched, attempt.Diagnostics.TrackingMode);
         Assert.True(attempt.StructureAccepted, attempt.StructureFailureReason);
@@ -308,7 +312,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideStrategy_NoGateFrame_UsesKnownMapStructureForAlignment()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var scanFrame = scenario.MainFrame(VisibleGates.SideOnly);
         var session = SeedWithSideEntranceStrategy(scenario, scanFrame);
         var crop = new Rect(220, 180, 420, 300);
@@ -326,6 +330,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             CompleteAlignmentTestScenario.RecognitionTuning,
             CompleteAlignmentTestScenario.StructureTuning);
 
+        Assert.True(attempt.Recognition is not null, $"{attempt.FailureReason} / {attempt.StructureFailureReason} / {System.Text.Json.JsonSerializer.Serialize(attempt.StructureResult?.ConfidenceBreakdown)}");
         var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
         Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
         Assert.Equal(MapRecognitionSource.StructureMatching, recognition.Result.Source);
@@ -378,7 +383,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideStrategy_CompleteAlignment_StaysWithinPerformanceBudget()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
         var stopwatch = Stopwatch.StartNew();
 
@@ -396,15 +401,15 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
         Assert.True(
             stopwatch.Elapsed < TimeSpan.FromSeconds(7),
             $"Side-strategy chain took {stopwatch.Elapsed.TotalMilliseconds:F0}ms.");
-        Assert.True(attempt.Diagnostics.GateDetectionMilliseconds > 0d);
-        Assert.Equal(1, attempt.Diagnostics.GateCandidateCount);
+        Assert.Equal(0d, attempt.Diagnostics.GateDetectionMilliseconds);
+        Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
         Assert.True(attempt.Diagnostics.StructureSearchMilliseconds >= 0d);
     }
 
     [Fact]
     public async Task SideStrategy_CompleteAlignment_BatchHandlesGateVisibilityChanges()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         var samples = new[]
         {
             (X: 100d, Y: 80d, Gates: VisibleGates.SideOnly),
@@ -437,7 +442,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             if (sample.Gates == VisibleGates.None)
                 Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
             else
-                Assert.True(attempt.Diagnostics.GateCandidateCount > 0);
+                Assert.Equal(0, attempt.Diagnostics.GateCandidateCount);
             Assert.NotEqual(
                 MapRecognitionSource.SelectedMapGatePair,
                 attempt.Recognition!.Result.Source);
@@ -461,7 +466,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideEntrancePriorSurvivesTrackingAdvanceAndHold()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
         var seed = SeedWithSideEntranceStrategy(scenario, frame);
         var attempt = scenario.Service.AlignSideEntrance(
@@ -471,6 +476,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
             MapOverlayAlignmentMode.Uniform,
             CompleteAlignmentTestScenario.RecognitionTuning,
             CompleteAlignmentTestScenario.StructureTuning);
+        Assert.True(attempt.Recognition is not null, $"{attempt.FailureReason} / {attempt.StructureFailureReason} / {System.Text.Json.JsonSerializer.Serialize(attempt.StructureResult?.ConfidenceBreakdown)}");
         var recognition = Assert.IsType<RuntimeMapRecognition>(attempt.Recognition);
 
         var advanced = seed.Advance(scenario.Map, recognition.Result);

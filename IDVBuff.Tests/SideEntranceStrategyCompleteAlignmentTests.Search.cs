@@ -7,7 +7,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideScan_InitialFullSearchDoesNotUseSingleGateWarmExit()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.SideOnly);
 
         var scan = scenario.Service.RunSideEntranceScan(
@@ -34,7 +34,7 @@ public sealed partial class SideEntranceStrategyCompleteAlignmentTests
     [Fact]
     public async Task SideScan_InitialFullSearchDoesNotUseDualGateEarlyExit()
     {
-        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync();
+        await using var scenario = await CompleteAlignmentTestScenario.CreateAsync(nativeStructure: true);
         using var frame = scenario.MainFrame(VisibleGates.Both);
 
         var scan = scenario.Service.RunSideEntranceScan(

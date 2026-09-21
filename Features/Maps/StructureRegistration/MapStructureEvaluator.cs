@@ -235,7 +235,7 @@ internal static class MapStructureEvaluator
                 : 0d)
             + ((1d - edgeCoverage) * edgeCoverageWeight)
             + ((1d - occupancyCoverage) * occupancyCoverageWeight)
-            + ((1d - referenceCoverage) * referenceCoverageWeight)
+            + (asymmetricObserved ? 0d : (1d - referenceCoverage) * referenceCoverageWeight)
             // Projection is a deliberately lossy one-dimensional summary.
             // Keep it as a ranking hint, never as the fact that vetoes an
             // otherwise strong bidirectional two-dimensional match.
@@ -329,11 +329,13 @@ internal static class MapStructureEvaluator
             OffsetX = offsetX,
             OffsetY = offsetY,
             ChamferPixels = chamfer,
-            ReverseChamferPixels = reverseChamfer,
+            ReverseChamferPixels = request.Channel == MapAlignmentChannel.LowStructure && !asymmetricObserved
+                ? reverseChamfer : null,
             EdgeCoverage = edgeCoverage,
             OccupancyCoverage = occupancyCoverage,
-            ReferenceCoverage = referenceCoverage,
-            ProjectionCorrelation = projection,
+            ReferenceCoverage = asymmetricObserved ? null : referenceCoverage,
+            ProjectionCorrelation = !asymmetricObserved && (projectionCorrelation.HasValue
+                || request.Channel == MapAlignmentChannel.LowStructure) ? projection : null,
             ConsistentPartitions = consistentPartitions,
             UsedGlobalSearch = usedGlobalSearch,
             CompositeCost = composite,

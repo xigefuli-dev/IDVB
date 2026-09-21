@@ -1,380 +1,141 @@
-using IDVBuff.Core.Contracts;
-using IDVBuff.Core.Models;
-using IDVBuff.Pipeline;
 using System.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
-    private List<(SideEntranceScanCandidate Candidate,
-        MapAlignmentSession Seed,
-        MapRecognitionAttempt Attempt)> VerifySideEntranceCandidates(
-        CapturedGameFrame frame,
-        IReadOnlyList<SideEntranceScanCandidate> candidates,
-        MapRecognitionTuning sideAlignmentTuning,
-        Dictionary<string, double> sideTimings)
+    private List<(SideEntranceScanCandidate Candidate, MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>
+        VerifySideEntranceCandidates(CapturedGameFrame frame, IReadOnlyList<SideEntranceScanCandidate> candidates,
+            MapRecognitionTuning sideAlignmentTuning, Dictionary<string, double> timings)
     {
-        var reliable = new List<(SideEntranceScanCandidate Candidate,
-            MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>();
-        var verificationCandidates = candidates;
-        _lastDiagnostics!.ScanVerificationCandidateCount =
-            verificationCandidates.Count;
-
-        var verifiedCount = 0;
-        var scanVerificationStopwatch = Stopwatch.StartNew();
-        var scanVerificationTimedOut = false;
-        var scanEarlyExited = false;
-        var scanEarlyExitReason = string.Empty;
-        var scanCheapRejectCount = 0;
-        var scanCheapRejectMilliseconds = 0d;
-        var scanFormalStructureAttemptCount = 0;
-        var scanFormalStructureCompletedCount = 0;
-        var scanFormalStructureAcceptedCount = 0;
-        var scanShadowPairCount = 0;
-        var scanShadowTrueFormalFalseCount = 0;
-        var scanShadowFalseFormalTrueCount = 0;
-        var scanShadowTrueFormalTrueCount = 0;
-        var scanShadowFalseFormalFalseCount = 0;
-        var scanVpsgAttemptCount = 0;
-        var scanFullRecoveryCount = 0;
-        var scanTemplateValidationMilliseconds = 0d;
-        var scanVpsgMilliseconds = 0d;
-        var scanStructureMilliseconds = 0d;
-        var candidate0TemplateMilliseconds = 0d;
-        var candidate0VpsgMilliseconds = 0d;
-        var candidate0StructureMilliseconds = 0d;
-        var scanShadowCollectionEnabled = _settings!
-            .StructureRegistrationTuning.EnableScanCheapRejectShadowCollection;
-        var scanEffectiveBudgetMilliseconds = scanShadowCollectionEnabled
-            ? MapOpenAlignmentRouteRules
-                .ScanVerificationShadowCollectionBudgetMilliseconds
-            : MapOpenAlignmentRouteRules.ScanVerificationBudgetMilliseconds;
-
-        void ApplyScanDiagnostics(MapScanDiagnostics diagnostics)
+        var context = ScanExecutionContext.Current;
+        var evidenceFrame = context?.Frame;
+        var reliable = new List<(SideEntranceScanCandidate Candidate, MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>();
+        if (evidenceFrame is null) return reliable;
+        var timer = Stopwatch.StartNew();
+        if (context!.Policy.Mode == ScanPerformanceMode.Quality)
         {
-            diagnostics.ScanCandidateCount = candidates.Count;
-            diagnostics.ScanVerificationCandidateCount =
-                verificationCandidates.Count;
-            diagnostics.ScanVerifiedCandidateCount = verifiedCount;
-            diagnostics.ScanEarlyExited = scanEarlyExited;
-            diagnostics.ScanVerificationTimedOut = scanVerificationTimedOut;
-            diagnostics.ScanCheapRejectCount = scanCheapRejectCount;
-            diagnostics.ScanCheapRejectMilliseconds =
-                scanCheapRejectMilliseconds;
-            diagnostics.ScanFormalStructureAttemptCount =
-                scanFormalStructureAttemptCount;
-            diagnostics.ScanFormalStructureCompletedCount =
-                scanFormalStructureCompletedCount;
-            diagnostics.ScanFormalStructureAcceptedCount =
-                scanFormalStructureAcceptedCount;
-            diagnostics.ScanShadowPairCount = scanShadowPairCount;
-            diagnostics.ScanShadowTrueFormalFalseCount =
-                scanShadowTrueFormalFalseCount;
-            diagnostics.ScanShadowFalseFormalTrueCount =
-                scanShadowFalseFormalTrueCount;
-            diagnostics.ScanShadowTrueFormalTrueCount =
-                scanShadowTrueFormalTrueCount;
-            diagnostics.ScanShadowFalseFormalFalseCount =
-                scanShadowFalseFormalFalseCount;
-            diagnostics.ScanShadowCollectionEnabled =
-                scanShadowCollectionEnabled;
-            diagnostics.ScanEffectiveBudgetMilliseconds =
-                scanEffectiveBudgetMilliseconds;
-            diagnostics.ScanVpsgAttemptCount = scanVpsgAttemptCount;
-            diagnostics.ScanFullRecoveryCount = scanFullRecoveryCount;
-            diagnostics.ScanTotalVerificationMilliseconds =
-                scanVerificationStopwatch.Elapsed.TotalMilliseconds;
-            diagnostics.ScanCandidate0TemplateValidationMilliseconds =
-                candidate0TemplateMilliseconds;
-            diagnostics.ScanCandidate0VpsgMilliseconds =
-                candidate0VpsgMilliseconds;
-            diagnostics.ScanCandidate0StructureMilliseconds =
-                candidate0StructureMilliseconds;
-        }
-
-        using var scanBudgetLease = MapNoDoorAlignmentBudgetContext.Enter(
-            () => Math.Max(
-                0,
-                scanEffectiveBudgetMilliseconds
-                - (int)Math.Ceiling(
-                    scanVerificationStopwatch.Elapsed.TotalMilliseconds)));
-
-        foreach (var (candidate, candidateIndex) in verificationCandidates
-            .Select((candidate, index) => (candidate, index)))
-        {
-            if (scanVerificationStopwatch.ElapsedMilliseconds >= scanEffectiveBudgetMilliseconds)
+            // Compare every in-class member using its own anchors and scale basins. Never borrow
+            // the hit map's transform or skip a sibling because it fell below retrieval TopK.
+            var hits = candidates.Where(c => c.SearchHypotheses.Any(h =>
+                h.StructureIndex is { } index
+                && _recognition.TryCreateSideEntranceAlignmentSeed(h, frame.ViewportBounds, out var seed, out _)
+                && ScanIdentityVerifier.Verify(evidenceFrame, index, seed.LockedTransform, frame.ViewportBounds, context).State
+                    == ScanIdentityState.Supported)).Select(c => c.Map.Id).ToHashSet();
+            foreach (var group in context.VariantGroups.Where(g => g.Any(hits.Contains)))
+            foreach (var variant in candidates.Where(c => group.Contains(c.Map.Id)))
             {
-                scanVerificationTimedOut = true;
-                _logCollector.Append(
-                    MapLogCategory.ScanLifecycle,
-                    MapLogLevel.Warning,
-                    "扫描结构验证已达时间预算上限，提前终止后续候选验证",
-                    details: new()
-                    {
-                        ["elapsedMs"] = scanVerificationStopwatch.ElapsedMilliseconds,
-                        ["budgetMs"] = scanEffectiveBudgetMilliseconds,
-                        ["verifiedCount"] = verifiedCount,
-                        ["totalCandidates"] = verificationCandidates.Count
-                    });
-                break;
+                var refined = SideEntranceScanPipeline.RefineVariant(variant, evidenceFrame, frame.ViewportBounds, context);
+                if (refined.Count == variant.SearchHypotheses.Count && refined.Count > 0)
+                    variant.SearchHypotheses = refined;
             }
-            LogScanVerificationCandidateSelected(candidate, candidateIndex);
-            var candidateAlignment = MapOperationTraceAmbient.StartTopLevel(
-                "selected_candidate_alignment",
-                MapOperationWaitKind.Compute,
-                mapId: candidate.Map.Id.ToString("D"),
-                floorKey: candidate.FloorKey,
-                attemptIndex: candidateIndex);
-            var isReliable = false;
-            try
+        }
+        var completed = 0;
+        var formal = 0;
+        using var budget = MapNoDoorAlignmentBudgetContext.Enter(() => Math.Max(0, context!.RemainingMilliseconds - 60));
+        foreach (var candidate in candidates)
+        {
+            if (!context!.CanCompute) break;
+            var hypotheses = candidate.SearchHypotheses.Count > 0 ? candidate.SearchHypotheses : new[] { candidate };
+            var complete = true;
+            var supported = false;
+            ScanIdentityEvidence? bestEvidence = null;
+            MapAlignmentSession? bestSeed = null;
+            MapRecognitionAttempt? bestAttempt = null;
+            foreach (var hypothesis in hypotheses)
             {
-                if (!_recognition.TryCreateSideEntranceAlignmentSeed(
-                        candidate,
-                        frame.ViewportBounds,
-                        out var candidateSeed,
-                        out var seedReason))
-                {
-                    candidateSeed = CreateIndependentCandidateStructureSeed(
-                        candidate);
-                    LogScanVerificationSeedCreated(
-                        candidate,
-                        candidateIndex,
-                        success: false,
-                        candidateSeed,
-                        seedReason);
-                }
-                else
-                    LogScanVerificationSeedCreated(
-                        candidate,
-                        candidateIndex,
-                        success: true,
-                        candidateSeed,
-                        seedReason: string.Empty);
-
-                var sideStructureTuning = CreateScanVerificationTuning(
+                if (!context.CanCompute) { complete = false; break; }
+                if (hypothesis.StructureIndex is not { } index
+                    || !_recognition.TryCreateSideEntranceAlignmentSeed(hypothesis, frame.ViewportBounds, out var seed, out _))
+                { complete = false; continue; }
+                var evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, seed.LockedTransform, frame.ViewportBounds, context);
+                candidate.IdentityEvidence = evidence;
+                if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
+                if (evidence.State != ScanIdentityState.Supported) continue;
+                LogScanVerificationCandidateSelected(hypothesis, completed);
+                var structureTuning = CreateScanVerificationTuning(
                     MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
-                        CreateStructureTuningForFloor(
-                            candidate.Map,
-                            candidate.FloorKey,
-                            CreateInitialAlignmentStructureTuning())));
-                var attempt = RunMandatoryCandidateStructureRegistration(
-                    frame,
-                    candidate,
-                    candidateSeed,
-                    sideAlignmentTuning,
-                    sideStructureTuning,
-                    out candidateSeed);
-                scanCheapRejectCount += attempt.Diagnostics.ScanCheapRejected
-                    ? 1
-                    : 0;
-                scanCheapRejectMilliseconds +=
-                    attempt.Diagnostics.ScanCheapRejectMilliseconds;
-                scanFormalStructureAttemptCount += attempt.Diagnostics
-                    .ScanFormalStructureAttemptCount;
-                scanFormalStructureCompletedCount++;
-                scanFormalStructureAcceptedCount += attempt.StructureAccepted ? 1 : 0;
-                scanShadowPairCount += attempt.Diagnostics.ScanShadowPairCount;
-                scanShadowTrueFormalFalseCount += attempt.Diagnostics
-                    .ScanShadowTrueFormalFalseCount;
-                scanShadowFalseFormalTrueCount += attempt.Diagnostics
-                    .ScanShadowFalseFormalTrueCount;
-                scanShadowTrueFormalTrueCount += attempt.Diagnostics
-                    .ScanShadowTrueFormalTrueCount;
-                scanShadowFalseFormalFalseCount += attempt.Diagnostics
-                    .ScanShadowFalseFormalFalseCount;
-                scanVpsgAttemptCount += attempt.Diagnostics.ScanVpsgAttempted
-                    ? 1
-                    : 0;
-                scanFullRecoveryCount += attempt.Diagnostics.ScanFullRecoveryAttempted
-                    ? 1
-                    : 0;
-                scanTemplateValidationMilliseconds += attempt.Diagnostics
-                    .ScanTemplateValidationMilliseconds;
-                scanVpsgMilliseconds += attempt.Diagnostics
-                    .ScanVpsgMilliseconds;
-                scanStructureMilliseconds += attempt.Diagnostics
-                    .ScanStructureMilliseconds;
-                if (candidateIndex == 0)
+                        CreateStructureTuningForFloor(candidate.Map, candidate.FloorKey, CreateInitialAlignmentStructureTuning())));
+                structureTuning.StructureFallbackBudgetMilliseconds = Math.Max(1, Math.Min(
+                    structureTuning.StructureFallbackBudgetMilliseconds, context.RemainingMilliseconds - 60));
+                var attempt = RunMandatoryCandidateStructureRegistration(frame, hypothesis, seed,
+                    sideAlignmentTuning, structureTuning, out seed);
+                formal++;
+                if (attempt.Recognition?.Result.OverlayTransform is not { } finalTransform || !attempt.StructureAccepted)
                 {
-                    candidate0TemplateMilliseconds = attempt.Diagnostics
-                        .ScanTemplateValidationMilliseconds;
-                    candidate0VpsgMilliseconds = attempt.Diagnostics
-                        .ScanVpsgMilliseconds;
-                    candidate0StructureMilliseconds = attempt.Diagnostics
-                        .ScanStructureMilliseconds;
+                    candidate.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
+                    complete = false;
+                    continue;
                 }
-                isReliable = SideEntranceCandidateEvidence.ApplyStructureAttempt(
-                    candidate,
-                    attempt);
-                if (isReliable)
+                // Re-evaluate the transform that will actually be consumed, including rescue/precision changes.
+                evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, finalTransform, frame.ViewportBounds, context);
+                candidate.IdentityEvidence = evidence;
+                if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
+                if (evidence.State != ScanIdentityState.Supported) continue;
+                if (bestEvidence is null || evidence.ForwardMeanPixels < bestEvidence.ForwardMeanPixels)
                 {
-                    reliable.Add((candidate, candidateSeed, attempt));
+                    bestEvidence = evidence;
+                    bestSeed = seed;
+                    bestAttempt = attempt;
                 }
-
-                RecordResearchAttemptForMap(
-                    candidate.Map,
-                    candidate.FloorKey,
-                    frame,
-                    attempt,
-                    "side-entrance-candidate-verification");
-
-                // 结构验证是扫描中最慢的一段（逐候选做 VPSG/结构配准），
-                // 侧门扫描回调在 76% 处结束；这里逐候选实时推进，避免进度条停滞。
-                verifiedCount++;
-                _scanProgressOverlay.Report(
-                    0.76d + 0.12d * verifiedCount / verificationCandidates.Count,
-                    "正在验证地图结构...");
+                supported = true;
+                if (context.Policy.Mode != ScanPerformanceMode.Quality) break;
             }
-            finally
+            if (supported && complete && bestEvidence is not null)
             {
-                candidateAlignment.Complete();
+                SideEntranceCandidateEvidence.ApplyStructureAttempt(candidate, bestAttempt!);
+                candidate.IdentityEvidence = bestEvidence;
+                candidate.RawChamferPixels = bestEvidence.ForwardMeanPixels;
+                candidate.IdentityConfidence = bestEvidence.SupportedFraction;
+                candidate.Disposition = SideEntranceCandidateDisposition.Reliable;
+                candidate.RejectionReason = SideEntranceRejectionReason.None;
+                candidate.RejectionDetail = string.Empty;
+                reliable.Add((candidate, bestSeed!, bestAttempt!));
             }
-
-            // 早停机制：在非 shadow 收集模式下，只要候选通过严格结构验证且定位有效，
-            // 即代表当前地图结构完全吻合，无需强行跑满后续无意义候选。
-            if (!scanShadowCollectionEnabled && !_silentScanActive && isReliable)
+            else
             {
-                scanEarlyExited = true;
-                scanEarlyExitReason = $"候选 #{candidateIndex} ({candidate.Map.DisplayName}) 已通过严格结构验证，提前终止后续候选验证";
-                _logCollector.Append(
-                    MapLogCategory.ScanLifecycle,
-                    MapLogLevel.Info,
-                    scanEarlyExitReason,
-                    details: new()
-                    {
-                        ["selectedIndex"] = candidateIndex,
-                        ["mapSequence"] = candidate.Map.SequenceNumber,
-                        ["floorKey"] = candidate.FloorKey,
-                        ["templateScore"] = candidate.MatchScore,
-                        ["structureScore"] = candidate.StructureScore,
-                        ["elapsedMs"] = scanVerificationStopwatch.ElapsedMilliseconds
-                    });
-                break;
+                candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+                if (!complete) candidate.IdentityEvidence = ScanIdentityEvidence.Unverified("verification-incomplete");
+                candidate.RejectionDetail = candidate.IdentityEvidence.Reason;
             }
-        }
-        scanVerificationStopwatch.Stop();
-        _scanProgressOverlay.Report(0.88d, "结构验证完成");
-        sideTimings["scan_verification"] =
-            scanVerificationStopwatch.Elapsed.TotalMilliseconds;
-        sideTimings["scan_template_validation"] =
-            scanTemplateValidationMilliseconds;
-        sideTimings["scan_vpsg"] = scanVpsgMilliseconds;
-        sideTimings["scan_structure"] = scanStructureMilliseconds;
-        ApplyScanDiagnostics(_lastDiagnostics!);
-        if (!scanEarlyExited && !scanVerificationTimedOut && scanFormalStructureAttemptCount != candidates.Count)
-        {
-            _logCollector.Append(
-                MapLogCategory.StructureRegistration,
-                MapLogLevel.Error,
-                "扫描候选未获得一对一正式结构配准",
+            completed++;
+            _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                $"扫描身份复核 · map={candidate.Map.SequenceNumber}#{candidate.FloorKey} · {candidate.IdentityEvidence.State}",
                 details: new()
                 {
-                    ["templateCandidates"] = candidates.Count,
-                    ["formalAttempted"] = scanFormalStructureAttemptCount
+                    ["mapId"] = candidate.Map.Id, ["mode"] = context.Policy.Mode.ToString(),
+                    ["testedPoints"] = candidate.IdentityEvidence.TestedPoints,
+                    ["totalPoints"] = candidate.IdentityEvidence.TotalPoints,
+                    ["support"] = candidate.IdentityEvidence.SupportedFraction,
+                    ["forwardMeanPixels"] = double.IsFinite(candidate.IdentityEvidence.ForwardMeanPixels) ? candidate.IdentityEvidence.ForwardMeanPixels : null,
+                    ["longestConflictPixels"] = candidate.IdentityEvidence.LongestConflictPixels,
+                    ["reason"] = candidate.IdentityEvidence.Reason
                 });
+            _scanProgressOverlay.Report(.76 + .12 * completed / candidates.Count, "正在比较地图结构...");
         }
-        _logCollector.Append(
-            MapLogCategory.ScanLifecycle,
-            MapLogLevel.Info,
-            "扫描结构验证完成",
-            elapsedMs: _lastDiagnostics.ScanTotalVerificationMilliseconds,
-            details: new()
-            {
-                ["scan_candidate_count"] = candidates.Count,
-                ["scan_verification_candidate_count"] =
-                    verificationCandidates.Count,
-                ["early_exit"] = scanEarlyExited,
-                ["early_exit_reason"] = scanEarlyExitReason,
-                ["candidate_0_template_validation_ms"] =
-                    candidate0TemplateMilliseconds,
-                ["candidate_0_vpsg_ms"] = candidate0VpsgMilliseconds,
-                ["candidate_0_structure_ms"] =
-                    candidate0StructureMilliseconds,
-                ["cheap_reject_count"] = scanCheapRejectCount,
-                ["cheap_reject_ms"] = scanCheapRejectMilliseconds,
-                ["scan_formal_structure_attempt_count"] =
-                    scanFormalStructureAttemptCount,
-                ["templateCandidates"] = candidates.Count,
-                ["formalAttempted"] = scanFormalStructureAttemptCount,
-                ["formalCompleted"] = scanFormalStructureCompletedCount,
-                ["formalAccepted"] = scanFormalStructureAcceptedCount,
-                ["formalCoverage"] =
-                    $"{scanFormalStructureAttemptCount}/{candidates.Count}",
-                ["shadow_pair_count"] = scanShadowPairCount,
-                ["shadow_true_formal_false"] =
-                    scanShadowTrueFormalFalseCount,
-                ["shadow_false_formal_true"] =
-                    scanShadowFalseFormalTrueCount,
-                ["shadow_true_formal_true"] =
-                    scanShadowTrueFormalTrueCount,
-                ["shadow_false_formal_false"] =
-                    scanShadowFalseFormalFalseCount,
-                ["scan_total_verification_ms"] =
-                    _lastDiagnostics.ScanTotalVerificationMilliseconds,
-                ["template_validation_ms"] =
-                    scanTemplateValidationMilliseconds,
-                ["vpsg_ms"] = scanVpsgMilliseconds,
-                ["structure_ms"] = scanStructureMilliseconds,
-                ["scan_vpsg_attempt_count"] = scanVpsgAttemptCount,
-                ["scan_full_recovery_count"] = scanFullRecoveryCount,
-                ["timed_out"] = scanVerificationTimedOut,
-                ["budget_ms"] = MapOpenAlignmentRouteRules
-                    .ScanVerificationBudgetMilliseconds,
-                ["effective_budget_ms"] = scanEffectiveBudgetMilliseconds,
-                ["shadow_collection"] = scanShadowCollectionEnabled,
-                ["target_p50_ms"] = MapOpenAlignmentRouteRules
-                    .ScanVerificationP50Milliseconds,
-                ["target_p90_ms"] = MapOpenAlignmentRouteRules
-                    .ScanVerificationP90Milliseconds,
-                ["target_p99_ms"] = MapOpenAlignmentRouteRules
-                    .ScanVerificationP99Milliseconds
-            });
-
+        timings["scan_verification"] = timer.Elapsed.TotalMilliseconds;
+        _lastDiagnostics!.ScanCandidateCount = candidates.Count;
+        _lastDiagnostics.ScanVerificationCandidateCount = candidates.Count;
+        _lastDiagnostics.ScanVerifiedCandidateCount = completed;
+        _lastDiagnostics.ScanVerificationTimedOut = !context!.CanCompute;
+        _lastDiagnostics.ScanEarlyExited = false;
+        _lastDiagnostics.ScanFormalStructureAttemptCount = formal;
+        _lastDiagnostics.ScanFormalStructureAcceptedCount = reliable.Count;
+        _lastDiagnostics.ScanTotalVerificationMilliseconds = timer.Elapsed.TotalMilliseconds;
+        _lastDiagnostics.ScanEffectiveBudgetMilliseconds = context.Policy.BudgetMilliseconds;
         return reliable;
     }
 
-    private static void CopyScanDiagnostics(
-        MapScanDiagnostics source,
-        MapScanDiagnostics target)
+    private static void CopyScanDiagnostics(MapScanDiagnostics source, MapScanDiagnostics target)
     {
         target.ScanCandidateCount = source.ScanCandidateCount;
-        target.ScanVerificationCandidateCount =
-            source.ScanVerificationCandidateCount;
+        target.ScanVerificationCandidateCount = source.ScanVerificationCandidateCount;
         target.ScanVerifiedCandidateCount = source.ScanVerifiedCandidateCount;
-        target.ScanEarlyExited = source.ScanEarlyExited;
         target.ScanVerificationTimedOut = source.ScanVerificationTimedOut;
-        target.ScanCheapRejectCount = source.ScanCheapRejectCount;
-        target.ScanCheapRejectMilliseconds =
-            source.ScanCheapRejectMilliseconds;
-        target.ScanFormalStructureAttemptCount =
-            source.ScanFormalStructureAttemptCount;
-        target.ScanFormalStructureCompletedCount =
-            source.ScanFormalStructureCompletedCount;
-        target.ScanFormalStructureAcceptedCount =
-            source.ScanFormalStructureAcceptedCount;
-        target.ScanShadowPairCount = source.ScanShadowPairCount;
-        target.ScanShadowTrueFormalFalseCount =
-            source.ScanShadowTrueFormalFalseCount;
-        target.ScanShadowFalseFormalTrueCount =
-            source.ScanShadowFalseFormalTrueCount;
-        target.ScanShadowTrueFormalTrueCount =
-            source.ScanShadowTrueFormalTrueCount;
-        target.ScanShadowFalseFormalFalseCount =
-            source.ScanShadowFalseFormalFalseCount;
-        target.ScanShadowCollectionEnabled =
-            source.ScanShadowCollectionEnabled;
-        target.ScanEffectiveBudgetMilliseconds =
-            source.ScanEffectiveBudgetMilliseconds;
-        target.ScanVpsgAttemptCount = source.ScanVpsgAttemptCount;
-        target.ScanFullRecoveryCount = source.ScanFullRecoveryCount;
-        target.ScanTotalVerificationMilliseconds =
-            source.ScanTotalVerificationMilliseconds;
-        target.ScanCandidate0TemplateValidationMilliseconds =
-            source.ScanCandidate0TemplateValidationMilliseconds;
-        target.ScanCandidate0VpsgMilliseconds =
-            source.ScanCandidate0VpsgMilliseconds;
-        target.ScanCandidate0StructureMilliseconds =
-            source.ScanCandidate0StructureMilliseconds;
+        target.ScanEarlyExited = source.ScanEarlyExited;
+        target.ScanFormalStructureAttemptCount = source.ScanFormalStructureAttemptCount;
+        target.ScanFormalStructureAcceptedCount = source.ScanFormalStructureAcceptedCount;
+        target.ScanTotalVerificationMilliseconds = source.ScanTotalVerificationMilliseconds;
+        target.ScanEffectiveBudgetMilliseconds = source.ScanEffectiveBudgetMilliseconds;
     }
 }

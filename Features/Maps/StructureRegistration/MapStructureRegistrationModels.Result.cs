@@ -10,11 +10,11 @@ public sealed record MapStructureCandidate
     public double OffsetX { get; init; }
     public double OffsetY { get; init; }
     public double ChamferPixels { get; init; }
-    public double ReverseChamferPixels { get; init; }
+    public double? ReverseChamferPixels { get; init; }
     public double EdgeCoverage { get; init; }
     public double OccupancyCoverage { get; init; }
-    public double ReferenceCoverage { get; init; }
-    public double ProjectionCorrelation { get; init; }
+    public double? ReferenceCoverage { get; init; }
+    public double? ProjectionCorrelation { get; init; }
     public int ConsistentPartitions { get; init; }
     public bool UsedGlobalSearch { get; init; }
     public double CompositeCost { get; init; }

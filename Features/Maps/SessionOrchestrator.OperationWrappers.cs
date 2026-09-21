@@ -138,72 +138,100 @@ public sealed partial class SessionOrchestrator
 
     private async Task RunRecognitionPipelineAsync()
     {
-        using var suppressScanDiagnostics = MapDiagnosticModeCapture.Suppress();
-        CancelOrbTracking("recognition scan started");
-        await DrainOrbTrackingAsync();
-        var operationMatch = _matchSession.Snapshot;
-        var cancellationToken = CurrentMatchCancellationToken;
-        if (!await _scanGate.WaitAsync(0))
-        {
-            if (_silentScanActive)
-                return;
-            _statusMessage = "已有扫描正在进行，请稍候。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
-        var trace = BeginMapOperationTrace(
-            (_settings!.BackgroundScanEnabled || _silentScanActive)
-                ? MapOperationTypes.BackgroundScan
-                : MapOperationTypes.QuickScan,
-            QuickScanTracePhases);
-        var outcome = "success";
-        var terminalReason = "completed";
-        var traceFinished = false;
+        using var ownedExecution = ScanExecutionContext.Current is null ? ScanExecutionContext.Enter(
+            _settings?.ScanPerformanceMode ?? ScanPerformanceMode.Balanced, CurrentMatchCancellationToken) : null;
+        var scanExecution = ScanExecutionContext.Current!;
         try
         {
-            using (trace.StartTopLevel("route_prepare"))
-                UnlockMapForRescan();
-            await RunRecognitionPipelineCoreAsync(
-                operationMatch,
-                cancellationToken);
-        }
-        catch (OperationCanceledException) when (
-            cancellationToken.IsCancellationRequested)
-        {
-            _logCollector.Append(
-                MapLogCategory.Session,
-                MapLogLevel.Info,
-                $"快捷扫描已取消 · matchVersion={operationMatch.Version}");
-            outcome = "cancelled";
-            terminalReason = "match-cancellation";
-        }
-        catch (Exception ex)
-        {
-            outcome = "failed";
-            terminalReason = $"exception:{ex.GetType().Name}";
-            throw;
-        }
-        finally
-        {
+            using var suppressScanDiagnostics = MapDiagnosticModeCapture.Suppress();
+            CancelOrbTracking("recognition scan started");
+            var operationMatch = _matchSession.Snapshot;
+            var cancellationToken = scanExecution.CancellationToken;
+            bool acquired;
             try
             {
-                using (trace.StartTopLevel("cleanup"))
+                await DrainOrbTrackingAsync().WaitAsync(TimeSpan.FromMilliseconds(
+                    Math.Max(1, scanExecution.RemainingMilliseconds - 60)), cancellationToken);
+                acquired = scanExecution.CanCompute && await _scanGate.WaitAsync(
+                    Math.Max(0, scanExecution.RemainingMilliseconds - 60), cancellationToken);
+            }
+            catch (TimeoutException) { acquired = false; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
+            if (!acquired)
+            {
+                if (_silentScanActive)
+                    return;
+                _statusMessage = "已有扫描正在进行，请稍候。";
+                StateChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            scanExecution.CatalogRevision = _recognition.CatalogRevision;
+
+            var trace = BeginMapOperationTrace(
+                (_settings!.BackgroundScanEnabled || _silentScanActive)
+                    ? MapOperationTypes.BackgroundScan
+                    : MapOperationTypes.QuickScan,
+                QuickScanTracePhases);
+            var outcome = "success";
+            var terminalReason = "completed";
+            var traceFinished = false;
+            try
+            {
+                using (trace.StartTopLevel("route_prepare"))
+                    UnlockMapForRescan();
+                if (scanExecution.Policy.Mode == ScanPerformanceMode.Quality)
                 {
-                    _scanGate.Release();
+                    scanExecution.VariantGroups = _recognition.ScanVariantGroups;
                 }
+                await RunRecognitionPipelineCoreAsync(
+                    operationMatch,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (
+                cancellationToken.IsCancellationRequested)
+            {
+                _logCollector.Append(
+                    MapLogCategory.Session,
+                    MapLogLevel.Info,
+                    $"快捷扫描已取消 · matchVersion={operationMatch.Version}");
+                outcome = "cancelled";
+                terminalReason = "match-cancellation";
+            }
+            catch (Exception ex)
+            {
+                outcome = "failed";
+                terminalReason = $"exception:{ex.GetType().Name}";
+                throw;
             }
             finally
             {
-                if (!traceFinished)
+                try
                 {
-                    FinishMapOperationTrace(
-                        trace,
-                        isAlignment: false,
-                        outcome,
-                        terminalReason);
-                    traceFinished = true;
+                    using (trace.StartTopLevel("cleanup"))
+                    {
+                        _scanGate.Release();
+                    }
                 }
+                finally
+                {
+                    if (!traceFinished)
+                    {
+                        FinishMapOperationTrace(
+                            trace,
+                            isAlignment: false,
+                            outcome,
+                            terminalReason);
+                        traceFinished = true;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (ownedExecution is not null)
+            {
+                ownedExecution.Dispose();
+                FinishScanExecution(scanExecution);
             }
         }
     }

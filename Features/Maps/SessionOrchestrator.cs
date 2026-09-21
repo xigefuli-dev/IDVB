@@ -353,6 +353,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             ApplyDisplaySettingsToOverlay();
 
             _initialized = true;
+            MapClassDiagnosticCoordinator.Instance.Trigger(_mapRepository);
             CheckIntegrityAndNotify();
         }
         finally { _initializeGate.Release(); }

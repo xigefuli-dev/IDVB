@@ -39,6 +39,7 @@ public sealed partial class MapListPage : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        MapClassDiagnosticCoordinator.Instance.Trigger(_repository);
         CloseHoldPreviewImmediately();
         ResetMarkerEditorSession();
         _previewImages.Clear();

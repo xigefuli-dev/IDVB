@@ -20,6 +20,40 @@ public sealed record PrebuiltStructureBatchResult(
 
 public sealed partial class MapRepository
 {
+    public async Task HealMissingPrebuiltStructureLinesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var snapshot = await GetCatalogSnapshotAsync();
+        foreach (var mapClass in snapshot.Classes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var maps = snapshot.Maps.Where(map => string.Equals(
+                map.Class, mapClass, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (maps.Length == 0 || maps.All(HasCompletePrebuiltStructureLines))
+                continue;
+
+            string? algorithmPath = null;
+            foreach (var map in maps)
+            {
+                var floor = MapFloorRules.GetOrderedFloors(map)
+                    .FirstOrDefault(candidate => candidate.PrebuiltStructureLine?.IsComplete is true);
+                if (floor is null)
+                    continue;
+                var candidatePath = GetPrebuiltStructureAlgorithmPath(map, floor.Key);
+                if (File.Exists(candidatePath))
+                {
+                    algorithmPath = candidatePath;
+                    break;
+                }
+            }
+            if (algorithmPath is null)
+                continue;
+
+            await GeneratePrebuiltStructureLinesAsync(
+                mapClass, algorithmPath, cancellationToken: cancellationToken);
+        }
+    }
+
     public async Task<PrebuiltStructureBatchResult> GeneratePrebuiltStructureLinesAsync(
         string className,
         string algorithmPath,

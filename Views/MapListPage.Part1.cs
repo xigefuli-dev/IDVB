@@ -264,6 +264,7 @@ public sealed partial class MapListPage : UserControl
                 _selectedMapIds.Clear();
                 _lastClickedMapId = null;
                 ShowListFromLoadedSnapshot();
+                MapClassDiagnosticCoordinator.Instance.Trigger(_repository);
             }
         };
 

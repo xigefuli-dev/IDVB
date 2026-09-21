@@ -63,6 +63,7 @@ public sealed partial class MapListPage : UserControl
 
             if (!App.IsSafeMode)
                 await App.Session.RefreshMapCacheAsync(savedMap.Id);
+            MapClassDiagnosticCoordinator.Instance.Trigger(_repository);
             _draft = null;
             _activeAnchorId = null;
             ResetBatchImport();

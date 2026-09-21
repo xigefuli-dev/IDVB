@@ -95,21 +95,9 @@ public sealed partial class MapRepository
                     .ToHashSet(StringComparer.Ordinal);
                 foreach (var map in replacementMaps)
                 {
+                    var scanFloorKey = MapScanFloorRules.ResolveScanFloorKey(map);
                     foreach (var floor in MapFloorRules.GetOrderedFloors(map))
                     {
-                        var floorIdentity = MapScanFloorRules.NormalizeFloorIdentity(floor.Key)!;
-                        var scanFeatureMarked = MapScanFloorRules.GetScanFeatureAnchor(map, floor.Key)
-                            is { IsMarked: true };
-                        var mainFeatureMarked = MapScanFloorRules.IsPrimaryFloor(map, floor.Key)
-                            && MapFloorRules.GetFloorProfile(map, floor.Key)?
-                                .FindAnchor("main-entrance")?.IsMarked is true;
-                        var mustRemainScannable = MapScanFloorRules.IsPrimaryFloor(map, floor.Key)
-                            || previouslyScannableFloors.Contains(floorIdentity);
-                        if (!scanFeatureMarked && !mainFeatureMarked && !mustRemainScannable)
-                            continue;
-                        if (!MapScanFloorRules.HasRequiredScanMarkers(map, floor.Key))
-                            throw new InvalidOperationException(
-                                $"订阅地图 {map.DisplayName} 楼层 {floor.Key} 缺少扫描门锚点。");
                         if (!HasPrebuiltStructureLine(map, floor.Key))
                             throw new InvalidOperationException(
                                 $"订阅地图 {map.DisplayName} 楼层 {floor.Key} 的预制结构图不完整。");
@@ -124,6 +112,13 @@ public sealed partial class MapRepository
                                 prebuilt.AlgorithmSha256, StringComparison.OrdinalIgnoreCase))
                             throw new InvalidOperationException(
                                 $"订阅地图 {map.DisplayName} 楼层 {floor.Key} 的预制结构图哈希不匹配。");
+
+                        if (!string.Equals(floor.Key, scanFloorKey,
+                                StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (!MapScanFloorRules.HasRequiredScanMarkers(map, floor.Key))
+                            throw new InvalidOperationException(
+                                $"订阅地图 {map.DisplayName} 楼层 {floor.Key} 缺少扫描门锚点。");
                         if (!TryGetValidSideEntranceFeaturePath(map, floor.Key, out _, out var reason))
                             throw new InvalidOperationException(
                                 $"订阅地图 {map.DisplayName} 楼层 {floor.Key} 的侧门特征无效：{reason}");
@@ -138,9 +133,11 @@ public sealed partial class MapRepository
             // final read here before replacing the old subscription maps.
             foreach (var map in newMaps)
             {
+                var scanFloorKey = MapScanFloorRules.ResolveScanFloorKey(map);
                 foreach (var floor in MapFloorRules.GetOrderedFloors(map))
                 {
-                    if (!MapScanFloorRules.HasRequiredScanMarkers(map, floor.Key))
+                    if (!string.Equals(floor.Key, scanFloorKey,
+                            StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (!TryGetValidSideEntranceFeaturePath(map, floor.Key, out var path, out var reason))
                         throw new InvalidOperationException(

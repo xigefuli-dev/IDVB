@@ -120,6 +120,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        MapClassDiagnosticCoordinator.Instance.SnapshotChanged -= OnDiagnosticSnapshotChanged;
         _captureProtectionRegistration?.Dispose();
         _captureProtectionRegistration = null;
         _isVisible = false;

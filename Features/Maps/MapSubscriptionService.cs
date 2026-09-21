@@ -289,6 +289,7 @@ public sealed class MapSubscriptionService
             record.ClassBindings = new Dictionary<string, string>(
                 promotion.ClassBindings, StringComparer.OrdinalIgnoreCase);
             record.InstalledMapIds = promotion.InstalledMapIds.ToList();
+            MapClassDiagnosticCoordinator.Instance.Trigger(_repository);
         }
         catch
         {

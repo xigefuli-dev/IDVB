@@ -303,6 +303,7 @@ public sealed partial class MapListPage : UserControl
         {
             ResetBatchOperation();
             _draft = null;
+            MapClassDiagnosticCoordinator.Instance.Trigger(_repository);
             await ShowListAsync();
         };
         actions.Children.Add(cancel);

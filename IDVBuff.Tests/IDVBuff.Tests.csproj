@@ -89,6 +89,7 @@
     <Compile Include="..\Features\Maps\MapViewportPresenceDetector.cs" Link="Production\MapViewportPresenceDetector.cs" />
     <Compile Include="..\Features\Maps\MapModels.cs" Link="Production\MapModels.cs" />
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
+    <Compile Include="..\Features\Maps\MapClassDiagnostics.cs" Link="Production\MapClassDiagnostics.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
     <Compile Include="..\Features\Maps\MapModels.PrebuiltStructure.cs" Link="Production\MapModels.PrebuiltStructure.cs" />

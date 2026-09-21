@@ -91,6 +91,8 @@ public sealed partial class MapControlPanelWindow : IDisposable
     private string? _pendingClass;
     private MapVariantSelectionContext? _variantContext;
     private IReadOnlyList<string> _mapClasses = [];
+    private IReadOnlyList<MapClassDiagnostic> _mapClassDiagnostics = [];
+    private IReadOnlyList<MapClassDiagnostic> _renderedMapClassDiagnostics = [];
     private MapMatchSnapshot _snapshot;
     private IntPtr _gameWindowHandle;
     private bool _isVisible;
@@ -130,6 +132,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _switchVariant = switchVariant;
         _correctMap = correctMap;
         _captureProtection = captureProtection;
+        MapClassDiagnosticCoordinator.Instance.SnapshotChanged += OnDiagnosticSnapshotChanged;
         _beginButton.Click += BeginButton_Click;
         _endButton.Click += EndButton_Click;
         _correctMapButton.Click += CorrectMapButton_Click;
@@ -154,6 +157,11 @@ public sealed partial class MapControlPanelWindow : IDisposable
             .Select(name => name.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var completedDiagnostics = MapClassDiagnosticCoordinator.Instance.Snapshot;
+        _mapClassDiagnostics = _mapClasses.Select(mapClass =>
+            completedDiagnostics.TryGetValue(mapClass, out var diagnostic)
+                ? diagnostic
+                : new MapClassDiagnostic(mapClass, true, [])).ToArray();
         if (_mapClasses.Count == 0)
             throw new InvalidOperationException("地图库中还没有可用的地图模式。");
         var rememberedClass = _getLastSelectedMapClass();
@@ -178,7 +186,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
         var dpi = GetDpiForWindow(gameWindowHandle);
         var scale = Math.Max(1d, (dpi == 0 ? 96d : dpi) / 96d);
-        var width = (int)Math.Round(400d * scale);
+        var width = (int)Math.Round(360d * scale);
         var desiredHeight = ResolveDesiredHeight();
         var height = (int)Math.Round(desiredHeight * scale);
         var margin = (int)Math.Round(16d * scale);
@@ -214,21 +222,27 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _suppressClassSelectionChanged = true;
         try
         {
-            var currentSource = _classComboBox.ItemsSource as IReadOnlyList<string>;
-            if (currentSource is null || !currentSource.SequenceEqual(_mapClasses, StringComparer.Ordinal))
-            {
-                _classComboBox.ItemsSource = _mapClasses;
-            }
-            if (!string.Equals(_classComboBox.SelectedItem as string, _pendingClass, StringComparison.Ordinal))
-            {
-                _classComboBox.SelectedItem = _pendingClass;
-            }
+            if (!_renderedMapClassDiagnostics.SequenceEqual(_mapClassDiagnostics))
+                RebuildClassItems();
+            var selected = _classComboBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => item.Tag is MapClassDiagnostic diagnostic
+                    && string.Equals(diagnostic.MapClass, _pendingClass, StringComparison.Ordinal));
+            if (!ReferenceEquals(_classComboBox.SelectedItem, selected))
+                _classComboBox.SelectedItem = selected;
         }
         finally
         {
             _suppressClassSelectionChanged = false;
         }
         _classComboBox.IsEnabled = !snapshot.IsStarted;
+        var selectedDiagnostic = _mapClassDiagnostics.FirstOrDefault(item =>
+            string.Equals(item.MapClass, _pendingClass, StringComparison.OrdinalIgnoreCase));
+        _classComboBox.BorderBrush = selectedDiagnostic?.IsHealthy is false
+            ? new SolidColorBrush(Color.FromArgb(255, 255, 185, 0))
+            : new SolidColorBrush(Color.FromArgb(255, 52, 59, 69));
+        _classComboBox.Background = selectedDiagnostic?.IsHealthy is false
+            ? new SolidColorBrush(Color.FromArgb(36, 255, 185, 0))
+            : new SolidColorBrush(Color.FromArgb(255, 30, 35, 43));
         if (snapshot.IsStarted)
             SetSurveyToggle(snapshot.Mode == MapRunMode.Survey);
         else if (!_isSurveyModeAllowed())
@@ -282,7 +296,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
             BorderBrush = new SolidColorBrush(Color.FromArgb(255, 62, 72, 86)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(18),
+            Padding = new Thickness(16),
             Child = BuildContent()
         };
         _window = new XamlWindow { Content = root, ExtendsContentIntoTitleBar = false };
@@ -306,30 +320,6 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
         BorderlessWindowHelper.Apply(hwnd);
-    }
-
-    private UIElement BuildContent()
-    {
-        var content = new StackPanel { Spacing = 12 };
-        content.Children.Add(new TextBlock
-        {
-            Text = "Identity Vision Bridge 对局控件",
-            FontSize = 20,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(
-                Color.FromArgb(255, 255, 255, 255))
-        });
-        content.Children.Add(_stateText);
-        _classComboBox.SelectionChanged += ClassComboBox_SelectionChanged;
-        content.Children.Add(_classComboBox);
-        content.Children.Add(_variantHeading);
-        _variantScroller.Content = _variantButtons;
-        content.Children.Add(_variantScroller);
-        content.Children.Add(_messageText);
-        content.Children.Add(_beginButton);
-        content.Children.Add(_correctMapButton);
-        content.Children.Add(_endButton);
-        return content;
     }
 
     private void RefreshVariantOptions(MapMatchSnapshot snapshot)
@@ -428,8 +418,10 @@ public sealed partial class MapControlPanelWindow : IDisposable
     {
         if (_suppressClassSelectionChanged
             || _snapshot.IsStarted
-            || _classComboBox.SelectedItem is not string mapClass)
+            || _classComboBox.SelectedItem is not ComboBoxItem
+                { Tag: MapClassDiagnostic diagnostic })
             return;
+        var mapClass = diagnostic.MapClass;
         _pendingClass = mapClass;
         Refresh(_snapshot);
         QueueMapClassSave(mapClass);

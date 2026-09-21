@@ -94,7 +94,8 @@ internal sealed record MapOverlayRenderScene(
     float MiniMapOffsetY = 0f,
     bool ShowFloorOnMiniMap = false,
     float? MiniMapRotationDegrees = null,
-    IReadOnlyList<MiniMapTrackedPlayer>? MiniMapPlayers = null);
+    IReadOnlyList<MiniMapTrackedPlayer>? MiniMapPlayers = null,
+    MapScreenRect? PlayerClipBounds = null);
 
 internal static partial class MapOverlayBitmapRenderer
 {
@@ -354,7 +355,7 @@ internal static partial class MapOverlayBitmapRenderer
                 scene.ShowFloorOnMiniMap, scene.MiniMapRotationDegrees,
                 scene.MiniMapPlayers);
         if (scene.Player is not null)
-            DrawPlayer(graphics, scene.Player, scene.Map?.ClipBounds);
+            DrawPlayer(graphics, scene.Player, scene.Map?.ClipBounds ?? scene.PlayerClipBounds);
         if (scene.Status is not null && layout.Status is { IsEmpty: false } statusBounds)
             DrawStatus(graphics, scene.Status, dpiScale * statusScale,
                 Offset(statusBounds, margin).Location, scene.StatusOpacity);

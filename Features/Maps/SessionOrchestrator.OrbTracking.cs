@@ -60,6 +60,9 @@ public sealed partial class SessionOrchestrator
         }
 
         var generation = Interlocked.Increment(ref _orbTrackingGeneration);
+        _realtimeTransformReferenceWidth = transform.ReferenceWidth;
+        _realtimeTransformReferenceHeight = transform.ReferenceHeight;
+        _realtimeTransformOrientationDegrees = recognition.Result.OrientationDegrees;
         var context = new OrbTrackingContext(
             generation,
             _matchSession.Snapshot,

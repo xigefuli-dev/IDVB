@@ -41,8 +41,11 @@ public sealed class Vpsg3_5TrackingConfig
     /// <summary>Scale factor for mouse physical delta to screen pixels (default 1.0).</summary>
     public double MouseScaleRatio { get; init; } = 1.0d;
 
-    /// <summary>Interval in milliseconds between background visual verification captures.</summary>
-    public int VisualVerificationIntervalMs { get; init; } = 33;
+    /// <summary>Interval in milliseconds between VPSG absolute corrections.</summary>
+    public int VisualVerificationIntervalMs { get; init; } = 150;
+
+    /// <summary>Maximum wait for a distinct WGC frame before the GDI fallback is attempted.</summary>
+    public int FrameCaptureWaitMs { get; init; } = 50;
 
     /// <summary>Residual threshold in screen pixels to detect boundary collision.</summary>
     public double BoundaryCollisionThresholdPixels { get; init; } = 12.0d;

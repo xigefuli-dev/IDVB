@@ -230,6 +230,9 @@
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3DiagnosticCapture.cs" Link="Production\Vpsg3\Vpsg3DiagnosticCapture.cs" />
     <Compile Include="..\Features\Maps\Vpsg3DegradationNotificationPolicy.cs" Link="Production\Vpsg3DegradationNotificationPolicy.cs" />
     <Compile Include="..\Features\Maps\Vpsg3_5\Vpsg3_5.Tracking.cs" Link="Production\Vpsg3_5\Vpsg3_5.Tracking.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3_5\Vpsg3_5.RealtimeTracking.cs" Link="Production\Vpsg3_5\Vpsg3_5.RealtimeTracking.cs" />
+    <Compile Include="..\Features\Maps\RealtimeMapTransformPublisher.cs" Link="Production\RealtimeMapTransformPublisher.cs" />
+    <Compile Include="..\Features\Maps\MapOverlayRealtimeTransformPlanner.cs" Link="Production\MapOverlayRealtimeTransformPlanner.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.FastPath.cs" Link="Production\MapStructureRegistrar.FastPath.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.LowStructure.cs" Link="Production\MapStructureRegistrar.LowStructure.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRegistrar.ScalePolicy.cs" Link="Production\MapStructureRegistrar.ScalePolicy.cs" />

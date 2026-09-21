@@ -20,7 +20,8 @@ public sealed class Vpsg3_5TrackingPhase3Tests
         var config = Vpsg3_5TrackingConfig.Default;
         Assert.True(config.EnableMouseFeedforward);
         Assert.Equal(1.0d, config.MouseScaleRatio);
-        Assert.Equal(33, config.VisualVerificationIntervalMs);
+        Assert.Equal(150, config.VisualVerificationIntervalMs);
+        Assert.Equal(50, config.FrameCaptureWaitMs);
         Assert.Equal(12.0d, config.BoundaryCollisionThresholdPixels);
         Assert.Equal(0.2d, config.ResidualCorrectionAlpha);
         Assert.Equal(120.0d, config.MaxTranslationJumpPixels);

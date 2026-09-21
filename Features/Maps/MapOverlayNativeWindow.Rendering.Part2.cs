@@ -16,6 +16,11 @@ internal sealed partial class MapOverlayNativeWindow
     private int _cachedDIBWidth;
     private int _cachedDIBHeight;
 
+    internal bool HasRetainedLayer(int width, int height) =>
+        _cachedMemoryDc != IntPtr.Zero
+        && _cachedDIBWidth == width
+        && _cachedDIBHeight == height;
+
     private void EnsureCachedBuffer(int width, int height)
     {
         if (_cachedMemoryDc != IntPtr.Zero && _cachedDIBWidth == width && _cachedDIBHeight == height)
@@ -92,7 +97,11 @@ internal sealed partial class MapOverlayNativeWindow
         _cachedDIBHeight = 0;
     }
 
-    internal void Present(Bitmap bitmap, MapScreenRect bounds)
+    internal void Present(
+        Bitmap bitmap,
+        MapScreenRect bounds,
+        MapScreenRect? clipBounds = null,
+        IntPtr insertAfter = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!bounds.IsValid)
@@ -112,7 +121,7 @@ internal sealed partial class MapOverlayNativeWindow
         SetLastError(0);
         if (!SetWindowPos(
                 _handle,
-                HwndTopMost,
+                insertAfter == IntPtr.Zero ? HwndTopMost : insertAfter,
                 0,
                 0,
                 0,
@@ -197,6 +206,84 @@ internal sealed partial class MapOverlayNativeWindow
         {
             updateLayeredWindow.Complete();
         }
+
+        ApplyClipRegion(bounds, clipBounds);
+    }
+
+    internal void MoveRetainedLayer(
+        MapScreenRect bounds,
+        MapScreenRect clipBounds,
+        IntPtr insertAfter = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!bounds.IsValid || !clipBounds.IsValid)
+        {
+            Hide();
+            return;
+        }
+        EnsureWindow();
+
+        var x = (int)Math.Round(bounds.X);
+        var y = (int)Math.Round(bounds.Y);
+        var width = Math.Max(1, (int)Math.Round(bounds.Width));
+        var height = Math.Max(1, (int)Math.Round(bounds.Height));
+        if (_cachedMemoryDc == IntPtr.Zero
+            || _cachedDIBWidth != width
+            || _cachedDIBHeight != height)
+        {
+            throw new InvalidOperationException(
+                "The retained overlay layer must be uploaded before it can be moved.");
+        }
+
+        SetLastError(0);
+        if (!SetWindowPos(
+                _handle,
+                insertAfter == IntPtr.Zero ? HwndTopMost : insertAfter,
+                x,
+                y,
+                width,
+                height,
+                SwpNoActivate | SwpShowWindow))
+        {
+            throw NativeFailure("Unable to move the retained overlay layer.");
+        }
+        IsVisible = true;
+        ApplyClipRegion(bounds, clipBounds);
+    }
+
+    private void ApplyClipRegion(MapScreenRect bounds, MapScreenRect? clipBounds)
+    {
+        if (clipBounds is not { IsValid: true } clip)
+        {
+            SetLastError(0);
+            if (SetWindowRgn(_handle, IntPtr.Zero, true) == 0)
+                throw NativeFailure("Unable to clear the overlay clipping region.");
+            return;
+        }
+
+        var windowLeft = (int)Math.Round(bounds.X);
+        var windowTop = (int)Math.Round(bounds.Y);
+        var windowWidth = Math.Max(1, (int)Math.Round(bounds.Width));
+        var windowHeight = Math.Max(1, (int)Math.Round(bounds.Height));
+        var clipLeft = Math.Clamp((int)Math.Floor(clip.X) - windowLeft, 0, windowWidth);
+        var clipTop = Math.Clamp((int)Math.Floor(clip.Y) - windowTop, 0, windowHeight);
+        var clipRight = Math.Clamp((int)Math.Ceiling(clip.X + clip.Width) - windowLeft, 0, windowWidth);
+        var clipBottom = Math.Clamp((int)Math.Ceiling(clip.Y + clip.Height) - windowTop, 0, windowHeight);
+        if (clipRight <= clipLeft || clipBottom <= clipTop)
+        {
+            Hide();
+            return;
+        }
+
+        var region = CreateRectRgn(clipLeft, clipTop, clipRight, clipBottom);
+        if (region == IntPtr.Zero)
+            throw NativeFailure("Unable to create the overlay clipping region.");
+        SetLastError(0);
+        if (SetWindowRgn(_handle, region, true) != 0)
+            return;
+
+        DeleteObject(region);
+        throw NativeFailure("Unable to apply the overlay clipping region.");
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -245,6 +332,12 @@ internal sealed partial class MapOverlayNativeWindow
         int width,
         int height,
         uint flags);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowRgn(IntPtr window, IntPtr region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetDC(IntPtr window);

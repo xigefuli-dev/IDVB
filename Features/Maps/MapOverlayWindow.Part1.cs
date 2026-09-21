@@ -66,59 +66,66 @@ public sealed partial class MapOverlayWindow : IDisposable
         _lockedBackgroundDpi = 0;
     }
 
+    private void InvalidateMapLayer()
+    {
+        _mapLayerDirty = true;
+        _mapLayerPixelWidth = 0;
+        _mapLayerPixelHeight = 0;
+    }
+
     public void SetAllowExtend(bool allow)
     {
         _allowExtend = allow;
-        if (IsVisible)
-            Present();
+        if (IsVisible && _map is not null && _showMainContent)
+            MoveMapLayerOnly();
     }
 
     public void SetMapOpacity(double opacity)
     {
         _mapOpacity = (float)opacity;
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (IsVisible)
-            Present();
+            PresentMapLayerOnly();
     }
 
     public void SetShowGateMarkers(bool show)
     {
         _showGateMarkers = show;
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (IsVisible)
-            Present();
+            PresentMapLayerOnly();
     }
 
     public void SetShowAuxiliaryAnchors(bool show)
     {
         _showAuxiliaryAnchors = show;
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (IsVisible)
-            Present();
+            PresentMapLayerOnly();
     }
 
     public void SetShowTextAnnotations(bool show)
     {
         _showTextAnnotations = show;
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (IsVisible)
-            Present();
+            PresentMapLayerOnly();
     }
 
     public void SetShowBoxAnnotations(bool show)
     {
         _showBoxAnnotations = show;
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (IsVisible)
-            Present();
+            PresentMapLayerOnly();
     }
 
     public void SetShowLineAnnotations(bool show)
     {
         _showLineAnnotations = show;
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (IsVisible)
-            Present();
+            PresentMapLayerOnly();
     }
 
     public void SetShowGateMarkersOnMiniMap(bool show)
@@ -218,6 +225,7 @@ public sealed partial class MapOverlayWindow : IDisposable
             return;
         _disposed = true;
         InvalidateLockedBackground();
+        _mapNativeWindow.Dispose();
         _nativeWindow.Dispose();
         _map = null;
         _player = null;

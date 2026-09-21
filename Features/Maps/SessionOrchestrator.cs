@@ -40,6 +40,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private readonly MapControlPanelWindow? _controlPanel;
     private readonly ICaptureProtectionService? _captureProtection;
     private readonly GameOverlayProgressBar _scanProgressOverlay;
+    private readonly RealtimeMapTransformPublisher _realtimeMapTransformPublisher;
 
     // Session state
     private readonly MapOpenSession _mapOpenSession = new();
@@ -128,6 +129,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _surveyCaptureTuning.Validate();
         _captureProtection = captureProtection;
         _scanProgressOverlay = new GameOverlayProgressBar(_captureProtection);
+        _realtimeMapTransformPublisher = new RealtimeMapTransformPublisher(
+            action => _dispatcher.TryEnqueue(() => action()),
+            ApplyRealtimeMapTransform);
         _learningEngine = learningEngine ?? new MapSampleProviderEngine();
         _surveyCoordinator.StatusChanged += SurveyCoordinator_StatusChanged;
         _headless = headless;

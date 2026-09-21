@@ -21,18 +21,34 @@ public sealed partial class MapOverlayWindow
             return;
         }
 
+        var newWidth = ToFiniteSingle(overlayWidth);
+        var newHeight = ToFiniteSingle(overlayHeight);
+        var requiresBitmapRebuild = MapOverlayRealtimeTransformPlanner.RequiresBitmapRebuild(
+            _map.Width,
+            _map.Height,
+            newWidth,
+            newHeight);
         _map = _map with
         {
             Left = ToFiniteSingle(transform.OffsetX - _gameBounds.X),
             Top = ToFiniteSingle(transform.OffsetY - _gameBounds.Y),
-            Width = ToFiniteSingle(overlayWidth),
-            Height = ToFiniteSingle(overlayHeight)
+            Width = newWidth,
+            Height = newHeight
         };
-        InvalidateLockedBackground();
+        if (requiresBitmapRebuild)
+            InvalidateMapLayer();
         if (!preservePlayer)
             _player = null;
-        if (IsVisible)
+        if (!IsVisible)
+            return;
+        if (requiresBitmapRebuild
+            || !preservePlayer
+            || !_mapNativeWindow.HasRetainedLayer(
+                MapOverlayRealtimeTransformPlanner.RoundToPixel(newWidth),
+                MapOverlayRealtimeTransformPlanner.RoundToPixel(newHeight)))
             Present();
+        else
+            MoveMapLayerOnly();
     }
 
     public bool TryUpdateMapTransformOnly(
@@ -99,6 +115,11 @@ public sealed partial class MapOverlayWindow
             return true;
         }
 
+        var requiresBitmapRebuild = MapOverlayRealtimeTransformPlanner.RequiresBitmapRebuild(
+            _map.Width,
+            _map.Height,
+            newWidth,
+            newHeight);
         _map = _map with
         {
             Left = newLeft,
@@ -107,9 +128,18 @@ public sealed partial class MapOverlayWindow
             Height = newHeight,
             ClipBounds = expectedClip
         };
-        InvalidateLockedBackground();
+        if (requiresBitmapRebuild)
+            InvalidateMapLayer();
         if (IsVisible)
-            Present();
+        {
+            if (requiresBitmapRebuild
+                || !_mapNativeWindow.HasRetainedLayer(
+                    MapOverlayRealtimeTransformPlanner.RoundToPixel(newWidth),
+                    MapOverlayRealtimeTransformPlanner.RoundToPixel(newHeight)))
+                Present();
+            else
+                MoveMapLayerOnly();
+        }
         return true;
     }
 }

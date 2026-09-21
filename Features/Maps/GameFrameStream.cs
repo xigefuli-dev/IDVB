@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using OpenCvSharp;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
@@ -18,6 +19,7 @@ internal sealed partial class GameFrameStream : IDisposable
     private TaskCompletionSource _changed = NewSignal();
     private bool _disposed;
     private int _resourcesDisposed;
+    private int _droppedFrames;
 
     public GameFrameStream(IntPtr window)
     {
@@ -65,8 +67,17 @@ internal sealed partial class GameFrameStream : IDisposable
                 var frame = sender.TryGetNextFrame();
                 if (frame is null) return;
                 var newer = sender.TryGetNextFrame();
-                if (newer is not null) { frame.Dispose(); frame = newer; }
-                _latest?.Dispose();
+                if (newer is not null)
+                {
+                    frame.Dispose();
+                    frame = newer;
+                    _droppedFrames++;
+                }
+                if (_latest is not null)
+                {
+                    _latest.Dispose();
+                    _droppedFrames++;
+                }
                 _latest = frame;
                 var changed = _changed;
                 _changed = NewSignal();
@@ -118,10 +129,21 @@ internal sealed partial class GameFrameStream : IDisposable
                 return null;
 
             cancellationToken.ThrowIfCancellationRequested();
-            return new CapturedGameFrame(ReadViewport(frame.Surface, roi), client, viewport, Window)
+            var readbackStarted = Stopwatch.GetTimestamp();
+            var pixels = ReadViewport(frame.Surface, roi);
+            var readbackMs = Stopwatch.GetElapsedTime(readbackStarted).TotalMilliseconds;
+            int dropped;
+            lock (_gate)
+            {
+                dropped = _droppedFrames;
+                _droppedFrames = 0;
+            }
+            return new CapturedGameFrame(pixels, client, viewport, Window)
             {
                 CaptureSystemRelativeTicks = frame.SystemRelativeTime.Ticks,
-                CaptureBackend = "wgc-frame-arrived"
+                CaptureBackend = "wgc-frame-arrived",
+                CaptureReadbackMilliseconds = readbackMs,
+                CaptureDroppedFrames = dropped
             };
         }
     }

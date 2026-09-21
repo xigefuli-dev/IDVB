@@ -40,6 +40,8 @@ public sealed partial class CapturedGameFrame : IDisposable
     public IntPtr WindowHandle { get; }
     public long CaptureSystemRelativeTicks { get; init; }
     public string CaptureBackend { get; init; } = "gdi";
+    public double CaptureReadbackMilliseconds { get; init; }
+    public int CaptureDroppedFrames { get; init; }
 
     internal MapStructureFeatures GetOrCreateDefaultLiveStructureFeatures(
         MapStructurePreprocessor preprocessor,

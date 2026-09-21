@@ -64,9 +64,8 @@ public sealed partial class MapOverlayWindow : IDisposable
     public MapOverlayWindow(ICaptureProtectionService? captureProtection = null)
     {
         _nativeWindow = new MapOverlayNativeWindow(captureProtection);
+        _mapNativeWindow = new MapOverlayNativeWindow(captureProtection);
     }
-
-    public bool IsCaptureExclusionEnabled => _nativeWindow.IsCaptureExclusionEnabled;
 
     public bool IsVisible => _nativeWindow.IsVisible;
     public bool HasMap => _map is not null;
@@ -216,7 +215,7 @@ public sealed partial class MapOverlayWindow : IDisposable
                 Annotations = annotations
             };
         }
-        InvalidateLockedBackground();
+        InvalidateMapLayer();
         if (!preservePlayer)
             _player = null;
         Present();
@@ -236,12 +235,6 @@ public sealed partial class MapOverlayWindow : IDisposable
             showStatusPreference,
             viewportBounds,
             preservePlayer);
-
-    public bool TrySetCaptureExclusion(bool enabled, out string failureReason)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        return _nativeWindow.TrySetCaptureExclusion(enabled, out failureReason);
-    }
 
     public void UpdatePlayer(MapPlayerState? player)
     {
@@ -271,6 +264,8 @@ public sealed partial class MapOverlayWindow : IDisposable
         _mapFloorKey = string.Empty;
         _mapImagePath = string.Empty;
         _mapUpdatedAt = default;
+        _mapNativeWindow.Hide();
+        InvalidateMapLayer();
         InvalidateLockedBackground();
         RefreshVisibleContent();
     }
@@ -284,6 +279,8 @@ public sealed partial class MapOverlayWindow : IDisposable
         _mapFloorKey = string.Empty;
         _mapImagePath = string.Empty;
         _mapUpdatedAt = default;
+        _mapNativeWindow.Hide();
+        InvalidateMapLayer();
         InvalidateLockedBackground();
         RefreshVisibleContent();
     }
@@ -334,12 +331,15 @@ public sealed partial class MapOverlayWindow : IDisposable
         _miniMapBaseScale = null;
         _miniMapImageKey = null;
         _showMainContent = true;
+        _mapNativeWindow.Hide();
+        InvalidateMapLayer();
         InvalidateLockedBackground();
         _status = null;
         _gameWindowHandle = IntPtr.Zero;
         _gameBounds = default;
         Hide();
         _nativeWindow.CleanupCachedBuffer();
+        _mapNativeWindow.CleanupCachedBuffer();
     }
 
     public void Show()
@@ -349,8 +349,6 @@ public sealed partial class MapOverlayWindow : IDisposable
             return;
         Present();
     }
-    public void Hide() => _nativeWindow.Hide();
-
     public IDisposable DeferPresent()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -364,6 +362,8 @@ public sealed partial class MapOverlayWindow : IDisposable
         if (_showMainContent == visible)
             return;
         _showMainContent = visible;
+        if (!visible)
+            _mapNativeWindow.Hide();
         if (IsVisible)
             Present();
     }
@@ -409,11 +409,12 @@ public sealed partial class MapOverlayWindow : IDisposable
                 : _map is null;
         }
 
+        var visibleMap = _showMainContent ? _map : null;
         var scene = new MapOverlayRenderScene(
             pixelWidth,
             pixelHeight,
             dpi,
-            _showMainContent ? _map : null,
+            null,
             _showMainContent ? _status : null,
             _showMainContent && showStatus,
             _showMainContent ? _player : null,
@@ -441,10 +442,16 @@ public sealed partial class MapOverlayWindow : IDisposable
             MiniMapOffsetY: _miniMapOffsetY,
             ShowFloorOnMiniMap: _showFloorOnMiniMap,
             MiniMapRotationDegrees: ResolveMiniMapRotation(),
-            MiniMapPlayers: GetCurrentMiniMapPlayers());
+            MiniMapPlayers: GetCurrentMiniMapPlayers(),
+            PlayerClipBounds: visibleMap?.ClipBounds);
 
         try
         {
+            if (visibleMap is not null)
+                PresentMapLayer(visibleMap, dpi);
+            else
+                _mapNativeWindow.Hide();
+
             var renderScene = MapOperationTraceAmbient.StartChild(
                 "final_render_scene",
                 MapOperationWaitKind.Compute);

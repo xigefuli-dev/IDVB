@@ -10,6 +10,7 @@ public sealed partial class SessionOrchestrator
     private void CancelOrbTracking(string reason)
     {
         Interlocked.Increment(ref _orbTrackingGeneration);
+        _realtimeMapTransformPublisher.DiscardPending();
         CancellationTokenSource? cancellation;
         Task? task;
         lock (_orbTrackingGate)

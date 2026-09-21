@@ -9,6 +9,38 @@ namespace IDVBuff.Features.Maps;
 
 internal static partial class MapOverlayBitmapRenderer
 {
+    internal static Bitmap RenderMapLayer(
+        MapOverlayRenderMap map,
+        uint dpi,
+        bool showGateMarkers,
+        bool showAuxiliaryAnchors,
+        bool showTextAnnotations,
+        bool showBoxAnnotations,
+        bool showLineAnnotations,
+        float mapOpacity)
+    {
+        var width = MapOverlayRealtimeTransformPlanner.RoundToPixel(map.Width);
+        var height = MapOverlayRealtimeTransformPlanner.RoundToPixel(map.Height);
+        var dpiScale = ScaleFor(dpi);
+        lock (ImageCacheLock)
+        {
+            var cached = GetOrBuildMapLayer(
+                map with { Left = 0f, Top = 0f, Width = width, Height = height },
+                width,
+                height,
+                dpiScale,
+                mapOpacity,
+                showGateMarkers,
+                showAuxiliaryAnchors,
+                showTextAnnotations,
+                showBoxAnnotations,
+                showLineAnnotations);
+            return cached.Clone(
+                new Rectangle(0, 0, cached.Width, cached.Height),
+                PixelFormat.Format32bppPArgb);
+        }
+    }
+
     private static void DrawMap(Graphics graphics, MapOverlayRenderMap map,
         float dpiScale, bool allowExtendBeyondBounds = false,
         bool showGateMarkers = true, bool showAuxiliaryAnchors = true,

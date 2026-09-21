@@ -27,7 +27,30 @@ public partial class App
 
     private async Task CompleteStartupPresentationAsync(bool startMinimized)
     {
-        if (_mainFrame?.Content is MainPage page)
+        var page = _mainFrame?.Content as MainPage;
+        var visual = _mainFrame is null ? null
+            : Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_mainFrame);
+
+        if (!startMinimized
+            && page is not null
+            && !page.InitialReady.IsCompleted
+            && window is not null)
+        {
+            // Loaded is not guaranteed while the HWND remains DWM-cloaked.
+            // The splash is an independent topmost window, so present the
+            // transparent shell behind it first; this lets WinUI attach and
+            // load MainPage/HomePage before the visible handoff begins.
+            if (visual is not null)
+                visual.Opacity = 0f;
+            SetMainWindowCloaked(false);
+            ShowWindow(
+                WinRT.Interop.WindowNative.GetWindowHandle(window),
+                4); // SW_SHOWNOACTIVATE
+            WriteStartupTrace(
+                "Main window primed behind startup splash; awaiting initial page readiness.");
+        }
+
+        if (page is not null && !startMinimized)
             await page.InitialReady;
         if (_startupTransitionComplete)
         {
@@ -39,8 +62,6 @@ public partial class App
         StartupSplash.Report("准备就绪");
         if (!startMinimized && !explicitExitRequested)
         {
-            var visual = _mainFrame is null ? null
-                : Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_mainFrame);
             if (visual is not null && _mainFrame is not null)
             {
                 await StartupSplash.PrepareTransitionAsync();

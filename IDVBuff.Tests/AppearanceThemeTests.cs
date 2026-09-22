@@ -73,6 +73,48 @@ public sealed class AppearanceThemeTests
     }
 
     [Fact]
+    public void ScanModeAccentDefaultsOnAndCanReturnToSavedAccentSource()
+    {
+        var saved = JsonSerializer.Deserialize<AppearancePreferences>("{}")!;
+        Assert.True(saved.AccentFollowsScanMode);
+        var system = new SystemAppearance(false, RgbColor.Parse("#245DD8"));
+        var green = RgbColor.Parse("#32DA89");
+        var purple = RgbColor.Parse("#B65BF2");
+        var followedGreen = ThemeResolver.Resolve(saved, system, scanModeAccent: green);
+        var followedPurple = ThemeResolver.Resolve(saved, system, scanModeAccent: purple);
+        Assert.NotEqual(followedGreen[ThemeToken.Accent], followedPurple[ThemeToken.Accent]);
+        var disabled = saved with { AccentFollowsScanMode = false };
+        Assert.Equal(ThemeResolver.Resolve(disabled, system)[ThemeToken.Accent],
+            ThemeResolver.Resolve(disabled, system, scanModeAccent: purple)[ThemeToken.Accent]);
+        Assert.False(JsonSerializer.Deserialize<AppearancePreferences>(
+            JsonSerializer.Serialize(disabled))!.AccentFollowsScanMode);
+    }
+
+    [Theory]
+    [InlineData(AppearanceMode.Light)]
+    [InlineData(AppearanceMode.Dark)]
+    public void ScanModeTransitionKeepsIntermediatePalettesReadable(AppearanceMode mode)
+    {
+        var preferences = new AppearancePreferences { Mode = mode };
+        var system = new SystemAppearance(false, RgbColor.Parse("#245DD8"));
+        var seeds = new[]
+        {
+            RgbColor.Parse("#32DA89"),
+            RgbColor.Parse("#3097FF"),
+            RgbColor.Parse("#B65BF2")
+        };
+        foreach (var from in seeds)
+        foreach (var to in seeds)
+        for (var frame = 0; frame <= 255; frame++)
+        {
+            var theme = ThemeResolver.Resolve(preferences, system,
+                scanModeAccent: RgbColor.Mix(from, to, frame / 255d));
+            Assert.True(RgbColor.Contrast(theme[ThemeToken.OnAccent], theme[ThemeToken.Accent]) >= 4.5);
+            Assert.True(RgbColor.Contrast(theme[ThemeToken.SelectionText], theme[ThemeToken.Selection]) >= 4.5);
+        }
+    }
+
+    [Fact]
     public void RegisteringPresetNeedsOnlyDataAndRejectsIncompletePalettes()
     {
         var original = ThemeRegistry.BuiltIn.Get(AppearancePreferences.DefaultThemeId);

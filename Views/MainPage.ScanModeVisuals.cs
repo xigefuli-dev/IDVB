@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using Windows.UI.ViewManagement;
+using IDVBuff.Presentation.Theming;
 
 namespace IDVBuff.Views;
 
@@ -24,6 +25,7 @@ public sealed partial class MainPage
     {
         _scanAccentStart = _scanAccentCurrent;
         _scanAccentTarget = _scanAccentCurrent;
+        ThemeService.SetScanModeAccent(_scanAccentCurrent);
         Unloaded += (_, _) => StopScanAccentAnimation();
     }
 
@@ -50,6 +52,9 @@ public sealed partial class MainPage
         var now = Stopwatch.GetTimestamp();
         if (_scanAccentAnimationRunning)
             UpdateScanAccentFrame(now);
+
+        if (_scanAccentAnimationRunning && _scanAccentTarget.Equals(target))
+            return;
 
         if (!animate || !_scanVisualUiSettings.AnimationsEnabled)
         {
@@ -96,6 +101,7 @@ public sealed partial class MainPage
     private void ApplyScanAccent(Color color)
     {
         _scanVisualHomePage?.SetAmbientAccent(color);
+        ThemeService.SetScanModeAccent(color);
     }
 
     private void StopScanAccentAnimation()

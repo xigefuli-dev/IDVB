@@ -31,6 +31,9 @@ public sealed partial class HomePage : Page
     private readonly TextBlock _scanModeSaveError;
     private bool _savingScanMode;
     private ScanPerformanceMode? _requestedScanMode;
+    private ScanPerformanceMode _savedScanMode = ScanPerformanceMode.Balanced;
+    private bool _savedTagOnly;
+    private int _scanModeSelectionRevision;
 
     public event Action<Color, bool>? ScanModeVisualChanged;
     public Color CurrentScanModeAccent => _scanModeSelector.AccentColor;
@@ -330,11 +333,15 @@ public sealed partial class HomePage : Page
         {
             UpdateGameStatus();
             _gameStatusTimer.Start();
-            if (!_savingScanMode && App.CurrentSession is { } session)
+            var selectionRevision = _scanModeSelectionRevision;
+            var savedScanSettings = await new MapRuntimeSettingsRepository().LoadAsync();
+            if (!_savingScanMode && selectionRevision == _scanModeSelectionRevision)
             {
+                _savedScanMode = savedScanSettings.ScanPerformanceMode;
+                _savedTagOnly = savedScanSettings.SelectMapByTagsEnabled;
                 _scanModeSelector.SetMode(
-                    session.Settings.ScanPerformanceMode,
-                    session.Settings.SelectMapByTagsEnabled);
+                    _savedScanMode,
+                    _savedTagOnly);
                 ScanModeVisualChanged?.Invoke(_scanModeSelector.AccentColor, false);
             }
             _mapCountValue.Text = "…";
@@ -402,6 +409,7 @@ public sealed partial class HomePage : Page
 
     private async void ScanModeSelector_ModeChanged(ScanPerformanceMode mode)
     {
+        _scanModeSelectionRevision++;
         ScanModeVisualChanged?.Invoke(ScanModeSelector.GetAccentColor(mode), true);
         _requestedScanMode = mode;
         if (_savingScanMode)
@@ -418,7 +426,17 @@ public sealed partial class HomePage : Page
                 _requestedScanMode = null;
                 try
                 {
-                    await App.Session.SetScanPerformanceModeAsync(requested);
+                    if (App.CurrentSession is { } session)
+                        await session.SetScanPerformanceModeAsync(requested);
+                    else
+                    {
+                        var repository = new MapRuntimeSettingsRepository();
+                        var settings = await repository.LoadAsync();
+                        settings.ScanPerformanceMode = requested;
+                        await repository.SaveAsync(settings);
+                    }
+                    _savedScanMode = requested;
+                    _scanModeSaveError.Visibility = Visibility.Collapsed;
                 }
                 catch (Exception exception)
                 {
@@ -431,10 +449,14 @@ public sealed partial class HomePage : Page
         finally
         {
             _savingScanMode = false;
-            _scanModeSelector.SetMode(
-                App.Session.Settings.ScanPerformanceMode,
-                App.Session.Settings.SelectMapByTagsEnabled);
-            ScanModeVisualChanged?.Invoke(_scanModeSelector.AccentColor, true);
+            var currentSettings = App.CurrentSession?.Settings;
+            var saved = currentSettings?.ScanPerformanceMode ?? _savedScanMode;
+            if (_scanModeSelector.Mode != saved)
+            {
+                _scanModeSelector.SetMode(saved,
+                    currentSettings?.SelectMapByTagsEnabled ?? _savedTagOnly);
+                ScanModeVisualChanged?.Invoke(_scanModeSelector.AccentColor, true);
+            }
         }
     }
 }

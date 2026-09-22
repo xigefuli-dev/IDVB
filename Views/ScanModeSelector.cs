@@ -162,7 +162,10 @@ public sealed partial class ScanModeSelector : UserControl
         _title.Foreground = FluentTheme.Brush(this, ThemeToken.Text);
         _hint.Foreground = FluentTheme.Brush(this, ThemeToken.TextSecondary);
         _hint.Opacity = 1;
-        FluentTheme.Observe(this, _ => UpdateAppearance(false));
+        FluentTheme.Observe(this, theme =>
+        {
+            if (NeedsAppearanceRefresh(theme)) UpdateAppearance(false);
+        });
 
         foreach (var element in EnumerateTranslatedElements())
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);

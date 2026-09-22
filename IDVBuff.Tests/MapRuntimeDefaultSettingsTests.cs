@@ -5,6 +5,31 @@ namespace IDVBuff.Tests;
 public sealed class MapRuntimeDefaultSettingsTests
 {
     [Fact]
+    public async Task ScanModeSurvivesRepositoryReloadAndMissingValueDefaultsToBalanced()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"idvb-scan-mode-{Guid.NewGuid():N}");
+        try
+        {
+            var repository = new MapRuntimeSettingsRepository(root);
+            Assert.Equal(ScanPerformanceMode.Balanced,
+                (await repository.LoadAsync()).ScanPerformanceMode);
+            var settings = await repository.LoadAsync();
+            settings.ScanPerformanceMode = ScanPerformanceMode.Quality;
+            await repository.SaveAsync(settings);
+            Assert.Equal(ScanPerformanceMode.Quality,
+                (await new MapRuntimeSettingsRepository(root).LoadAsync()).ScanPerformanceMode);
+            settings.ScanPerformanceMode = ScanPerformanceMode.Fast;
+            await repository.SaveAsync(settings);
+            Assert.Equal(ScanPerformanceMode.Fast,
+                (await new MapRuntimeSettingsRepository(root).LoadAsync()).ScanPerformanceMode);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void NewSettingsUseTheSafeReleaseBaselineWithoutMachineSpecificData()
     {
         var settings = MapRuntimeSettings.CreateDefault();

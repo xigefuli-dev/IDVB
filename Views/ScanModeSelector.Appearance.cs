@@ -27,9 +27,35 @@ public sealed partial class ScanModeSelector
     internal static bool AllowsGlass(ThemeSnapshot theme) => !theme.IsHighContrast
         && theme.FallbackReason != "TransparencyDisabled";
 
+    private bool NeedsAppearanceRefresh(ThemeSnapshot theme) =>
+        _surfaceTheme is not { } previous
+        || previous.IsDark != theme.IsDark
+        || previous.IsHighContrast != theme.IsHighContrast
+        || previous.FallbackReason != theme.FallbackReason
+        || previous[ThemeToken.TextSecondary] != theme[ThemeToken.TextSecondary]
+        || previous[ThemeToken.Raised] != theme[ThemeToken.Raised]
+        || previous[ThemeToken.Card] != theme[ThemeToken.Card]
+        || previous[ThemeToken.ControlBorder] != theme[ThemeToken.ControlBorder]
+        || previous[ThemeToken.ControlFill] != theme[ThemeToken.ControlFill]
+        || (theme.IsHighContrast &&
+            (previous[ThemeToken.Selection] != theme[ThemeToken.Selection]
+             || previous[ThemeToken.SelectionText] != theme[ThemeToken.SelectionText]
+             || previous[ThemeToken.SelectionBorder] != theme[ThemeToken.SelectionBorder]));
+
     private void UpdateGlassSurface(ThemeSnapshot theme)
     {
-        if (ReferenceEquals(_surfaceTheme, theme)) return;
+        if (_surfaceTheme is { } previous
+            && previous.IsDark == theme.IsDark
+            && previous.IsHighContrast == theme.IsHighContrast
+            && previous.FallbackReason == theme.FallbackReason
+            && previous[ThemeToken.Raised] == theme[ThemeToken.Raised]
+            && previous[ThemeToken.Card] == theme[ThemeToken.Card]
+            && previous[ThemeToken.ControlBorder] == theme[ThemeToken.ControlBorder]
+            && previous[ThemeToken.ControlFill] == theme[ThemeToken.ControlFill])
+        {
+            _surfaceTheme = theme;
+            return;
+        }
         _surfaceTheme = theme;
         var white = Microsoft.UI.Colors.White;
         var black = Microsoft.UI.Colors.Black;

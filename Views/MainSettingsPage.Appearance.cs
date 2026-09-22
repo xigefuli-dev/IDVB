@@ -18,6 +18,11 @@ public sealed partial class MainSettingsPage
         foreach (var label in new[] { "纯色", "玻璃" }) material.Items.Add(label);
         var accent = new ComboBox { MinWidth = 140 };
         foreach (var label in new[] { "Windows 强调色", "方案默认色", "自定义色" }) accent.Items.Add(label);
+        var followScanMode = new ToggleSwitch
+        {
+            OnContent = string.Empty,
+            OffContent = string.Empty
+        };
         var custom = new TextBox { PlaceholderText = "#RRGGBB", MaxLength = 7, MinWidth = 120 };
         var applyColor = new Button { Content = "应用颜色" };
         var error = new InfoBar { Severity = InfoBarSeverity.Error, IsClosable = true };
@@ -31,8 +36,10 @@ public sealed partial class MainSettingsPage
             mode.SelectedIndex = (int)preferences.Mode;
             material.SelectedIndex = (int)preferences.Material;
             accent.SelectedIndex = (int)preferences.AccentSource;
+            followScanMode.IsOn = preferences.AccentFollowsScanMode;
             custom.Text = preferences.CustomAccent ?? "#245DD8";
-            custom.IsEnabled = accent.SelectedIndex == (int)AccentSource.Custom;
+            accent.IsEnabled = !followScanMode.IsOn;
+            custom.IsEnabled = !followScanMode.IsOn && accent.SelectedIndex == (int)AccentSource.Custom;
             applyColor.IsEnabled = custom.IsEnabled;
             updating = false;
         }
@@ -42,13 +49,15 @@ public sealed partial class MainSettingsPage
             if (updating) return;
             try
             {
-                ThemeService.Apply(ThemeService.Preferences with
+                var current = ThemeService.Preferences;
+                ThemeService.Apply(current with
                 {
                     ThemeId = ((ThemeDefinition)preset.SelectedItem).Id,
                     Mode = (AppearanceMode)mode.SelectedIndex,
                     Material = (ThemeMaterial)material.SelectedIndex,
-                    AccentSource = (AccentSource)accent.SelectedIndex,
-                    CustomAccent = custom.Text
+                    AccentSource = followScanMode.IsOn ? current.AccentSource : (AccentSource)accent.SelectedIndex,
+                    CustomAccent = followScanMode.IsOn ? current.CustomAccent : custom.Text,
+                    AccentFollowsScanMode = followScanMode.IsOn
                 });
                 error.IsOpen = false;
             }
@@ -79,7 +88,8 @@ public sealed partial class MainSettingsPage
         AddRow("配色方案", "统一窗口、控件和内容区域的配色", preset);
         AddRow("应用外观", "明暗模式同时应用于主窗口和所属控件", mode);
         AddRow("背景材质", "纯色提供稳定底色，玻璃保留背景氛围", material);
-        AddRow("强调色", "按钮、选中状态和焦点使用同一套配色", accent);
+        AddRow("强调色随模式变换", "切换扫描模式时，按钮、选中状态和焦点颜色平滑过渡到对应颜色", followScanMode);
+        AddRow("强调色", "关闭随模式变换后使用此颜色来源", accent);
         var customRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         customRow.Children.Add(custom);
         customRow.Children.Add(applyColor);
@@ -89,9 +99,16 @@ public sealed partial class MainSettingsPage
         preset.SelectionChanged += (_, _) => Apply();
         mode.SelectionChanged += (_, _) => Apply();
         material.SelectionChanged += (_, _) => Apply();
+        followScanMode.Toggled += (_, _) =>
+        {
+            accent.IsEnabled = !followScanMode.IsOn;
+            custom.IsEnabled = !followScanMode.IsOn && accent.SelectedIndex == (int)AccentSource.Custom;
+            applyColor.IsEnabled = custom.IsEnabled;
+            Apply();
+        };
         accent.SelectionChanged += (_, _) =>
         {
-            custom.IsEnabled = accent.SelectedIndex == (int)AccentSource.Custom;
+            custom.IsEnabled = !followScanMode.IsOn && accent.SelectedIndex == (int)AccentSource.Custom;
             applyColor.IsEnabled = custom.IsEnabled;
             Apply();
         };

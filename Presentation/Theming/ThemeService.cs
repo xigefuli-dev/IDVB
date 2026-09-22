@@ -5,6 +5,7 @@ using IDVBuff.Lifecycle;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 using Windows.UI.ViewManagement;
 
 namespace IDVBuff.Presentation.Theming;
@@ -19,6 +20,7 @@ internal static class ThemeService
     private static readonly UISettings UiSettings = new();
     private static readonly AccessibilitySettings Accessibility = new();
     private static AppearancePreferences _preferences = new();
+    private static RgbColor? _scanModeAccent;
     private static SystemAppearance _system = new(false, RgbColor.Parse("#245DD8"));
     private static DispatcherQueue? _dispatcher;
     private static ThemeResources? _applicationResources;
@@ -26,6 +28,17 @@ internal static class ThemeService
     private static int _systemRefreshPending;
 
     public static AppearancePreferences Preferences => _preferences;
+
+    public static void SetScanModeAccent(Color color)
+    {
+        if (_dispatcher?.HasThreadAccess != true)
+            throw new InvalidOperationException("扫描模式强调色必须在主 UI 线程应用。");
+        var accent = new RgbColor(color.R, color.G, color.B);
+        if (_scanModeAccent == accent) return;
+        _scanModeAccent = accent;
+        if (_preferences.AccentFollowsScanMode)
+            Refresh("ScanModeAccentChanged", log: false);
+    }
 
     public static void Initialize(AppearancePreferences preferences, DispatcherQueue dispatcher)
     {
@@ -125,7 +138,8 @@ internal static class ThemeService
         return resources;
     }).Resources;
 
-    private static ThemeSnapshot Resolve(ThemeProfile profile) => ThemeResolver.Resolve(_preferences, _system, profile);
+    private static ThemeSnapshot Resolve(ThemeProfile profile) =>
+        ThemeResolver.Resolve(_preferences, _system, profile, scanModeAccent: _scanModeAccent);
 
     private static ThemeSnapshot ResolveFor(FrameworkElement owner)
         => FindScope(owner)?.Resources.Snapshot ?? Resolve(ThemeProfile.Application);
@@ -148,7 +162,7 @@ internal static class ThemeService
         return null;
     }
 
-    private static void Refresh(string reason)
+    private static void Refresh(string reason, bool log = true)
     {
         var revision = Interlocked.Increment(ref _revision);
         _applicationResources?.Apply(Resolve(ThemeProfile.Application), revision);
@@ -164,7 +178,8 @@ internal static class ThemeService
             scope.Dispatch(() => scope.Apply(snapshot, revision));
         }
         RefreshOwners();
-        OutputLog.Write("INFO", "THEME", $"revision={revision}; reason={reason}; mode={_preferences.Mode}; material={_preferences.Material}; windowsOrRegions={scopes.Length}");
+        if (log)
+            OutputLog.Write("INFO", "THEME", $"revision={revision}; reason={reason}; mode={_preferences.Mode}; material={_preferences.Material}; windowsOrRegions={scopes.Length}");
     }
 
     internal static void RefreshOwners()

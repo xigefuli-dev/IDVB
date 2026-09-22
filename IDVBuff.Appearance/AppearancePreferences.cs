@@ -14,6 +14,7 @@ public sealed record AppearancePreferences
     public ThemeMaterial Material { get; init; } = ThemeMaterial.Solid;
     public AccentSource AccentSource { get; init; } = AccentSource.System;
     public string? CustomAccent { get; init; }
+    public bool AccentFollowsScanMode { get; init; } = true;
 
     public static AppearancePreferences FromLegacy(bool followSystem, bool dark, bool legacy) => new()
     {

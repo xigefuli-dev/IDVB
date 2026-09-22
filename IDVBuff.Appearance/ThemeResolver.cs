@@ -11,7 +11,8 @@ public sealed record ThemeSnapshot(bool IsDark, bool IsHighContrast, ThemeMateri
 public static class ThemeResolver
 {
     public static ThemeSnapshot Resolve(AppearancePreferences preferences, SystemAppearance system,
-        ThemeProfile profile = ThemeProfile.Application, ThemeRegistry? registry = null)
+        ThemeProfile profile = ThemeProfile.Application, ThemeRegistry? registry = null,
+        RgbColor? scanModeAccent = null)
     {
         preferences.Validate();
         if (!Enum.IsDefined(profile)) throw new ArgumentException("无效的主题作用域配置。", nameof(profile));
@@ -23,7 +24,8 @@ public static class ThemeResolver
             _ => system.IsDark
         });
         var colors = (dark ? definition.Dark : definition.Light).ToDictionary();
-        var accent = preferences.AccentSource switch
+        var accent = preferences.AccentFollowsScanMode && scanModeAccent is { } modeAccent
+            ? modeAccent : preferences.AccentSource switch
         {
             AccentSource.System => system.Accent,
             AccentSource.Custom => RgbColor.Parse(preferences.CustomAccent!),

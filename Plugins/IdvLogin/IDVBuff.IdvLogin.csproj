@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>IDVB.IdvLogin</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="adapter_bootstrap.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" TargetPath="IdvLoginAdapter/adapter_bootstrap.py" />
+    <ProjectReference Include="..\..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+  </ItemGroup>
+</Project>

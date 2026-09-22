@@ -32,6 +32,7 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
     }
 
     public IReadOnlyList<IPlugin> Plugins => _host.Plugins;
+    public event EventHandler? EnabledChanged;
 
     public bool TryGet(string id, out IPlugin? plugin) => _host.TryGet(id, out plugin);
 
@@ -47,11 +48,26 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
     /// </summary>
     public void SetMatchActivation(bool active) => _host.SetActivationAllowed(active);
 
-    public void Register(IPlugin plugin) =>
-        _host.Register(plugin, _preferences.IsEnabled(plugin.Id));
+    public void Register(IPlugin plugin)
+    {
+        if (plugin is IPluginSettingsProvider provider)
+            using (StartupTimeline.Measure($"Built-in restore settings: {plugin.Id}"))
+                _preferences.RestoreSettings(provider, plugin.Id);
+        var enabled = _preferences.IsEnabled(plugin.Id);
+        if (plugin is IDVBuff.Plugins.IdvLogin.IdvLoginPlugin login && !login.HasValidPath)
+        {
+            if (enabled) _preferences.SetEnabled(plugin.Id, false);
+            enabled = false;
+        }
+        // Initial desired state belongs to registration, before host.Start().
+        _host.Register(plugin, enabled);
+    }
 
     public void SetEnabled(string id, bool enabled)
     {
+        if (enabled && _host.TryGet(id, out var candidate) &&
+            candidate is IDVBuff.Plugins.IdvLogin.IdvLoginPlugin login && !login.HasValidPath)
+            throw new InvalidOperationException("请先填写 idv-login 的实际路径。");
         var previous = _host.IsEnabled(id);
         _host.SetEnabled(id, enabled);
 
@@ -74,16 +90,11 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
 
             throw;
         }
+        EnabledChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void Start()
     {
-        foreach (var plugin in _host.Plugins)
-        {
-            if (plugin is IPluginSettingsProvider provider)
-                using (StartupTimeline.Measure($"Built-in restore settings: {plugin.Id}"))
-                    _preferences.RestoreSettings(provider, plugin.Id);
-        }
         using (StartupTimeline.Measure("Built-in host Start (lifecycle callbacks)"))
             _host.Start();
         using (StartupTimeline.Measure("Built-in dispatcher timer Start"))

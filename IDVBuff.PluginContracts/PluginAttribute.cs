@@ -29,4 +29,11 @@ public sealed class PluginAttribute : Attribute
     /// 且在局外依然保持运行；切换启用状态时立即触发生命周期回调。
     /// </summary>
     public bool AlwaysActive { get; set; }
+
+    /// <summary>是否仅允许在对局内激活。注册时读取；用户总开关始终优先。</summary>
+    public bool StrictMatchLifecycle
+    {
+        get => !AlwaysActive;
+        set => AlwaysActive = !value;
+    }
 }

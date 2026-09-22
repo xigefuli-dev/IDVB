@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Plugins\IdvLogin\IDVBuff.IdvLogin.csproj" />
     <ProjectReference Include="..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
     <ProjectReference Include="..\Plugins\LiveMode\IDVBuff.LiveMode.csproj" />

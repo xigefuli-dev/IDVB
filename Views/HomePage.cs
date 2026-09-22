@@ -118,7 +118,7 @@ public sealed partial class HomePage : Page
             {
                 welcome,
                 CreateGameShelf(),
-                _launchGameButton
+                CreateGameLaunchActions()
             }
         };
         Grid.SetColumn(primaryControls, 0);

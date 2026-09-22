@@ -93,6 +93,7 @@
         <ProjectReference Include="Plugins\NightVision\IDVBuff.NightVision.csproj" />
         <ProjectReference Include="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
         <ProjectReference Include="Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
+        <ProjectReference Include="Plugins\IdvLogin\IDVBuff.IdvLogin.csproj" />
         <ProjectReference Include="Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
 
         <Content Include="Assets\SplashScreen.scale-200.png" CopyToOutputDirectory="PreserveNewest" />

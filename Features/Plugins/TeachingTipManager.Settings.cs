@@ -158,6 +158,11 @@ public sealed partial class TeachingTipManager
                 break;
             case PluginTextSetting text:
                 {
+                    if (provider is IDVBuff.Plugins.IdvLogin.IdvLoginPlugin && text.Key == "installation-path")
+                    {
+                        row.Children.Add(BuildLoginFolderPicker(provider, pluginId, text));
+                        break;
+                    }
                     if (string.Equals(pluginId, "custom-phrases", StringComparison.Ordinal)
                         && string.Equals(setting.Key, "phrases", StringComparison.Ordinal))
                     {

@@ -76,7 +76,7 @@ public sealed partial class PluginsPage : Page
                 },
                 new TextBlock
                 {
-                    Text = "这里的开关是主开关；插件只会在对局控件开始对局后运行，并在结束对局时自动停用。",
+                    Text = "这里的开关是主开关；对局插件随对局启停，账号登录、直播模式等常驻插件在局外也可运行。",
                     FontSize = 14,
                     Foreground = SecondaryTextBrush
                 }
@@ -248,6 +248,8 @@ public sealed partial class PluginsPage : Page
                 changing = true;
                 toggle.IsOn = manager.IsEnabled(plugin.Id);
                 changing = false;
+                if (plugin is IDVBuff.Plugins.IdvLogin.IdvLoginPlugin login && !login.HasValidPath)
+                    App.TeachingTips?.ShowSettings(plugin, toggle);
             }
         };
         Grid.SetColumn(toggle, 2);

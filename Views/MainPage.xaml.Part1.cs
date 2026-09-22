@@ -182,10 +182,14 @@ public sealed partial class MainPage : Page
         NavigationHoverIndicator.Opacity = targetOpacity;
     }
 
+    private long _navigationRevision;
+
     private async void NavigateTo(string moduleId, NavigationEntry? navigationEntry = null)
+        => await NavigateToAsync(moduleId, navigationEntry);
+
+    private async Task NavigateToAsync(string moduleId, NavigationEntry? navigationEntry = null)
     {
-        DisconnectDisplayPreviewSource();
-        DisconnectScanVisuals();
+        var revision = ++_navigationRevision;
         SetNavigationCompact(_navigationCompactPreference);
 
         if (navigationEntry is not null)
@@ -204,7 +208,7 @@ public sealed partial class MainPage : Page
             var loadingRing = new ProgressRing { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             ModuleContentHost.Content = loadingRing;
             await App.ServicesReadyTask;
-            if (navigationEntry is not null && _selectedNavigationEntry != navigationEntry)
+            if (revision != _navigationRevision)
                 return;
         }
 
@@ -214,10 +218,20 @@ public sealed partial class MainPage : Page
             var view = App.IsSafeMode && IsSafeModeRestrictedModule(moduleId)
                 ? CreateSafeModeRestrictedView(moduleId)
                 : _catalog.GetRequired(moduleId).CreateView();
+            // Prepare persisted state before attaching controls to the live visual tree.
+            // Keep the current page visible while I/O completes.
+            if (view is HomePage pendingHome)
+                await pendingHome.PrepareAsync();
+            if (view is TagsAndTemplatesPage pendingTags)
+                await pendingTags.PrepareAsync();
+            if (revision != _navigationRevision)
+                return;
+            DisconnectDisplayPreviewSource();
+            DisconnectScanVisuals();
+            if (view is HomePage preparedHome)
+                ConnectScanVisuals(preparedHome);
             ModuleContentHost.Content = view;
             ConfigureMainContentScrolling(view);
-            if (view is HomePage homePage)
-                ConnectScanVisuals(homePage);
             if (view is HelpPage helpPage)
             {
                 helpPage.ActivateGuideRequested += HelpPage_ActivateGuideRequested;
@@ -235,6 +249,8 @@ public sealed partial class MainPage : Page
         }
         catch (Exception exception)
         {
+            if (revision != _navigationRevision)
+                return;
             System.Diagnostics.Debug.WriteLine(
                 $"Module '{moduleId}' failed to create its view: {exception}");
             TryLogModuleFailure(moduleId, exception);

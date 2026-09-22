@@ -10,8 +10,10 @@ import os
 from pathlib import Path
 import runpy
 import sys
+import re
 
-CAPABILITIES = {"account_source": False, "suppress_auto_accounts": False}
+CAPABILITIES = {"account_source": False, "suppress_auto_accounts": False, "login_mode": False}
+LOGIN_MODE = "official"
 NAVIGATION_DIAGNOSTICS = {"managed_responses": 0, "removed_navigation_entries": 0, "unexpected_schema": 0}
 
 
@@ -43,6 +45,35 @@ def extend_module(name, module):
         CAPABILITIES["account_source"] = True
     elif name == "mitm_addon":
         cls = getattr(module, "IDVLoginAddon", None)
+        def identity_v_request(flow):
+            path = flow.request.path.split("?")[0]
+            if path.startswith("/_idv-login/"):
+                return False
+            values = module._request_values(flow.request)
+            ids = [values.get("game_id", ""), values.get("dst_jf_game_id", "")]
+            match = re.match(r"^/mpay/games/([^/]+)/", path)
+            if match:
+                ids.append(match.group(1))
+            return any(module.getShortGameId(value) == "h55" for value in ids if value)
+
+        request = getattr(cls, "request", None)
+        response = getattr(cls, "response", None)
+        if callable(request) and callable(response) and callable(getattr(module, "_request_values", None)):
+            def native_request(self, flow):
+                bypass = LOGIN_MODE == "official" and identity_v_request(flow)
+                flow.metadata["idvb_native_login"] = bypass
+                if not bypass:
+                    return request(self, flow)
+
+            def native_response(self, flow):
+                # Pin the route on request: switching mode cannot reinterpret
+                # an already in-flight login response from another launch.
+                if not flow.metadata.get("idvb_native_login", False):
+                    return response(self, flow)
+
+            cls.request = native_request
+            cls.response = native_response
+            CAPABILITIES["login_mode"] = True
         original = getattr(cls, "_modify_create_login_response", None)
         code = getattr(original, "__code__", None)
         # The upstream one-shot flag only gates the unsolicited accounts UI.
@@ -90,9 +121,19 @@ def extend_module(name, module):
             return
 
         def route(self, path, method, args, json_body=None):
+            global LOGIN_MODE
             if path == "/_idv-login/idvb/status" and method == "GET":
-                payload = {"success": True, "adapter_version": 3, **CAPABILITIES, "navigation": dict(NAVIGATION_DIAGNOSTICS)}
+                payload = {"success": True, "adapter_version": 4, **CAPABILITIES, "mode": LOGIN_MODE, "navigation": dict(NAVIGATION_DIAGNOSTICS)}
                 return 200, {"Content-Type": "application/json"}, json.dumps(payload).encode("utf-8")
+            if path == "/_idv-login/idvb/login-mode" and method == "POST":
+                mode = (json_body or {}).get("mode")
+                if mode not in ("official", "channel") or not CAPABILITIES["login_mode"]:
+                    return 409, {"Content-Type": "application/json"}, b'{"success":false}'
+                if mode == "official":
+                    module.genv.set("auto-h55", "", True)
+                    module.genv.set("CHANNEL_ACCOUNT_SELECTED", "")
+                LOGIN_MODE = mode
+                return 200, {"Content-Type": "application/json"}, json.dumps({"success": True, "mode": mode}).encode()
             return original(self, path, method, args, json_body)
 
         cls._route = route

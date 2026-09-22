@@ -7,6 +7,7 @@ public sealed partial class IdvLoginClient
     public async Task LaunchWithAccountAsync(string accountId, CancellationToken cancellation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        await SetLoginModeAsync(channel: true, cancellation);
         // The upstream auto-login consumer runs when a NEW game QR is created.
         // switch before launch instead consumes a stale QR, or prepares credentials
         // for its fallback game. Do not race that consumer with switch polling.

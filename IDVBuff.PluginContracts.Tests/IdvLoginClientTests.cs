@@ -10,7 +10,8 @@ public class IdvLoginClientTests
     [Theory]
     [InlineData("{\"success\":true,\"adapter_version\":1}", true)]
     [InlineData("{\"success\":true,\"adapter_version\":2}", true)]
-    [InlineData("{\"success\":true,\"adapter_version\":3}", false)]
+    [InlineData("{\"success\":true,\"adapter_version\":3}", true)]
+    [InlineData("{\"success\":true,\"adapter_version\":4}", false)]
     [InlineData("{\"success\":true,\"adapter_version\":0}", false)]
     [InlineData("{\"success\":false,\"adapter_version\":1}", false)]
     [InlineData("{}", false)]
@@ -22,14 +23,14 @@ public class IdvLoginClientTests
 
     [Theory]
     [InlineData(1, true, "旧版适配层 v1")]
-    [InlineData(3, false, "抑制功能暂不可用")]
+    [InlineData(4, false, "抑制功能暂不可用")]
     [InlineData(2, true, "旧版适配层 v2")]
-    [InlineData(3, true, "")]
+    [InlineData(4, true, "")]
     public async Task AdapterNoticeDistinguishesOldProcessFromMissingCapability(int version, bool suppress, string expected)
     {
         using var client = new IdvLoginClient(new Responses(System.Text.Json.JsonSerializer.Serialize(new
         {
-            success = true, adapter_version = version, account_source = true, suppress_auto_accounts = suppress
+            success = true, adapter_version = version, account_source = true, suppress_auto_accounts = suppress, login_mode = true
         })));
         var notice = await client.GetAdapterNoticeAsync(default);
         if (expected.Length == 0) Assert.Empty(notice);
@@ -81,19 +82,19 @@ public class IdvLoginClientTests
     [Fact]
     public async Task AccountLaunchSelectsAndVerifiesBeforeDelegatingStartup()
     {
-        var handler = new Responses("{\"success\":true}", "{\"uuid\":\"a&b\"}", "{\"success\":true}");
+        var handler = new Responses("{\"success\":true}", "{\"success\":true}", "{\"uuid\":\"a&b\"}", "{\"success\":true}");
         using var client = new IdvLoginClient(handler);
         await client.LaunchWithAccountAsync("a&b", default);
-        Assert.Equal(["/_idv-login/setDefault", "/_idv-login/defaultChannel", "/_idv-login/start-game"],
+        Assert.Equal(["/_idv-login/idvb/login-mode", "/_idv-login/setDefault", "/_idv-login/defaultChannel", "/_idv-login/start-game"],
             handler.Requests.Select(uri => uri.AbsolutePath));
-        Assert.Contains("uuid=a%26b", handler.Requests[0].Query);
-        Assert.All(handler.Requests, uri => Assert.Contains("game_id=h55", uri.Query));
+        Assert.Contains("uuid=a%26b", handler.Requests[1].Query);
+        Assert.All(handler.Requests.Skip(1), uri => Assert.Contains("game_id=h55", uri.Query));
     }
 
     [Theory]
     [InlineData("{\"success\":false}")]
     [InlineData("{}")]
-    public async Task RejectedAccountNeverLaunchesGame(string response)
+    public async Task RejectedLoginModeNeverSelectsAccountOrLaunchesGame(string response)
     {
         var handler = new Responses(response);
         using var client = new IdvLoginClient(handler);
@@ -104,19 +105,19 @@ public class IdvLoginClientTests
     [Fact]
     public async Task ChangedOrDeletedAccountNeverLaunchesGame()
     {
-        var handler = new Responses("{\"success\":true}", "{\"uuid\":\"other\"}");
+        var handler = new Responses("{\"success\":true}", "{\"success\":true}", "{\"uuid\":\"other\"}");
         using var client = new IdvLoginClient(handler);
         await Assert.ThrowsAsync<LoginLaunchException>(() => client.LaunchWithAccountAsync("a", default));
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Fact]
     public async Task FailedLaunchDoesNotFallBackToFeverOrRepeatSwitch()
     {
-        var handler = new Responses("{\"success\":true}", "{\"uuid\":\"a\"}", "{\"success\":false}");
+        var handler = new Responses("{\"success\":true}", "{\"success\":true}", "{\"uuid\":\"a\"}", "{\"success\":false}");
         using var client = new IdvLoginClient(handler);
         await Assert.ThrowsAsync<LoginLaunchException>(() => client.LaunchWithAccountAsync("a", default));
-        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(4, handler.Requests.Count);
     }
 
     [Theory]

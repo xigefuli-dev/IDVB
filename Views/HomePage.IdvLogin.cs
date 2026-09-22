@@ -19,8 +19,8 @@ public sealed partial class HomePage
             Content = new SymbolIcon(Symbol.Contact),
             CornerRadius = new CornerRadius(8)
         };
-        ToolTipService.SetToolTip(accounts, "通过 idv-login 扫码或选择账号登录");
-        AutomationProperties.SetName(accounts, "账号登录");
+        ToolTipService.SetToolTip(accounts, "渠道服账号：扫码或选择账号登录");
+        AutomationProperties.SetName(accounts, "渠道服账号");
         var slot = new Grid { Width = 58, Height = 58, Children = { accounts } };
         var setLoading = CreateAccountLoadingOutline(slot);
         var loading = false;
@@ -59,7 +59,7 @@ public sealed partial class HomePage
             {
                 loading = false;
                 setLoading(false);
-                AutomationProperties.SetName(accounts, "账号登录");
+                AutomationProperties.SetName(accounts, "渠道服账号");
             }
         };
         host.Children.Add(new StackPanel

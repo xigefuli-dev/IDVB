@@ -29,7 +29,6 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = BuildPage()
         };
-        Loaded += async (_, _) => await ReloadAsync();
         SizeChanged += (_, _) => UpdateResponsiveColumns();
     }
 
@@ -71,6 +70,8 @@ public sealed partial class TagsAndTemplatesPage : UserControl
         header.Children.Add(button);
         return header;
     }
+
+    internal Task PrepareAsync() => ReloadAsync();
 
     private async Task ReloadAsync()
     {

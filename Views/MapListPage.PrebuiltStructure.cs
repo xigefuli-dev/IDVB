@@ -14,6 +14,8 @@ public sealed partial class MapListPage
         var menu = new MenuFlyout();
         var properties = new MenuFlyoutItem { Text = "地图类属性" };
         properties.Click += async (_, _) => await ShowClassPropertiesDialogAsync();
+        var exportOverview = new MenuFlyoutItem { Text = "导出全览图" };
+        exportOverview.Click += async (_, _) => await ExportClassOverviewAsync();
         var generate = new MenuFlyoutItem { Text = "预生成线图算法" };
         generate.Click += async (_, _) => await PickAndGeneratePrebuiltStructureAsync();
         var preview = new MenuFlyoutItem
@@ -23,6 +25,7 @@ public sealed partial class MapListPage
         };
         preview.Click += (_, _) => ShowPrebuiltStructurePreview();
         menu.Items.Add(properties);
+        menu.Items.Add(exportOverview);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(generate);
         menu.Items.Add(preview);

@@ -233,10 +233,41 @@ public sealed partial class HomePage : Page
         return button;
     }
 
+    private bool _gameLaunchInProgress;
+
     private async void LaunchGameButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_gameLaunchInProgress) return;
+        _gameLaunchInProgress = true;
+        try { await LaunchOfficialGameAsync(); }
+        finally { _gameLaunchInProgress = false; UpdateGameStatus(); }
+    }
+
+    private async Task LaunchOfficialGameAsync()
     {
         if (IsGameRunning())
             return;
+
+        // A running adapter must stop rewriting Identity V login traffic before
+        // Fever supplies its official session, even if the plugin is disabled.
+        try
+        {
+            _launchGameButton.IsEnabled = false;
+            using var login = new IDVBuff.Plugins.IdvLogin.IdvLoginClient();
+            if (await login.IsReadyAsync(default))
+                await login.SetLoginModeAsync(channel: false, default);
+        }
+        catch
+        {
+            await new ContentDialog
+            {
+                XamlRoot = XamlRoot, Title = "无法切换到发烧登录",
+                Content = "请重新启用 idv-login 转接器以加载新版适配层，或退出 idv-login 后再启动。",
+                CloseButtonText = "知道了"
+            }.ShowThemedAsync();
+            return;
+        }
+        finally { UpdateGameStatus(); }
 
         if (!FeverGamesGameLauncher.TryLaunch(out var failureReason))
         {
@@ -258,7 +289,7 @@ public sealed partial class HomePage : Page
         var running = IsGameRunning();
         _launchGameLabel.Text = running ? "···游戏中" : "启动游戏";
         _launchGameIcon.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        _launchGameButton.IsEnabled = !running;
+        _launchGameButton.IsEnabled = !running && !_gameLaunchInProgress;
     }
 
     private static bool IsGameRunning() => Process.GetProcessesByName("dwrg").Length > 0;
@@ -327,23 +358,21 @@ public sealed partial class HomePage : Page
         };
     }
 
+    internal async Task PrepareAsync()
+    {
+        var settings = await new MapRuntimeSettingsRepository().LoadAsync();
+        _savedScanMode = settings.ScanPerformanceMode;
+        _savedTagOnly = settings.SelectMapByTagsEnabled;
+        _scanModeSelector.SetMode(_savedScanMode, _savedTagOnly);
+        SetAmbientAccent(_scanModeSelector.AccentColor);
+    }
+
     private async void HomePage_Loaded(object sender, RoutedEventArgs e)
     {
         try
         {
             UpdateGameStatus();
             _gameStatusTimer.Start();
-            var selectionRevision = _scanModeSelectionRevision;
-            var savedScanSettings = await new MapRuntimeSettingsRepository().LoadAsync();
-            if (!_savingScanMode && selectionRevision == _scanModeSelectionRevision)
-            {
-                _savedScanMode = savedScanSettings.ScanPerformanceMode;
-                _savedTagOnly = savedScanSettings.SelectMapByTagsEnabled;
-                _scanModeSelector.SetMode(
-                    _savedScanMode,
-                    _savedTagOnly);
-                ScanModeVisualChanged?.Invoke(_scanModeSelector.AccentColor, false);
-            }
             _mapCountValue.Text = "…";
             _successRateValue.Text = "…";
             _successRateDetail.Text = string.Empty;

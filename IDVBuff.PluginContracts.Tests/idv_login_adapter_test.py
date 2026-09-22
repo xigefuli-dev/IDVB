@@ -10,6 +10,41 @@ spec.loader.exec_module(adapter)
 
 
 class AdapterTests(unittest.TestCase):
+    def test_official_mode_bypasses_both_hooks_and_pins_inflight_routing(self):
+        calls = []
+        class Addon:
+            def request(self, flow): calls.append("request")
+            def response(self, flow): calls.append("response")
+        module = SimpleNamespace(IDVLoginAddon=Addon, getShortGameId=lambda value: value,
+                                 _request_values=lambda request: request.query)
+        adapter.extend_module("mitm_addon", module)
+        flow = SimpleNamespace(request=SimpleNamespace(path="/mpay/api/qrcode/create_login", query={"game_id":"h55"}), metadata={})
+        adapter.LOGIN_MODE = "official"
+        Addon().request(flow)
+        adapter.LOGIN_MODE = "channel"
+        Addon().response(flow)
+        self.assertEqual(calls, [])
+        Addon().request(flow)
+        adapter.LOGIN_MODE = "official"
+        Addon().response(flow)
+        self.assertEqual(calls, ["request", "response"])
+        calls.clear()
+        flow.request.query["game_id"] = "another-game"
+        Addon().request(flow)
+        Addon().response(flow)
+        self.assertEqual(calls, ["request", "response"])
+
+    def test_official_mode_clears_channel_autologin_without_deleting_accounts(self):
+        values = {"auto-h55":"saved-channel", "CHANNEL_ACCOUNT_SELECTED":"saved-channel"}
+        class Handler:
+            def _route(self, *args): return args
+        adapter.extend_module("local_handler", SimpleNamespace(LocalRequestHandler=Handler,
+            genv=SimpleNamespace(set=lambda key, value, *args: values.__setitem__(key, value))))
+        adapter.CAPABILITIES["login_mode"] = True
+        result = Handler()._route("/_idv-login/idvb/login-mode", "POST", {}, {"mode":"official"})
+        self.assertTrue(json.loads(result[2])["success"])
+        self.assertEqual(values, {"auto-h55":"", "CHANNEL_ACCOUNT_SELECTED":""})
+
     def test_source_metadata_does_not_leak_credentials(self):
         class Manager:
             channels = [SimpleNamespace(uuid="a", channel_name="huawei", login_info={"token": "secret"})]
@@ -78,7 +113,7 @@ class AdapterTests(unittest.TestCase):
         adapter.extend_module("local_handler", SimpleNamespace(LocalRequestHandler=Handler))
         handler = Handler()
         result = handler._route("/_idv-login/idvb/status", "GET", {})
-        self.assertEqual(json.loads(result[2])["adapter_version"], 3)
+        self.assertEqual(json.loads(result[2])["adapter_version"], 4)
         self.assertEqual(handler._route("/original", "POST", {}, {"x": True}), ("/original", "POST", {}, {"x": True}))
 
 

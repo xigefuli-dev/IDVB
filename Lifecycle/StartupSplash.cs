@@ -94,6 +94,15 @@ internal static class StartupSplash
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    private static readonly IntPtr HwndTopMost = new(-1);
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoActivate = 0x0010;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter,
+        int x, int y, int width, int height, uint flags);
+
     private sealed class SplashForm : Forms.Form
     {
         private readonly Forms.Timer _timer = new() { Interval = 16 };
@@ -101,6 +110,8 @@ internal static class StartupSplash
         private readonly Font _statusFont = new("Segoe UI", 13, FontStyle.Regular, GraphicsUnit.Pixel);
         private Bitmap? _logo;
         private bool _paintRecorded;
+        private long _lastTopmostRefresh;
+        private bool _topmostFailureRecorded;
 
         public SplashForm()
         {
@@ -130,6 +141,11 @@ internal static class StartupSplash
             _timer.Tick += (_, _) =>
             {
                 if (Volatile.Read(ref _closed) != 0) { Close(); return; }
+                // Other topmost windows (including overlays created during WinUI startup)
+                // can enter above this form after its one-time TopMost assignment.
+                // Keep the splash at the front of that band without taking keyboard focus.
+                if (Stopwatch.GetElapsedTime(_lastTopmostRefresh).TotalMilliseconds >= 100)
+                    RefreshTopmost();
                 if (Volatile.Read(ref _transition) != 0)
                 {
                     TransitionReady.TrySetResult();
@@ -144,6 +160,24 @@ internal static class StartupSplash
                 Invalidate();
             };
             _timer.Start();
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            RefreshTopmost();
+        }
+
+        private void RefreshTopmost()
+        {
+            _lastTopmostRefresh = Stopwatch.GetTimestamp();
+            if (SetWindowPos(Handle, HwndTopMost, 0, 0, 0, 0,
+                    SwpNoMove | SwpNoSize | SwpNoActivate))
+                return;
+            if (_topmostFailureRecorded)
+                return;
+            _topmostFailureRecorded = true;
+            StartupTimeline.Write($"Startup splash topmost refresh failed: Win32 error {Marshal.GetLastWin32Error()}.");
         }
 
         internal static Rectangle CalculateBounds(Rectangle workArea, int dpi)

@@ -91,7 +91,7 @@ public sealed partial class HomePage
                         };
                         row.Click += async (_, _) =>
                         {
-                            if (busy) return;
+                            if (busy || _gameLaunchInProgress) return;
                             // Starting/focusing the game must not dismiss the tip and
                             // cancel the pending selection. Explicit Back/Close still can.
                             tip.IsLightDismissEnabled = false;
@@ -102,6 +102,7 @@ public sealed partial class HomePage
                                 return;
                             }
                             var loginRevision = navigation.Revision;
+                            _gameLaunchInProgress = true;
                             busy = true;
                             foreach (var control in list.Children.OfType<Control>()) control.IsEnabled = false;
                             add.IsEnabled = false;
@@ -121,6 +122,7 @@ public sealed partial class HomePage
                             finally
                             {
                                 busy = false;
+                                _gameLaunchInProgress = false;
                                 tip.IsLightDismissEnabled = true;
                                 foreach (var control in list.Children.OfType<Control>()) control.IsEnabled = true;
                                 add.IsEnabled = true;

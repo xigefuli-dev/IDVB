@@ -9,7 +9,7 @@ public sealed partial class MainPage
         try
         {
             var dialog = new FeedbackDialog(XamlRoot);
-            await dialog.ShowAsync();
+            await dialog.ShowThemedAsync();
         }
         catch (Exception exception)
         {

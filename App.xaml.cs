@@ -13,6 +13,7 @@ using IDVBuff.Diagnostics;
 using IDVBuff.Cli;
 using System.Runtime.InteropServices;
 using IDVBuff.Lifecycle;
+using IDVBuff.Presentation.Theming;
 using WinRT.Interop;
 
 // Windows App SDK 单文件发布要求：在程序入口前设置此环境变量，以便运行时能在单文件包内找到原生 DLL。
@@ -80,6 +81,7 @@ namespace IDVBuff
                 WriteStartupTrace("Creating the main window.");
                 WriteStartupTrace("Preferences load begin.");
                 var preferences = MainProgramPreferences.Load(); IsSafeMode = preferences.SafeMode;
+                ThemeService.Initialize(preferences.GetAppearance(), DispatcherQueue.GetForCurrentThread());
                 WriteStartupTrace($"Preferences loaded: safeMode={IsSafeMode}; startMinimized={preferences.StartMinimized}.");
                 PluginRandomDelayPolicy.AllowUnsafeMinimums = !IsSafeMode && preferences.AllowUnsafePluginRandomDelayMinimums; var startMinimized = preferences.StartMinimized;
                 var isIsolatedDevelopmentInstance = Environment.GetCommandLineArgs().Any(argument => string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
@@ -89,8 +91,7 @@ namespace IDVBuff
                     Title = isIsolatedDevelopmentInstance
                         ? $"{AppDataPaths.DisplayName} [DEV {BuildVersionInfo.BuildVersion}]"
                         : AppDataPaths.DisplayName,
-                    ExtendsContentIntoTitleBar = false,
-                    SystemBackdrop = FluentTheme.CreateWindowBackdrop(preferences.UseLegacyTheme)
+                    ExtendsContentIntoTitleBar = false
                 };
                 WriteStartupTrace("Window constructed; icon setup begin.");
                 TrySetWindowIcon(window);
@@ -113,7 +114,9 @@ namespace IDVBuff
                     presenter.Maximize();
 
                 WriteStartupTrace("Window presentation configured; startup content construction begin.");
-                var rootFrame = new Frame { RequestedTheme = AppThemePreference.Resolve(preferences) };
+                var rootFrame = new Frame();
+                var mainTheme = ThemeService.AttachWindow(window, rootFrame, useBackdrop: true);
+                rootFrame.Background = mainTheme.WindowBrush;
                 _mainFrame = rootFrame;
                 rootFrame.NavigationFailed += OnNavigationFailed;
                 window.Content = rootFrame;
@@ -419,7 +422,7 @@ namespace IDVBuff
                     + "诊断日志：" + logPath,
                 CloseButtonText = "关闭提示"
             };
-            await dialog.ShowAsync();
+            await dialog.ShowThemedAsync();
         }
 
         // This application is Windows-only; the fallback is intentionally built

@@ -11,7 +11,7 @@ namespace IDVBuff.Views;
 
 public sealed partial class HomePage
 {
-    private static FrameworkElement CreateGameShelf()
+    private FrameworkElement CreateGameShelf()
     {
         var games = new StackPanel
         {
@@ -49,7 +49,7 @@ public sealed partial class HomePage
         };
     }
 
-    private static FrameworkElement CreateIdentityVGameTile()
+    private FrameworkElement CreateIdentityVGameTile()
     {
         var image = new Image
         {
@@ -64,8 +64,8 @@ public sealed partial class HomePage
             Width = 120,
             Height = 120,
             Padding = new Thickness(3),
-            Background = FluentTheme.Brush("ControlFillColorDefaultBrush"),
-            BorderBrush = FluentTheme.Brush("AccentFillColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "ControlFillColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "AccentFillColorDefaultBrush"),
             BorderThickness = new Thickness(2),
             CornerRadius = new CornerRadius(20),
             Child = new Border
@@ -115,7 +115,7 @@ public sealed partial class HomePage
         };
     }
 
-    private static FrameworkElement CreateAddGamePlaceholder()
+    private FrameworkElement CreateAddGamePlaceholder()
     {
         var plus = new Grid { Width = 32, Height = 32 };
         plus.Children.Add(new Border
@@ -142,8 +142,8 @@ public sealed partial class HomePage
             Width = 88,
             Height = 88,
             Margin = new Thickness(0, 16, 0, 0),
-            Background = FluentTheme.Brush("ControlFillColorDefaultBrush"),
-            BorderBrush = FluentTheme.Brush("ControlStrokeColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "ControlFillColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "ControlStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(16),
             Child = plus

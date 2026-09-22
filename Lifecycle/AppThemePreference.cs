@@ -5,9 +5,10 @@ namespace IDVBuff.Lifecycle;
 internal static class AppThemePreference
 {
     public static ElementTheme Resolve(MainProgramPreferences preferences) =>
-        preferences.FollowSystemTheme
-            ? ElementTheme.Default
-            : preferences.UseDarkTheme
-                ? ElementTheme.Dark
-                : ElementTheme.Light;
+        preferences.GetAppearance().Mode switch
+        {
+            IDVBuff.Appearance.AppearanceMode.Dark => ElementTheme.Dark,
+            IDVBuff.Appearance.AppearanceMode.Light => ElementTheme.Light,
+            _ => ElementTheme.Default
+        };
 }

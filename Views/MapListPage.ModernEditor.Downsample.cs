@@ -156,7 +156,7 @@ public sealed partial class MapListPage : UserControl
             DefaultButton = ContentDialogButton.Close
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
 
         var selectedFactor = factorCombo.SelectedIndex switch

@@ -27,7 +27,7 @@ public sealed partial class MapListPage : UserControl
         {
             Margin = new Thickness(11),
             Padding = new Thickness(11),
-            Background = FluentTheme.CardBrush(),
+            Background = FluentTheme.CardBrush(this),
             BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
             BorderThickness = new Thickness(3),
             CornerRadius = new CornerRadius(9)
@@ -57,7 +57,7 @@ public sealed partial class MapListPage : UserControl
         var label = new TextBlock
         {
             Text = map.DisplayName,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush"),
             FontSize = 15,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 10, 0, 0)
@@ -68,7 +68,7 @@ public sealed partial class MapListPage : UserControl
         {
             Text = BuildRecognitionSummary(map),
             FontSize = 11,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             Margin = new Thickness(0, 4, 0, 0)
@@ -235,39 +235,6 @@ public sealed partial class MapListPage : UserControl
         UpdateSelectedCardVisuals();
     }
 
-    private void UpdateSelectedCardVisuals()
-    {
-        foreach (var (id, card) in _cardBorders)
-        {
-            var selected = _selectedMapIds.Contains(id);
-            var group = _variantGroups.FirstOrDefault(candidate => candidate.MapIds.Contains(id));
-            if (selected)
-            {
-                card.Background = FluentTheme.Brush("AccentFillColorSecondaryBrush");
-                card.BorderBrush = new SolidColorBrush(AccentBlue);
-            }
-            else if (group is not null && group.PaletteSlot is >= 0 and < 12)
-            {
-                var palette = VariantPalette[group.PaletteSlot];
-                var dark = ActualTheme == ElementTheme.Dark;
-                card.Background = new SolidColorBrush(dark ? palette.DarkFill : palette.LightFill);
-                card.BorderBrush = new SolidColorBrush(dark ? palette.DarkOutline : palette.LightOutline);
-            }
-            else
-            {
-                card.Background = FluentTheme.CardBrush();
-                card.BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
-            }
-        }
-
-        if (_editButton is not null)
-            _editButton.IsEnabled = HasSelection;
-        if (_deleteButton is not null)
-            _deleteButton.IsEnabled = HasSelection;
-        if (_variantButton is not null)
-            _variantButton.IsEnabled = _selectedMapIds.Count >= 2;
-    }
-
     private async Task ToggleSelectedVariantGroupAsync()
     {
         if (_selectedMapIds.Count < 2)
@@ -321,7 +288,7 @@ public sealed partial class MapListPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
 
         try

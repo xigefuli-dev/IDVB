@@ -40,7 +40,7 @@ public sealed class SafeModeMapStatusPage : UserControl
                 Title = "暂时无法开启",
                 Content = "请先关闭安全模式、完成全部按键绑定，并至少添加一张地图。关闭安全模式后需要重新启动 IDVB。",
                 CloseButtonText = "知道了"
-            }.ShowAsync();
+            }.ShowThemedAsync();
         };
 
         var content = new StackPanel { Margin = new Thickness(42, 36, 42, 64), Spacing = 16 };
@@ -216,15 +216,9 @@ public sealed class SafeModeMapStatusPage : UserControl
         _bindingValue.Text = $"当前：{binding.DisplayName}";
         var showReset = !_recording && binding.IsConfigured && _hovered;
         _bindingButton.Content = _recording ? "请按按键…" : showReset ? "重置按键" : "设置按键";
-        _bindingButton.Background = new SolidColorBrush(_recording
-            ? Color.FromArgb(255, 22, 62, 115)
-            : !binding.IsConfigured ? Color.FromArgb(255, 46, 132, 225)
-            : showReset ? Color.FromArgb(255, 196, 55, 55)
-            : Color.FromArgb(255, 242, 242, 242));
-        _bindingButton.Foreground = new SolidColorBrush(
-            _recording || !binding.IsConfigured || showReset
-                ? Color.FromArgb(255, 255, 255, 255)
-                : Color.FromArgb(255, 32, 32, 32));
+        ThemeButton.Apply(_bindingButton, showReset ? IDVBuff.Appearance.ThemeButtonRole.Danger
+            : _recording || !binding.IsConfigured ? IDVBuff.Appearance.ThemeButtonRole.Accent
+            : IDVBuff.Appearance.ThemeButtonRole.Standard);
     }
 
     private static bool TryGetModifier(uint key, out MapInputModifiers modifier)

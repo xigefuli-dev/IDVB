@@ -1,4 +1,6 @@
 using System.Numerics;
+using IDVBuff.Appearance;
+using IDVBuff.Presentation.Theming;
 using IDVBuff.Features.Maps;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
@@ -117,12 +119,9 @@ public sealed partial class ScanModeSelector : UserControl
         MaxWidth = 452;
         HorizontalAlignment = HorizontalAlignment.Left;
 
-        _track.Children.Add(_glowOuter);
-        _track.Children.Add(_glowInner);
-        _track.Children.Add(_fastGlow);
+        _track.Children.Add(CreateEffectLayer(_glowOuter, _glowInner, _fastGlow));
         _track.Children.Add(_trackSurface);
-        _track.Children.Add(_qualityHaloOuter);
-        _track.Children.Add(_qualityHaloInner);
+        _track.Children.Add(CreateEffectLayer(_qualityHaloOuter, _qualityHaloInner));
         _track.Children.Add(_selection);
 
         BuildSpeedLines();
@@ -153,45 +152,17 @@ public sealed partial class ScanModeSelector : UserControl
             Width = 380,
             HorizontalAlignment = HorizontalAlignment.Center,
             CornerRadius = new CornerRadius(28),
-            BorderThickness = new Thickness(1),
-            BorderBrush = new LinearGradientBrush
-            {
-                StartPoint = new Windows.Foundation.Point(0, 0),
-                EndPoint = new Windows.Foundation.Point(1, 1),
-                GradientStops =
-                {
-                    new GradientStop { Color = Color.FromArgb(105, 255, 255, 255), Offset = 0 },
-                    new GradientStop { Color = Color.FromArgb(34, 255, 255, 255), Offset = .48 },
-                    new GradientStop { Color = Color.FromArgb(54, 0, 0, 0), Offset = 1 }
-                }
-            },
-            Background = CreateGlassBrush()
+            BorderThickness = new Thickness(1)
         };
         var root = new Grid();
         root.Children.Add(_card);
-        root.Children.Add(new Border
-        {
-            Width = 354,
-            Height = 74,
-            Margin = new Thickness(0, 7, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top,
-            CornerRadius = new CornerRadius(23),
-            IsHitTestVisible = false,
-            Background = new LinearGradientBrush
-            {
-                StartPoint = new Windows.Foundation.Point(0, 0),
-                EndPoint = new Windows.Foundation.Point(0, 1),
-                GradientStops =
-                {
-                    new GradientStop { Color = Color.FromArgb(30, 255, 255, 255), Offset = 0 },
-                    new GradientStop { Color = Color.FromArgb(8, 255, 255, 255), Offset = .45 },
-                    new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 1 }
-                }
-            }
-        });
+        root.Children.Add(_sheen);
         root.Children.Add(layout);
         Content = root;
+        _title.Foreground = FluentTheme.Brush(this, ThemeToken.Text);
+        _hint.Foreground = FluentTheme.Brush(this, ThemeToken.TextSecondary);
+        _hint.Opacity = 1;
+        FluentTheme.Observe(this, _ => UpdateAppearance(false));
 
         foreach (var element in EnumerateTranslatedElements())
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
@@ -209,14 +180,6 @@ public sealed partial class ScanModeSelector : UserControl
         Unloaded += OnUnloaded;
         RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => UpdateMotion());
     }
-
-    private static AcrylicBrush CreateGlassBrush() => new()
-    {
-        TintColor = Color.FromArgb(255, 48, 50, 54),
-        TintOpacity = .46,
-        TintLuminosityOpacity = .16,
-        FallbackColor = Color.FromArgb(245, 45, 46, 49)
-    };
 
     public void SetMode(ScanPerformanceMode mode, bool tagOnly)
     {
@@ -240,6 +203,19 @@ public sealed partial class ScanModeSelector : UserControl
         VerticalAlignment = VerticalAlignment.Center,
         IsHitTestVisible = false
     };
+
+    private static Canvas CreateEffectLayer(params Border[] pills)
+    {
+        // Canvas measures each halo at its full height. Arranging an 88px halo
+        // directly in the 58px track gives it a rectangular layout clip.
+        var layer = new Canvas { IsHitTestVisible = false };
+        foreach (var pill in pills)
+        {
+            Canvas.SetTop(pill, (58 - pill.Height) / 2);
+            layer.Children.Add(pill);
+        }
+        return layer;
+    }
 
     private void BuildSpeedLines()
     {
@@ -330,6 +306,8 @@ public sealed partial class ScanModeSelector : UserControl
     {
         var index = Math.Clamp((int)Mode, 0, 2);
         var color = ModeColors[index];
+        var theme = FluentTheme.Snapshot(this);
+        UpdateGlassSurface(theme);
         _hint.Text = ModeDescriptions[index];
         AutomationProperties.SetName(_input,
             $"扫描模式，{ModeNames[index]}，{ModeDescriptions[index]}");
@@ -340,15 +318,18 @@ public sealed partial class ScanModeSelector : UserControl
         for (var labelIndex = 0; labelIndex < _labels.Length; labelIndex++)
         {
             var selected = labelIndex == index;
-            _labels[labelIndex].Opacity = selected ? 1 : .58;
-            if (selected)
-                _labels[labelIndex].Foreground = new SolidColorBrush(Microsoft.UI.Colors.White);
-            else
-                _labels[labelIndex].ClearValue(TextBlock.ForegroundProperty);
+            _labels[labelIndex].Opacity = 1;
+            _labels[labelIndex].Text = ModeNames[labelIndex];
+            _labels[labelIndex].Foreground = selected
+                ? new SolidColorBrush(theme.IsHighContrast
+                    ? ThemeResources.ToColor(theme[ThemeToken.SelectionText]) : Microsoft.UI.Colors.White)
+                : FluentTheme.Brush(this, ThemeToken.TextSecondary);
         }
 
-        _selection.Background = CreateSelectionBrush(color);
-        _selection.BorderBrush = new SolidColorBrush(WithAlpha(color, 205));
+        _selection.Background = theme.IsHighContrast
+            ? FluentTheme.Brush(this, ThemeToken.Selection) : CreateSelectionBrush(color);
+        _selection.BorderBrush = theme.IsHighContrast
+            ? FluentTheme.Brush(this, ThemeToken.SelectionBorder) : new SolidColorBrush(WithAlpha(color, 205));
         _glowOuter.Background = new SolidColorBrush(WithAlpha(color, 255));
         _glowInner.Background = new SolidColorBrush(WithAlpha(color, 255));
         _fastGlow.Background = new SolidColorBrush(WithAlpha(color, 255));
@@ -411,29 +392,6 @@ public sealed partial class ScanModeSelector : UserControl
         _lastPosition = _selectedPosition;
         UpdateMotion();
     }
-
-    private static Brush CreateSelectionBrush(Color color)
-    {
-        var start = Shade(color, .66, 226);
-        var end = Shade(color, 1.03, 242);
-        return new LinearGradientBrush
-        {
-            StartPoint = new Windows.Foundation.Point(0, .5),
-            EndPoint = new Windows.Foundation.Point(1, .5),
-            GradientStops =
-            {
-                new GradientStop { Color = start, Offset = 0 },
-                new GradientStop { Color = end, Offset = 1 }
-            }
-        };
-    }
-
-    private static Color Shade(Color color, double amount, byte alpha) =>
-        Color.FromArgb(
-            alpha,
-            (byte)Math.Clamp(Math.Round(color.R * amount), 0, 255),
-            (byte)Math.Clamp(Math.Round(color.G * amount), 0, 255),
-            (byte)Math.Clamp(Math.Round(color.B * amount), 0, 255));
 
     private static Color WithAlpha(Color color, byte alpha) =>
         Color.FromArgb(alpha, color.R, color.G, color.B);

@@ -17,7 +17,7 @@
 
             <Style x:Key="MyLabel" TargetType="TextBlock">
                 <Setter Property="Foreground"
-                        Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                        Value="{ThemeResource IdvbAccentTextBrush}" />
             </Style>
 
             <Style x:Key="Action" TargetType="Button">
@@ -29,11 +29,10 @@
 
             <Style x:Key="PrimaryAction"
                    TargetType="Button"
-                   BasedOn="{StaticResource Action}">
-                <Setter Property="Background"
-                        Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                   BasedOn="{StaticResource AccentButtonStyle}">
+                <Setter Property="FontSize" Value="{StaticResource AppFontSize}" />
+                <Setter Property="Padding" Value="14,10" />
                 <Setter Property="CornerRadius" Value="4" />
-                <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

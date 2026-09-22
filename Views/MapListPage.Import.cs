@@ -84,7 +84,7 @@ public sealed partial class MapListPage : UserControl
         };
         UpdateValidation();
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return null;
 
         var key = new string(idBox.Text.Where(c => char.IsAsciiLetterOrDigit(c)).ToArray());
@@ -219,7 +219,7 @@ public sealed partial class MapListPage : UserControl
         root.Children.Add(floorAreaContainer);
 
         // ── Confirm button ──
-        var continueButton = CreateActionButton("确认", AccentBlue);
+        var continueButton = CreateActionButton("确认", IDVBuff.Appearance.ThemeButtonRole.Accent);
         continueButton.HorizontalAlignment = HorizontalAlignment.Center;
         continueButton.Width = 284;
         continueButton.IsEnabled = CanCommitImportFloors();
@@ -310,7 +310,7 @@ public sealed partial class MapListPage : UserControl
             XamlRoot = XamlRoot, Title = "选择地图模板", Content = combo,
             PrimaryButtonText = "确认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary) return;
 
         var selectedTag = (combo.SelectedItem as ComboBoxItem)?.Tag;
         if (selectedTag is MapTemplate selectedTemplate)
@@ -335,7 +335,7 @@ public sealed partial class MapListPage : UserControl
         panel.Children.Add(new TextBlock { Text = "编辑标签", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         if (groups.Count == 0)
         {
-            panel.Children.Add(new TextBlock { Text = "当前没有已启用的标签组。", Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush") });
+            panel.Children.Add(new TextBlock { Text = "当前没有已启用的标签组。", Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush") });
             return panel;
         }
         foreach (var group in groups)

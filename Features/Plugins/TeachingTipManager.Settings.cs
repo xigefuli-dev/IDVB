@@ -24,7 +24,7 @@ public sealed partial class TeachingTipManager
             Text = setting.DisplayName,
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+            Foreground = FluentTheme.Brush(row, "TextFillColorPrimaryBrush")
         });
 
         switch (setting)
@@ -210,7 +210,7 @@ public sealed partial class TeachingTipManager
                 {
                     Text = $"不支持的设置类型：{setting.GetType().Name}",
                     FontSize = 12,
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+                    Foreground = FluentTheme.Brush(row, "TextFillColorSecondaryBrush")
                 });
                 break;
         }
@@ -221,7 +221,7 @@ public sealed partial class TeachingTipManager
             {
                 Text = setting.Description,
                 FontSize = 12,
-                Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+                Foreground = FluentTheme.Brush(row, "TextFillColorSecondaryBrush"),
                 TextWrapping = TextWrapping.Wrap
             });
         }

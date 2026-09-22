@@ -25,6 +25,8 @@ public sealed partial class ScanModeSelector
         SetQualityEffectVisibility(Visibility.Collapsed);
         _fastGlow.Visibility = Visibility.Collapsed;
         _speedField.Visibility = Visibility.Collapsed;
+        if (!AllowsGlass(FluentTheme.Snapshot(this)))
+            return;
 
         // Balanced is intentionally still: the blue selection pill is the only
         // state indicator, with no ambient pulse competing for attention.
@@ -179,8 +181,8 @@ public sealed partial class ScanModeSelector
                         (_, _) => UpdateMotion())));
             }
         }
-        _window = ((App)Application.Current).MainWindow.AppWindow;
-        _window.Changed += WindowChanged;
+        _window = AppWindow.GetFromWindowId(XamlRoot.ContentIslandEnvironment.AppWindowId);
+        if (_window is not null) _window.Changed += WindowChanged;
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
             _ui.AnimationsEnabledChanged += AnimationsChanged;
         UpdateAppearance(false);

@@ -45,7 +45,7 @@ public sealed partial class MapListPage
                 {
                     Height = 1,
                     Margin = new Thickness(0, 4, 0, 4),
-                    Background = FluentTheme.Brush("DividerStrokeColorDefaultBrush")
+                    Background = FluentTheme.Brush(this, "DividerStrokeColorDefaultBrush")
                 });
             }
 
@@ -101,7 +101,7 @@ public sealed partial class MapListPage
         };
         content.Children.Add(new Border
         {
-            BorderBrush = FluentTheme.Brush("DividerStrokeColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "DividerStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(0, 12, 0, 0),
             Child = clear
@@ -172,7 +172,7 @@ public sealed partial class MapListPage
             {
                 Text = _selectedTagFilters.Count == 0 ? "尚未导入地图" : "没有符合筛选条件的地图",
                 FontSize = 16,
-                Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+                Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center

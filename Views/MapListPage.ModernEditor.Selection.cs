@@ -309,7 +309,7 @@ public sealed partial class MapListPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(textBox.Text))
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(textBox.Text))
             return;
         annotation.Text = textBox.Text.Trim();
         RefreshModernLayerList();

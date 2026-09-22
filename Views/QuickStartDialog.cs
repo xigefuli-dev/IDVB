@@ -14,7 +14,7 @@ public enum QuickStartChoice
 /// <summary>
 /// First-run quick-start dialog. The two action buttons are authored here so
 /// the cancel action stays gray on the left and the recommended action stays
-/// blue on the right across WinUI theme/template changes.
+/// accent-colored on the right across WinUI theme/template changes.
 /// </summary>
 public static class QuickStartDialog
 {
@@ -30,16 +30,8 @@ public static class QuickStartDialog
         };
         dialog.Resources["ContentDialogMaxWidth"] = 460d;
 
-        var cancelButton = CreateActionButton(
-            "取消",
-            new Color { A = 255, R = 242, G = 242, B = 242 },
-            new Color { A = 255, R = 218, G = 218, B = 218 },
-            new Color { A = 255, R = 32, G = 32, B = 32 });
-        var recommendedButton = CreateActionButton(
-            "使用推荐设置",
-            new Color { A = 255, R = 46, G = 132, B = 225 },
-            new Color { A = 255, R = 30, G = 105, B = 180 },
-            new Color { A = 255, R = 255, G = 255, B = 255 });
+        var cancelButton = CreateActionButton("取消", IDVBuff.Appearance.ThemeButtonRole.Standard);
+        var recommendedButton = CreateActionButton("使用推荐设置", IDVBuff.Appearance.ThemeButtonRole.Accent);
 
         var choice = QuickStartChoice.Cancel;
         cancelButton.Click += (_, _) =>
@@ -81,40 +73,16 @@ public static class QuickStartDialog
             }
         };
 
-        await dialog.ShowAsync();
+        await dialog.ShowThemedAsync();
         return choice;
     }
 
-    private static Button CreateActionButton(
-        string text,
-        Color backgroundColor,
-        Color borderColor,
-        Color foregroundColor)
-    {
-        var background = new SolidColorBrush(backgroundColor);
-        var border = new SolidColorBrush(borderColor);
-        var foreground = new SolidColorBrush(foregroundColor);
-        var button = new Button
+    private static Button CreateActionButton(string text, IDVBuff.Appearance.ThemeButtonRole role) =>
+        ThemeButton.Apply(new Button
         {
             Content = text,
             MinHeight = 40,
             Padding = new Thickness(16, 8, 16, 8),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Background = background,
-            BorderBrush = border,
-            Foreground = foreground
-        };
-
-        // Keep the colors through the default Button template's visual states.
-        button.Resources["ButtonBackground"] = background;
-        button.Resources["ButtonBackgroundPointerOver"] = background;
-        button.Resources["ButtonBackgroundPressed"] = background;
-        button.Resources["ButtonBorderBrush"] = border;
-        button.Resources["ButtonBorderBrushPointerOver"] = border;
-        button.Resources["ButtonBorderBrushPressed"] = border;
-        button.Resources["ButtonForeground"] = foreground;
-        button.Resources["ButtonForegroundPointerOver"] = foreground;
-        button.Resources["ButtonForegroundPressed"] = foreground;
-        return button;
-    }
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        }, role);
 }

@@ -22,7 +22,7 @@ public sealed partial class MapStatusPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        return await prompt.ShowAsync() == ContentDialogResult.Primary;
+        return await prompt.ShowThemedAsync() == ContentDialogResult.Primary;
     }
 
     private void RestoreToggle(ToggleSwitch toggle)

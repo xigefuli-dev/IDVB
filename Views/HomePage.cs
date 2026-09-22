@@ -12,8 +12,8 @@ namespace IDVBuff.Views;
 
 public sealed partial class HomePage : Page
 {
-    private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
-    private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
+    private Brush PrimaryTextBrush => FluentTheme.Brush(this, "TextFillColorPrimaryBrush");
+    private Brush SecondaryTextBrush => FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
 
     private readonly MapRepository _mapRepository = new();
     private readonly MapRecognitionStatisticsRepository _statisticsRepository = new();
@@ -45,12 +45,16 @@ public sealed partial class HomePage : Page
         _scanModeSaveError = new TextBlock
         {
             FontSize = 12,
-            Foreground = FluentTheme.Brush("SystemFillColorCriticalBrush"),
+            Foreground = FluentTheme.Brush(this, "SystemFillColorCriticalBrush"),
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed
         };
         _scanModeSelector.ModeChanged += ScanModeSelector_ModeChanged;
         _scanModeBloom.AccentColor = _scanModeSelector.AccentColor;
+        void UpdateAmbient(IDVBuff.Appearance.ThemeSnapshot theme) => _scanModeBloom.Visibility =
+            ScanModeSelector.AllowsGlass(theme) ? Visibility.Visible : Visibility.Collapsed;
+        UpdateAmbient(FluentTheme.Snapshot(this));
+        FluentTheme.Observe(this, UpdateAmbient);
         Content = CreateContent();
         Loaded += HomePage_Loaded;
         Unloaded += (_, _) =>
@@ -218,8 +222,7 @@ public sealed partial class HomePage : Page
             Height = 58,
             HorizontalAlignment = HorizontalAlignment.Left,
             Content = content,
-            Background = FluentTheme.Brush("AccentFillColorDefaultBrush"),
-            Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
             CornerRadius = new CornerRadius(8),
             Shadow = new ThemeShadow()
         };
@@ -240,7 +243,7 @@ public sealed partial class HomePage : Page
                 Title = "无法启动游戏",
                 Content = failureReason,
                 CloseButtonText = "知道了"
-            }.ShowAsync();
+            }.ShowThemedAsync();
             return;
         }
 
@@ -252,15 +255,12 @@ public sealed partial class HomePage : Page
         var running = IsGameRunning();
         _launchGameLabel.Text = running ? "···游戏中" : "启动游戏";
         _launchGameIcon.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        _launchGameButton.Background = FluentTheme.Brush(running
-            ? "ControlFillColorDisabledBrush"
-            : "AccentFillColorDefaultBrush");
-        _launchGameButton.Opacity = running ? 0.72 : 1;
+        _launchGameButton.IsEnabled = !running;
     }
 
     private static bool IsGameRunning() => Process.GetProcessesByName("dwrg").Length > 0;
 
-    private static Border CreateMetricCard(
+    private Border CreateMetricCard(
         string title,
         string description,
         Symbol symbol,
@@ -276,10 +276,10 @@ public sealed partial class HomePage : Page
             Width = 44,
             Height = 44,
             CornerRadius = new CornerRadius(8),
-            Background = FluentTheme.Brush("AccentFillColorTertiaryBrush"),
+            Background = FluentTheme.Brush(this, "AccentFillColorTertiaryBrush"),
             Child = new SymbolIcon(symbol)
             {
-                Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush")
+                Foreground = FluentTheme.Brush(this, "TextOnAccentFillColorPrimaryBrush")
             }
         };
         grid.Children.Add(iconSurface);
@@ -316,8 +316,8 @@ public sealed partial class HomePage : Page
             Width = 320,
             MinHeight = 150,
             Padding = new Thickness(20),
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Child = grid
@@ -386,19 +386,19 @@ public sealed partial class HomePage : Page
         }
     }
 
-    private static TextBlock CreateMetricValue() => new()
+    private static TextBlock CreateMetricValue()
     {
-        Text = "…",
-        FontSize = 30,
-        FontWeight = FontWeights.SemiBold,
-        Foreground = PrimaryTextBrush
-    };
+        var text = new TextBlock { Text = "…", FontSize = 30, FontWeight = FontWeights.SemiBold };
+        text.Foreground = FluentTheme.Brush(text, "TextFillColorPrimaryBrush");
+        return text;
+    }
 
-    private static TextBlock CreateMetricDetail() => new()
+    private static TextBlock CreateMetricDetail()
     {
-        FontSize = 12,
-        Foreground = SecondaryTextBrush
-    };
+        var text = new TextBlock { FontSize = 12 };
+        text.Foreground = FluentTheme.Brush(text, "TextFillColorSecondaryBrush");
+        return text;
+    }
 
     private async void ScanModeSelector_ModeChanged(ScanPerformanceMode mode)
     {

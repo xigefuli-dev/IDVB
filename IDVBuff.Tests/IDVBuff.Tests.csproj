@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\IDVBuff.Appearance\IDVBuff.Appearance.csproj" />
     <ProjectReference Include="..\Pipeline\IDVBuff.Pipeline.csproj" />
     <ProjectReference Include="..\Survey\Domain\IDVBuff.Survey.Domain.csproj" />
     <ProjectReference Include="..\Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />

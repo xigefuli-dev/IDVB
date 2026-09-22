@@ -18,7 +18,7 @@ public sealed partial class MapStatusPage
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
-        if (await prompt.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await prompt.ShowThemedAsync() != ContentDialogResult.Primary) return;
         _status.Text = "请切换到游戏，3 秒后捕获原生小地图……";
         await Task.Delay(3000);
         if (!_runtime.TryCaptureCalibrationFrame(out var frame, out var reason) || frame is null)

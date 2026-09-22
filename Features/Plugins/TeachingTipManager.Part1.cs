@@ -66,7 +66,7 @@ public sealed partial class TeachingTipManager
         var bindingDescription = new TextBlock
         {
             FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(_host ?? throw new InvalidOperationException("插件设置宿主尚未初始化。"), "TextFillColorSecondaryBrush"),
             TextWrapping = TextWrapping.Wrap
         };
         host.Children.Add(button);

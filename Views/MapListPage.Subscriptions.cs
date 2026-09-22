@@ -194,7 +194,7 @@ public sealed partial class MapListPage
                 status.Text = "订阅仍在更新，请等待完成后再关闭。";
             }
         };
-        await dialog.ShowAsync();
+        await dialog.ShowThemedAsync(this);
         if (refreshListAfterDialog)
             await ShowListAsync();
     }

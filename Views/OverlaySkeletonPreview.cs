@@ -60,11 +60,12 @@ internal sealed class OverlaySkeletonPreview : Grid
     private readonly FrameworkElement _boxAnnotation;
     private readonly FrameworkElement _lineAnnotation;
     private readonly FrameworkElement _floorLabel;
-    private readonly Brush _accentBrush = FluentTheme.Brush("AccentFillColorDefaultBrush");
+    private readonly Brush _accentBrush;
     private readonly Brush _inactiveOutlineBrush = new SolidColorBrush(Colors.Transparent);
 
     public OverlaySkeletonPreview()
     {
+        _accentBrush = FluentTheme.Brush(this, "AccentFillColorDefaultBrush");
         Width = 425;
         HorizontalAlignment = HorizontalAlignment.Right;
         VerticalAlignment = VerticalAlignment.Bottom;
@@ -73,8 +74,8 @@ internal sealed class OverlaySkeletonPreview : Grid
         {
             Padding = new Thickness(15, 12, 15, 15),
             CornerRadius = new CornerRadius(12),
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             Shadow = new ThemeShadow()
         };
@@ -95,7 +96,7 @@ internal sealed class OverlaySkeletonPreview : Grid
         _aspectLabel = new TextBlock
         {
             FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(_aspectLabel, 1);
@@ -106,13 +107,13 @@ internal sealed class OverlaySkeletonPreview : Grid
         {
             Width = ScreenWidth,
             Height = 217,
-            Background = FluentTheme.Brush("ApplicationPageBackgroundThemeBrush"),
+            Background = FluentTheme.Brush(this, "ApplicationPageBackgroundThemeBrush"),
             Clip = new RectangleGeometry { Rect = new Windows.Foundation.Rect(0, 0, ScreenWidth, 217) }
         };
         stack.Children.Add(new Border
         {
             CornerRadius = new CornerRadius(5),
-            BorderBrush = FluentTheme.Brush("ControlStrokeColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "ControlStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             Child = _screen
         });
@@ -171,8 +172,8 @@ internal sealed class OverlaySkeletonPreview : Grid
         var mapSurface = new Grid { Width = 118, Height = 82 };
         _miniMapImage = new Border
         {
-            Background = FluentTheme.Brush("ControlFillColorSecondaryBrush"),
-            BorderBrush = FluentTheme.Brush("ControlStrokeColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "ControlFillColorSecondaryBrush"),
+            BorderBrush = FluentTheme.Brush(this, "ControlStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3)
         };
@@ -185,7 +186,7 @@ internal sealed class OverlaySkeletonPreview : Grid
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         });
         _gateMarkers = CreateGateMarkers();
         _auxiliaryAnchors = CreateAuxiliaryAnchors();
@@ -326,10 +327,10 @@ internal sealed class OverlaySkeletonPreview : Grid
     private static Visibility ToVisibility(bool value) =>
         value ? Visibility.Visible : Visibility.Collapsed;
 
-    private static Canvas CreateMapPlaceholderLines()
+    private Canvas CreateMapPlaceholderLines()
     {
         var canvas = new Canvas { Opacity = 0.35, IsHitTestVisible = false };
-        var brush = FluentTheme.Brush("TextFillColorSecondaryBrush");
+        var brush = FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
         AddLine(canvas, 8, 18, 106, 18, brush, 1);
         AddLine(canvas, 25, 8, 25, 72, brush, 1);
         AddLine(canvas, 8, 62, 108, 35, brush, 1);

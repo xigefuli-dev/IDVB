@@ -12,7 +12,6 @@ public sealed partial class MainPage
         TimeSpan.FromMilliseconds(460);
 
     private readonly UISettings _scanVisualUiSettings = new();
-    private readonly SolidColorBrush _feedbackAccentBrush = new();
     private HomePage? _scanVisualHomePage;
     private Color _scanAccentCurrent = ScanModeSelector.GetAccentColor(
         Features.Maps.ScanPerformanceMode.Balanced);
@@ -25,8 +24,6 @@ public sealed partial class MainPage
     {
         _scanAccentStart = _scanAccentCurrent;
         _scanAccentTarget = _scanAccentCurrent;
-        _feedbackAccentBrush.Color = _scanAccentCurrent;
-        FeedbackButton.Background = _feedbackAccentBrush;
         Unloaded += (_, _) => StopScanAccentAnimation();
     }
 
@@ -98,7 +95,6 @@ public sealed partial class MainPage
 
     private void ApplyScanAccent(Color color)
     {
-        _feedbackAccentBrush.Color = color;
         _scanVisualHomePage?.SetAmbientAccent(color);
     }
 

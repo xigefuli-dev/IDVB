@@ -47,7 +47,7 @@ public partial class App
             DefaultButton = ContentDialogButton.Primary
         };
         dialog.Resources["ContentDialogMaxWidth"] = 560d;
-        var enabled = await dialog.ShowAsync() == ContentDialogResult.Primary;
+        var enabled = await dialog.ShowThemedAsync() == ContentDialogResult.Primary;
 
         await ModelImprovementPreferences.ApplyDataCollectionAsync(enabled);
         preferences.HelpImproveModels = enabled;

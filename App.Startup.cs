@@ -203,7 +203,7 @@ public partial class App
 
     private Grid ShowStartupPlaceholder(Frame rootFrame)
     {
-        _startupPlaceholder = new Grid { Background = FluentTheme.WindowBrush() };
+        _startupPlaceholder = new Grid { Background = FluentTheme.Brush(rootFrame, IDVBuff.Appearance.ThemeToken.Window) };
         _mainFrame = rootFrame;
         _startupHost = new Grid();
         _startupHost.Children.Add(rootFrame);

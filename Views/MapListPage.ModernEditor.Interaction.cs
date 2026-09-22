@@ -413,7 +413,7 @@ public sealed partial class MapListPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(textBox.Text))
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary || string.IsNullOrWhiteSpace(textBox.Text))
         {
             SetModernStatus("已取消添加文字。", false);
             RenderModernEditor();

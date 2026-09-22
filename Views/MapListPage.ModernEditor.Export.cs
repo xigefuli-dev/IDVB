@@ -212,7 +212,7 @@ public sealed partial class MapListPage : UserControl
         compressionBox.ValueChanged += (_, _) => UpdateValidation();
         UpdateValidation();
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
 
         var options = new ModernPngExportOptions(

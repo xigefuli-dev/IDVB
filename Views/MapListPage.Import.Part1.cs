@@ -26,7 +26,7 @@ public sealed partial class MapListPage : UserControl
             Symbol = Symbol.Add,
             Width = 56,
             Height = 56,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -34,7 +34,7 @@ public sealed partial class MapListPage : UserControl
         {
             Text = "添加楼层图片",
             FontSize = 14,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 12, 0, 0)
         };
@@ -50,7 +50,7 @@ public sealed partial class MapListPage : UserControl
         // 图片占位区域 — 匹配 CreateImagePicker 的结构
         var imagePlaceholder = new Border
         {
-            Background = FluentTheme.Brush("ControlFillColorSecondaryBrush"),
+            Background = FluentTheme.Brush(this, "ControlFillColorSecondaryBrush"),
             CornerRadius = new CornerRadius(7),
             Child = iconSurface,
             Height = 205,
@@ -76,8 +76,8 @@ public sealed partial class MapListPage : UserControl
         // 外层卡片 — 背景和圆角在 Border 上，不在 Button 上
         var cardSurface = new Border
         {
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -147,9 +147,6 @@ public sealed partial class MapListPage : UserControl
         var deleteButton = new Button
         {
             Content = "✕",
-            Background = new SolidColorBrush(Color.FromArgb(200, 40, 40, 40)),
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
             Width = 28,
             Height = 28,
             Padding = new Thickness(0),
@@ -159,6 +156,7 @@ public sealed partial class MapListPage : UserControl
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(0, 6, 6, 0)
         };
+        ThemeButton.Apply(deleteButton, IDVBuff.Appearance.ThemeButtonRole.Danger);
         deleteButton.Click += (_, _) =>
         {
             _pendingImportFloors?.Remove(entry);
@@ -208,7 +206,7 @@ public sealed partial class MapListPage : UserControl
         var nameLabel = new TextBlock
         {
             Text = entry.DisplayName,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush"),
             FontSize = 14,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 10, 0, 0)
@@ -239,9 +237,9 @@ public sealed partial class MapListPage : UserControl
 
         var card = new Border
         {
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = new SolidColorBrush(
-                _selectedImportFloorKey == entry.FloorKey ? AccentBlue : Color.FromArgb(0, 0, 0, 0)),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, _selectedImportFloorKey == entry.FloorKey
+                ? IDVBuff.Appearance.ThemeToken.SelectionBorder : IDVBuff.Appearance.ThemeToken.Divider),
             BorderThickness = new Thickness(3),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(0),
@@ -262,10 +260,10 @@ public sealed partial class MapListPage : UserControl
     {
         _selectedImportFloorKey = floorKey;
         if (_selectedImportFloorCard is not null && _selectedImportFloorCard != card)
-            _selectedImportFloorCard.BorderBrush = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+            _selectedImportFloorCard.BorderBrush = FluentTheme.Brush(this, IDVBuff.Appearance.ThemeToken.Divider);
 
         _selectedImportFloorCard = card;
-        card.BorderBrush = new SolidColorBrush(AccentBlue);
+        card.BorderBrush = FluentTheme.Brush(this, IDVBuff.Appearance.ThemeToken.SelectionBorder);
     }
 
     private void AttachImportFloorCardInteraction(

@@ -40,10 +40,10 @@ public sealed partial class MapListPage : UserControl
         {
             Margin = new Thickness(0, 8, 0, 15)
         };
-        var importButton = CreateActionButton("导入", AccentBlue);
+        var importButton = CreateActionButton("导入", IDVBuff.Appearance.ThemeButtonRole.Accent);
         _importButton = importButton;
         importButton.IsEnabled = !_isPackageOperation;
-        _editButton = CreateActionButton("编辑", RecognitionRegionOrange);
+        _editButton = CreateActionButton("编辑", IDVBuff.Appearance.ThemeButtonRole.Warning);
         _editButton.IsEnabled = HasSelection;
         _editButton.Click += async (_, _) =>
         {
@@ -56,7 +56,7 @@ public sealed partial class MapListPage : UserControl
                     await EditMapAsync(_loadedMaps.First(map => map.Id == _selectedMapIds.First()));
             }
         };
-        _deleteButton = CreateActionButton("删除", DeleteRed);
+        _deleteButton = CreateActionButton("删除", IDVBuff.Appearance.ThemeButtonRole.Danger);
         _deleteButton.IsEnabled = HasSelection;
         _deleteButton.Click += async (_, _) =>
         {
@@ -69,7 +69,7 @@ public sealed partial class MapListPage : UserControl
                     await DeleteSelectedMapAsync(_loadedMaps.First(map => map.Id == _selectedMapIds.First()));
             }
         };
-        _variantButton = CreateActionButton("🔗", AccentBlue);
+        _variantButton = CreateActionButton("🔗", IDVBuff.Appearance.ThemeButtonRole.Accent);
         // This action is icon-only; do not let the text-button defaults make
         // it consume the same width as the labelled actions beside it.
         _variantButton.Width = 45;
@@ -83,7 +83,7 @@ public sealed partial class MapListPage : UserControl
         _variantButton.Click += async (_, _) => await ToggleSelectedVariantGroupAsync();
         var classPicker = CreateClassPicker();
 
-        var publishButton = CreateActionButton(GetWebsiteActionText(), AccentBlue);
+        var publishButton = CreateActionButton(GetWebsiteActionText(), IDVBuff.Appearance.ThemeButtonRole.Accent);
         _publishButton = publishButton;
         publishButton.IsEnabled = !_isPackageOperation && _loadedMaps.Count > 0;
 
@@ -182,7 +182,7 @@ public sealed partial class MapListPage : UserControl
 
         var mapSurface = new Border
         {
-            Background = FluentTheme.Brush("LayerFillColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "LayerFillColorDefaultBrush"),
             CornerRadius = new CornerRadius(14),
             MinHeight = 459,
             Child = mapContent
@@ -245,7 +245,7 @@ public sealed partial class MapListPage : UserControl
         {
             Width = 280,
             MinHeight = 45,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Left
         };
         _classComboBox = picker;
@@ -268,11 +268,11 @@ public sealed partial class MapListPage : UserControl
             }
         };
 
-        var add = CreateClassUtilityButton(Symbol.Add, AccentBlue);
+        var add = CreateClassUtilityButton(Symbol.Add, IDVBuff.Appearance.ThemeButtonRole.Accent);
         add.Width = 48;
         add.Height = 45;
         add.Click += async (_, _) => await ShowCreateClassDialogAsync();
-        var remove = CreateClassUtilityButton(Symbol.Delete, DeleteRed);
+        var remove = CreateClassUtilityButton(Symbol.Delete, IDVBuff.Appearance.ThemeButtonRole.Danger);
         remove.Width = 48;
         remove.Height = 45;
         remove.IsEnabled = _classes.Count > 1;
@@ -317,15 +317,12 @@ public sealed partial class MapListPage : UserControl
     {
         var button = new Button
         {
-            Background = FluentTheme.Brush("ControlFillColorDefaultBrush"),
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
             MinWidth = 0,
             MinHeight = 0,
             Padding = new Thickness(8),
             CornerRadius = new CornerRadius(4)
         };
         var icon = new SymbolIcon(Symbol.Edit);
-        icon.Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush");
         button.Content = icon;
         AttachHoverFeedback(button);
         return button;
@@ -337,7 +334,7 @@ public sealed partial class MapListPage : UserControl
         row.Children.Add(new TextBlock
         {
             Text = className,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
@@ -346,22 +343,9 @@ public sealed partial class MapListPage : UserControl
             Content = row,
             Tag = className,
             MinHeight = 38,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
         };
     }
-
-    private static Button CreateClassUtilityButton(Symbol symbol, Color color) => new()
-    {
-        Content = new SymbolIcon(symbol),
-        Background = new SolidColorBrush(color),
-        Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-        HorizontalAlignment = HorizontalAlignment.Stretch,
-        VerticalAlignment = VerticalAlignment.Stretch,
-        MinWidth = 0,
-        MinHeight = 0,
-        Padding = new Thickness(0),
-        CornerRadius = new CornerRadius(4)
-    };
 
     private async Task ShowCreateClassDialogAsync()
     {
@@ -377,7 +361,7 @@ public sealed partial class MapListPage : UserControl
             IsPrimaryButtonEnabled = false
         };
         nameBox.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(nameBox.Text);
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
         try
         {
@@ -404,7 +388,7 @@ public sealed partial class MapListPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
         try
         {

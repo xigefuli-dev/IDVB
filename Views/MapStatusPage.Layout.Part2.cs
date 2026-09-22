@@ -42,9 +42,6 @@ public sealed partial class MapStatusPage : UserControl
             Content = "设置按键",
             MinWidth = 98,
             MinHeight = 38,
-            Background = new SolidColorBrush(Color.FromArgb(255, 46, 132, 225)),
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 30, 105, 180)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(7)
         };
@@ -67,7 +64,7 @@ public sealed partial class MapStatusPage : UserControl
         return panel;
     }
 
-    private static UIElement CreateDiagnostic(string title, TextBlock value)
+    private UIElement CreateDiagnostic(string title, TextBlock value)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock
@@ -81,14 +78,14 @@ public sealed partial class MapStatusPage : UserControl
         return panel;
     }
 
-    private static TextBlock CreateMutedText() => new()
+    private static TextBlock CreateMutedText()
     {
-        FontSize = 13,
-        Foreground = SecondaryTextBrush,
-        TextWrapping = TextWrapping.Wrap
-    };
+        var text = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap };
+        text.Foreground = FluentTheme.Brush(text, "TextFillColorSecondaryBrush");
+        return text;
+    }
 
-    private static TextBlock CreateCategoryHeader(string text) => new()
+    private TextBlock CreateCategoryHeader(string text) => new()
     {
         Text = text,
         FontSize = 14,
@@ -97,16 +94,14 @@ public sealed partial class MapStatusPage : UserControl
         Margin = new Thickness(0, 4, 0, 0)
     };
 
-    private static Button CreateActionButton(string text) => new()
+    private static Button CreateActionButton(string text) => ThemeButton.Apply(new Button
     {
         Content = text,
-        Background = new SolidColorBrush(Color.FromArgb(255, 46, 132, 225)),
-        Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
         MinWidth = 150,
         MinHeight = 45,
         HorizontalAlignment = HorizontalAlignment.Left,
         CornerRadius = new CornerRadius(8)
-    };
+    }, IDVBuff.Appearance.ThemeButtonRole.Accent);
 
     private static NumberBox CreatePercentageBox(
         string header,

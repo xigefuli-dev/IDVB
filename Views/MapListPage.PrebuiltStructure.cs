@@ -75,7 +75,7 @@ public sealed partial class MapListPage
         var detail = new TextBlock
         {
             Text = "0 / 0",
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         };
         var bar = new ProgressBar
         {
@@ -97,7 +97,7 @@ public sealed partial class MapListPage
             CloseButtonText = "取消"
         };
         dialog.CloseButtonClick += (_, _) => cancellation.Cancel();
-        _ = dialog.ShowAsync();
+        _ = dialog.ShowThemedAsync(this);
         SetClassEditBusy(true);
         try
         {

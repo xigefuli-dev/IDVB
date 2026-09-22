@@ -354,7 +354,7 @@ namespace IDVBuff
                 Title = "更新完成",
                 Content = $"Identity Vision Bridge 已更新到 {BuildVersionInfo.BuildVersion}。",
                 CloseButtonText = "知道了"
-            }.ShowAsync();
+            }.ShowThemedAsync();
         }
 
         private async Task ShowQuickStartAsync(Features.Maps.SessionOrchestrator session)
@@ -436,7 +436,7 @@ namespace IDVBuff
                         Content = "Identity Vision Bridge 必须以管理员权限运行，请退出后重新以管理员权限打开。",
                         CloseButtonText = "退出",
                         DefaultButton = ContentDialogButton.Close
-                    }.ShowAsync();
+                    }.ShowThemedAsync();
                 }
             }
             catch (Exception exception)

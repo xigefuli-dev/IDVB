@@ -238,4 +238,77 @@ public sealed class FeverAccountStoreTests : IDisposable
         var decryptedTicket = FeverIpcBridge.DecryptTicketPacket(packet);
         Assert.Equal(rawTicket, decryptedTicket);
     }
+
+    [Fact]
+    public void TryParseFeverToken_WithByteArrayJson_ExtractsTokenAndIdentity()
+    {
+        // JSON: {"name":"TestUser","account_name":"test@163.com","account_id":"12345","userId":"99999","token":"fake_line_token_123"}
+        // Base64: eyJuYW1lIjoiVGVzdFVzZXIiLCJhY2NvdW50X25hbWUiOiJ0ZXN0QDE2My5jb20iLCJhY2NvdW50X2lkIjoiMTIzNDUiLCJ1c2VySWQiOiI5OTk5OSIsInRva2VuIjoiZmFrZV9saW5lX3Rva2VuXzEyMyJ9
+        const string rawToken = "@ByteArray(eyJuYW1lIjoiVGVzdFVzZXIiLCJhY2NvdW50X25hbWUiOiJ0ZXN0QDE2My5jb20iLCJhY2NvdW50X2lkIjoiMTIzNDUiLCJ1c2VySWQiOiI5OTk5OSIsInRva2VuIjoiZmFrZV9saW5lX3Rva2VuXzEyMyJ9)";
+
+        var parsed = FeverAccountStore.TryParseFeverToken(rawToken);
+
+        Assert.Equal("TestUser", parsed.DisplayName);
+        Assert.Equal("test@163.com", parsed.Identifier);
+        Assert.Equal("99999", parsed.UserId);
+        Assert.Equal("fake_line_token_123", parsed.Token);
+    }
+
+    [Fact]
+    public async Task TryExtractTokenFromMpayDirectory_FindsH55TokenFirst()
+    {
+        var tempDir = Path.Combine(_testRoot, "mpay_extract_test");
+        Directory.CreateDirectory(tempDir);
+
+        await File.WriteAllTextAsync(Path.Combine(tempDir, "other12345678-g-a50-64-mpay.db"), "content");
+        await File.WriteAllTextAsync(Path.Combine(tempDir, "aecfrt3rmaaaaajl-g-h55-64-mpay.db"), "content");
+
+        var extracted = FeverAccountStore.TryExtractTokenFromMpayDirectory(tempDir);
+        Assert.Equal("aecfrt3rmaaaaajl", extracted);
+    }
+
+    [Fact]
+    public async Task ImportUnindexedMpaySessions_ImportsSessionFilesAndCreatesProfile()
+    {
+        // Create an unindexed MPay DB file
+        var dbPath = Path.Combine(_mpayDir, "aecfrt3rmaaaaajl-g-h55-64-mpay.db");
+        await File.WriteAllTextAsync(dbPath, "fake-db-binary-data");
+
+        var store = new FeverAccountStore(_storageDir, _unisdkDir, _mpayDir);
+        store.ImportUnindexedMpaySessions();
+
+        var accounts = store.GetAccounts();
+        Assert.Single(accounts);
+        var acc = accounts[0];
+        Assert.Equal("aecfrt3rmaaaaajl", acc.AccountIdentifier);
+        Assert.False(acc.IsLongTerm);
+
+        var ticket = store.GetAccountTicket(acc.Id);
+        Assert.Equal("aecfrt3rmaaaaajl", ticket);
+
+        // Call again: must not duplicate
+        store.ImportUnindexedMpaySessions();
+        Assert.Single(store.GetAccounts());
+    }
+
+    [Fact]
+    public void GetAccountTicket_FallbackToFeverToken_WhenTicketTxtMissing()
+    {
+        var store = new FeverAccountStore(_storageDir, _unisdkDir, _mpayDir);
+        const string rawToken = "@ByteArray(eyJuYW1lIjoiVGVzdFVzZXIiLCJhY2NvdW50X25hbWUiOiJ0ZXN0QDE2My5jb20iLCJhY2NvdW50X2lkIjoiMTIzNDUiLCJ1c2VySWQiOiI5OTk5OSIsInRva2VuIjoiZmFrZV9saW5lX3Rva2VuXzEyMyJ9)";
+
+        var meta = store.LoadMetadata();
+        var profile = new FeverAccountProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "长期账号",
+            IsLongTerm = true,
+            FeverToken = rawToken
+        };
+        meta.Accounts.Add(profile);
+        store.SaveMetadata(meta);
+
+        var ticket = store.GetAccountTicket(profile.Id);
+        Assert.Equal("fake_line_token_123", ticket);
+    }
 }

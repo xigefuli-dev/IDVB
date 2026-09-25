@@ -16,7 +16,10 @@ internal static class FeverGamesGameLauncher
     // treats `autoRun=1` as an explicit request to start the selected game.
     private const string GameLaunchUri = FeverGamesLaunchPlan.AutoStartGameUri;
 
-    public static bool TryLaunch(out string failureReason)
+    public static bool TryLaunch(
+        out string failureReason,
+        FeverAccountProfile? explicitAccount = null,
+        string? explicitTicket = null)
     {
         // 1. Prevent duplicate launch if Identity V is already running
         if (Process.GetProcessesByName("dwrg").Length > 0)
@@ -25,14 +28,37 @@ internal static class FeverGamesGameLauncher
             return false;
         }
 
+        var targetAccount = explicitAccount ?? FeverAccountStore.Instance.GetActiveAccount();
+
         // 2. Terminate background Fever processes to prevent window handle collision on LHMW_FG_Main
         FeverAccountStore.StopFeverProcesses();
 
-        // 3. Prepare IPC bridge with active account ticket
-        var activeTicket = FeverAccountStore.Instance.GetActiveAccountTicket();
-        FeverIpcBridge.Instance.Start(activeTicket);
+        // 3. If long-term account, deploy credentials to Windows Registry
+        if (targetAccount is not null && targetAccount.IsLongTerm && !string.IsNullOrEmpty(targetAccount.FeverToken))
+        {
+            FeverAccountStore.WriteFeverRegistryCredentials(targetAccount.FeverToken, targetAccount.FeverSdkuid);
+        }
 
-        // 4. Resolve Identity V game path from registry
+        // 4. Prepare IPC bridge with explicit ticket or account ticket
+        var ticket = explicitTicket;
+        if (string.IsNullOrWhiteSpace(ticket) && targetAccount is not null)
+        {
+            ticket = FeverAccountStore.Instance.GetAccountTicket(targetAccount.Id);
+        }
+        if (string.IsNullOrWhiteSpace(ticket))
+        {
+            ticket = FeverAccountStore.Instance.GetActiveAccountTicket();
+        }
+
+        if (string.IsNullOrWhiteSpace(ticket))
+        {
+            failureReason = "未找到有效的登录凭据，请先在官服账号管理中登录。";
+            return false;
+        }
+
+        FeverIpcBridge.Instance.Start(ticket.Trim());
+
+        // 5. Resolve Identity V game path from registry
         using var gameKey = Registry.CurrentUser.OpenSubKey(GameRegistryPath, writable: false);
         if (!FeverGamesGameStartPlan.TryCreate(
                 gameKey?.GetValue("InstallPath") as string,
@@ -45,7 +71,7 @@ internal static class FeverGamesGameLauncher
             return false;
         }
 
-        // 5. Directly start the game with --start_from_launcher=1
+        // 6. Directly start the game with --start_from_launcher=1
         try
         {
             var arguments = string.IsNullOrWhiteSpace(plan.Arguments)

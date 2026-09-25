@@ -43,7 +43,8 @@ public static class Program
             nint parentHwnd = 0;
             if (args.Length > 1 && nint.TryParse(args[1], out var parsedHwnd))
                 parentHwnd = parsedHwnd;
-            return Features.GameLaunch.FeverLoginService.RunWorker(parentHwnd);
+            var isLongTerm = args.Any(a => string.Equals(a, "--long-term", StringComparison.OrdinalIgnoreCase));
+            return Features.GameLaunch.FeverLoginService.RunWorker(parentHwnd, isLongTerm);
         }
 
         StartupTimeline.Write("Legacy launch redirect check begin (includes app-data path resolution).");

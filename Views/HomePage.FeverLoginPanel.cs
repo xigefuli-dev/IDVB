@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using IDVBuff.Features.GameLaunch;
 using IDVBuff.Presentation.Theming;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.Win32;
 
 namespace IDVBuff.Views;
 
@@ -24,16 +26,18 @@ public sealed partial class HomePage
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 280,
             FontSize = 12,
+            Margin = new Thickness(0, 4, 0, 8),
             Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Brush
         };
-        var body = new StackPanel { Spacing = 10, Width = 280 };
+        var body = new StackPanel { Spacing = 8, Width = 280 };
 
         var titleBlock = new TextBlock
         {
-            Text = "网易官服账号",
+            Text = "网易官服账号管理",
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             FontSize = 14,
-            Margin = new Thickness(0, 0, 0, 4)
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         };
 
         var back = new Button
@@ -51,17 +55,19 @@ public sealed partial class HomePage
         ToolTipService.SetToolTip(back, "关闭面板");
 
         var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        Grid.SetColumn(back, 0);
+        Grid.SetColumn(titleBlock, 1);
         header.Children.Add(back);
-        header.Children.Add(new StackPanel
-        {
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Children = { titleBlock }
-        });
+        header.Children.Add(titleBlock);
 
         var content = new StackPanel
         {
             Spacing = 8,
             Width = 280,
+            Padding = new Thickness(0, 0, 0, 4),
             Children = { header, body }
         };
 
@@ -81,8 +87,16 @@ public sealed partial class HomePage
         };
 
         host.Children.Add(tip);
+        FeverAccountStore.Instance.AutoImportExistingSessionIfEmpty();
         AttachFeverAccounts(tip, body, message);
-        tip.IsOpen = true;
+
+        _ = tip.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_feverLoginTip == tip)
+            {
+                tip.IsOpen = true;
+            }
+        });
     }
 
     private void AttachFeverAccounts(TeachingTip tip, StackPanel container, TextBlock message)
@@ -93,19 +107,29 @@ public sealed partial class HomePage
         var viewport = new ScrollViewer
         {
             Content = list,
-            MaxHeight = 280,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            MaxHeight = 130,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Visibility = Visibility.Collapsed
         };
 
-        var addBtn = new Button
+        var addLongTermBtn = new Button
         {
-            Content = "+ 添加官服账号",
+            Content = "网易账号登陆",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+
+        var addTempBtn = new Button
+        {
+            Content = "临时扫码登陆",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0)
         };
 
         container.Children.Add(viewport);
-        container.Children.Add(addBtn);
+        container.Children.Add(addLongTermBtn);
+        container.Children.Add(addTempBtn);
         container.Children.Add(message);
 
         void RenderAccounts()
@@ -116,11 +140,13 @@ public sealed partial class HomePage
 
             if (accounts.Count == 0)
             {
-                message.Text = "暂无保存的官服账号。点击下方按钮添加，扫码或登录后即可保存。";
+                viewport.Visibility = Visibility.Collapsed;
+                message.Text = "暂无保存的官服账号。点击上方按钮登录添加。";
                 return;
             }
 
-            message.Text = "点击账号即可切换。点击“开始游戏”将以当前激活账号进入。";
+            viewport.Visibility = Visibility.Visible;
+            message.Text = "点击账号即可切换。点击主界面“启动游戏”进入。";
 
             foreach (var acc in accounts)
             {
@@ -152,20 +178,23 @@ public sealed partial class HomePage
                     });
                 }
 
+                var badgeText = acc.IsLongTerm ? "[网易] " : "[临时] ";
+                var badgeBrush = acc.IsLongTerm
+                    ? Application.Current.Resources["AccentTextFillColorPrimaryBrush"] as Brush
+                    : Application.Current.Resources["TextFillColorTertiaryBrush"] as Brush;
+
+                caption.Inlines.Add(new Run
+                {
+                    Text = badgeText,
+                    FontSize = 11,
+                    Foreground = badgeBrush
+                });
+
                 caption.Inlines.Add(new Run
                 {
                     Text = acc.Name,
                     FontWeight = isCurrent ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal
                 });
-
-                if (!string.IsNullOrEmpty(acc.AccountIdentifier))
-                {
-                    caption.Inlines.Add(new Run
-                    {
-                        Text = $" ({acc.AccountIdentifier})",
-                        Foreground = Application.Current.Resources["TextFillColorTertiaryBrush"] as Brush
-                    });
-                }
 
                 var selectBtn = new Button
                 {
@@ -186,11 +215,13 @@ public sealed partial class HomePage
                             var ticket = FeverAccountStore.Instance.GetAccountTicket(acc.Id);
                             FeverIpcBridge.Instance.SetTicket(ticket);
                             RenderAccounts();
-                            message.Text = $"已切换为 [{acc.Name}]。点击“开始游戏”即可进入。";
+                            message.Text = acc.IsLongTerm
+                                ? $"已切换为网易账号 [{acc.Name}]。点击“启动游戏”即可进入。"
+                                : $"已切换为临时账号 [{acc.Name}]。点击“启动游戏”即可进入。";
                         }
                         else
                         {
-                            message.Text = $"切换失败，未找到该账号的凭据备份。";
+                            message.Text = "切换失败，未找到该账号的凭据备份。";
                         }
                     }
                     catch (Exception ex)
@@ -203,8 +234,12 @@ public sealed partial class HomePage
                     }
                 };
 
-                // Context menu for Rename / Delete
                 var menu = new MenuFlyout();
+                var launchItem = new MenuFlyoutItem
+                {
+                    Text = "启动此账号",
+                    Icon = new SymbolIcon(Symbol.Play)
+                };
                 var renameItem = new MenuFlyoutItem
                 {
                     Text = "重命名",
@@ -214,6 +249,22 @@ public sealed partial class HomePage
                 {
                     Text = "删除账号",
                     Icon = new SymbolIcon(Symbol.Delete)
+                };
+
+                launchItem.Click += async (_, _) =>
+                {
+                    tip.IsOpen = false;
+                    try
+                    {
+                        await FeverAccountStore.Instance.SwitchAccountAsync(acc.Id);
+                        var ticket = FeverAccountStore.Instance.GetAccountTicket(acc.Id);
+                        FeverIpcBridge.Instance.SetTicket(ticket);
+                        await LaunchOfficialGameAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[HomePage] 启动此账号异常: {ex.Message}");
+                    }
                 };
 
                 renameItem.Click += async (_, _) =>
@@ -241,7 +292,7 @@ public sealed partial class HomePage
                     {
                         XamlRoot = XamlRoot,
                         Title = "删除官服账号",
-                        Content = $"确定要删除账号档案 [{acc.Name}] 吗？\n删除后如需再次使用该账号，需要重新扫码登录。",
+                        Content = $"确定要删除账号档案 [{acc.Name}] 吗？\n删除后如需再次使用该账号，需要重新登录。",
                         PrimaryButtonText = "确认删除",
                         CloseButtonText = "取消"
                     };
@@ -253,6 +304,7 @@ public sealed partial class HomePage
                     }
                 };
 
+                menu.Items.Add(launchItem);
                 menu.Items.Add(renameItem);
                 menu.Items.Add(deleteItem);
 
@@ -280,10 +332,86 @@ public sealed partial class HomePage
             }
         }
 
-        addBtn.Click += async (_, _) =>
+        async Task PerformLongTermLoginAsync()
         {
-            addBtn.IsEnabled = false;
-            message.Text = "正在准备全新登录环境…";
+            addLongTermBtn.IsEnabled = false;
+            addTempBtn.IsEnabled = false;
+            try
+            {
+                var (currentToken, _) = FeverAccountStore.ReadFeverRegistryCredentials();
+                var meta = FeverAccountStore.Instance.LoadMetadata();
+                var alreadyImported = !string.IsNullOrWhiteSpace(currentToken) &&
+                    meta.Accounts.Any(a => a.IsLongTerm && string.Equals(a.FeverToken, currentToken, StringComparison.Ordinal));
+
+                if (!string.IsNullOrWhiteSpace(currentToken) && !alreadyImported)
+                {
+                    var profile = FeverAccountStore.Instance.CaptureCurrentFeverRegistryAccount();
+                    RenderAccounts();
+                    message.Text = $"已成功添加网易账号 [{profile?.Name}]！可长期免扫码启动游戏。";
+                    return;
+                }
+
+                using var protocolKey = Registry.ClassesRoot.OpenSubKey(@"fevergames\shell\open\command", writable: false);
+                if (!FeverGamesLaunchPlan.TryCreate(protocolKey?.GetValue(null) as string, File.Exists, out var plan, out var err))
+                {
+                    message.Text = $"未找到发烧游戏启动器：{err}";
+                    return;
+                }
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = plan.LauncherPath,
+                        WorkingDirectory = Path.GetDirectoryName(plan.LauncherPath),
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    message.Text = $"呼出发烧平台失败：{ex.Message}";
+                    return;
+                }
+
+                message.Text = "已呼出网易发烧平台，请在平台中登录新账号，完成后将自动同步…";
+
+                var initialToken = currentToken;
+                var captured = false;
+                for (int i = 0; i < 90; i++)
+                {
+                    await Task.Delay(1000);
+                    var (tokenNow, _) = FeverAccountStore.ReadFeverRegistryCredentials();
+                    if (!string.IsNullOrWhiteSpace(tokenNow) && !string.Equals(tokenNow, initialToken, StringComparison.Ordinal))
+                    {
+                        var profile = FeverAccountStore.Instance.CaptureCurrentFeverRegistryAccount();
+                        RenderAccounts();
+                        message.Text = $"新网易账号 [{profile?.Name}] 已成功同步并保存！";
+                        captured = true;
+                        break;
+                    }
+                }
+
+                if (!captured)
+                {
+                    message.Text = "若已在发烧平台完成登录，可再次点击“网易账号登陆”同步凭据。";
+                }
+            }
+            catch (Exception ex)
+            {
+                message.Text = $"操作异常：{ex.Message}";
+            }
+            finally
+            {
+                addLongTermBtn.IsEnabled = true;
+                addTempBtn.IsEnabled = true;
+            }
+        }
+
+        async Task PerformTempLoginAsync()
+        {
+            addLongTermBtn.IsEnabled = false;
+            addTempBtn.IsEnabled = false;
+            message.Text = "正在准备全新临时登录环境…";
 
             nint hwnd = 0;
             try
@@ -293,26 +421,36 @@ public sealed partial class HomePage
             }
             catch { }
 
-            // 1. Prepare clean login environment (clear cached session dbs to prevent auto-login flash crash)
             FeverAccountStore.Instance.PrepareForNewLogin();
 
             try
             {
-                message.Text = "正在呼出网易官方登录/扫码窗口…";
-                var result = await FeverLoginService.StartLoginAsync(hwnd);
-                if (!result.Success || string.IsNullOrWhiteSpace(result.Ticket))
+                message.Text = "正在呼出临时扫码窗口（请使用第五人格手游扫码器）…";
+                var result = await FeverLoginService.StartLoginAsync(hwnd, isLongTerm: false);
+                if (!result.Success)
                 {
-                    // If canceled or failed, rollback previous account session
                     await FeverAccountStore.Instance.RollbackNewLoginAsync();
-                    message.Text = result.Message ?? "登录未完成。";
+                    message.Text = result.Message ?? "扫码登录未完成。";
                     return;
                 }
 
-                message.Text = "登录成功，正在归档保存凭据…";
-                var newProfile = await FeverAccountStore.Instance.CaptureCurrentAccountAsync(ticket: result.Ticket.Trim());
-                FeverIpcBridge.Instance.SetTicket(result.Ticket);
+                var ticket = result.Ticket;
+                if (string.IsNullOrWhiteSpace(ticket))
+                {
+                    ticket = FeverAccountStore.TryExtractTokenFromMpayDirectory(FeverAccountStore.Instance.NeteaseMpayDirectory);
+                }
+
+                message.Text = "登录成功，正在保存临时凭据…";
+                var newProfile = await FeverAccountStore.Instance.CaptureCurrentAccountAsync(
+                    ticket: ticket,
+                    isLongTerm: false);
+
+                if (!string.IsNullOrWhiteSpace(ticket))
+                {
+                    FeverIpcBridge.Instance.SetTicket(ticket.Trim());
+                }
                 RenderAccounts();
-                message.Text = $"账号 [{newProfile.Name}] 已成功保存并激活！";
+                message.Text = $"临时账号 [{newProfile.Name}] 已就绪！点击“启动游戏”即可进入。";
             }
             catch (Exception ex)
             {
@@ -321,9 +459,13 @@ public sealed partial class HomePage
             }
             finally
             {
-                addBtn.IsEnabled = true;
+                addLongTermBtn.IsEnabled = true;
+                addTempBtn.IsEnabled = true;
             }
-        };
+        }
+
+        addLongTermBtn.Click += async (_, _) => await PerformLongTermLoginAsync();
+        addTempBtn.Click += async (_, _) => await PerformTempLoginAsync();
 
         RenderAccounts();
     }

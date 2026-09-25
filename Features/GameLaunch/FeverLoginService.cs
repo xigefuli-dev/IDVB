@@ -11,13 +11,14 @@ public sealed record FeverLoginResult(bool Success, string? Ticket, string? Mess
 /// login / QR scan window and refresh the platform ticket without launching the full client.
 /// Uses an isolated worker process to ensure DLL and file handles are 100% released on exit.
 /// </summary>
-public static class FeverLoginService
+public static partial class FeverLoginService
 {
     private const string TicketMarker = "__FEVER_TICKET__:";
     private static readonly SemaphoreSlim LoginLock = new(1, 1);
 
     public static async Task<FeverLoginResult> StartLoginAsync(
         nint parentHwnd = 0,
+        bool isLongTerm = false,
         CancellationToken cancellationToken = default)
     {
         if (!await LoginLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
@@ -28,11 +29,11 @@ public static class FeverLoginService
             var exePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
             if (!string.IsNullOrWhiteSpace(exePath) && File.Exists(exePath))
             {
-                return await RunWorkerInSubprocessAsync(exePath, parentHwnd, cancellationToken).ConfigureAwait(false);
+                return await RunWorkerInSubprocessAsync(exePath, parentHwnd, isLongTerm, cancellationToken).ConfigureAwait(false);
             }
 
             // Fallback for test harnesses where executable path cannot be launched
-            return await RunWorkerInThreadAsync(parentHwnd, cancellationToken).ConfigureAwait(false);
+            return await RunWorkerInThreadAsync(parentHwnd, isLongTerm, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -43,12 +44,14 @@ public static class FeverLoginService
     private static async Task<FeverLoginResult> RunWorkerInSubprocessAsync(
         string exePath,
         nint parentHwnd,
+        bool isLongTerm,
         CancellationToken cancellationToken)
     {
+        var longTermArg = isLongTerm ? " --long-term" : "";
         var psi = new ProcessStartInfo
         {
             FileName = exePath,
-            Arguments = $"--fever-login-worker {parentHwnd} --isolated-dev-instance",
+            Arguments = $"--fever-login-worker {parentHwnd}{longTermArg} --isolated-dev-instance",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -106,9 +109,26 @@ public static class FeverLoginService
                 }
             }
 
+            if (string.IsNullOrWhiteSpace(ticket))
+            {
+                ticket = FeverAccountStore.TryExtractTokenFromMpayDirectory(FeverAccountStore.Instance.NeteaseMpayDirectory);
+            }
+
             if (!string.IsNullOrWhiteSpace(ticket))
             {
                 return new FeverLoginResult(true, ticket.Trim(), "发烧登录成功，凭据已刷新。");
+            }
+
+            // In long-term login, MPay may successfully persist session database without returning ticket immediately
+            if (isLongTerm)
+            {
+                return new FeverLoginResult(true, null, "发烧平台长期凭据已保存。");
+            }
+
+            if (Directory.Exists(FeverAccountStore.Instance.NeteaseMpayDirectory) &&
+                Directory.GetFiles(FeverAccountStore.Instance.NeteaseMpayDirectory, "*.db").Length > 0)
+            {
+                return new FeverLoginResult(true, null, "发烧登录成功，会话已保存。");
             }
 
             var err = errorBuilder.ToString().Trim();
@@ -124,7 +144,7 @@ public static class FeverLoginService
     /// <summary>
     /// Entry point for the isolated worker subprocess (--fever-login-worker).
     /// </summary>
-    public static int RunWorker(nint parentHwnd)
+    public static int RunWorker(nint parentHwnd, bool isLongTerm = false)
     {
         if (!FeverEnvironmentResolver.TryResolve(out var mpayDllPath, out var skinZipPath, out var failureReason))
         {
@@ -133,13 +153,23 @@ public static class FeverLoginService
         }
 
         var tcs = new TaskCompletionSource<FeverLoginResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        RunMpayLoginThread(mpayDllPath, skinZipPath, parentHwnd, tcs, CancellationToken.None);
+        RunMpayLoginThread(mpayDllPath, skinZipPath, parentHwnd, isLongTerm, tcs, CancellationToken.None);
         var result = tcs.Task.GetAwaiter().GetResult();
 
-        if (result.Success && !string.IsNullOrWhiteSpace(result.Ticket))
+        if (result.Success)
         {
-            var ticketBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(result.Ticket.Trim()));
-            Console.WriteLine($"{TicketMarker}{ticketBase64}");
+            var ticket = result.Ticket;
+            if (string.IsNullOrWhiteSpace(ticket))
+            {
+                ticket = FeverAccountStore.TryExtractTokenFromMpayDirectory(
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Netease", "Mpay"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(ticket))
+            {
+                var ticketBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(ticket.Trim()));
+                Console.WriteLine($"{TicketMarker}{ticketBase64}");
+            }
             return 0;
         }
 
@@ -147,7 +177,7 @@ public static class FeverLoginService
         return 1;
     }
 
-    private static Task<FeverLoginResult> RunWorkerInThreadAsync(nint parentHwnd, CancellationToken ct)
+    private static Task<FeverLoginResult> RunWorkerInThreadAsync(nint parentHwnd, bool isLongTerm, CancellationToken ct)
     {
         if (!FeverEnvironmentResolver.TryResolve(out var mpayDllPath, out var skinZipPath, out var failureReason))
         {
@@ -159,7 +189,7 @@ public static class FeverLoginService
         {
             try
             {
-                RunMpayLoginThread(mpayDllPath, skinZipPath, parentHwnd, tcs, ct);
+                RunMpayLoginThread(mpayDllPath, skinZipPath, parentHwnd, isLongTerm, tcs, ct);
             }
             catch (Exception ex)
             {
@@ -179,6 +209,7 @@ public static class FeverLoginService
         string mpayDllPath,
         string skinZipPath,
         nint parentHwnd,
+        bool isLongTerm,
         TaskCompletionSource<FeverLoginResult> tcs,
         CancellationToken ct)
     {
@@ -196,6 +227,7 @@ public static class FeverLoginService
         IntPtr instance = IntPtr.Zero;
         IntPtr cbObjPtr = IntPtr.Zero;
         IntPtr vtablePtr = IntPtr.Zero;
+        IntPtr dummyHostHwnd = IntPtr.Zero;
         ReleaseInterfaceDelegate? releaseFn = null;
 
         try
@@ -237,15 +269,23 @@ public static class FeverLoginService
                 Marshal.FreeHGlobal(skinPathPtr);
             }
 
-            // Set parent window handle if available
-            if (parentHwnd != 0 && pSetOption != IntPtr.Zero)
+            // Ensure a valid parent HWND is passed to mpay_option_parent_hwnd.
+            // If parentHwnd is 0, create a minimal 1x1 host window so MPay never fails with "Find main window fail".
+            IntPtr effectiveParentHwnd = parentHwnd;
+            if (effectiveParentHwnd == IntPtr.Zero)
+            {
+                dummyHostHwnd = CreateHostWindow();
+                effectiveParentHwnd = dummyHostHwnd;
+            }
+
+            if (effectiveParentHwnd != IntPtr.Zero && pSetOption != IntPtr.Zero)
             {
                 var setOptionFn = Marshal.GetDelegateForFunctionPointer<SetOptionDelegate>(pSetOption);
                 var optionNamePtr = Marshal.StringToHGlobalAnsi("mpay_option_parent_hwnd");
                 var hwndValPtr = Marshal.AllocHGlobal(IntPtr.Size);
                 try
                 {
-                    Marshal.WriteIntPtr(hwndValPtr, parentHwnd);
+                    Marshal.WriteIntPtr(hwndValPtr, effectiveParentHwnd);
                     setOptionFn(optionNamePtr, hwndValPtr);
                 }
                 finally
@@ -270,23 +310,35 @@ public static class FeverLoginService
                 {
                     try
                     {
-                        for (int i = 0; i < 16; i++)
+                        var directStr = Marshal.PtrToStringUTF8(extra);
+                        if (!string.IsNullOrWhiteSpace(directStr) && directStr.Length >= 8)
                         {
-                            var ptr = Marshal.ReadIntPtr(extra, i * IntPtr.Size);
-                            if (ptr != IntPtr.Zero)
+                            directTicket = directStr.Trim();
+                        }
+                    }
+                    catch { }
+
+                    if (string.IsNullOrWhiteSpace(directTicket))
+                    {
+                        try
+                        {
+                            for (int i = 0; i < 16; i++)
                             {
-                                var str = Marshal.PtrToStringUTF8(ptr);
-                                Console.Error.WriteLine($"[FeverLogin] extra[{i}] = {str}");
-                                if (i == 2 && !string.IsNullOrWhiteSpace(str))
+                                var ptr = Marshal.ReadIntPtr(extra, i * IntPtr.Size);
+                                if (ptr != IntPtr.Zero)
                                 {
-                                    directTicket = str.Trim();
+                                    var str = Marshal.PtrToStringUTF8(ptr);
+                                    if (i == 2 && !string.IsNullOrWhiteSpace(str))
+                                    {
+                                        directTicket = str.Trim();
+                                    }
                                 }
                             }
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"[FeverLogin] Error reading extra: {ex.Message}");
+                        catch (Exception ex)
+                        {
+                            Console.Error.WriteLine($"[FeverLogin] Error reading extra: {ex.Message}");
+                        }
                     }
                 }
 
@@ -308,12 +360,15 @@ public static class FeverLoginService
                     }
                     else
                     {
+                        var tokenFromDb = FeverAccountStore.TryExtractTokenFromMpayDirectory(
+                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Netease", "Mpay"));
+                        tcs.TrySetResult(new FeverLoginResult(true, tokenFromDb, "发烧登录完成。"));
                         PostQuitMessage(0);
                     }
                 }
                 else
                 {
-                    tcs.TrySetResult(new FeverLoginResult(false, null, $"登录完成回调返回非零状态码: code={code}"));
+                    tcs.TrySetResult(new FeverLoginResult(false, null, $"登录完成回调返回状态码: code={code}"));
                     PostQuitMessage(0);
                 }
             }
@@ -332,7 +387,20 @@ public static class FeverLoginService
                 }
                 else
                 {
-                    tcs.TrySetResult(new FeverLoginResult(false, null, $"获取 Ticket 失败: code={code}"));
+                    if (string.IsNullOrWhiteSpace(capturedTicket))
+                    {
+                        capturedTicket = FeverAccountStore.TryExtractTokenFromMpayDirectory(
+                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Netease", "Mpay"));
+                    }
+
+                    if (loginSuccess || !string.IsNullOrWhiteSpace(capturedTicket))
+                    {
+                        tcs.TrySetResult(new FeverLoginResult(true, capturedTicket, "发烧登录成功，凭据已保存。"));
+                    }
+                    else
+                    {
+                        tcs.TrySetResult(new FeverLoginResult(false, null, $"获取 Ticket 失败: code={code}"));
+                    }
                 }
                 PostQuitMessage(0);
             }
@@ -362,9 +430,12 @@ public static class FeverLoginService
             cbObjPtr = Marshal.AllocHGlobal(IntPtr.Size + 4096);
             Marshal.WriteIntPtr(cbObjPtr, 0, vtablePtr);
 
-            // Initialize mpay for Identity V (game_id: "h55", channel: "a50_sdk_cn")
+            // Select GameId:
+            // Long-term Fever platform login uses "aecglf6ee4aaaarz-g-a50"
+            // Temporary QR game scan uses "h55"
+            var gameIdStr = isLongTerm ? "aecglf6ee4aaaarz-g-a50" : "h55";
             var initFn = Marshal.GetDelegateForFunctionPointer<InitDelegate>(pInit);
-            var pGame = Marshal.StringToHGlobalAnsi("h55");
+            var pGame = Marshal.StringToHGlobalAnsi(gameIdStr);
             var pChannel = Marshal.StringToHGlobalAnsi("a50_sdk_cn");
             var pEmpty = Marshal.StringToHGlobalAnsi("");
 
@@ -380,11 +451,15 @@ public static class FeverLoginService
                 Marshal.FreeHGlobal(pEmpty);
             }
 
-            Debug.WriteLine($"[FeverLoginService] initResult={initResult}");
+            Debug.WriteLine($"[FeverLoginService] initResult={initResult}, gameId={gameIdStr}");
 
             // Call login(instance, 1, 0)
             var loginFn = Marshal.GetDelegateForFunctionPointer<LoginDelegate>(pLogin);
             loginFn(instance, 1, 0);
+
+            // Start background window activation monitor
+            using var monitorCts = new CancellationTokenSource();
+            _ = Task.Run(() => MonitorAndActivateMpayWindows(monitorCts.Token));
 
             // Run Windows message pump
             while (GetMessage(out var msg, IntPtr.Zero, 0, 0))
@@ -399,6 +474,8 @@ public static class FeverLoginService
                 DispatchMessage(ref msg);
             }
 
+            monitorCts.Cancel();
+
             if (loginSuccess && !tcs.Task.IsCompleted)
             {
                 tcs.TrySetResult(new FeverLoginResult(true, capturedTicket, "发烧登录成功，凭据已刷新。"));
@@ -409,75 +486,12 @@ public static class FeverLoginService
             try { releaseFn?.Invoke(); } catch { }
             if (cbObjPtr != IntPtr.Zero) Marshal.FreeHGlobal(cbObjPtr);
             if (vtablePtr != IntPtr.Zero) Marshal.FreeHGlobal(vtablePtr);
+            if (dummyHostHwnd != IntPtr.Zero)
+            {
+                try { DestroyWindow(dummyHostHwnd); } catch { }
+            }
             FreeLibrary(hModule);
         }
     }
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate IntPtr CreateInterfaceDelegate();
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void ReleaseInterfaceDelegate();
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int SetResPathDelegate(IntPtr instance, int type, IntPtr path);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void SetOptionDelegate(IntPtr name, IntPtr value);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int InitDelegate(
-        IntPtr instance, IntPtr gameId, IntPtr reserved1, IntPtr appChannel,
-        IntPtr reserved2, IntPtr reserved3, IntPtr callback, int flag);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void LoginDelegate(IntPtr instance, int mode, int style);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void GetUserTicketDelegate(IntPtr instance);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void NoArgsCallback(IntPtr thisPtr);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void LoginFinishCallback(IntPtr thisPtr, uint code, IntPtr extra);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void TicketResultCallback(IntPtr thisPtr, int code, IntPtr ticket, IntPtr extra);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSG
-    {
-        public IntPtr hwnd;
-        public uint message;
-        public UIntPtr wParam;
-        public IntPtr lParam;
-        public uint time;
-        public int pt_x;
-        public int pt_y;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-    private static extern bool SetDllDirectory(string lpPathName);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
-    private static extern IntPtr LoadLibrary(string lpLibFileName);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool FreeLibrary(IntPtr hModule);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
-    private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
-
-    [DllImport("user32.dll")]
-    private static extern bool TranslateMessage(ref MSG lpMsg);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr DispatchMessage(ref MSG lpMsg);
-
-    [DllImport("user32.dll")]
-    private static extern void PostQuitMessage(int nExitCode);
 }
+

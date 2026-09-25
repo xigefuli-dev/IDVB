@@ -25,6 +25,7 @@ internal sealed class FeverIpcBridge : IDisposable
     private Thread? _thread;
     private IntPtr _hwnd;
     private string? _currentTicket;
+    private readonly HashSet<IntPtr> _consumedClients = [];
     private readonly ManualResetEventSlim _startedEvent = new(false);
     private bool _isDisposed;
 
@@ -68,7 +69,7 @@ internal sealed class FeverIpcBridge : IDisposable
     {
         lock (_stateLock)
         {
-            if (!string.IsNullOrEmpty(initialTicket))
+            if (!string.IsNullOrEmpty(initialTicket) && string.IsNullOrEmpty(_currentTicket))
             {
                 _currentTicket = initialTicket;
             }
@@ -230,6 +231,14 @@ internal sealed class FeverIpcBridge : IDisposable
         // dwData 13 or opcode 13: Identity V client requesting ticket
         if (dwData == 13 || opcode == 13)
         {
+            lock (_stateLock)
+            {
+                if (_consumedClients.Contains(senderHwnd))
+                {
+                    return true;
+                }
+            }
+
             string? ticket = null;
             lock (_stateLock)
             {
@@ -248,6 +257,11 @@ internal sealed class FeverIpcBridge : IDisposable
             }
 
             SendTicket(senderHwnd, ticket);
+
+            lock (_stateLock)
+            {
+                _consumedClients.Add(senderHwnd);
+            }
             return true;
         }
 

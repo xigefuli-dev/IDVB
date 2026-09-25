@@ -162,6 +162,7 @@ public sealed partial class MapStatusPage : UserControl
             MapRuntimeBindingTarget.SwitchFloor => "请按下用于切换小地图楼层的键盘或鼠标按键。",
             MapRuntimeBindingTarget.SaveMapCache => "请按下用于保存当前地图缩放缓存的键盘或鼠标按键。",
             MapRuntimeBindingTarget.RestMapDisplay => "请按下用于保留地图身份并重置当前楼层对齐证据的键盘或鼠标按键。",
+            MapRuntimeBindingTarget.MatchStateToggle => "请按下用于直接进入或结束对局的键盘或鼠标按键。",
             _ => "请按下用于手动识别的键盘或鼠标按键。"
         };
         _root?.Focus(FocusState.Programmatic);

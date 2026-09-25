@@ -12,9 +12,23 @@ import runpy
 import sys
 import re
 
-CAPABILITIES = {"account_source": False, "suppress_auto_accounts": False, "login_mode": False}
+CAPABILITIES = {"account_source": False, "suppress_auto_accounts": False, "login_mode": False, "stop": False}
 LOGIN_MODE = "official"
 NAVIGATION_DIAGNOSTICS = {"managed_responses": 0, "removed_navigation_entries": 0, "unexpected_schema": 0}
+EXIT_HANDLER = None
+
+
+def default_shutdown():
+    import time
+    time.sleep(0.1)
+    try:
+        main_mod = sys.modules.get("__main__")
+        if hasattr(main_mod, "handle_exit"):
+            main_mod.handle_exit()
+    except Exception:
+        pass
+    finally:
+        os._exit(0)
 
 
 def extend_module(name, module):
@@ -123,7 +137,7 @@ def extend_module(name, module):
         def route(self, path, method, args, json_body=None):
             global LOGIN_MODE
             if path == "/_idv-login/idvb/status" and method == "GET":
-                payload = {"success": True, "adapter_version": 4, **CAPABILITIES, "mode": LOGIN_MODE, "navigation": dict(NAVIGATION_DIAGNOSTICS)}
+                payload = {"success": True, "adapter_version": 5, **CAPABILITIES, "mode": LOGIN_MODE, "navigation": dict(NAVIGATION_DIAGNOSTICS)}
                 return 200, {"Content-Type": "application/json"}, json.dumps(payload).encode("utf-8")
             if path == "/_idv-login/idvb/login-mode" and method == "POST":
                 mode = (json_body or {}).get("mode")
@@ -134,9 +148,15 @@ def extend_module(name, module):
                     module.genv.set("CHANNEL_ACCOUNT_SELECTED", "")
                 LOGIN_MODE = mode
                 return 200, {"Content-Type": "application/json"}, json.dumps({"success": True, "mode": mode}).encode()
+            if path == "/_idv-login/idvb/stop" and method == "POST":
+                import threading
+                handler = EXIT_HANDLER or default_shutdown
+                threading.Thread(target=handler, daemon=True).start()
+                return 200, {"Content-Type": "application/json"}, b'{"success":true}'
             return original(self, path, method, args, json_body)
 
         cls._route = route
+        CAPABILITIES["stop"] = True
 
 
 class AdapterFinder(importlib.abc.MetaPathFinder):

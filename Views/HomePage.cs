@@ -248,26 +248,34 @@ public sealed partial class HomePage : Page
         if (IsGameRunning())
             return;
 
-        // A running adapter must stop rewriting Identity V login traffic before
-        // Fever supplies its official session, even if the plugin is disabled.
+        _launchGameButton.IsEnabled = false;
         try
         {
-            _launchGameButton.IsEnabled = false;
-            using var login = new IDVBuff.Plugins.IdvLogin.IdvLoginClient();
-            if (await login.IsReadyAsync(default))
-                await login.SetLoginModeAsync(channel: false, default);
-        }
-        catch
-        {
-            await new ContentDialog
+            var manager = App.Plugins;
+            if (manager?.IsEnabled(IDVBuff.Plugins.IdvLogin.IdvLoginPlugin.PluginId) == true &&
+                manager.TryGet(IDVBuff.Plugins.IdvLogin.IdvLoginPlugin.PluginId, out var registered) &&
+                registered is IDVBuff.Plugins.IdvLogin.IdvLoginPlugin loginPlugin)
             {
-                XamlRoot = XamlRoot, Title = "无法切换到发烧登录",
-                Content = "请重新启用 idv-login 转接器以加载新版适配层，或退出 idv-login 后再启动。",
-                CloseButtonText = "知道了"
-            }.ShowThemedAsync();
-            return;
+                try
+                {
+                    await loginPlugin.StopIfRunningAsync(default);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[HomePage] 停止 idv-login 非致命异常: {ex.Message}");
+                }
+            }
         }
         finally { UpdateGameStatus(); }
+
+        try
+        {
+            await FeverAccountStore.Instance.EnsureActiveAccountDeployedAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[HomePage] 部署当前激活官服账号异常: {ex.Message}");
+        }
 
         if (!FeverGamesGameLauncher.TryLaunch(out var failureReason))
         {

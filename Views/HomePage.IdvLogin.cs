@@ -1,4 +1,6 @@
+using IDVBuff.Features.GameLaunch;
 using IDVBuff.Plugins.IdvLogin;
+using IDVBuff.Presentation.Theming;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -62,11 +64,27 @@ public sealed partial class HomePage
                 AutomationProperties.SetName(accounts, "渠道服账号");
             }
         };
+
+        var feverLogin = new Button
+        {
+            Width = 58,
+            Height = 58,
+            Content = new SymbolIcon(Symbol.Permissions),
+            CornerRadius = new CornerRadius(8)
+        };
+        ToolTipService.SetToolTip(feverLogin, "官服账号：选择或添加网易发烧账号");
+        AutomationProperties.SetName(feverLogin, "官服账号");
+
+        feverLogin.Click += async (_, _) =>
+        {
+            await ShowFeverAccountsAsync(host, feverLogin);
+        };
+
         host.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 12,
-            Children = { _launchGameButton, slot }
+            Children = { _launchGameButton, feverLogin, slot }
         });
         Unloaded += (_, _) =>
         {
@@ -74,6 +92,8 @@ public sealed partial class HomePage
             if (manager is not null) manager.EnabledChanged -= UpdateVisibility;
             if (_loginTip is not null) _loginTip.IsOpen = false;
             _loginTip = null;
+            if (_feverLoginTip is not null) _feverLoginTip.IsOpen = false;
+            _feverLoginTip = null;
         };
         return host;
     }

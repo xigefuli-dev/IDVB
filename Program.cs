@@ -38,6 +38,14 @@ public static class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static int RunApplication(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "--fever-login-worker", StringComparison.OrdinalIgnoreCase))
+        {
+            nint parentHwnd = 0;
+            if (args.Length > 1 && nint.TryParse(args[1], out var parsedHwnd))
+                parentHwnd = parsedHwnd;
+            return Features.GameLaunch.FeverLoginService.RunWorker(parentHwnd);
+        }
+
         StartupTimeline.Write("Legacy launch redirect check begin (includes app-data path resolution).");
         if (UpdateLifecycleState.TryRedirectLegacyLaunch(args))
         {

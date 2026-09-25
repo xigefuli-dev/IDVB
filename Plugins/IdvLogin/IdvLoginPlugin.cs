@@ -32,6 +32,7 @@ public sealed partial class IdvLoginPlugin : PluginBase
     {
         var client = _client ?? throw new InvalidOperationException("请先启用账号登录插件。");
         if (_startup is { IsCompleted: false } startup) await startup.WaitAsync(cancellation);
+        else await EnsureRunningAsync(cancellation);
         var accounts = await client.GetAccountsAsync(cancellation);
         if (DateTimeOffset.UtcNow >= _nextAdapterCheck)
         {
@@ -62,8 +63,13 @@ public sealed partial class IdvLoginPlugin : PluginBase
         finally { _launchGate.Release(); }
     }
 
-    public Task<IReadOnlyList<LoginChannel>> GetChannelsAsync(CancellationToken cancellation) =>
-        (_client ?? throw new InvalidOperationException("请先启用账号登录插件。")).GetChannelsAsync(cancellation);
+    public async Task<IReadOnlyList<LoginChannel>> GetChannelsAsync(CancellationToken cancellation)
+    {
+        var client = _client ?? throw new InvalidOperationException("请先启用账号登录插件。");
+        if (_startup is { IsCompleted: false } startup) await startup.WaitAsync(cancellation);
+        else await EnsureRunningAsync(cancellation);
+        return await client.GetChannelsAsync(cancellation);
+    }
 
     public void StartImport(LoginChannel channel)
     {

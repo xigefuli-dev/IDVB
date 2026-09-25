@@ -113,8 +113,27 @@ class AdapterTests(unittest.TestCase):
         adapter.extend_module("local_handler", SimpleNamespace(LocalRequestHandler=Handler))
         handler = Handler()
         result = handler._route("/_idv-login/idvb/status", "GET", {})
-        self.assertEqual(json.loads(result[2])["adapter_version"], 4)
+        payload = json.loads(result[2])
+        self.assertEqual(payload["adapter_version"], 5)
+        self.assertTrue(payload["stop"])
         self.assertEqual(handler._route("/original", "POST", {}, {"x": True}), ("/original", "POST", {}, {"x": True}))
+
+    def test_stop_route_triggers_shutdown_handler(self):
+        called = []
+        adapter.EXIT_HANDLER = lambda: called.append(True)
+        try:
+            class Handler:
+                def _route(self, *args):
+                    return args
+            adapter.extend_module("local_handler", SimpleNamespace(LocalRequestHandler=Handler))
+            status, headers, body = Handler()._route("/_idv-login/idvb/stop", "POST", {})
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(body)["success"])
+            import time
+            time.sleep(0.05)
+            self.assertEqual(called, [True])
+        finally:
+            adapter.EXIT_HANDLER = None
 
 
 if __name__ == "__main__":

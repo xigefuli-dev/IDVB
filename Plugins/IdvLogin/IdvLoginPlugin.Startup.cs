@@ -113,4 +113,70 @@ public sealed partial class IdvLoginPlugin : IPluginSettingsProvider
         }
         finally { if (entered) _startupGate.Release(); }
     }
+
+    public async Task StopIfRunningAsync(CancellationToken token = default)
+    {
+        try
+        {
+            var startInfo = ResolveStartInfo(InstallationPath);
+            if (startInfo is null) return;
+
+            if (LoginProcessReplacement.TryFindListener() is null)
+                return;
+
+            var stopped = false;
+            if (_client is not null)
+            {
+                try
+                {
+                    stopped = await _client.TryStopAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch { stopped = false; }
+            }
+            else
+            {
+                try
+                {
+                    using var tempClient = new IdvLoginClient();
+                    stopped = await tempClient.TryStopAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch { stopped = false; }
+            }
+
+            if (stopped)
+            {
+                using var waitTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                waitTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+                while (LoginProcessReplacement.TryFindListener() is not null)
+                {
+                    try { await Task.Delay(150, waitTimeout.Token); }
+                    catch (OperationCanceledException) { break; }
+                }
+            }
+
+            if (LoginProcessReplacement.TryFindListener() is not null)
+            {
+                await LoginProcessReplacement.TryStopVerifiedListenerAsync(startInfo, token);
+            }
+
+            ConnectionStatus = "";
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch
+        {
+            // 静默非阻塞：停止信号不应阻断官服启动流程
+        }
+    }
+
+    public async Task EnsureRunningAsync(CancellationToken token = default)
+    {
+        var client = _client ?? throw new InvalidOperationException("请先启用账号登录插件。");
+        if (!HasValidPath) return;
+        if (!await client.IsReadyAsync(token))
+        {
+            await StartAfterHostReadyAsync(client, token);
+        }
+    }
 }

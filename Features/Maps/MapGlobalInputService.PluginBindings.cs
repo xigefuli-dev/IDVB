@@ -145,7 +145,8 @@ public sealed partial class MapGlobalInputService
                 _controlPanelToggle,
                 _switchFloor,
                 _saveMapCache,
-                _restMapDisplay
+                _restMapDisplay,
+                _matchStateToggle
             }.Any(binding => binding.IsConfigured)
             || _pluginBindings.Values.Any(bindings =>
                 bindings.Values.Any(binding => binding.IsConfigured));

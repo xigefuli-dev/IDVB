@@ -95,6 +95,7 @@ public sealed partial class MapRuntimeSettings
     };
     public MapInputBinding SaveMapCacheBinding { get; set; } = new();
     public MapInputBinding RestMapDisplayBinding { get; set; } = new();
+    public MapInputBinding MatchStateToggleBinding { get; set; } = new();
     public MapRecognitionTuning RecognitionTuning { get; set; } = new();
     public MapStructureRegistrationTuning StructureRegistrationTuning { get; set; } = new();
     public MapSessionTuning SessionTuning { get; set; } = new();
@@ -178,6 +179,7 @@ public sealed partial class MapRuntimeSettings
         },
         SaveMapCacheBinding = new MapInputBinding(),
         RestMapDisplayBinding = new MapInputBinding(),
+        MatchStateToggleBinding = new MapInputBinding(),
         RecognitionTuning = new MapRecognitionTuning
         {
             GateTemplateThreshold = 0.72d,
@@ -339,6 +341,7 @@ public sealed partial class MapRuntimeSettings
             },
         SaveMapCacheBinding = SaveMapCacheBinding?.Clone() ?? new MapInputBinding(),
         RestMapDisplayBinding = RestMapDisplayBinding?.Clone() ?? new MapInputBinding(),
+        MatchStateToggleBinding = MatchStateToggleBinding?.Clone() ?? new MapInputBinding(),
         AllowAutomaticMapCache = AllowAutomaticMapCache,
         RecognitionTuning = RecognitionTuning?.Clone() ?? new MapRecognitionTuning(),
         StructureRegistrationTuning =

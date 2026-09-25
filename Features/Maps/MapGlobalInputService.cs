@@ -67,6 +67,7 @@ public sealed partial class MapGlobalInputService : IDisposable
     private MapInputBinding _switchFloor = new();
     private MapInputBinding _saveMapCache = new();
     private MapInputBinding _restMapDisplay = new();
+    private MapInputBinding _matchStateToggle = new();
     private readonly Dictionary<string, Dictionary<string, MapInputBinding>> _pluginBindings =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly object _mouseWheelDispatchLock = new();
@@ -89,6 +90,7 @@ public sealed partial class MapGlobalInputService : IDisposable
     public event EventHandler<MapInputInvokedEventArgs>? SwitchFloorInvoked;
     public event EventHandler<MapInputInvokedEventArgs>? SaveMapCacheInvoked;
     public event EventHandler<MapInputInvokedEventArgs>? RestMapDisplayInvoked;
+    public event EventHandler<MapInputInvokedEventArgs>? MatchStateToggleInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
     public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
 
@@ -100,9 +102,11 @@ public sealed partial class MapGlobalInputService : IDisposable
         MapInputBinding controlPanelToggle,
         MapInputBinding switchFloor,
         MapInputBinding saveMapCache,
-        MapInputBinding restMapDisplay)
+        MapInputBinding restMapDisplay,
+        MapInputBinding? matchStateToggle = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var safeMatchStateToggle = matchStateToggle ?? new MapInputBinding();
         EnsureDistinctBindings(
             quickScan,
             overlayToggle,
@@ -111,7 +115,8 @@ public sealed partial class MapGlobalInputService : IDisposable
             controlPanelToggle,
             switchFloor,
             saveMapCache,
-            restMapDisplay);
+            restMapDisplay,
+            safeMatchStateToggle);
         UnregisterBindings();
         _quickScan = quickScan.Clone();
         _overlayToggle = overlayToggle.Clone();
@@ -121,6 +126,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         _switchFloor = switchFloor.Clone();
         _saveMapCache = saveMapCache.Clone();
         _restMapDisplay = restMapDisplay.Clone();
+        _matchStateToggle = safeMatchStateToggle.Clone();
         try
         {
             var needsKeyboardHook = true;
@@ -149,6 +155,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         _switchFloor = new MapInputBinding();
         _saveMapCache = new MapInputBinding();
         _restMapDisplay = new MapInputBinding();
+        _matchStateToggle = new MapInputBinding();
         RestartMonitoringIfNeeded();
     }
 
@@ -236,6 +243,7 @@ public sealed partial class MapGlobalInputService : IDisposable
             InitializePressedKey(_switchFloor);
             InitializePressedKey(_saveMapCache);
             InitializePressedKey(_restMapDisplay);
+            InitializePressedKey(_matchStateToggle);
             foreach (var binding in _pluginBindings.Values.SelectMany(bindings => bindings.Values))
                 InitializePressedKey(binding);
             var generation = ++_keyboardPollGeneration;
@@ -279,7 +287,8 @@ public sealed partial class MapGlobalInputService : IDisposable
                 _controlPanelToggle,
                 _switchFloor,
                 _saveMapCache,
-                _restMapDisplay
+                _restMapDisplay,
+                _matchStateToggle
             }
             .Concat(_pluginBindings.Values.SelectMany(bindings => bindings.Values))
             .Where(binding => binding.Kind == MapInputBindingKind.Keyboard)
@@ -303,6 +312,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         var invokeSwitchFloor = false;
         var invokeSaveMapCache = false;
         var invokeRestMapDisplay = false;
+        var invokeMatchStateToggle = false;
         var invokeAlt = false;
         List<(string PluginId, string BindingKey, MapInputBinding Binding)>? pluginMatches = null;
         lock (_keyboardStateLock)
@@ -363,6 +373,9 @@ public sealed partial class MapGlobalInputService : IDisposable
             invokeRestMapDisplay = _restMapDisplay.Kind == MapInputBindingKind.Keyboard
                 && _restMapDisplay.VirtualKey == key
                 && IsKeyboardBindingActive(_restMapDisplay);
+            invokeMatchStateToggle = _matchStateToggle.Kind == MapInputBindingKind.Keyboard
+                && _matchStateToggle.VirtualKey == key
+                && IsKeyboardBindingActive(_matchStateToggle);
             invokeAlt = key is 0x12 or 0xA4 or 0xA5;
 
             foreach (var (pluginId, bindings) in _pluginBindings)
@@ -408,6 +421,9 @@ public sealed partial class MapGlobalInputService : IDisposable
         if (invokeRestMapDisplay)
             DispatchInput(invoked, "keyboard", _restMapDisplay.DisplayName,
                 "rest-map-display", () => RestMapDisplayInvoked?.Invoke(this, invoked));
+        if (invokeMatchStateToggle)
+            DispatchInput(invoked, "keyboard", _matchStateToggle.DisplayName,
+                "match-state-toggle", () => MatchStateToggleInvoked?.Invoke(this, invoked));
         if (invokeAlt)
             DispatchInput(invoked, "keyboard", "Alt", "alt",
                 () => AltInvoked?.Invoke(this, invoked));

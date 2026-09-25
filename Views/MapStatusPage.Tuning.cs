@@ -267,6 +267,8 @@ public sealed partial class MapStatusPage : UserControl
             $"当前：{_runtime.Settings.SaveMapCacheBinding.DisplayName}";
         _restMapDisplayBinding.Text =
             $"当前：{_runtime.Settings.RestMapDisplayBinding.DisplayName}";
+        _matchStateToggleBinding.Text =
+            $"当前：{_runtime.Settings.MatchStateToggleBinding.DisplayName}";
         foreach (var target in _bindingButtons.Keys)
             RefreshBindingButtonAppearance(target);
         _overlayState.Text = _runtime.IsOverlayVisible

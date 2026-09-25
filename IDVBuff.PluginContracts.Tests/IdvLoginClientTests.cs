@@ -299,4 +299,34 @@ public class IdvLoginClientTests
         Assert.DoesNotContain("login_method", handler.Requests[0].Query);
         Assert.True(states.Single().Success);
     }
+
+    [Fact]
+    public async Task TryStopAsyncSendsPostToStopEndpointAndReturnsTrueOnSuccess()
+    {
+        var handler = new Responses("{\"success\":true}");
+        using var client = new IdvLoginClient(handler);
+        var result = await client.TryStopAsync(default);
+        Assert.True(result);
+        Assert.Single(handler.Requests);
+        Assert.EndsWith("/idvb/stop", handler.Requests[0].AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData("{\"success\":false}")]
+    [InlineData("{}")]
+    public async Task TryStopAsyncReturnsFalseOnFailureResponse(string response)
+    {
+        var handler = new Responses(response);
+        using var client = new IdvLoginClient(handler);
+        var result = await client.TryStopAsync(default);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task StopIfRunningAsyncDoesNotThrowWhenNotRunning()
+    {
+        var plugin = new IdvLoginPlugin();
+        await plugin.StopIfRunningAsync(default);
+        Assert.Empty(plugin.ConnectionStatus);
+    }
 }

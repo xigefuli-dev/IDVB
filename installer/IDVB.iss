@@ -1,4 +1,4 @@
-; Identity Vision Bridge (IDVB) b01.6 installer.
+; Identity Vision Bridge (IDVB) b01.7 installer.
 ; This script is compiled by Build-Release.ps1 with the three required defines.
 
 #ifndef BuildOutput
@@ -8,10 +8,10 @@
   #error ReleaseOutput must point to artifacts/release.
 #endif
 #ifndef PublicVersion
-  #define PublicVersion "b01.6-00.00.00.0000"
+  #define PublicVersion "b01.7-00.00.00.0000"
 #endif
 #ifndef NumericVersion
-  #define NumericVersion "1.6.2.0"
+  #define NumericVersion "1.7.0.0"
 #endif
 
 #define AppName "Identity Vision Bridge"

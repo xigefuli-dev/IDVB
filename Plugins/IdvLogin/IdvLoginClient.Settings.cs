@@ -37,6 +37,18 @@ public sealed partial class IdvLoginClient
         using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
         if (!Succeeded(json.RootElement)) throw new LoginLaunchException("未能切换官服／渠道服登录模式");
     }
+    public async Task<bool> TryStopAsync(CancellationToken token)
+    {
+        try
+        {
+            using var response = await _http.PostAsync("idvb/stop", null, token);
+            if (!response.IsSuccessStatusCode) return false;
+            using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
+            return Succeeded(json.RootElement);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch { return false; }
+    }
     public async Task<bool> IsReadyAsync(CancellationToken token)
     {
         try { return Succeeded(await GetAsync("health", token)); }

@@ -189,6 +189,7 @@ public sealed partial class MainPage
             MapRuntimeBindingTarget.SwitchFloor => App.Session.Settings.SwitchFloorBinding,
             MapRuntimeBindingTarget.SaveMapCache => App.Session.Settings.SaveMapCacheBinding,
             MapRuntimeBindingTarget.RestMapDisplay => App.Session.Settings.RestMapDisplayBinding,
+            MapRuntimeBindingTarget.MatchStateToggle => App.Session.Settings.MatchStateToggleBinding,
             _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
         };
         return Task.FromResult(binding.IsConfigured ? EmphasisGuideCheckResult.Passed : EmphasisGuideCheckResult.TryAgain($"请先为“{displayName}”设置按键。"));

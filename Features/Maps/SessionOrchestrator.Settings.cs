@@ -302,6 +302,7 @@ public sealed partial class SessionOrchestrator
             _settings!.TraditionalWindowSwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _settings!.SaveMapCacheBinding,
         MapRuntimeBindingTarget.RestMapDisplay => _settings!.RestMapDisplayBinding,
+        MapRuntimeBindingTarget.MatchStateToggle => _settings!.MatchStateToggleBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
 
@@ -320,6 +321,7 @@ public sealed partial class SessionOrchestrator
                 break;
             case MapRuntimeBindingTarget.SaveMapCache: _settings!.SaveMapCacheBinding = binding; break;
             case MapRuntimeBindingTarget.RestMapDisplay: _settings!.RestMapDisplayBinding = binding; break;
+            case MapRuntimeBindingTarget.MatchStateToggle: _settings!.MatchStateToggleBinding = binding; break;
             default: throw new ArgumentOutOfRangeException(nameof(target), target, null);
         }
     }
@@ -342,7 +344,8 @@ public sealed partial class SessionOrchestrator
                 _settings.ControlPanelToggleBinding,
                 _settings.SwitchFloorBinding,
                 _settings.SaveMapCacheBinding,
-                _settings.RestMapDisplayBinding);
+                _settings.RestMapDisplayBinding,
+                _settings.MatchStateToggleBinding);
         }
         catch (Exception ex)
         {

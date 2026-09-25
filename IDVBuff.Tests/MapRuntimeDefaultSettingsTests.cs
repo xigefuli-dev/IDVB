@@ -67,6 +67,7 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.False(settings.SwitchFloorBinding.IsConfigured);
         Assert.False(settings.SaveMapCacheBinding.IsConfigured);
         Assert.False(settings.RestMapDisplayBinding.IsConfigured);
+        Assert.False(settings.MatchStateToggleBinding.IsConfigured);
         Assert.False(settings.AllowAutomaticMapCache);
         Assert.Empty(settings.AlignmentCalibrations);
         Assert.Empty(settings.FloorScaleCalibrations);

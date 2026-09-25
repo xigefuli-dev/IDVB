@@ -39,6 +39,11 @@
     <Compile Include="..\Features\Announcements\AnnouncementModels.cs" Link="Production\Announcements\AnnouncementModels.cs" />
     <Compile Include="..\Features\Announcements\AnnouncementService.cs" Link="Production\Announcements\AnnouncementService.cs" />
     <Compile Include="..\Features\GameLaunch\FeverGamesGameLauncher.cs" Link="Production\GameLaunch\FeverGamesGameLauncher.cs" />
+    <Compile Include="..\Features\GameLaunch\FeverEnvironmentResolver.cs" Link="Production\GameLaunch\FeverEnvironmentResolver.cs" />
+    <Compile Include="..\Features\GameLaunch\FeverAccountModels.cs" Link="Production\GameLaunch\FeverAccountModels.cs" />
+    <Compile Include="..\Features\GameLaunch\FeverAccountStore.cs" Link="Production\GameLaunch\FeverAccountStore.cs" />
+    <Compile Include="..\Features\GameLaunch\FeverIpcBridge.cs" Link="Production\GameLaunch\FeverIpcBridge.cs" />
+    <Compile Include="..\Features\GameLaunch\FeverLoginService.cs" Link="Production\GameLaunch\FeverLoginService.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartStateStore.cs" Link="Production\QuickStart\QuickStartStateStore.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />

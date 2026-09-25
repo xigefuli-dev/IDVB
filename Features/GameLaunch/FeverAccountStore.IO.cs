@@ -159,10 +159,8 @@ public sealed partial class FeverAccountStore
         bool isLongTerm = false,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(ticket) && !isLongTerm)
-        {
-            ticket = TryExtractTokenFromMpayDirectory(_neteaseMpayDirectory);
-        }
+        if (string.IsNullOrWhiteSpace(ticket))
+            throw new InvalidOperationException("未取得登录凭据，不能保存账号。请重新登录。");
 
         var meta = LoadMetadata();
         var identifier = ExtractAccountIdentifier(ticket);

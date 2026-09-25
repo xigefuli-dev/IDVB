@@ -197,7 +197,7 @@ public sealed class FeverAccountStoreTests : IDisposable
         var unisdkDb = Path.Combine(_unisdkDir, "aecglf6ee4aaaarz-g-a50-64-mpay.db");
         await File.WriteAllTextAsync(unisdkDb, "test-data");
 
-        var acc = await store.CaptureCurrentAccountAsync("原名称");
+        var acc = await store.CaptureCurrentAccountAsync("原名称", "valid-test-ticket");
         Assert.Equal("原名称", store.GetActiveAccount()?.Name);
 
         // Rename
@@ -268,7 +268,7 @@ public sealed class FeverAccountStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ImportUnindexedMpaySessions_ImportsSessionFilesAndCreatesProfile()
+    public async Task ImportUnindexedMpaySessions_DoesNotTreatGameCacheAsAccount()
     {
         // Create an unindexed MPay DB file
         var dbPath = Path.Combine(_mpayDir, "aecfrt3rmaaaaajl-g-h55-64-mpay.db");
@@ -278,17 +278,11 @@ public sealed class FeverAccountStoreTests : IDisposable
         store.ImportUnindexedMpaySessions();
 
         var accounts = store.GetAccounts();
-        Assert.Single(accounts);
-        var acc = accounts[0];
-        Assert.Equal("aecfrt3rmaaaaajl", acc.AccountIdentifier);
-        Assert.False(acc.IsLongTerm);
-
-        var ticket = store.GetAccountTicket(acc.Id);
-        Assert.Equal("aecfrt3rmaaaaajl", ticket);
+        Assert.Empty(accounts);
 
         // Call again: must not duplicate
         store.ImportUnindexedMpaySessions();
-        Assert.Single(store.GetAccounts());
+        Assert.Empty(store.GetAccounts());
     }
 
     [Fact]

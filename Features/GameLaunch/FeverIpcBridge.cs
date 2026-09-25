@@ -69,9 +69,10 @@ internal sealed class FeverIpcBridge : IDisposable
     {
         lock (_stateLock)
         {
-            if (!string.IsNullOrEmpty(initialTicket) && string.IsNullOrEmpty(_currentTicket))
+            if (!string.IsNullOrEmpty(initialTicket))
             {
                 _currentTicket = initialTicket;
+                _consumedClients.Clear();
             }
 
             if (_thread is not null && _hwnd != IntPtr.Zero)
@@ -104,6 +105,8 @@ internal sealed class FeverIpcBridge : IDisposable
     {
         lock (_stateLock)
         {
+            _currentTicket = null;
+            _consumedClients.Clear();
             if (_hwnd != IntPtr.Zero)
             {
                 PostMessageW(_hwnd, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);

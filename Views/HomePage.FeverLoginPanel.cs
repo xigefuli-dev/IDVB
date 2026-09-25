@@ -334,22 +334,12 @@ public sealed partial class HomePage
 
         async Task PerformLongTermLoginAsync()
         {
+            tip.IsLightDismissEnabled = false;
             addLongTermBtn.IsEnabled = false;
             addTempBtn.IsEnabled = false;
             try
             {
-                var (currentToken, _) = FeverAccountStore.ReadFeverRegistryCredentials();
-                var meta = FeverAccountStore.Instance.LoadMetadata();
-                var alreadyImported = !string.IsNullOrWhiteSpace(currentToken) &&
-                    meta.Accounts.Any(a => a.IsLongTerm && string.Equals(a.FeverToken, currentToken, StringComparison.Ordinal));
-
-                if (!string.IsNullOrWhiteSpace(currentToken) && !alreadyImported)
-                {
-                    var profile = FeverAccountStore.Instance.CaptureCurrentFeverRegistryAccount();
-                    RenderAccounts();
-                    message.Text = $"已成功添加网易账号 [{profile?.Name}]！可长期免扫码启动游戏。";
-                    return;
-                }
+                var (currentToken, currentSdkuid) = FeverAccountStore.ReadFeverRegistryCredentials();
 
                 using var protocolKey = Registry.ClassesRoot.OpenSubKey(@"fevergames\shell\open\command", writable: false);
                 if (!FeverGamesLaunchPlan.TryCreate(protocolKey?.GetValue(null) as string, File.Exists, out var plan, out var err))
@@ -358,6 +348,7 @@ public sealed partial class HomePage
                     return;
                 }
 
+                FeverAccountStore.ClearFeverRegistryCredentials();
                 try
                 {
                     Process.Start(new ProcessStartInfo
@@ -369,6 +360,7 @@ public sealed partial class HomePage
                 }
                 catch (Exception ex)
                 {
+                    FeverAccountStore.WriteFeverRegistryCredentials(currentToken, currentSdkuid);
                     message.Text = $"呼出发烧平台失败：{ex.Message}";
                     return;
                 }
@@ -402,6 +394,7 @@ public sealed partial class HomePage
             }
             finally
             {
+                tip.IsLightDismissEnabled = true;
                 addLongTermBtn.IsEnabled = true;
                 addTempBtn.IsEnabled = true;
             }
@@ -409,6 +402,7 @@ public sealed partial class HomePage
 
         async Task PerformTempLoginAsync()
         {
+            tip.IsLightDismissEnabled = false;
             addLongTermBtn.IsEnabled = false;
             addTempBtn.IsEnabled = false;
             message.Text = "正在准备全新临时登录环境…";
@@ -437,7 +431,9 @@ public sealed partial class HomePage
                 var ticket = result.Ticket;
                 if (string.IsNullOrWhiteSpace(ticket))
                 {
-                    ticket = FeverAccountStore.TryExtractTokenFromMpayDirectory(FeverAccountStore.Instance.NeteaseMpayDirectory);
+                    message.Text = "扫码完成，但未取得有效登录凭据。请重新扫码。";
+                    await FeverAccountStore.Instance.RollbackNewLoginAsync();
+                    return;
                 }
 
                 message.Text = "登录成功，正在保存临时凭据…";
@@ -459,6 +455,7 @@ public sealed partial class HomePage
             }
             finally
             {
+                tip.IsLightDismissEnabled = true;
                 addLongTermBtn.IsEnabled = true;
                 addTempBtn.IsEnabled = true;
             }

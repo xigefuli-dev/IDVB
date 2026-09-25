@@ -37,6 +37,21 @@ internal static class FeverGamesGameLauncher
         if (targetAccount is not null && targetAccount.IsLongTerm && !string.IsNullOrEmpty(targetAccount.FeverToken))
         {
             FeverAccountStore.WriteFeverRegistryCredentials(targetAccount.FeverToken, targetAccount.FeverSdkuid);
+            using var protocolKey = Registry.ClassesRoot.OpenSubKey(ProtocolCommandPath, writable: false);
+            if (!FeverGamesLaunchPlan.TryCreate(protocolKey?.GetValue(null) as string, File.Exists, out _, out failureReason))
+                return false;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(GameLaunchUri) { UseShellExecute = true });
+                failureReason = string.Empty;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                failureReason = $"无法通过网易发烧平台启动第五人格：{exception.Message}";
+                return false;
+            }
         }
 
         // 4. Prepare IPC bridge with explicit ticket or account ticket

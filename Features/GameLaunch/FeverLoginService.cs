@@ -109,11 +109,6 @@ public static partial class FeverLoginService
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(ticket))
-            {
-                ticket = FeverAccountStore.TryExtractTokenFromMpayDirectory(FeverAccountStore.Instance.NeteaseMpayDirectory);
-            }
-
             if (!string.IsNullOrWhiteSpace(ticket))
             {
                 return new FeverLoginResult(true, ticket.Trim(), "发烧登录成功，凭据已刷新。");
@@ -125,11 +120,6 @@ public static partial class FeverLoginService
                 return new FeverLoginResult(true, null, "发烧平台长期凭据已保存。");
             }
 
-            if (Directory.Exists(FeverAccountStore.Instance.NeteaseMpayDirectory) &&
-                Directory.GetFiles(FeverAccountStore.Instance.NeteaseMpayDirectory, "*.db").Length > 0)
-            {
-                return new FeverLoginResult(true, null, "发烧登录成功，会话已保存。");
-            }
 
             var err = errorBuilder.ToString().Trim();
             if (string.IsNullOrEmpty(err)) err = "未获取到有效登录凭据。";
@@ -159,12 +149,6 @@ public static partial class FeverLoginService
         if (result.Success)
         {
             var ticket = result.Ticket;
-            if (string.IsNullOrWhiteSpace(ticket))
-            {
-                ticket = FeverAccountStore.TryExtractTokenFromMpayDirectory(
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Netease", "Mpay"));
-            }
-
             if (!string.IsNullOrWhiteSpace(ticket))
             {
                 var ticketBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(ticket.Trim()));
@@ -305,54 +289,11 @@ public static partial class FeverLoginService
                 Console.Error.WriteLine($"[FeverLogin] OnLoginFinish: code={code}, extra=0x{extra.ToInt64():X}");
                 Debug.WriteLine($"[FeverLoginService] OnLoginFinish: code={code}, extra=0x{extra.ToInt64():X}");
 
-                string? directTicket = null;
-                if (extra != IntPtr.Zero)
-                {
-                    try
-                    {
-                        var directStr = Marshal.PtrToStringUTF8(extra);
-                        if (!string.IsNullOrWhiteSpace(directStr) && directStr.Length >= 8)
-                        {
-                            directTicket = directStr.Trim();
-                        }
-                    }
-                    catch { }
-
-                    if (string.IsNullOrWhiteSpace(directTicket))
-                    {
-                        try
-                        {
-                            for (int i = 0; i < 16; i++)
-                            {
-                                var ptr = Marshal.ReadIntPtr(extra, i * IntPtr.Size);
-                                if (ptr != IntPtr.Zero)
-                                {
-                                    var str = Marshal.PtrToStringUTF8(ptr);
-                                    if (i == 2 && !string.IsNullOrWhiteSpace(str))
-                                    {
-                                        directTicket = str.Trim();
-                                    }
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine($"[FeverLogin] Error reading extra: {ex.Message}");
-                        }
-                    }
-                }
-
-                if (code == 0 || !string.IsNullOrWhiteSpace(directTicket))
+                // `extra` is an opaque native callback argument. It is not guaranteed
+                // to point to a NUL-terminated string (or even readable memory).
+                if (code == 0)
                 {
                     loginSuccess = true;
-                    if (!string.IsNullOrWhiteSpace(directTicket))
-                    {
-                        capturedTicket = directTicket;
-                        tcs.TrySetResult(new FeverLoginResult(true, capturedTicket, "发烧登录成功，凭据已刷新。"));
-                        PostQuitMessage(0);
-                        return;
-                    }
-
                     if (pGetTicket != IntPtr.Zero)
                     {
                         var getTicketFn = Marshal.GetDelegateForFunctionPointer<GetUserTicketDelegate>(pGetTicket);
@@ -360,9 +301,7 @@ public static partial class FeverLoginService
                     }
                     else
                     {
-                        var tokenFromDb = FeverAccountStore.TryExtractTokenFromMpayDirectory(
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Netease", "Mpay"));
-                        tcs.TrySetResult(new FeverLoginResult(true, tokenFromDb, "发烧登录完成。"));
+                        tcs.TrySetResult(new FeverLoginResult(false, null, "登录完成但未取得 Ticket。"));
                         PostQuitMessage(0);
                     }
                 }
@@ -387,20 +326,7 @@ public static partial class FeverLoginService
                 }
                 else
                 {
-                    if (string.IsNullOrWhiteSpace(capturedTicket))
-                    {
-                        capturedTicket = FeverAccountStore.TryExtractTokenFromMpayDirectory(
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Netease", "Mpay"));
-                    }
-
-                    if (loginSuccess || !string.IsNullOrWhiteSpace(capturedTicket))
-                    {
-                        tcs.TrySetResult(new FeverLoginResult(true, capturedTicket, "发烧登录成功，凭据已保存。"));
-                    }
-                    else
-                    {
-                        tcs.TrySetResult(new FeverLoginResult(false, null, $"获取 Ticket 失败: code={code}"));
-                    }
+                    tcs.TrySetResult(new FeverLoginResult(false, null, $"获取 Ticket 失败: code={code}"));
                 }
                 PostQuitMessage(0);
             }

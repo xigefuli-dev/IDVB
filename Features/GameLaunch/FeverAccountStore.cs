@@ -76,6 +76,11 @@ public sealed partial class FeverAccountStore
 
     public IReadOnlyList<FeverAccountProfile> GetAccounts() => LoadMetadata().Accounts;
 
+    public void ImportUnindexedMpaySessions()
+    {
+        // MPay database filenames name the game cache, not a signed-in account.
+    }
+
     public void AutoImportExistingSessionIfEmpty()
     {
         lock (_lock)
@@ -83,7 +88,6 @@ public sealed partial class FeverAccountStore
             var meta = LoadMetadata();
             if (meta.HasInitialized)
             {
-                ImportUnindexedMpaySessions();
                 return;
             }
 
@@ -124,7 +128,6 @@ public sealed partial class FeverAccountStore
                         catch { }
                     }
 
-                    ImportUnindexedMpaySessions();
                     return;
                 }
             }
@@ -133,111 +136,8 @@ public sealed partial class FeverAccountStore
                 Debug.WriteLine($"[FeverAccountStore] Auto-import Fever registry failed: {ex.Message}");
             }
 
-            // 2. Fallback: check legacy session files
-            if (Directory.Exists(_neteaseMpayDirectory))
-            {
-                var dbs = Directory.GetFiles(_neteaseMpayDirectory, "*.db");
-                bool hasH55 = dbs.Any(f => Path.GetFileName(f).Contains("h55"));
-                if (hasH55)
-                {
-                    try
-                    {
-                        var profileId = Guid.NewGuid().ToString("N");
-                        var profile = new FeverAccountProfile
-                        {
-                            Id = profileId,
-                            Name = "临时扫码 1",
-                            IsLongTerm = false,
-                            LoginType = "TemporaryQr",
-                            CreatedAt = DateTimeOffset.Now,
-                            LastUsedAt = DateTimeOffset.Now,
-                            LastRefreshedAt = DateTimeOffset.Now
-                        };
-
-                        var profileDir = Path.Combine(_storageDirectory, "profiles", profile.Id);
-                        var targetMpayDir = Path.Combine(profileDir, "netease_mpay");
-                        Directory.CreateDirectory(targetMpayDir);
-                        foreach (var file in Directory.GetFiles(_neteaseMpayDirectory))
-                        {
-                            try { File.Copy(file, Path.Combine(targetMpayDir, Path.GetFileName(file)), true); } catch { }
-                        }
-
-                        meta.Accounts.Add(profile);
-                        meta.ActiveAccountId = profile.Id;
-                    }
-                    catch { }
-                }
-            }
-
             meta.HasInitialized = true;
             SaveMetadata(meta);
-            ImportUnindexedMpaySessions();
-        }
-    }
-
-    public void ImportUnindexedMpaySessions()
-    {
-        lock (_lock)
-        {
-            if (!Directory.Exists(_neteaseMpayDirectory)) return;
-
-            var dbs = Directory.GetFiles(_neteaseMpayDirectory, "*-g-*.db");
-            if (dbs.Length == 0) return;
-
-            var meta = LoadMetadata();
-            var changed = false;
-
-            foreach (var db in dbs)
-            {
-                var fname = Path.GetFileName(db);
-                var gIdx = fname.IndexOf("-g-", StringComparison.OrdinalIgnoreCase);
-                if (gIdx < 8) continue;
-
-                var token = fname[..gIdx].Trim();
-                bool exists = meta.Accounts.Any(a =>
-                    string.Equals(a.AccountIdentifier, token, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(GetAccountTicket(a.Id), token, StringComparison.OrdinalIgnoreCase));
-
-                if (!exists)
-                {
-                    try
-                    {
-                        var profileId = Guid.NewGuid().ToString("N");
-                        var profile = new FeverAccountProfile
-                        {
-                            Id = profileId,
-                            Name = $"临时扫码 {meta.Accounts.Count(a => !a.IsLongTerm) + 1}",
-                            AccountIdentifier = token,
-                            IsLongTerm = false,
-                            LoginType = "TemporaryQr",
-                            CreatedAt = DateTimeOffset.Now,
-                            LastUsedAt = DateTimeOffset.Now,
-                            LastRefreshedAt = DateTimeOffset.Now
-                        };
-
-                        var profileDir = Path.Combine(_storageDirectory, "profiles", profile.Id);
-                        var targetMpayDir = Path.Combine(profileDir, "netease_mpay");
-                        Directory.CreateDirectory(targetMpayDir);
-                        foreach (var file in Directory.GetFiles(_neteaseMpayDirectory))
-                        {
-                            try { File.Copy(file, Path.Combine(targetMpayDir, Path.GetFileName(file)), true); } catch { }
-                        }
-                        File.WriteAllText(Path.Combine(profileDir, "ticket.txt"), token);
-
-                        meta.Accounts.Add(profile);
-                        changed = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[FeverAccountStore] Import unindexed session failed: {ex.Message}");
-                    }
-                }
-            }
-
-            if (changed)
-            {
-                SaveMetadata(meta);
-            }
         }
     }
 
@@ -382,7 +282,9 @@ public sealed partial class FeverAccountStore
             try
             {
                 var content = File.ReadAllText(ticketFile).Trim();
-                if (!string.IsNullOrEmpty(content))
+                if (!string.IsNullOrEmpty(content) &&
+                    !string.Equals(content, "aecfrt3rmaaaaajl", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(content, "aecglf6ee4aaaarz", StringComparison.OrdinalIgnoreCase))
                     return content;
             }
             catch (Exception ex)

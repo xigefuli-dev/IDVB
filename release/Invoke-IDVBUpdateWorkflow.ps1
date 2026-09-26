@@ -1,4 +1,4 @@
-<#
+﻿<#
 ================================================================================
 【重要！发布前 Agent 必读：发布准备度核查清单与实战避坑规范】
 ================================================================================
@@ -139,6 +139,9 @@ function Test-PublicCodeOnlyPath([string]$Path) {
         return $true
     }
     if ($normalized -match '^(release|installer|docs|Tools|\.verify|web_installer|\.claude|\.temp-settings)(/|$)') {
+        return $false
+    }
+    if ($normalized -match '^(IDVBuff\.Tests|IDVB\.PluginSystem\.Tests|IDVBuff\.PluginContracts\.Tests|IDVB\.PluginTestHost)(/|$)') {
         return $false
     }
     if ($normalized -match '(^|/)\.git(/|$)') {

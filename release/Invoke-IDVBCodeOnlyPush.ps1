@@ -44,6 +44,9 @@ function Test-PublicCodeOnlyPath([string]$Path) {
     if ($normalized -match '^(release|installer|docs|Tools|\.verify|web_installer|\.claude|\.temp-settings)(/|$)') {
         return $false
     }
+    if ($normalized -match '^(IDVBuff\.Tests|IDVB\.PluginSystem\.Tests|IDVBuff\.PluginContracts\.Tests|IDVB\.PluginTestHost)(/|$)') {
+        return $false
+    }
     if ($normalized -match '(^|/)\.git(/|$)') {
         return $false
     }

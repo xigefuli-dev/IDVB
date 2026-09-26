@@ -535,6 +535,7 @@ function Test-PublicCodeOnlyPath([string]$Path) {
     if ($normalized -match '^release/trust/[A-Za-z0-9._-]+\.pem$') { return $true }
     if ($normalized -match '^Assets/Guide/[A-Za-z0-9._-]+\.png$') { return $true }
     if ($normalized -match '^(release|installer|docs|Tools|\.verify|web_installer|\.claude|\.temp-settings)(/|$)') { return $false }
+    if ($normalized -match '^(IDVBuff\.Tests|IDVB\.PluginSystem\.Tests|IDVBuff\.PluginContracts\.Tests|IDVB\.PluginTestHost)(/|$)') { return $false }
     if ($normalized -match '(^|/)\.git(/|$)') { return $false }
     if ($normalized -in @('Startup_IDVB.cmd', 'Startup_RealCLI.cmd', 'Startup_overlay_game.cmd')) { return $true }
     if ($normalized -in @(

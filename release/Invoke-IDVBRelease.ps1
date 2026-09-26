@@ -542,7 +542,11 @@ function Invoke-BuildPayload($Manifest, $Context) {
         'release',
         'web_installer',
         'Assets',
-        'Infrastructure\Configuration'
+        'Infrastructure\Configuration',
+        'IDVBuff.Tests',
+        'IDVB.PluginSystem.Tests',
+        'IDVBuff.PluginContracts.Tests',
+        'IDVB.PluginTestHost'
     )) {
         $source = Join-Path $repositoryRoot $relative
         $destination = Join-Path $Context.Source $relative

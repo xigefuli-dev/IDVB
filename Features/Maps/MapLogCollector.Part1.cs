@@ -10,6 +10,8 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
 {
+    public bool DisablePersistence { get; set; }
+
     public void AppendStatus(
         IdvbStatus status,
         MapLogCategory category = MapLogCategory.StructureRegistration,

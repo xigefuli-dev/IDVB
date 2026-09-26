@@ -399,8 +399,19 @@ namespace IDVBuff
 
         private static void App_UnhandledException(
             object sender,
-            Microsoft.UI.Xaml.UnhandledExceptionEventArgs args) =>
+            Microsoft.UI.Xaml.UnhandledExceptionEventArgs args)
+        {
+            try
+            {
+                MapGlobalInputService.EmergencyUnhookAll();
+            }
+            catch
+            {
+            }
+
             OutputLog.Write("ERROR", "WINUI", "Unhandled UI exception.", args.Exception);
+            args.Handled = true;
+        }
 
         private async Task ShowStartupFailureAsync(Exception exception)
         {

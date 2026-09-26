@@ -189,8 +189,24 @@ public sealed class SurveyProcessingAssetPersistenceTests
         }
         finally
         {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
             if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
+            {
+                for (var i = 0; i < 5; i++)
+                {
+                    try
+                    {
+                        Directory.Delete(root, recursive: true);
+                        break;
+                    }
+                    catch (IOException) when (i < 4)
+                    {
+                        await Task.Delay(50);
+                    }
+                }
+            }
         }
     }
 

@@ -10,9 +10,10 @@ internal static class Vpsg3PrecisionShadow
 {
     // Phase 1 intentionally has no production switch: replay-only until real ground truth passes.
     internal static Vpsg3PrecisionShadowResult Evaluate(Vpsg3LiveObservation observation,
-        Vpsg3PreparedFloor floor, Vpsg3BootstrapResult baseline, Vpsg3TuningConfig? config = null)
+        Vpsg3PreparedFloor floor, Vpsg3BootstrapResult baseline, Vpsg3TuningConfig? config = null,
+        double maxBudgetMilliseconds = Vpsg3PrecisionBudget.DefaultMaximumMilliseconds)
     {
-        var budget = Vpsg3PrecisionBudget.Start();
+        var budget = Vpsg3PrecisionBudget.Start(maxBudgetMilliseconds);
         var cfg = config ?? Vpsg3TuningConfig.Default;
         if (baseline.BestCandidate.Scale <= 0 || !baseline.RunnerUpCandidate.HasValue)
             return new(null, null, false, "baseline-candidate-pair-unavailable", budget.Elapsed);

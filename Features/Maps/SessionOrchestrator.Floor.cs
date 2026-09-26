@@ -182,7 +182,9 @@ public sealed partial class SessionOrchestrator
             && openSession.RecalibrationReason == MapRecalibrationReason.VariantChanged
             && openSession.MapId == recognition.Map.Id
             && _pendingAlignmentIdentity?.Map.Id == recognition.Map.Id;
-        CancelMapOpenAlignment();
+        InvalidateActiveMapOpenOperation("manual-floor-switch");
+        _recentConfirmedFloorPreference = null;
+        _recentConfirmedFloorMapId = Guid.Empty;
         CancelOrbTracking("floor changed");
         SuspendActiveAdaptiveFloor("floor changed");
         var nextFloorKey = decision.ToFloorKey!;
@@ -407,18 +409,22 @@ public sealed partial class SessionOrchestrator
             floorLabel);
     }
 
+    private void ReportFloorProposalTransient(
+        RuntimeMapRecognition locked,
+        string proposedFloorKey,
+        CapturedGameFrame frame)
+    {
+        _lastGameBounds = frame.ClientBounds;
+        _lastGameWindowHandle = frame.WindowHandle;
+        _statusMessage = $"已检测到{MapFloorRules.GetFloorDisplayName(locked.Map, proposedFloorKey)}，正在验证……";
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private void PresentDetectedFloorBeforeAlignment(
         RuntimeMapRecognition locked,
         string floorKey,
-        CapturedGameFrame frame)
-    {
-        _currentFloorKey = floorKey;
-        _lastGameBounds = frame.ClientBounds;
-        _lastGameWindowHandle = frame.WindowHandle;
-        _statusMessage = $"已检测到{MapFloorRules.GetFloorDisplayName(locked.Map, floorKey)}，正在对齐……";
-        RefreshMiniMapForCurrentFloor();
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
+        CapturedGameFrame frame) =>
+        ReportFloorProposalTransient(locked, floorKey, frame);
 
 }
 /*

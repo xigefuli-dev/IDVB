@@ -43,6 +43,13 @@ public sealed partial class MainPage
 
     private void NotificationButton_Click(object sender, RoutedEventArgs e)
     {
-        AnnouncementWindow.Show();
+        try
+        {
+            AnnouncementWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            IDVBuff.Diagnostics.OutputLog.Write("ERROR", "WINUI", "打开消息通知窗口异常", ex);
+        }
     }
 }

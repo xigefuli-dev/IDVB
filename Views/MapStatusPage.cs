@@ -64,6 +64,9 @@ public sealed partial class MapStatusPage : UserControl
         content.Children.Insert(backgroundScanIndex >= 0 ? backgroundScanIndex + 1 : 0,
             _selectMapByTagsToggle);
         _selectMapByTagsToggle.Toggled += SelectMapByTags_Toggled;
+        content.Children.Insert(content.Children.IndexOf(_selectMapByTagsToggle) + 1,
+            _disableAutoFloorToggle);
+        _disableAutoFloorToggle.Toggled += DisableAutoFloor_Toggled;
     }
 
     private void ApplySimplifiedOptions()

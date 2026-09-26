@@ -163,8 +163,9 @@ public sealed class FeedbackDialog : ContentDialog
 
         Content = rootPanel;
 
-        // 绑定主按钮点击事件拦截
+        // 绑定主按钮与取消按钮点击事件
         PrimaryButtonClick += FeedbackDialog_PrimaryButtonClick;
+        CloseButtonClick += (_, _) => _submissionCts?.Cancel();
 
         // 初始化登录校验状态
         UpdateLoginState();
@@ -198,6 +199,8 @@ public sealed class FeedbackDialog : ContentDialog
         }
     }
 
+    private CancellationTokenSource? _submissionCts;
+
     private async void FeedbackDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
         // 阻止对话框默认立刻关闭，执行异步打包与提交
@@ -221,6 +224,9 @@ public sealed class FeedbackDialog : ContentDialog
         _statusBlock.Text = "正在整理并打包日志与诊断数据...";
 
         string? tempDirectory = null;
+        _submissionCts?.Dispose();
+        _submissionCts = new CancellationTokenSource();
+        var ct = _submissionCts.Token;
 
         try
         {
@@ -232,6 +238,7 @@ public sealed class FeedbackDialog : ContentDialog
                 includeLogs,
                 includeDiagnostics);
 
+            ct.ThrowIfCancellationRequested();
             tempDirectory = buildResult.OutputDirectory;
 
             _statusBlock.Text = "正在提交反馈数据至官网后台...";
@@ -249,7 +256,7 @@ public sealed class FeedbackDialog : ContentDialog
             };
 
             // 3. 调用预留的官方后台接口
-            var submissionResult = await _feedbackService.SubmitFeedbackAsync(payload);
+            var submissionResult = await _feedbackService.SubmitFeedbackAsync(payload, ct);
 
             if (submissionResult.Success)
             {
@@ -261,7 +268,7 @@ public sealed class FeedbackDialog : ContentDialog
                 _progressRing.Visibility = Visibility.Collapsed;
 
                 // 稍作停留让用户看到成功提示，然后关闭对话框
-                await Task.Delay(1200);
+                await Task.Delay(1200, ct);
                 Hide();
             }
             else
@@ -269,6 +276,11 @@ public sealed class FeedbackDialog : ContentDialog
                 _statusBlock.Text = $"提交失败: {submissionResult.Message}";
                 SetBusyState(false);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            _statusBlock.Text = "已取消提交。";
+            SetBusyState(false);
         }
         catch (Exception exception)
         {

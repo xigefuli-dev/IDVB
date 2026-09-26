@@ -22,7 +22,8 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition? aligned,
         string? failureReason,
         MapFeatureCacheKey? repairCacheKey,
-        bool resetRecoveredScaleState)
+        bool resetRecoveredScaleState,
+        MapOpenOperationContext? context = null)
     {
         var trace = ActiveOperationTrace;
         var independentAlignment = string.Equals(
@@ -43,7 +44,8 @@ public sealed partial class SessionOrchestrator
         try
         {
         // A background result must never overwrite a newer close/open action.
-        if (!IsCurrentMatchOperation(operationMatch)
+        if ((context is not null && !IsMapOpenOperationCurrent(context))
+            || !IsCurrentMatchOperation(operationMatch)
             || !_gameMapToggleState.IsCurrent(toggle))
         {
             resultPublish?.Complete(
@@ -100,7 +102,8 @@ public sealed partial class SessionOrchestrator
             }
             aligned = adaptiveDecision.RecognitionToRender;
             resultPublish?.Complete();
-            if (!IsCurrentMatchOperation(operationMatch)
+            if ((context is not null && !IsMapOpenOperationCurrent(context))
+                || !IsCurrentMatchOperation(operationMatch)
                 || !_gameMapToggleState.IsCurrent(toggle))
             {
                 trace?.SetTerminal("superseded", "match-operation-version-changed");
@@ -144,6 +147,7 @@ public sealed partial class SessionOrchestrator
                 }
                 _currentFloorKey = aligned.Result.Floor;
                 _lastRecognition = aligned;
+                SetConfirmedFloorPreference(aligned.Map.Id, aligned.Result.Floor);
                 _mapLease.Bind(_matchSession.Snapshot, aligned.Map.Id);
                 _pendingAlignmentIdentity = null;
                 _pendingAlignmentSeed = null;

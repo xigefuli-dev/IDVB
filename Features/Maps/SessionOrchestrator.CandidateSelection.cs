@@ -371,6 +371,9 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         bool userConfirmed)
     {
+        InvalidateActiveMapOpenOperation("candidate-identity-committed");
+        _recentConfirmedFloorPreference = null;
+        _recentConfirmedFloorMapId = Guid.Empty;
         var floorKey = selected.Result.Floor;
         if (MapFloorRules.GetFloorProfile(selected.Map, floorKey) is null)
             floorKey = MapScanFloorRules.ResolveScanFloorKey(selected.Map);

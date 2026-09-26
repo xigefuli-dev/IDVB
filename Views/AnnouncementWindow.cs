@@ -61,7 +61,7 @@ public sealed partial class AnnouncementWindow
 
     private readonly Window _window;
     private readonly AppWindow _appWindow;
-    private readonly WebView2 _webView;
+    private readonly NativeMarkdownView _markdownView;
     private readonly ListView _announcementsListView;
     private readonly ProgressRing _loadingRing;
     private readonly TextBlock _emptyTextBlock;
@@ -73,7 +73,6 @@ public sealed partial class AnnouncementWindow
     private List<AnnouncementItem> _allAnnouncements = [];
     private List<AnnouncementItem> _filteredAnnouncements = [];
     private AnnouncementItem? _selectedItem;
-    private bool _webViewReady;
 
     private AnnouncementWindow()
     {
@@ -111,7 +110,7 @@ public sealed partial class AnnouncementWindow
             _appWindow.Hide();
         };
 
-        _webView = new WebView2
+        _markdownView = new NativeMarkdownView
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
@@ -192,7 +191,6 @@ public sealed partial class AnnouncementWindow
             ApplyFilter();
         }
 
-        InitializeWebView();
         PlaceAndSizeWindow();
     }
 
@@ -220,85 +218,38 @@ public sealed partial class AnnouncementWindow
 
     /// <summary>
     /// 显示公告大窗口。若窗口已存在，则激活并置顶；支持跳转至指定公告。
+    /// 包含严密异常隔离，杜绝因窗口创建或弹窗异常导致主程序暴毙。
     /// </summary>
     public static void Show(string? targetAnnouncementId = null)
     {
-        if (_currentInstance != null)
-        {
-            _currentInstance._appWindow.Show();
-            _currentInstance._window.Activate();
-            if (!string.IsNullOrEmpty(targetAnnouncementId))
-            {
-                _currentInstance.SelectAnnouncementById(targetAnnouncementId);
-            }
-            // 先保留当前内容，再刷新远端，避免旧缓存阻止新公告显示。
-            _currentInstance.LoadDataAsync(targetAnnouncementId, forceRefresh: true, silent: true);
-            return;
-        }
-
-        var instance = new AnnouncementWindow();
-        _currentInstance = instance;
-        instance._appWindow.Show();
-        instance._window.Activate();
-        // 构造函数已同步展示缓存；随后总是请求远端以合并最新公告。
-        instance.LoadDataAsync(
-            targetAnnouncementId,
-            forceRefresh: true,
-            silent: instance._allAnnouncements.Count > 0);
-    }
-
-    private async void InitializeWebView()
-    {
         try
         {
-            await _webView.EnsureCoreWebView2Async();
-            _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-            _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-
-            var htmlPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Markdown", "template.html");
-            if (File.Exists(htmlPath))
+            if (_currentInstance != null)
             {
-                _webView.CoreWebView2.Navigate(htmlPath);
+                _currentInstance._appWindow.Show();
+                _currentInstance._window.Activate();
+                if (!string.IsNullOrEmpty(targetAnnouncementId))
+                {
+                    _currentInstance.SelectAnnouncementById(targetAnnouncementId);
+                }
+                // 先保留当前内容，再刷新远端，避免旧缓存阻止新公告显示。
+                _currentInstance.LoadDataAsync(targetAnnouncementId, forceRefresh: true, silent: true);
+                return;
             }
 
-            _webView.CoreWebView2.WebMessageReceived += (_, args) =>
-            {
-                try
-                {
-                    using var doc = JsonDocument.Parse(args.WebMessageAsJson);
-                    var root = doc.RootElement;
-                    if (root.TryGetProperty("type", out var typeProp))
-                    {
-                        var type = typeProp.GetString();
-                        if (type == "ready")
-                        {
-                            _webViewReady = true;
-                            UpdateWebViewTheme();
-                            if (_selectedItem != null)
-                            {
-                                RenderCurrentItemMarkdown();
-                            }
-                        }
-                        else if (type == "open_url" && root.TryGetProperty("url", out var urlProp))
-                        {
-                            var url = urlProp.GetString();
-                            if (!string.IsNullOrEmpty(url) && (url.StartsWith("http://") || url.StartsWith("https://")))
-                            {
-                                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[AnnouncementWindow] 处理 WebView 消息异常: {ex.Message}");
-                }
-            };
+            var instance = new AnnouncementWindow();
+            _currentInstance = instance;
+            instance._appWindow.Show();
+            instance._window.Activate();
+            // 构造函数已同步展示缓存；随后总是请求远端以合并最新公告。
+            instance.LoadDataAsync(
+                targetAnnouncementId,
+                forceRefresh: true,
+                silent: instance._allAnnouncements.Count > 0);
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[AnnouncementWindow] 初始化 WebView2 异常: {ex.Message}");
+            Debug.WriteLine($"[AnnouncementWindow] 显示公告窗口异常（已安全拦截）: {ex.Message}");
         }
     }
 
@@ -415,12 +366,15 @@ public sealed partial class AnnouncementWindow
 
     private void RenderCurrentItemMarkdown()
     {
-        if (_selectedItem == null || !_webViewReady) return;
+        if (_selectedItem == null)
+        {
+            _markdownView.Clear();
+            return;
+        }
 
         try
         {
-            var contentJson = JsonSerializer.Serialize(_selectedItem.Content);
-            _webView.ExecuteScriptAsync($"window.setMarkdown({contentJson});").AsTask();
+            _markdownView.SetMarkdown(_selectedItem.Content);
         }
         catch (Exception ex)
         {
@@ -434,25 +388,7 @@ public sealed partial class AnnouncementWindow
         _detailTitleBlock.Text = string.Empty;
         _detailMetaBlock.Text = string.Empty;
         _categoryBadge.Visibility = Visibility.Collapsed;
-        if (_webViewReady)
-        {
-            _webView.ExecuteScriptAsync("window.setMarkdown('');").AsTask();
-        }
-    }
-
-    private void UpdateWebViewTheme()
-    {
-        if (!_webViewReady) return;
-        try
-        {
-            var isDark = ((FrameworkElement)_window.Content).ActualTheme == ElementTheme.Dark;
-            var themeName = isDark ? "dark" : "light";
-            _webView.ExecuteScriptAsync($"window.setTheme('{themeName}');").AsTask();
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"[AnnouncementWindow] 切换 WebView 主题异常: {ex.Message}");
-        }
+        _markdownView.Clear();
     }
 
     private void SelectAnnouncementById(string id)

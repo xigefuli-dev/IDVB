@@ -141,6 +141,7 @@ public sealed partial class MapStatusPage : UserControl
         _backgroundScanToggle.IsOn = _runtime.Settings.BackgroundScanEnabled;
         _silentScanToggle.IsOn = _runtime.Settings.SilentScanEnabled;
         _selectMapByTagsToggle.IsOn = _runtime.Settings.SelectMapByTagsEnabled;
+        _disableAutoFloorToggle.IsOn = _runtime.Settings.DisableAutoFloor;
         _candidateDecisionMode.SelectedItem = _candidateDecisionMode.Items
             .OfType<MapDecisionModeChoice>()
             .FirstOrDefault(choice =>
@@ -252,6 +253,7 @@ public sealed partial class MapStatusPage : UserControl
         _backgroundScanToggle.IsEnabled = controlsEnabled;
         _silentScanToggle.IsEnabled = controlsEnabled;
         _selectMapByTagsToggle.IsEnabled = controlsEnabled;
+        _disableAutoFloorToggle.IsEnabled = controlsEnabled;
         _scanButton.IsEnabled =
             controlsEnabled && _runtime.MatchSnapshot.IsStarted;
         _manualButton.IsEnabled =

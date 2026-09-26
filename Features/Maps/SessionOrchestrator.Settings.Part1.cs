@@ -6,6 +6,18 @@ using System.Text;
 namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
+    public async Task SetDisableAutoFloorAsync(bool disabled)
+    {
+        if (_settings is null || _settings.DisableAutoFloor == disabled)
+            return;
+        _settings.DisableAutoFloor = disabled;
+        // Revoke captures/alignment already running under the previous policy.
+        Interlocked.Increment(ref _scanRequestGeneration);
+        CancelQuickScan();
+        InvalidateActiveMapOpenOperation("auto-floor-policy-changed");
+        await SaveSettingsAsync();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     // ════════════════ TOML Write-back ════════════════
 

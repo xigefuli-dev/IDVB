@@ -21,7 +21,14 @@ internal static class AccountSession
     private const string CredentialResource = "IdentityVisionBridge.Account";
     private const string CredentialUserName = "current";
     private const long MaximumPublicationPackageBytes = 90L * 1024 * 1024;
-    private static readonly HttpClient Http = new() { BaseAddress = new Uri("https://community.idvb.xgflee.com/") };
+    private static readonly HttpClient Http = new(new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(5),
+    })
+    {
+        BaseAddress = new Uri("https://community.idvb.xgflee.com/"),
+        Timeout = TimeSpan.FromSeconds(60),
+    };
     private static string? _publishToken;
     public static string? PublishToken => _publishToken;
     public static AccountIdentity? Identity { get; private set; }

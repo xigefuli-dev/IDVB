@@ -48,19 +48,25 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
 
                 if (value)
                 {
-                    var session = new Session(_repository.CreateSessionPath());
+                    var session = new Session(_repository.CreateSessionPath())
+                    {
+                        PersistenceDisabled = DisablePersistence
+                    };
                     _session = session;
                     _isEnabled = true;
-                    _flushTimer = new Timer(
-                        static state =>
-                        {
-                            var context = ((MapLogCollector Collector, Session Session))state!;
-                            context.Collector.OnFlushTimer(context.Session);
-                        },
-                        (this, session),
-                        FlushInterval,
-                        FlushInterval);
-                    _repository.CleanupOldSessions();
+                    if (!DisablePersistence)
+                    {
+                        _flushTimer = new Timer(
+                            static state =>
+                            {
+                                var context = ((MapLogCollector Collector, Session Session))state!;
+                                context.Collector.OnFlushTimer(context.Session);
+                            },
+                            (this, session),
+                            FlushInterval,
+                            FlushInterval);
+                        _repository.CleanupOldSessions();
+                    }
                     AppendInternal(
                         session,
                         MapLogCategory.System,

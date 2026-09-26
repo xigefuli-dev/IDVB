@@ -4,7 +4,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
         // _pendingAlignmentIdentity records that its transform is still
         // awaiting validation. Prefer the pending identity and keep using the
         // strict initial-alignment route until that transform is accepted.
-        var recoveringSelectedIdentity = _pendingAlignmentIdentity is not null;         var locked = _pendingAlignmentIdentity ?? _lastRecognition;         if (locked is null)         {             trace?.SetTerminal("failed", "no-locked-map");             _statusMessage = "尚未锁定地图，请先按快捷扫描键确认地图。";             StateChanged?.Invoke(this, EventArgs.Empty);             return;         }         _statusMessage = "地图已重新打开，正在重新对齐……";         var primaryFloorKey = MapFloorRules.GetPrimaryFloorKey(locked.Map);         var targetFloorKey = _currentFloorKey ?? primaryFloorKey;         var isOtherFloor = !string.Equals(             targetFloorKey,             primaryFloorKey,             StringComparison.Ordinal);         var isPendingVariantAlignment = IsPendingVariantAlignment(             locked.Map.Id,             targetFloorKey);         trace?.SetContext(             route: isOtherFloor ? "structure-only-floor" : "primary-floor",             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         _logCollector.Append(             MapLogCategory.Session,             MapLogLevel.Info,             $"开始仅对齐 · map={locked.Map.Id} · floor={targetFloorKey} "             + $"· route={(isOtherFloor ? "structure-only-floor" : "primary-floor")} "             + $"· toggleVersion={toggle.Version}");         // Presence detection owns readiness. A fixed animation delay makes the
+        var recoveringSelectedIdentity = _pendingAlignmentIdentity is not null;         var locked = _pendingAlignmentIdentity ?? _lastRecognition;         if (locked is null)         {             trace?.SetTerminal("failed", "no-locked-map");             _statusMessage = "尚未锁定地图，请先按快捷扫描键确认地图。";             StateChanged?.Invoke(this, EventArgs.Empty);             return;         }         _statusMessage = "地图已重新打开，正在重新对齐……";         var context = CaptureMapOpenOperationContext(toggle, operationMatch, locked, cancellationToken, _currentFloorKey);         var primaryFloorKey = MapFloorRules.GetPrimaryFloorKey(locked.Map);         var targetFloorKey = _currentFloorKey ?? primaryFloorKey;         var isOtherFloor = !string.Equals(             targetFloorKey,             primaryFloorKey,             StringComparison.Ordinal);         var isPendingVariantAlignment = IsPendingVariantAlignment(             locked.Map.Id,             targetFloorKey);         trace?.SetContext(             route: isOtherFloor ? "structure-only-floor" : "primary-floor",             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         _logCollector.Append(             MapLogCategory.Session,             MapLogLevel.Info,             $"开始仅对齐 · map={locked.Map.Id} · floor={targetFloorKey} "             + $"· route={(isOtherFloor ? "structure-only-floor" : "primary-floor")} "             + $"· toggleVersion={toggle.Version}");         // Presence detection owns readiness. A fixed animation delay makes the
         // end-to-end target depend on a guessed timer and can discard the first
         // valid frame, so the alignment route no longer waits here.
         var openingWait = trace?.StartTopLevel(             "opening_animation_wait",             MapOperationWaitKind.Timer,             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         try         {             cancellationToken.ThrowIfCancellationRequested();         }         finally         {             openingWait?.Complete();         }         const double openingAnimationWaitMs = 0d;         // Start immutable reference preparation while the first usable frame
@@ -12,7 +12,8 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
         // context is classified below; this task only removes disk/decode
         // latency from the alignment critical path.
         var orderedFloors = MapFloorRules.GetOrderedFloors(locked.Map).Select(f => f.Key).ToArray();
-        var indicatorGroup = FloorIndicatorTemplateRegistry.Resolve(orderedFloors);
+        var indicatorGroup = _settings?.DisableAutoFloor == true
+            ? null : FloorIndicatorTemplateRegistry.Resolve(orderedFloors);
         if (orderedFloors.Length <= 1)
         {
             _logCollector.Append(
@@ -26,7 +27,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
                     ["primaryFloor"] = primaryFloorKey
                 });
         }
-        else if (indicatorGroup is null)
+        else if (indicatorGroup is null && _settings?.DisableAutoFloor != true)
         {
             _logCollector.Append(
                 MapLogCategory.FloorRecognition,
@@ -49,7 +50,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
             locked.Map, targetFloorKey, initialPrewarmTuning);
         // Presence detection selects the first frame that belongs to the map;
         // no second screenshot is taken after readiness is confirmed.
-        var captureResult = await CaptureMapOpenViewportAsync(toggle, locked, targetFloorKey, initialPrewarmTuning, cancellationToken, autoFloor); CapturedGameFrame? frame = captureResult.Frame; var stableViewportWaitMs = captureResult.StableViewportWaitMilliseconds; var stableViewportMode = captureResult.StableViewportMode; var stableViewportFallback = captureResult.StableViewportFallback; var precomputedVpsg3Attempt = captureResult.PrecomputedVpsg3Attempt;         if (!_gameMapToggleState.IsCurrent(toggle))         {             trace?.SetTerminal("superseded", "map-operation-version-changed");             frame?.Dispose();             return;         }         try         {             cancellationToken.ThrowIfCancellationRequested();         }         catch         {             frame?.Dispose();             throw;         }         if (frame is null)         {             trace?.SetTerminal("failed", "stable-viewport-capture-failed");             _statusMessage = string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)                 ? "地图截图失败。"                 : _lastStableCaptureFailureReason;             _logCollector.Append(                 MapLogCategory.ViewportCapture,                 MapLogLevel.Warning,                 _statusMessage,                 elapsedMs: alignmentWallClock.Elapsed.TotalMilliseconds);             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 _overlay.ClearMap();                 if (_lastGameBounds.IsValid && _lastGameWindowHandle != IntPtr.Zero)                 {                     ShowTransientOverlayStatus(                         MapOverlayStatusLevel.Failure,                         "地图重新对齐失败",                         _statusMessage,                         "请保持游戏完整地图打开且画面稳定，然后重新打开地图重试。",                         _lastGameBounds,                         _lastGameWindowHandle);                     _overlay.Show();                 }                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }             StateChanged?.Invoke(this, EventArgs.Empty);
+        var captureResult = await CaptureMapOpenViewportAsync(toggle, locked, targetFloorKey, initialPrewarmTuning, cancellationToken, autoFloor); CapturedGameFrame? frame = captureResult.Frame; var stableViewportWaitMs = captureResult.StableViewportWaitMilliseconds; var stableViewportMode = captureResult.StableViewportMode; var stableViewportFallback = captureResult.StableViewportFallback; var precomputedVpsg3Attempt = captureResult.PrecomputedVpsg3Attempt;         if (!_gameMapToggleState.IsCurrent(toggle) || !IsMapOpenOperationCurrent(context))         {             trace?.SetTerminal("superseded", "map-operation-version-changed");             frame?.Dispose();             return;         }         try         {             cancellationToken.ThrowIfCancellationRequested();         }         catch         {             frame?.Dispose();             throw;         }         if (frame is null)         {             trace?.SetTerminal("failed", "stable-viewport-capture-failed");             _statusMessage = string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)                 ? "地图截图失败。"                 : _lastStableCaptureFailureReason;             _logCollector.Append(                 MapLogCategory.ViewportCapture,                 MapLogLevel.Warning,                 _statusMessage,                 elapsedMs: alignmentWallClock.Elapsed.TotalMilliseconds);             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 _overlay.ClearMap();                 if (_lastGameBounds.IsValid && _lastGameWindowHandle != IntPtr.Zero)                 {                     ShowTransientOverlayStatus(                         MapOverlayStatusLevel.Failure,                         "地图重新对齐失败",                         _statusMessage,                         "请保持游戏完整地图打开且画面稳定，然后重新打开地图重试。",                         _lastGameBounds,                         _lastGameWindowHandle);                     _overlay.Show();                 }                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }             StateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -65,56 +66,53 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
         }         // Classify once for this operation. The classification is tied to the
         // exact capture context and is not allowed to change after a fallback
         // or a later adaptive-scale decision.
+        string proposedFloorKey;
         if (frame.DetectedFloorKey is { } detectedFloor)
         {
-            var willSwitch = !string.Equals(detectedFloor, targetFloorKey, StringComparison.Ordinal);
-            _logCollector.Append(
-                MapLogCategory.FloorRecognition,
-                MapLogLevel.Info,
-                $"自动楼层决策：{(willSwitch ? $"从 {MapFloorRules.GetFloorDisplayName(locked.Map, targetFloorKey)} 切换到 {MapFloorRules.GetFloorDisplayName(locked.Map, detectedFloor)}" : $"确认当前楼层为 {MapFloorRules.GetFloorDisplayName(locked.Map, detectedFloor)}")}",
-                details: new()
-                {
-                    ["outcome"] = "accepted",
-                    ["detectedFloor"] = detectedFloor,
-                    ["previousFloor"] = targetFloorKey,
-                    ["floorSwitched"] = willSwitch,
-                    ["mapId"] = locked.Map.Id,
-                    ["score"] = autoFloor?.Score,
-                    ["margin"] = autoFloor?.Margin,
-                    ["totalElapsedMs"] = autoFloor?.TotalMilliseconds
-                });
-            PresentDetectedFloorBeforeAlignment(locked, detectedFloor, frame);
-            if (detectedFloor != targetFloorKey)
-            {
-                await initialPrewarmTask;
-                initialPrewarmTask = _recognition.WarmFloorStructureCacheAsync(locked.Map,
-                    detectedFloor, CreateStructureTuningForFloor(locked.Map, detectedFloor,
-                        CreateInitialAlignmentStructureTuning()));
-            }
-            targetFloorKey = detectedFloor;
-            isOtherFloor = !string.Equals(targetFloorKey, primaryFloorKey, StringComparison.Ordinal);
-            isPendingVariantAlignment = IsPendingVariantAlignment(locked.Map.Id, targetFloorKey);
-            trace?.SetContext(floorKey: targetFloorKey);
+            proposedFloorKey = detectedFloor;
+            LogFloorProposal(context, proposedFloorKey, autoFloor?.Score, autoFloor?.Margin);
+            ReportFloorProposalTransient(locked, proposedFloorKey, frame);
         }
-        else if (autoFloor is not null)
+        else
         {
-            _logCollector.Append(
-                MapLogCategory.FloorRecognition,
-                MapLogLevel.Warning,
-                $"自动楼层决策：未检出稳定楼层指示器，继续使用目标楼层 {MapFloorRules.GetFloorDisplayName(locked.Map, targetFloorKey)} 对齐 · 原因: {(string.IsNullOrEmpty(autoFloor.LatestFailureReason) ? "未达到判定条件" : autoFloor.LatestFailureReason)}",
-                details: new()
-                {
-                    ["outcome"] = "unresolved",
-                    ["fallbackFloor"] = targetFloorKey,
-                    ["mapId"] = locked.Map.Id,
-                    ["rejectionReason"] = autoFloor.LatestMatchResult?.RejectionReason ?? "Unresolved",
-                    ["failureDescription"] = autoFloor.LatestFailureReason,
-                    ["lastScore"] = autoFloor.Score,
-                    ["lastMargin"] = autoFloor.Margin,
-                    ["candidateScores"] = autoFloor.LatestMatchResult?.CandidateScores,
-                    ["attempts"] = autoFloor.AttemptCount,
-                    ["totalElapsedMs"] = autoFloor.TotalMilliseconds
-                });
+            proposedFloorKey = _currentFloorKey ?? primaryFloorKey;
+            if (autoFloor is not null)
+            {
+                _logCollector.Append(
+                    MapLogCategory.FloorRecognition,
+                    MapLogLevel.Warning,
+                    $"自动楼层决策：未检出稳定楼层指示器，继续使用目标楼层 {MapFloorRules.GetFloorDisplayName(locked.Map, proposedFloorKey)} 对齐 · 原因: {(string.IsNullOrEmpty(autoFloor.LatestFailureReason) ? "未达到判定条件" : autoFloor.LatestFailureReason)}",
+                    details: new()
+                    {
+                        ["outcome"] = "unresolved",
+                        ["fallbackFloor"] = proposedFloorKey,
+                        ["mapId"] = locked.Map.Id,
+                        ["rejectionReason"] = autoFloor.LatestMatchResult?.RejectionReason ?? "Unresolved",
+                        ["failureDescription"] = autoFloor.LatestFailureReason,
+                        ["lastScore"] = autoFloor.Score,
+                        ["lastMargin"] = autoFloor.Margin,
+                        ["candidateScores"] = autoFloor.LatestMatchResult?.CandidateScores,
+                        ["attempts"] = autoFloor.AttemptCount,
+                        ["totalElapsedMs"] = autoFloor.TotalMilliseconds
+                    });
+            }
+        }
+
+        var preferredConfirmed = GetConfirmedFloorPreference(context.MapId);
+        // A fresh indicator wins over historical alignment. The confirmed
+        // floor only orders recovery candidates after structural rejection.
+        targetFloorKey = FloorRecognitionRules.ResolveTargetFloor(
+            context.IsManualFloor, _currentFloorKey, frame.DetectedFloorKey, primaryFloorKey);
+
+        isOtherFloor = !string.Equals(targetFloorKey, primaryFloorKey, StringComparison.Ordinal);
+        isPendingVariantAlignment = IsPendingVariantAlignment(locked.Map.Id, targetFloorKey);
+        trace?.SetContext(floorKey: targetFloorKey);
+        if (targetFloorKey != primaryFloorKey)
+        {
+            await initialPrewarmTask;
+            initialPrewarmTask = _recognition.WarmFloorStructureCacheAsync(locked.Map,
+                targetFloorKey, CreateStructureTuningForFloor(locked.Map, targetFloorKey,
+                    CreateInitialAlignmentStructureTuning()));
         }
         var alignmentContextKey = CreateAlignmentContextKey(             operationMatch,             frame,             locked.Map,             targetFloorKey);         var warmStateMissReason = recoveringSelectedIdentity             ? "identity-recovery"             : independentAlignment                 ? "independent-alignment"                 : string.Empty;         var warmSeed = recoveringSelectedIdentity || independentAlignment             ? null             : TryGetReliableFloorAlignment(                 operationMatch,                 frame,                 locked.Map,                 targetFloorKey,                 out warmStateMissReason);         var executionClass = warmSeed is null             ? MapAlignmentExecutionClass.Initial             : MapAlignmentExecutionClass.Steady;         trace?.SetContext(             route: $"{(isOtherFloor ? "structure-only-floor" : "primary-floor")}:"                 + executionClass.ToString().ToLowerInvariant());         await initialPrewarmTask;         // Start the alignment budget after stable-frame input preparation.
         var alignmentDispatch = trace?.StartTopLevel(             "alignment_dispatch_wait",             MapOperationWaitKind.Queue,             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         try         {             cancellationToken.ThrowIfCancellationRequested();             var alignmentMode = _settings!.OverlayAlignmentMode;             var structureTuning = recoveringSelectedIdentity                 ? CreateInitialAlignmentStructureTuning()                 : CreateEffectiveStructureTuning();             var alignmentChannel = MapAlignmentChannelRegistry.Resolve(                 locked.Map,                 targetFloorKey);             structureTuning = CreateStructureTuningForFloor(                 locked.Map,                 targetFloorKey,                 structureTuning);             var tuning = recoveringSelectedIdentity                 ? CreateInitialAlignmentRecognitionTuning()                 : _settings.RecognitionTuning.Clone();             if (tuning.GateTemplateThreshold > GateTemplateRules.FallbackPairThreshold)                 tuning.GateTemplateThreshold = GateTemplateRules.FallbackPairThreshold;             var adaptiveKey = CreateAdaptiveScaleKey(                 frame,                 locked.Map,                 targetFloorKey);             RuntimeMapRecognition? aligned = null;             string? failureReason = null;             MapFeatureCacheKey? repairCacheKey = null;             MapRecognitionAttempt? finalAttempt = null;             var resetRecoveredScaleState = false;             try             {                 await Task.Run(() =>                 {                     cancellationToken.ThrowIfCancellationRequested();                     using var alignmentDeadline = new NoDoorAlignmentDeadline(                         cancellationToken,                         MapOpenAlignmentRouteRules.MaximumNoDoorAlignmentBudgetMilliseconds,                         enforceTimeBudget: false);                     using var alignmentBudget = alignmentDeadline.EnterAmbient();                     alignmentDispatch?.Complete();                     var alignmentCompute = trace?.StartTopLevel(                         "alignment_compute",                         MapOperationWaitKind.Compute,                         route: isOtherFloor ? "structure-only-floor" : "primary-floor",                         mapId: locked.Map.Id.ToString("D"),                         floorKey: targetFloorKey);                     try                     {                         // Alignment limits are acceptance targets only. The
@@ -250,7 +248,8 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
                                     tuning,
                                     structureTuning,
                                     alignmentSession.SideEntranceScanPriorConfidence,
-                                    out localRepairKey);
+                                    out localRepairKey,
+                                    isHypothesis: context.ManualFloorKey is null);
                             }
                             else
                             {
@@ -269,8 +268,82 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
                             }
                         }
                     }
-                }                         else if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure                             || MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(                              isOtherFloor,                              isPendingVariantAlignment,                              alignmentSession))                 {                     var scaleSeed = MapFloorScaleSeedRules                         .CreateIndependentFloorSeed(locked.Map, targetFloorKey);                     attempt = AlignExactManualFloor(                         frame,                         locked,                         targetFloorKey,                         scaleSeed,                         alignmentMode,                         tuning,                         structureTuning,                         alignmentSession.SideEntranceScanPriorConfidence,                         out localRepairKey);                 }                 else                 {                     attempt = AlignMapOpenWithPreferredRoute(                         frame,                         locked,                         targetFloorKey,                         isOtherFloor,                         recoveringSelectedIdentity,                         alignmentSession,                         alignmentMode,                         tuning,                         structureTuning,                         RunFallback,                         out localRepairKey);                 }                 if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure)                 {                     var evidence = ObserveLowStructureEvidence(attempt);                     lowStructureEvidenceAccepted = evidence.Accepted;                     attempt.Diagnostics.LowStructureEvidenceCount = evidence.Count;                     attempt.Diagnostics.LowStructureEvidencePending = evidence.Pending;                 }                 repairCacheKey = localRepairKey;                 finalAttempt = attempt;                 _lastDiagnostics = attempt.Diagnostics;                 // 补全分解字段：开图动画与稳定帧耗时此前从未入账，wall_clock 缺口
+                }                         else if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure                             || MapOpenAlignmentRouteRules.ShouldUseIndependentFloorAlignment(                              isOtherFloor,                              isPendingVariantAlignment,                              alignmentSession))                 {                     var scaleSeed = MapFloorScaleSeedRules                         .CreateIndependentFloorSeed(locked.Map, targetFloorKey);                     attempt = AlignExactManualFloor(                         frame,                         locked,                         targetFloorKey,                         scaleSeed,                         alignmentMode,                         tuning,                         structureTuning,                         alignmentSession.SideEntranceScanPriorConfidence,                         out localRepairKey,                         isHypothesis: context.ManualFloorKey is null);                 }                 else                 {                     attempt = AlignMapOpenWithPreferredRoute(                         frame,                         locked,                         targetFloorKey,                         isOtherFloor,                         recoveringSelectedIdentity,                         alignmentSession,                         alignmentMode,                         tuning,                         structureTuning,                         RunFallback,                         out localRepairKey);                 }                 if (alignmentChannel.Channel == MapAlignmentChannel.LowStructure)                 {                     var evidence = ObserveLowStructureEvidence(attempt);                     lowStructureEvidenceAccepted = evidence.Accepted;                     attempt.Diagnostics.LowStructureEvidenceCount = evidence.Count;                     attempt.Diagnostics.LowStructureEvidencePending = evidence.Pending;                 }                 repairCacheKey = localRepairKey;                 finalAttempt = attempt;                 _lastDiagnostics = attempt.Diagnostics;                 // 补全分解字段：开图动画与稳定帧耗时此前从未入账，wall_clock 缺口
                 // 主体正是这两段。填回 diagnostics 后 BuildAlignmentPhaseTimings 会
                 // 输出 opening_animation_wait / stable_viewport_wait /
                 // input_to_alignment_start，让日志墙钟能与各阶段对齐。
-                if (_lastDiagnostics is { } alignmentDiag)                 {                     alignmentDiag.AlignmentClass = executionClass.ToString();                     alignmentDiag.AlignmentContextKey = alignmentContextKey.ToString();                     alignmentDiag.WarmStateHit = warmSeed is not null;                     alignmentDiag.WarmStateMissReason = warmSeed is null                         ? warmStateMissReason                         : string.Empty;                     alignmentDiag.InputToFirstCaptureMilliseconds =                         stableViewportWaitMs;                     alignmentDiag.GameReadyDelayMilliseconds =                         stableViewportWaitMs;                     alignmentDiag.OpeningAnimationWaitMilliseconds =                         openingAnimationWaitMs;                     alignmentDiag.StableViewportWaitMilliseconds =                         stableViewportWaitMs;                     alignmentDiag.StableViewportMode = stableViewportMode;                     alignmentDiag.StableViewportFallback = stableViewportFallback;                     alignmentDiag.InputToAlignmentStartMilliseconds =                         openingAnimationWaitMs + stableViewportWaitMs;                 }                 aligned = lowStructureEvidenceAccepted                     ? attempt.Recognition                     : null;                 failureReason = attempt.FailureReason;                     }                     finally                     {                         alignmentCompute?.Complete();                     }                 }, cancellationToken);             }             finally             {                 alignmentDispatch?.Complete();             }             cancellationToken.ThrowIfCancellationRequested();             if (finalAttempt is { } mapOpenAttempt)             {                 var researchRecord = trace?.StartTopLevel(                     "research_record",                     MapOperationWaitKind.Io,                     mapId: locked.Map.Id.ToString("D"),                     floorKey: targetFloorKey);                 try                 {                     RecordResearchAttempt(                         locked.Map, targetFloorKey, frame, mapOpenAttempt,                         isOtherFloor ? "floor-switch" : "map-open",                         isOtherFloor ? locked.Result.OverlayTransform : null);                 }                 finally                 {                     researchRecord?.Complete();                 }             }             var publishOutcome = await PublishMapOpenAlignmentResultAsync(                     toggle,                     operationMatch,                     frame,                     locked,                     targetFloorKey,                     recoveringSelectedIdentity,                     aligned,                     failureReason,                     repairCacheKey,                     resetRecoveredScaleState);             if (publishOutcome == MapOpenAlignmentPublishOutcome.Superseded)             {                 trace?.SetTerminal("superseded", "map-operation-version-changed");                 return;             }             if (publishOutcome == MapOpenAlignmentPublishOutcome.Failed)             {                 trace?.SetTerminal("failed", "alignment-not-accepted");             }         }         catch (OperationCanceledException)         {             throw;         }         catch (Exception ex)         {             trace?.SetTerminal("failed", $"exception:{ex.GetType().Name}");             _statusMessage = $"仅对齐异常：{ex.Message}";             _logCollector.Append(                 MapLogCategory.ScanLifecycle,                 MapLogLevel.Error,                 _statusMessage,                 details: new()                 {                     ["exceptionType"] = ex.GetType().FullName,                     ["stackTrace"] = ex.ToString()                 });             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 ShowTransientOverlayStatus(                     MapOverlayStatusLevel.Failure,                     "地图重新对齐失败",                     _statusMessage,                     "对齐执行异常；请重新打开地图重试。",                     frame.ClientBounds,                     frame.WindowHandle);                 _overlay.Show();                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }         }         finally         {             alignmentDispatch?.Complete();             var cleanup = trace?.StartTopLevel(                 "cleanup",                 MapOperationWaitKind.Io,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 var frameDispose = trace?.StartChild(                     "frame_dispose",                     MapOperationWaitKind.Io,                     mapId: locked.Map.Id.ToString("D"),                     floorKey: targetFloorKey);                 try                 {                     frame?.Dispose();                 }                 finally                 {                     frameDispose?.Complete();                 }             }             finally             {                 cleanup?.Complete();             }         }         StateChanged?.Invoke(this, EventArgs.Empty);     } }
+                if (_lastDiagnostics is { } alignmentDiag)                 {                     alignmentDiag.AlignmentClass = executionClass.ToString();                     alignmentDiag.AlignmentContextKey = alignmentContextKey.ToString();                     alignmentDiag.WarmStateHit = warmSeed is not null;                     alignmentDiag.WarmStateMissReason = warmSeed is null                         ? warmStateMissReason                         : string.Empty;                     alignmentDiag.InputToFirstCaptureMilliseconds =                         stableViewportWaitMs;                     alignmentDiag.GameReadyDelayMilliseconds =                         stableViewportWaitMs;                     alignmentDiag.OpeningAnimationWaitMilliseconds =                         openingAnimationWaitMs;                     alignmentDiag.StableViewportWaitMilliseconds =                         stableViewportWaitMs;                     alignmentDiag.StableViewportMode = stableViewportMode;                     alignmentDiag.StableViewportFallback = stableViewportFallback;                     alignmentDiag.InputToAlignmentStartMilliseconds =                         openingAnimationWaitMs + stableViewportWaitMs;                 }                 aligned = lowStructureEvidenceAccepted                     ? attempt.Recognition                     : null;                 failureReason = attempt.FailureReason;                     }                     finally                     {                         alignmentCompute?.Complete();                     }                 }, cancellationToken);             }             finally             {                 alignmentDispatch?.Complete();             }             cancellationToken.ThrowIfCancellationRequested();
+            if (!IsMapOpenOperationCurrent(context))
+            {
+                trace?.SetTerminal("superseded", "map-operation-version-changed");
+                return;
+            }
+
+            var initialAttemptResult = ClassifyAttemptResult(
+                context,
+                targetFloorKey,
+                alignmentChannel.Channel,
+                finalAttempt!,
+                repairCacheKey) with { ResetRecoveredScaleState = resetRecoveredScaleState };
+
+            var recoveryDecision = await ExecuteFloorRecoveryWorkflowAsync(
+                context,
+                frame,
+                locked,
+                initialAttemptResult,
+                orderedFloors,
+                preferredConfirmed,
+                cancellationToken);
+
+            if (recoveryDecision.Resolution == FloorRecoveryResolution.Superseded || !IsMapOpenOperationCurrent(context))
+            {
+                trace?.SetTerminal("superseded", "map-operation-version-changed");
+                return;
+            }
+
+            // The final verdict owns publication. In particular, NotAttempted
+            // is not acceptance: a rejected/forced/reused initial recognition
+            // must not survive merely because no alternate-floor probe ran.
+            aligned = null;
+            repairCacheKey = null;
+            failureReason = recoveryDecision.Reason ?? initialAttemptResult.FailureReason;
+            if (recoveryDecision.Resolution == FloorRecoveryResolution.SingleAccepted && recoveryDecision.Winner is { } winner)
+            {
+                targetFloorKey = winner.FloorKey;
+                aligned = winner.AlignedRecognition;
+                failureReason = null;
+                repairCacheKey = winner.PendingRepairCacheKey;
+                resetRecoveredScaleState = winner.ResetRecoveredScaleState;
+                finalAttempt = winner.Attempt;
+                _lastDiagnostics = winner.Diagnostics;
+            }
+            else if (recoveryDecision.Resolution == FloorRecoveryResolution.Ambiguous)
+            {
+                aligned = null;
+                failureReason = recoveryDecision.Reason;
+                finalAttempt = initialAttemptResult.Attempt;
+                repairCacheKey = null;
+            }
+            else if (recoveryDecision.Resolution == FloorRecoveryResolution.PendingEvidence)
+            {
+                aligned = null;
+                failureReason = recoveryDecision.Reason;
+                finalAttempt = initialAttemptResult.Attempt;
+                repairCacheKey = null;
+            }
+            else if (recoveryDecision.Resolution == FloorRecoveryResolution.AllRejected)
+            {
+                aligned = null;
+                failureReason = "当前地图各楼层均未通过结构验证，请核对地图或重新开图。";
+                finalAttempt = initialAttemptResult.Attempt;
+                repairCacheKey = null;
+            }
+            else if (recoveryDecision.Resolution == FloorRecoveryResolution.Inconclusive)
+            {
+                aligned = null;
+                failureReason = recoveryDecision.Reason ?? "楼层恢复试探未全部完成或超出预算。";
+                finalAttempt = initialAttemptResult.Attempt;
+                repairCacheKey = null;
+            }
+
+            if (finalAttempt is { } mapOpenAttempt)             {                 var researchRecord = trace?.StartTopLevel(                     "research_record",                     MapOperationWaitKind.Io,                     mapId: locked.Map.Id.ToString("D"),                     floorKey: targetFloorKey);                 try                 {                     RecordResearchAttempt(                         locked.Map, targetFloorKey, frame, mapOpenAttempt,                         isOtherFloor ? "floor-switch" : "map-open",                         isOtherFloor ? locked.Result.OverlayTransform : null);                 }                 finally                 {                     researchRecord?.Complete();                 }             }             var publishOutcome = await PublishMapOpenAlignmentResultAsync(                     toggle,                     operationMatch,                     frame,                     locked,                     targetFloorKey,                     recoveringSelectedIdentity,                     aligned,                     failureReason,                     repairCacheKey,                     resetRecoveredScaleState, context);             if (publishOutcome == MapOpenAlignmentPublishOutcome.Superseded)             {                 trace?.SetTerminal("superseded", "map-operation-version-changed");                 return;             }             if (publishOutcome == MapOpenAlignmentPublishOutcome.Failed)             {                 trace?.SetTerminal("failed", "alignment-not-accepted");             }         }         catch (OperationCanceledException)         {             throw;         }         catch (Exception ex)         {             trace?.SetTerminal("failed", $"exception:{ex.GetType().Name}");             _statusMessage = $"仅对齐异常：{ex.Message}";             _logCollector.Append(                 MapLogCategory.ScanLifecycle,                 MapLogLevel.Error,                 _statusMessage,                 details: new()                 {                     ["exceptionType"] = ex.GetType().FullName,                     ["stackTrace"] = ex.ToString()                 });             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 ShowTransientOverlayStatus(                     MapOverlayStatusLevel.Failure,                     "地图重新对齐失败",                     _statusMessage,                     "对齐执行异常；请重新打开地图重试。",                     frame.ClientBounds,                     frame.WindowHandle);                 _overlay.Show();                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }         }         finally         {             alignmentDispatch?.Complete();             var cleanup = trace?.StartTopLevel(                 "cleanup",                 MapOperationWaitKind.Io,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 var frameDispose = trace?.StartChild(                     "frame_dispose",                     MapOperationWaitKind.Io,                     mapId: locked.Map.Id.ToString("D"),                     floorKey: targetFloorKey);                 try                 {                     frame?.Dispose();                 }                 finally                 {                     frameDispose?.Complete();                 }             }             finally             {                 cleanup?.Complete();             }         }         StateChanged?.Invoke(this, EventArgs.Empty);     } }

@@ -126,6 +126,8 @@ public sealed partial class MapListPage
             }
         }
 
+        CancellationTokenSource? updateCts = null;
+
         async Task UpdateAsync()
         {
             if (isUpdating) return;
@@ -138,9 +140,11 @@ public sealed partial class MapListPage
             status.Text = "正在检查更新……";
             progressRing.IsActive = true;
             progressTimer.Start();
+            updateCts?.Dispose();
+            updateCts = new CancellationTokenSource();
             try
             {
-                var result = await _mapSubscriptionService.CheckAndApplyAsync();
+                var result = await _mapSubscriptionService.CheckAndApplyAsync(updateCts.Token);
                 refreshListAfterDialog |= result.AppliedCount > 0;
                 if (result.AppliedCount > 0 && !App.IsSafeMode)
                     await App.Session.RefreshMapCacheAsync();
@@ -149,6 +153,10 @@ public sealed partial class MapListPage
                     : result.AppliedCount > 0
                         ? $"已更新 {result.AppliedCount} 个订阅。"
                         : "已是最新版本。";
+            }
+            catch (OperationCanceledException)
+            {
+                status.Text = "更新已取消。";
             }
             catch (Exception exception)
             {
@@ -186,12 +194,15 @@ public sealed partial class MapListPage
             Content = content,
             CloseButtonText = "完成"
         };
-        dialog.Closing += (_, args) =>
+        dialog.Closing += (_, _) =>
         {
             if (isUpdating)
             {
-                args.Cancel = true;
-                status.Text = "订阅仍在更新，请等待完成后再关闭。";
+                try
+                {
+                    updateCts?.Cancel();
+                }
+                catch { }
             }
         };
         await dialog.ShowAsync();

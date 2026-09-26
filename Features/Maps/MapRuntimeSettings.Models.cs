@@ -26,6 +26,8 @@ public sealed partial class MapRuntimeSettings
     /// 而是直接给出当前地图类的全部结果，并在候选界面通过绑定的标签组进行手动筛选。
     /// </summary>
     public bool SelectMapByTagsEnabled { get; set; }
+    /// <summary>关闭自动楼层识别和跨楼层恢复，始终保留手动选择的楼层。</summary>
+    public bool DisableAutoFloor { get; set; }
     /// <summary>
     /// 扫描候选是否逐项执行严格结构配准。关闭时扫描只提供模板候选，
     /// 玩家选择地图后仍会在正式对齐阶段执行结构配准。
@@ -310,6 +312,7 @@ public sealed partial class MapRuntimeSettings
         BackgroundScanEnabled = BackgroundScanEnabled,
         SilentScanEnabled = SilentScanEnabled,
         SelectMapByTagsEnabled = SelectMapByTagsEnabled,
+        DisableAutoFloor = DisableAutoFloor,
         RequireStrictStructureRegistrationDuringScan =
             RequireStrictStructureRegistrationDuringScan,
         EnableContinuousAlignment = EnableContinuousAlignment,

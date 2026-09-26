@@ -69,7 +69,7 @@ public sealed class MapStructureColdStartE2ETests
             "前置条件：本楼层的独立种子必须是中性占位符。");
 
         using var frame = CreateFrame(scenario);
-        using var collector = new MapLogCollector { IsEnabled = true };
+        using var collector = new MapLogCollector { DisablePersistence = true, IsEnabled = true };
         var previous = MapLogCollector.Instance;
         MapLogCollector.Instance = collector;
         try
@@ -137,7 +137,7 @@ public sealed class MapStructureColdStartE2ETests
             MapFloorScaleSeedRules.IsNeutralIndependentSeed(measuredSeed));
 
         using var frame = CreateFrame(scenario);
-        using var collector = new MapLogCollector { IsEnabled = true };
+        using var collector = new MapLogCollector { DisablePersistence = true, IsEnabled = true };
         var previous = MapLogCollector.Instance;
         MapLogCollector.Instance = collector;
         try

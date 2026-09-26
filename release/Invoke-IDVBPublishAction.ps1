@@ -237,7 +237,7 @@ function Read-ProductVersion {
         Major = [int]$match.Groups['major'].Value
         Minor = [int]$match.Groups['minor'].Value
         Patch = [int]$match.Groups['patch'].Value
-        IsPrerelease = $match.Groups['prerelease'].Success
+        IsPrerelease = $match.Groups['prerelease'].Success -and $match.Groups['prerelease'].Value -match '^unstable(?:\.|$)'
     }
 }
 

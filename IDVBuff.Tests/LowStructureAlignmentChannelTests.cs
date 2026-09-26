@@ -3,6 +3,7 @@ using IDVBuff.Features.Maps;
 
 namespace IDVBuff.Tests;
 
+[Collection("MapLogCollector")]
 public sealed class LowStructureAlignmentChannelTests
 {
     [Fact]

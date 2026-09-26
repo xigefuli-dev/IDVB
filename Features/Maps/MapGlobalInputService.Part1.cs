@@ -9,6 +9,62 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class MapGlobalInputService : IDisposable
 {
 
+    private static readonly object s_activeHooksLock = new();
+    private static readonly HashSet<IntPtr> s_activeHooks = [];
+
+    static MapGlobalInputService()
+    {
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => EmergencyUnhookAll();
+        AppDomain.CurrentDomain.UnhandledException += (_, _) => EmergencyUnhookAll();
+    }
+
+    /// <summary>
+    /// 紧急卸载所有已安装的操作系统级低级钩子，防止进程异常退出或卡死时残留钩子导致整台电脑严重卡死。
+    /// </summary>
+    public static void EmergencyUnhookAll()
+    {
+        lock (s_activeHooksLock)
+        {
+            foreach (var hook in s_activeHooks)
+            {
+                if (hook != IntPtr.Zero)
+                {
+                    try
+                    {
+                        UnhookWindowsHookEx(hook);
+                    }
+                    catch
+                    {
+                        // 忽略卸载过程中的任何异常
+                    }
+                }
+            }
+            s_activeHooks.Clear();
+        }
+    }
+
+    private static void TrackHook(IntPtr hook)
+    {
+        if (hook != IntPtr.Zero)
+        {
+            lock (s_activeHooksLock)
+            {
+                s_activeHooks.Add(hook);
+            }
+        }
+    }
+
+    private static void UntrackHook(IntPtr hook)
+    {
+        if (hook != IntPtr.Zero)
+        {
+            lock (s_activeHooksLock)
+            {
+                s_activeHooks.Remove(hook);
+            }
+        }
+    }
+
     private void StartHookThread(bool installKeyboardHook, bool installMouseHook)
     {
         if (!installKeyboardHook && !installMouseHook)
@@ -33,6 +89,7 @@ public sealed partial class MapGlobalInputService : IDisposable
                     if (_keyboardHook == IntPtr.Zero)
                         throw new Win32Exception(Marshal.GetLastWin32Error(),
                             "无法注册全局键盘监听。");
+                    TrackHook(_keyboardHook);
                 }
                 if (installMouseHook)
                 {
@@ -41,6 +98,7 @@ public sealed partial class MapGlobalInputService : IDisposable
                     if (_mouseHook == IntPtr.Zero)
                         throw new Win32Exception(Marshal.GetLastWin32Error(),
                             "无法注册全局鼠标按键监听。");
+                    TrackHook(_mouseHook);
                 }
 
                 started.Set();
@@ -58,9 +116,15 @@ public sealed partial class MapGlobalInputService : IDisposable
             finally
             {
                 if (_keyboardHook != IntPtr.Zero)
+                {
+                    UntrackHook(_keyboardHook);
                     UnhookWindowsHookEx(_keyboardHook);
+                }
                 if (_mouseHook != IntPtr.Zero)
+                {
+                    UntrackHook(_mouseHook);
                     UnhookWindowsHookEx(_mouseHook);
+                }
                 _keyboardHook = IntPtr.Zero;
                 _mouseHook = IntPtr.Zero;
                 _hookThreadId = 0;

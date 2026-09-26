@@ -36,7 +36,8 @@ public sealed partial class SessionOrchestrator
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
         double identityPriorConfidence,
-        out MapFeatureCacheKey? repairCacheKey)
+        out MapFeatureCacheKey? repairCacheKey,
+        bool isHypothesis = false)
     {
         repairCacheKey = null;
         structureTuning = CreateStructureTuningForFloor(
@@ -55,7 +56,8 @@ public sealed partial class SessionOrchestrator
                 tuning,
                 structureTuning,
                 identityPriorConfidence,
-                out repairCacheKey);
+                out repairCacheKey,
+                isHypothesis);
         // 缓存信任门控：fixed/兜底连续失败达阈值后，本轮已无可用缓存证据，
         // 跳过 VPSG 把预算直接给宽半径全局恢复。
         var skipVpsgForDistrustedCache = false;
@@ -230,21 +232,25 @@ public sealed partial class SessionOrchestrator
                 if (IsAdaptiveInitialScaleUsable(repairSearch, structureTuning)
                     && repairSearch.Recognition is { } repairRecognition)
                 {
-                    NoteCacheValidationOutcome(cacheKey, succeeded: true);
+                    if (!isHypothesis)
+                        NoteCacheValidationOutcome(cacheKey, succeeded: true);
                     return CopyAttempt(
                         repairSearch,
                         MarkUsedCachedScale(repairRecognition));
                 }
 
-                NoteCacheValidationOutcome(cacheKey, succeeded: false);
+                if (!isHypothesis)
+                {
+                    NoteCacheValidationOutcome(cacheKey, succeeded: false);
+                    MarkMapCacheForRepair(cacheKey);
+                }
                 // The entry stays active and trusted. A later successful global
                 // recovery is merely a repair candidate and cannot replace a
                 // manual entry until three consistent samples have accumulated.
                 repairCacheKey = cacheKey;
-                MarkMapCacheForRepair(cacheKey);
                 // 本轮失败后计数将达阈值 → 缓存已确认不可靠，跳过 VPSG 直达
                 // 宽半径全局恢复（止血，避免再消耗 VPSG 预算）。
-                skipVpsgForDistrustedCache =
+                skipVpsgForDistrustedCache = !isHypothesis &&
                     (cacheEntry.Scale.Validation?.FailedValidationCount ?? 0) + 1
                         >= MapFeatureCacheRules
                             .MaximumFailedValidationCountBeforeDistrust;

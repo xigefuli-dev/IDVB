@@ -22,7 +22,7 @@ public sealed partial class SessionOrchestrator
                     ["primaryFloor"] = MapFloorRules.GetPrimaryFloorKey(map)
                 });
         }
-        else if (group is null)
+        else if (group is null && _settings?.DisableAutoFloor != true)
         {
             _logCollector.Append(
                 MapLogCategory.FloorRecognition,
@@ -35,7 +35,8 @@ public sealed partial class SessionOrchestrator
                 });
         }
 
-        var autoFloor = group is null ? null : new AutoFloorCapture(map, group);
+        var autoFloor = group is null || _settings?.DisableAutoFloor == true
+            ? null : new AutoFloorCapture(map, group);
         if (autoFloor is not null)
         {
             var initialViewport = ResolveMapViewportForCurrentWindow();
@@ -71,11 +72,11 @@ public sealed partial class SessionOrchestrator
         public Rect CapturedImageExtent { get; private set; }
 
         public NormalizedRectangle Expand(NormalizedRectangle viewport) =>
-            FloorIndicatorCaptureRegion.IncludeMap(viewport);
+            FloorIndicatorCaptureRegion.IncludeMap(viewport, Group);
 
         public void LogMonitoringStarted(NormalizedRectangle viewport, string sourceOperation)
         {
-            var region = FloorIndicatorCaptureRegion.Above(viewport);
+            var region = FloorIndicatorCaptureRegion.Above(viewport, Group);
             MapLogCollector.Instance.Append(
                 MapLogCategory.FloorRecognition,
                 MapLogLevel.Info,
@@ -125,7 +126,7 @@ public sealed partial class SessionOrchestrator
                 if ((mapRect & extent) != mapRect)
                     throw new InvalidDataException("Map viewport is outside the capture.");
 
-                var region = FloorIndicatorCaptureRegion.Above(viewport);
+                var region = FloorIndicatorCaptureRegion.Above(viewport, Group);
                 IndicatorRegion = region;
                 MapScreenRect bounds = default;
                 Rect rect = default;
@@ -158,7 +159,7 @@ public sealed partial class SessionOrchestrator
                             }
                             else
                             {
-                                scale = captured.ClientBounds.Width / Group.ReferenceClientWidth;
+                                scale = FloorIndicatorCaptureRegion.TemplateScale(Group, captured.ClientBounds);
                                 matchResult = FloorIndicatorTemplateRegistry.RecognizeDetailed(
                                     Group, indicator, scale);
                                 LatestMatchResult = matchResult;

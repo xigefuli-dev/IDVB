@@ -52,10 +52,13 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
-        if (frame.DetectedFloorKey is { } detectedFloor && detectedFloor != targetFloorKey)
+        var effectiveFloor = FloorRecognitionRules.ResolveTargetFloor(
+            Settings.DisableAutoFloor, _currentFloorKey ?? targetFloorKey,
+            frame.DetectedFloorKey, MapFloorRules.GetPrimaryFloorKey(locked.Map));
+        if (effectiveFloor != targetFloorKey)
             validatedStructureScaleSeed = null;
-        targetFloorKey = frame.DetectedFloorKey ?? targetFloorKey;
-        if (frame.DetectedFloorKey is { } floorKey)
+        targetFloorKey = effectiveFloor;
+        if (!Settings.DisableAutoFloor && frame.DetectedFloorKey is { } floorKey)
             PresentDetectedFloorBeforeAlignment(locked, floorKey, frame);
         try
         {

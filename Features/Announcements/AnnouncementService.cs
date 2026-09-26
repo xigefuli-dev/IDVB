@@ -15,7 +15,10 @@ public sealed class AnnouncementService
 
     public static HttpClient? CustomHttpClient { get; set; }
 
-    private static readonly HttpClient DefaultHttpClient = new()
+    private static readonly HttpClient DefaultHttpClient = new(new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromSeconds(3),
+    })
     {
         BaseAddress = new Uri("https://community.idvb.xgflee.com/"),
         Timeout = TimeSpan.FromSeconds(4),

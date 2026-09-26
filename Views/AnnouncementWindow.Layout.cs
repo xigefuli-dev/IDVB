@@ -119,14 +119,12 @@ public sealed partial class AnnouncementWindow
         Grid.SetRow(headerPanel, 0);
         rightPanel.Children.Add(headerPanel);
 
-        // 右侧内容区：WebView2
-        Grid.SetRow(_webView, 1);
-        rightPanel.Children.Add(_webView);
+        // 右侧内容区：原生 Markdown 阅读器
+        Grid.SetRow(_markdownView, 1);
+        rightPanel.Children.Add(_markdownView);
 
         Grid.SetColumn(rightPanel, 1);
         contentGrid.Children.Add(rightPanel);
-
-        rootBorder.ActualThemeChanged += (_, _) => UpdateWebViewTheme();
 
         return rootBorder;
     }

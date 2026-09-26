@@ -209,7 +209,7 @@ public sealed partial class SessionOrchestrator
 
         try
         {
-            if (alignmentFrame.DetectedFloorKey is { } detectedFloor && !string.IsNullOrWhiteSpace(detectedFloor))
+            if (!Settings.DisableAutoFloor && alignmentFrame.DetectedFloorKey is { } detectedFloor && !string.IsNullOrWhiteSpace(detectedFloor))
             {
                 targetFloorKey = detectedFloor;
                 PresentDetectedFloorBeforeAlignment(locked, detectedFloor, alignmentFrame);

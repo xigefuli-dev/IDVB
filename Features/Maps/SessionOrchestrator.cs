@@ -83,6 +83,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private SideEntranceScanResult? _lastSideEntranceScan;
     private MapReferencePoint? _lastTrustedPlayerPoint;
     private string? _currentFloorKey;
+    private string? _recentConfirmedFloorPreference;
+    private Guid _recentConfirmedFloorMapId;
     private MapAlignmentTrackingMode _alignmentTrackingMode = MapAlignmentTrackingMode.None;
     private MapScreenRect _lastGameBounds;
     private IntPtr _lastGameWindowHandle;

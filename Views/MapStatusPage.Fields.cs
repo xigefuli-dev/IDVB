@@ -48,6 +48,12 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "关闭（正常识别）",
         OnContent = "开启（仅标签候选）"
     };
+    private readonly ToggleSwitch _disableAutoFloorToggle = new()
+    {
+        Header = "关闭自动楼层",
+        OffContent = "关闭（自动识别楼层）",
+        OnContent = "开启（始终使用手动楼层）"
+    };
     private readonly ComboBox _presetSelector = new()
     {
         Header = "使用配置文件",

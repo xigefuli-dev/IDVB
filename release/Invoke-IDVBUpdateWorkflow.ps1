@@ -581,7 +581,7 @@ switch ($Phase) {
         Invoke-FetchOrigin 'Fetch origin'
         $target = (git -C $repositoryRoot rev-parse --verify "$TargetCommit^{commit}").Trim()
         Assert-Success 'Resolve GitHub release target'
-        $isPrerelease = $manifest.ProductVersion -match '-'
+        $isPrerelease = $manifest.ProductVersion -match '-unstable(?:\.|$)'
         $channel = if ($isPrerelease) { 'win-x64-test' } else { 'win-x64-stable' }
         $publicationReceipt = Join-Path (Get-ArtifactRoot $manifest) "receipts\publish-$channel.json"
         if (-not (Test-Path -LiteralPath $publicationReceipt)) {

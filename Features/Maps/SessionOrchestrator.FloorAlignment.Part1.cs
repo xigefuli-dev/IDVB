@@ -13,7 +13,8 @@ public sealed partial class SessionOrchestrator
         MapRecognitionTuning tuning,
         MapStructureRegistrationTuning structureTuning,
         double identityPriorConfidence,
-        out MapFeatureCacheKey? repairCacheKey)
+        out MapFeatureCacheKey? repairCacheKey,
+        bool isHypothesis = false)
     {
         repairCacheKey = null;
         var config = LowStructureAlignmentPlan.CreateConfig(structureTuning);
@@ -90,8 +91,11 @@ public sealed partial class SessionOrchestrator
             // scale search have both failed, so it must degrade cache trust
             // and must never certify or lock that scale.
             var global = RunFixed(cachedScale, false);
-            NoteCacheValidationOutcome(cachedKey, succeeded: false);
-            MarkMapCacheForRepair(cachedKey);
+            if (!isHypothesis)
+            {
+                NoteCacheValidationOutcome(cachedKey, succeeded: false);
+                MarkMapCacheForRepair(cachedKey);
+            }
             if (global.Recognition is null)
                 return searchFailure;
             return StampCacheTrust(CopyAttempt(
@@ -111,7 +115,8 @@ public sealed partial class SessionOrchestrator
             if (!MapFeatureCacheRules.IsCacheEntryTrusted(cacheEntry))
             {
                 repairCacheKey = lowCacheKey;
-                MarkMapCacheForRepair(lowCacheKey);
+                if (!isHypothesis)
+                    MarkMapCacheForRepair(lowCacheKey);
             }
             else
             {
@@ -127,7 +132,8 @@ public sealed partial class SessionOrchestrator
                 cachedScaleForGlobalFallback = cachedScale;
                 cachedKeyForGlobalFallback = lowCacheKey;
                 repairCacheKey = lowCacheKey;
-                MarkMapCacheForRepair(lowCacheKey);
+                if (!isHypothesis)
+                    MarkMapCacheForRepair(lowCacheKey);
             }
         }
 
@@ -173,10 +179,12 @@ public sealed partial class SessionOrchestrator
             lowResolution.ViewportWidth,
             lowResolution.ViewportHeight,
             structureTuning.CacheFingerprint);
-        _lowStructureRecoveryCursor.MarkSearched(operationKey, sparseScales);
+        if (!isHypothesis)
+            _lowStructureRecoveryCursor.MarkSearched(operationKey, sparseScales);
         if (sparseSeedAttempt.Recognition is not null)
         {
-            _lowStructureRecoveryCursor.Reset();
+            if (!isHypothesis)
+                _lowStructureRecoveryCursor.Reset();
             return sparseSeedAttempt;
         }
         if (wallClock.ElapsedMilliseconds >= config.EndToEndBudgetMilliseconds)
@@ -199,7 +207,9 @@ public sealed partial class SessionOrchestrator
             config.ScaleHypothesisCount,
             config.MinimumUsableScale,
             preferredRecoveryScale);
-        var batch = _lowStructureRecoveryCursor.TakeBatch(
+        var batch = isHypothesis
+            ? (IReadOnlyList<double>)recoveryGrid.Where(s => double.IsFinite(s) && !sparseScales.Contains(s)).Take(Math.Clamp(config.MaximumScalesPerFrame, 1, 3)).ToArray()
+            : _lowStructureRecoveryCursor.TakeBatch(
             operationKey,
             recoveryGrid,
             config.MaximumScalesPerFrame);
@@ -229,7 +239,8 @@ public sealed partial class SessionOrchestrator
             allowPrimaryFloor: true,
             recoveryPlan);
         if (recovery.Recognition is not null)
-            _lowStructureRecoveryCursor.Reset();
+            if (!isHypothesis)
+                _lowStructureRecoveryCursor.Reset();
         return recovery.Recognition is not null
             ? StampCacheTrust(recovery)
             : ResolveAfterIndependentSearchFailure(StampCacheTrust(recovery));

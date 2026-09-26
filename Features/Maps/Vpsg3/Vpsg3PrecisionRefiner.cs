@@ -13,10 +13,10 @@ public sealed record Vpsg3PrecisionResult(
     bool Calibrated, double RadiusPixels);
 
 /// <summary>A shared deadline for ALL extra work on a frame, including competitors and verification.</summary>
-internal readonly record struct Vpsg3PrecisionBudget(long Started)
+internal readonly record struct Vpsg3PrecisionBudget(long Started, double MaximumMilliseconds = 10d)
 {
-    internal const double MaximumMilliseconds = 10d;
-    internal static Vpsg3PrecisionBudget Start() => new(Stopwatch.GetTimestamp());
+    internal const double DefaultMaximumMilliseconds = 10d;
+    internal static Vpsg3PrecisionBudget Start(double maxMs = DefaultMaximumMilliseconds) => new(Stopwatch.GetTimestamp(), maxMs);
     internal double Elapsed => Stopwatch.GetElapsedTime(Started).TotalMilliseconds;
     internal bool Expired => Elapsed >= MaximumMilliseconds;
 }

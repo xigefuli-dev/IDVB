@@ -113,6 +113,8 @@ public sealed partial class SessionOrchestrator
                 _reliableFloorAlignments.Clear();
             }
             ClearManualFloorScaleLocks();
+            _recentConfirmedFloorPreference = null;
+            _recentConfirmedFloorMapId = Guid.Empty;
 
             _lastRecognition = null;
             _lastAlignmentSession = null;

@@ -9,6 +9,7 @@ public sealed partial class SessionOrchestrator
     private readonly object _mapOpenCancellationGate = new();
     private CancellationTokenSource? _mapOpenCancellation;
     private int _matchEnding;
+    private long _currentMapOpenGeneration;
 
     // A user-confirmed map remains useful evidence even when its first
     // alignment attempt fails. Keep that identity and its scan seed separate
@@ -24,6 +25,56 @@ public sealed partial class SessionOrchestrator
     private bool IsCurrentMatchOperation(MapMatchSnapshot operationMatch) =>
         !IsMatchEnding && _matchSession.IsCurrent(operationMatch);
 
+    private MapOpenOperationContext CaptureMapOpenOperationContext(
+        MapGameToggleTransition toggle,
+        MapMatchSnapshot operationMatch,
+        RuntimeMapRecognition locked,
+        CancellationToken cancellationToken,
+        string? currentFloorKey = null,
+        IntPtr windowHandle = default,
+        MapScreenRect clientBounds = default)
+    {
+        var generation = Interlocked.Increment(ref _currentMapOpenGeneration);
+        return new MapOpenOperationContext
+        {
+            OperationMatch = operationMatch,
+            MapId = locked.Map.Id,
+            MapUpdatedAt = locked.Map.UpdatedAt,
+            MapToggleVersion = toggle.Version,
+            OperationGeneration = generation,
+            // A current/previous floor is fallback state, not a manual lock.
+            ManualFloorKey = _settings?.DisableAutoFloor == true
+                ? currentFloorKey ?? MapFloorRules.GetPrimaryFloorKey(locked.Map)
+                : null,
+            WindowHandle = windowHandle,
+            ClientBounds = clientBounds,
+            CancellationToken = cancellationToken
+        };
+    }
+
+    private bool IsMapOpenOperationCurrent(MapOpenOperationContext context)
+    {
+        if (!IsCurrentMatchOperation(context.OperationMatch))
+            return false;
+
+        var currentLocked = _pendingAlignmentIdentity ?? _lastRecognition;
+        return context.MatchesCurrentOperation(
+            _matchSession.Snapshot,
+            _gameMapToggleState.IsOpen,
+            _gameMapToggleState.Version,
+            Volatile.Read(ref _currentMapOpenGeneration),
+            currentLocked?.Map.Id,
+            currentLocked?.Map.UpdatedAt,
+            _currentFloorKey);
+    }
+
+    private void InvalidateActiveMapOpenOperation(string reason = "operation-invalidated")
+    {
+        Interlocked.Increment(ref _currentMapOpenGeneration);
+        CancelMapOpenAlignment();
+        _alignmentCommitGuard.Invalidate();
+    }
+
     private void StartMatchCancellationScope()
     {
         _matchCancellation?.Cancel();
@@ -38,7 +89,7 @@ public sealed partial class SessionOrchestrator
     {
         EndAdaptiveMapOpen("match lifecycle changed");
         CancelOrbTracking("match lifecycle changed");
-        CancelMapOpenAlignment();
+        InvalidateActiveMapOpenOperation("match lifecycle changed");
         _lowStructureRecoveryCursor.Reset();
         try
         {
@@ -105,6 +156,7 @@ public sealed partial class SessionOrchestrator
         ClearPendingBackgroundScan();
         _lowStructureRecoveryCursor.Reset();
         EndAdaptiveMapOpen("map rescan requested");
+        InvalidateActiveMapOpenOperation("map rescan requested");
         var previousMapId = _lastRecognition?.Map.Id
             ?? _pendingAlignmentIdentity?.Map.Id;
         if (previousMapId is null
@@ -161,6 +213,7 @@ public sealed partial class SessionOrchestrator
         ClearOptimisticPresentation();
         _lowStructureRecoveryCursor.Reset();
         EndAdaptiveMapOpen("match transient state reset");
+        InvalidateActiveMapOpenOperation("match transient state reset");
         _overlayStatus.Clear();
         _overlay.Clear();
         MapOverlayBitmapRenderer.InvalidateImageCache();

@@ -3,6 +3,11 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Internal floor-indicator rules; not persisted in settings.</summary>
 internal static class FloorRecognitionRules
 {
+    public static string ResolveTargetFloor(bool disableAutoFloor, string? currentFloor,
+        string? detectedFloor, string primaryFloor) => disableAutoFloor
+            ? currentFloor ?? primaryFloor
+            : detectedFloor ?? currentFloor ?? primaryFloor;
+
     public const double DefaultMinimumConfidence = 0.60d;
     public const double DefaultMinimumLocalizationConfidence = 0.70d;
     public const int DefaultRecognitionWindowMilliseconds = 3000;

@@ -11,7 +11,13 @@ public sealed class MapSubscriptionUpdateEngine
     private readonly HttpClient _httpClient;
 
     public MapSubscriptionUpdateEngine(HttpClient? httpClient = null) =>
-        _httpClient = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        _httpClient = httpClient ?? new HttpClient(new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+        })
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+        };
 
     public async Task<MapSubscriptionUpdateSummary> UpdateAllAsync(
         string subscriptionRoot,

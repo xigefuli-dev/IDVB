@@ -87,6 +87,21 @@ public sealed partial class MapStatusPage : UserControl
         Refresh();
     }
 
+    private async void DisableAutoFloor_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing)
+            return;
+        try
+        {
+            await _runtime.SetDisableAutoFloorAsync(_disableAutoFloorToggle.IsOn);
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+        }
+        Refresh();
+    }
+
     private async void SelectMapByTags_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing)

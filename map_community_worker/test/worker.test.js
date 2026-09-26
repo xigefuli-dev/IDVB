@@ -238,6 +238,22 @@ test("static requests are delegated to the asset binding", async () => {
   assert.equal(await response.text(), "community-home");
 });
 
+test("web app assets use their own local-media policy and scoped URL", async () => {
+  const env = createEnvironment();
+  const redirect = await worker.fetch(new Request("https://community.idvb.test/web"), env);
+  assert.equal(redirect.status, 308);
+  assert.equal(redirect.headers.get("location"), "https://community.idvb.test/web/");
+
+  const response = await worker.fetch(new Request("https://community.idvb.test/web/"), env);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), "community-home");
+  const policy = response.headers.get("content-security-policy");
+  assert.match(policy, /worker-src 'self'/);
+  assert.match(policy, /img-src 'self' blob: data:/);
+  assert.match(policy, /media-src 'self' blob:/);
+  assert.equal(response.headers.get("cache-control"), "public, no-cache, no-transform");
+});
+
 test("map catalog exposes real IDVM objects and download links", async () => {
   const response = await worker.fetch(new Request("https://community.idvb.test/api/maps"), createEnvironment());
   assert.deepEqual(await response.json(), {

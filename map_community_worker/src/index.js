@@ -1,3 +1,5 @@
+import { serveIdvbWeb } from "./web.js";
+
 const SESSION_COOKIE = "idvb_community_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 // ponytail: Workerd caps PBKDF2 at 100k; raise this when the runtime supports it.
@@ -15,6 +17,9 @@ const JSON_HEADERS = {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    const web = await serveIdvbWeb(request, env);
+    if (web) return web;
 
     if (url.pathname.startsWith("/api/")) {
       return apiResponse(request, env, url);

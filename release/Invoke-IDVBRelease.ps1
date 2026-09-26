@@ -415,9 +415,10 @@ function Write-Receipt($Context, [string]$Name, $Value) {
 }
 
 function Assert-SourceReady($Manifest, $Context) {
-    $branch = (git -C $repositoryRoot branch --show-current).Trim()
+    $branchOutput = @(git -C $repositoryRoot branch --show-current)
     Assert-Success 'Read current branch'
-    if ($branch -notin @($implementationBranch, 'remaster', 'main', 'developer-a', 'developer-b', 'integration')) {
+    $branch = ($branchOutput -join '').Trim()
+    if ($branch -ne '' -and $branch -notin @($implementationBranch, 'remaster', 'main', 'developer-a', 'developer-b', 'integration')) {
         throw "Release must run from the updater implementation branch or remaster; current branch is '$branch'."
     }
     $status = @(git -C $repositoryRoot status --porcelain --untracked-files=all)

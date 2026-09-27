@@ -94,25 +94,31 @@ public sealed partial class MapGlobalInputService
         string actionName,
         Action handler)
     {
-        LogInputDispatch(MapLogLevel.Info, "input-matched", invoked,
-            device, binding, actionName);
-
         try
         {
-            if (_dispatcher.TryEnqueue(() => handler()))
+            if (_dispatcher.TryEnqueue(() =>
             {
-                LogInputDispatch(MapLogLevel.Info, "dispatch-accepted", invoked,
-                    device, binding, actionName);
+                var queueDelay = System.Diagnostics.Stopwatch.GetElapsedTime(invoked.Timestamp).TotalMilliseconds;
+                try { handler(); }
+                finally
+                {
+                    // Logging takes the shared scan-log lock and flushes to disk.
+                    // Never do it on the hook thread, which gates OS input delivery.
+                    LogInputDispatch(MapLogLevel.Info, "dispatch-started", invoked,
+                        device, binding, actionName, queueDelayMilliseconds: queueDelay);
+                }
+            }))
+            {
                 return;
             }
 
-            LogInputDispatch(MapLogLevel.Error, "dispatch-rejected", invoked,
-                device, binding, actionName);
+            _ = Task.Run(() => LogInputDispatch(MapLogLevel.Error, "dispatch-rejected", invoked,
+                device, binding, actionName));
         }
         catch (Exception exception)
         {
-            LogInputDispatch(MapLogLevel.Error, "dispatch-rejected", invoked,
-                device, binding, actionName, exception);
+            _ = Task.Run(() => LogInputDispatch(MapLogLevel.Error, "dispatch-rejected", invoked,
+                device, binding, actionName, exception));
         }
     }
 
@@ -123,7 +129,8 @@ public sealed partial class MapGlobalInputService
         string device,
         string binding,
         string actionName,
-        Exception? exception = null)
+        Exception? exception = null,
+        double? queueDelayMilliseconds = null)
     {
         try
         {
@@ -138,6 +145,7 @@ public sealed partial class MapGlobalInputService
                     ["device"] = device,
                     ["binding"] = binding,
                     ["inputTimestamp"] = invoked.Timestamp,
+                    ["queueDelayMs"] = queueDelayMilliseconds,
                     ["exceptionType"] = exception?.GetType().FullName,
                     ["exception"] = exception?.ToString()
                 });

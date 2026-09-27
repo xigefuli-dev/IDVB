@@ -101,6 +101,7 @@ public sealed partial class MapGlobalInputService : IDisposable
                     TrackHook(_mouseHook);
                 }
 
+                using var latencyReporter = new Timer(_ => ReportInputHookLatency(), null, 5000, 5000);
                 started.Set();
                 while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
                 {
@@ -165,12 +166,15 @@ public sealed partial class MapGlobalInputService : IDisposable
 
     private IntPtr MouseHookCallback(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (code >= 0 && !IsMarkedInjectedMouse(lParam))
+        if (code < 0) return CallNextHookEx(_mouseHook, code, wParam, lParam);
+        var started = Stopwatch.GetTimestamp();
+        var arrival = unchecked((uint)Environment.TickCount);
+        var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
+        if (!IsMarkedInjectedMouse(mouse))
         {
             var message = (uint)wParam.ToInt64();
             if (message == WmMouseWheel)
             {
-                var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
                 var delta = (short)((mouse.MouseData >> 16) & 0xFFFF);
                 if (delta != 0)
                     DispatchMouseWheel(new MouseWheelInputEventArgs(
@@ -239,6 +243,8 @@ public sealed partial class MapGlobalInputService : IDisposable
                 DispatchPluginMouseInput(button, timestamp, isDown);
             }
         }
+        if ((mouse.Flags & 1) == 0)
+            _mouseLatency.Record(mouse.Time, arrival, Stopwatch.GetTimestamp() - started);
         return CallNextHookEx(_mouseHook, code, wParam, lParam);
     }
 
@@ -251,8 +257,7 @@ public sealed partial class MapGlobalInputService : IDisposable
             _keyboardPollGeneration++;
             keyboardPoller = _keyboardPoller;
             _keyboardPoller = null;
-            _pressedKeys.Clear();
-            _lastKeyDownAt.Clear();
+            _keyboardEdges.Clear();
         }
         keyboardPoller?.Dispose();
         Thread? hookThread;

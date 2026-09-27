@@ -10,6 +10,8 @@ public sealed partial class MapRuntimeSettings
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public bool IsEnabled { get; set; }
+    /// <summary>Repeatedly observe an open map until its identity is confirmed; opt-in only.</summary>
+    public bool ContinuousObservationEnabled { get; set; }
     public ScanPerformanceMode ScanPerformanceMode { get; set; } = ScanPerformanceMode.Balanced;
     public ScanUncertainAction ScanUncertainAction { get; set; } = ScanUncertainAction.ShowCandidates;
     /// <summary>首次扫描策略：默认双门对齐，可切换为侧门扫描。</summary>
@@ -127,6 +129,7 @@ public sealed partial class MapRuntimeSettings
     public static MapRuntimeSettings CreateDefault() => new()
     {
         IsEnabled = false,
+        ContinuousObservationEnabled = false,
         FirstScanStrategy = FirstScanStrategy.SideEntrance,
         BackgroundScanEnabled = false,
         SilentScanEnabled = false,
@@ -306,6 +309,7 @@ public sealed partial class MapRuntimeSettings
     {
         SchemaVersion = SchemaVersion,
         IsEnabled = IsEnabled,
+        ContinuousObservationEnabled = ContinuousObservationEnabled,
         ScanPerformanceMode = ScanPerformanceMode,
         ScanUncertainAction = ScanUncertainAction,
         FirstScanStrategy = FirstScanStrategy,

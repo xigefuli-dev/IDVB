@@ -148,6 +148,10 @@ public sealed partial class MapStatusPage : UserControl
                 CloseButtonText = "知道了"
             }.ShowAsync();
         }
+        finally
+        {
+            Refresh();
+        }
     }
 
     private async void AllowAutomaticMapCache_Toggled(

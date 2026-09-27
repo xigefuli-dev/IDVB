@@ -14,6 +14,13 @@ public sealed partial class MapStatusPage : UserControl
     internal event Action<bool>? DisplayPreviewVisibilityChanged;
     internal event Action<OverlaySkeletonPreviewState>? DisplayPreviewChanged;
 
+    private readonly ToggleSwitch _continuousObservationToggle = new()
+    {
+        Header = "持续观察扫描",
+        OffContent = "已关闭",
+        OnContent = "已开启"
+    };
+
     private sealed record AlignmentModeChoice(
         MapOverlayAlignmentMode Mode,
         string DisplayName);
@@ -28,6 +35,7 @@ public sealed partial class MapStatusPage : UserControl
         try
         {
             BuildView();
+            AttachContinuousObservationToggle();
             AttachTagSelectionToggle();
             AttachDiagnosticModeToggle();
             AttachMapLearningPanel();
@@ -41,6 +49,16 @@ public sealed partial class MapStatusPage : UserControl
         }
         Loaded += MapStatusPage_Loaded;
         Unloaded += MapStatusPage_Unloaded;
+    }
+
+    private void AttachContinuousObservationToggle()
+    {
+        if (_root is null || _root.Children.Count < 2
+            || _root.Children[1] is not StackPanel content)
+            return;
+        var index = content.Children.IndexOf(_enabledToggle);
+        content.Children.Insert(index >= 0 ? index + 1 : 0, _continuousObservationToggle);
+        _continuousObservationToggle.Toggled += ContinuousObservation_Toggled;
     }
 
     private void AttachDiagnosticModeToggle()

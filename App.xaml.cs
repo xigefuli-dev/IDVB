@@ -411,7 +411,9 @@ namespace IDVBuff
             }
 
             OutputLog.Write("ERROR", "WINUI", "Unhandled UI exception.", args.Exception);
-            args.Handled = true;
+            // No recovery has taken place. Let WinUI terminate rather than
+            // continuing with detached input hooks and inconsistent UI state.
+            args.Handled = false;
         }
 
         private async Task ShowStartupFailureAsync(Exception exception)

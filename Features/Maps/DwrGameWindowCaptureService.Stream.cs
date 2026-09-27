@@ -9,14 +9,18 @@ public sealed partial class DwrGameWindowCaptureService
     private IntPtr _streamWindow;
     private MapScreenRect _streamBounds;
     private long _streamVersion;
+    private readonly CaptureStreamDemand _streamDemand = new();
+    private Timer? _streamIdleTimer;
 
     public void PrepareViewportCapture()
     {
         if (!TryGetForegroundClientBounds(out var bounds, out var window, out _)) return;
         lock (_streamGate)
         {
+            _streamDemand.Request(Environment.TickCount64);
             // Cache failures for this window geometry too; do not repeatedly initialize a failed GPU device.
             if (_streamWindow == window && _streamBounds == bounds) return;
+            _streamIdleTimer ??= new Timer(_ => ReleaseIdleFrameStream(), null, 1000, 1000);
             _stream?.Dispose();
             _stream = null;
             _streamWindow = window;
@@ -59,13 +63,18 @@ public sealed partial class DwrGameWindowCaptureService
         PrepareViewportCapture();
         GameFrameStream? stream;
         MapScreenRect client;
-        lock (_streamGate) { stream = _stream; client = _streamBounds; }
+        lock (_streamGate)
+        {
+            stream = _stream;
+            client = _streamBounds;
+            if (stream is not null) _streamDemand.Begin(Environment.TickCount64);
+        }
         if (stream is null) return null;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(maximumWait);
         CapturedGameFrame? frame = null;
         try
         {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadline.CancelAfter(maximumWait);
             frame = await stream.CaptureAsync(client, GetViewportBounds(client, viewport),
                 afterSystemTicks, deadline.Token).ConfigureAwait(false);
             if (frame is null)
@@ -110,14 +119,52 @@ public sealed partial class DwrGameWindowCaptureService
                 }
             }
         }
-        finally { frame?.Dispose(); }
+        finally
+        {
+            try { frame?.Dispose(); }
+            finally { lock (_streamGate) _streamDemand.End(Environment.TickCount64); }
+        }
         return null;
+    }
+
+    private void ReleaseIdleFrameStream()
+    {
+        GameFrameStream? idle;
+        lock (_streamGate)
+        {
+            // An open-map alignment, tracker or enabled native mini-map keeps
+            // making requests. With no consumer, WGC must not capture gameplay
+            // indefinitely just to keep a warm pool for a future map opening.
+            if (_stream is null || !_streamDemand.CanRelease(Environment.TickCount64)) return;
+            idle = _stream;
+            _stream = null;
+            _streamWindow = IntPtr.Zero;
+            _streamBounds = default;
+            _streamVersion++;
+            _streamIdleTimer?.Dispose();
+            _streamIdleTimer = null;
+        }
+        // Native shutdown can wait for callbacks: keep it off the UI thread
+        // and outside the service gate so a new request can create its own pool.
+        try
+        {
+            idle.Dispose();
+            MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture, MapLogLevel.Info,
+                "WGC idle capture stopped · no pending requests for at least 2000ms");
+        }
+        catch (Exception exception)
+        {
+            MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture, MapLogLevel.Warning,
+                $"WGC idle capture shutdown failed · {exception.Message}");
+        }
     }
 
     private void ResetFrameStream()
     {
         lock (_streamGate)
         {
+            _streamIdleTimer?.Dispose();
+            _streamIdleTimer = null;
             _stream?.Dispose();
             _stream = null;
             _streamWindow = IntPtr.Zero;

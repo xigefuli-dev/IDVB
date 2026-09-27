@@ -4,6 +4,22 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
+    public void ValidateInputBindings()
+    {
+        MapInputBinding[] bindings =
+        [
+            QuickScanBinding, OverlayToggleBinding, ManualRecognitionBinding,
+            GameMapToggleBinding, ControlPanelToggleBinding, SwitchFloorBinding,
+            SaveMapCacheBinding, RestMapDisplayBinding
+        ];
+        for (var i = 0; i < bindings.Length; i++)
+        {
+            if (bindings[i] is not { IsConfigured: true }) continue;
+            for (var j = i + 1; j < bindings.Length; j++)
+                if (bindings[i].Equals(bindings[j]))
+                    throw new InvalidOperationException($"全局操作不能重复使用 {bindings[i].DisplayName}。");
+        }
+    }
 
     public void Normalize()
     {

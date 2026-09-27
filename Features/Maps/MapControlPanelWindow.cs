@@ -181,6 +181,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
             && _getVariantContext is not null
                 ? await _getVariantContext()
                 : null;
+        ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureWindow();
         Refresh(snapshot);
 

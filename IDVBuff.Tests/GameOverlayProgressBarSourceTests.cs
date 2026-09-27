@@ -48,15 +48,12 @@ public sealed class GameOverlayProgressBarSourceTests
     }
 
     [Fact]
-    public void ObservationFeedbackDoesNotDependOnCompletedRecognition()
+    public void ObservationDoesNotShowScanningStatus()
     {
         var path = Path.Combine(FindRepositoryRoot(), "Features", "Maps", "SessionOrchestrator.Observation.cs");
         var source = File.ReadAllText(path);
-        var start = source[source.IndexOf("private void StartMapObservation", StringComparison.Ordinal)..
-            source.IndexOf("private bool IsMapObservationCurrent", StringComparison.Ordinal)];
-        Assert.Contains("ShowMapObservationStatus", start);
-        Assert.Contains("本轮观察超时", source);
-        Assert.Contains("!token.IsCancellationRequested", source);
+        Assert.DoesNotContain("ShowMapObservationStatus", source);
+        Assert.DoesNotContain("_overlayStatus.Show", source);
         Assert.Contains("_observationNextAttemptAt - Environment.TickCount64", source);
     }
 

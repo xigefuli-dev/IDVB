@@ -56,6 +56,22 @@ public sealed partial class MapStatusPage : UserControl
         Refresh();
     }
 
+    private async void ContinuousObservation_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing)
+            return;
+        try
+        {
+            await _runtime.SetContinuousObservationEnabledAsync(
+                _continuousObservationToggle.IsOn);
+        }
+        catch (Exception exception)
+        {
+            _status.Text = exception.Message;
+        }
+        Refresh();
+    }
+
     private async void BackgroundScan_Toggled(object sender, RoutedEventArgs e)
     {
         if (_refreshing)

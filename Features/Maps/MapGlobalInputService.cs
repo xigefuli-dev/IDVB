@@ -42,7 +42,6 @@ public sealed partial class MapGlobalInputService : IDisposable
     private static readonly IntPtr ReleaseInputMarker =
         new(InputInjectionMarkers.HostGeneratedInput);
     private const int KeyboardPollIntervalMilliseconds = 15;
-    private const long DuplicateKeyDownSuppressionMilliseconds = 120;
     private const uint CapsLockVirtualKey = 0x14;
 
     private readonly DispatcherQueue _dispatcher;
@@ -50,8 +49,7 @@ public sealed partial class MapGlobalInputService : IDisposable
     private readonly LowLevelMouseProc _mouseProc;
     private readonly object _keyboardStateLock = new();
     private readonly object _hookLifecycleLock = new();
-    private readonly HashSet<uint> _pressedKeys = [];
-    private readonly Dictionary<uint, long> _lastKeyDownAt = [];
+    private readonly KeyboardInputEdges _keyboardEdges = new();
     private IntPtr _keyboardHook;
     private IntPtr _mouseHook;
     private Thread? _hookThread;
@@ -156,6 +154,8 @@ public sealed partial class MapGlobalInputService : IDisposable
     {
         if (code >= 0)
         {
+            var started = Stopwatch.GetTimestamp();
+            var arrival = unchecked((uint)Environment.TickCount);
             var keyboard = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
             // ReleaseAllPressedInputs uses SendInput. Do not let those synthetic
             // key-up messages clear the physical key state: the physical key may
@@ -169,6 +169,13 @@ public sealed partial class MapGlobalInputService : IDisposable
                 else if (message is WmKeyUp or WmSysKeyUp)
                     HandleKeyboardState(keyboard.VirtualKey, isDown: false);
             }
+            else if ((uint)wParam.ToInt64() is WmKeyUp or WmSysKeyUp)
+            {
+                lock (_keyboardStateLock)
+                    _keyboardEdges.IgnoreHostRelease(keyboard.VirtualKey);
+            }
+            if ((keyboard.Flags & LlkhfInjected) == 0)
+                _keyboardLatency.Record(keyboard.Time, arrival, Stopwatch.GetTimestamp() - started);
         }
         return CallNextHookEx(_keyboardHook, code, wParam, lParam);
     }
@@ -252,7 +259,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         if (binding.Kind == MapInputBindingKind.Keyboard
             && IsKeyDown(binding.VirtualKey))
         {
-            _pressedKeys.Add(binding.VirtualKey);
+            _keyboardEdges.InitializePressed(binding.VirtualKey);
         }
     }
 
@@ -290,7 +297,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         }
 
         foreach (var key in keys)
-            HandleKeyboardState(key, IsKeyDown(key), generation);
+            HandleKeyboardState(key, isDown: false, expectedGeneration: generation);
     }
 
     private void HandleKeyboardState(uint key, bool isDown, int? expectedGeneration = null)
@@ -312,9 +319,14 @@ public sealed partial class MapGlobalInputService : IDisposable
             {
                 return;
             }
+            // Sample under the same lock as hook transitions. A snapshot read
+            // before waiting for this lock must not overwrite a newer edge.
+            if (expectedGeneration.HasValue)
+                isDown = IsKeyDown(key);
+            if (!_keyboardEdges.Observe(key, isDown, expectedGeneration.HasValue, Environment.TickCount64))
+                return;
             if (!isDown)
             {
-                _pressedKeys.Remove(key);
                 foreach (var (pluginId, bindings) in _pluginBindings)
                 {
                     foreach (var (bindingKey, binding) in bindings)
@@ -328,16 +340,6 @@ public sealed partial class MapGlobalInputService : IDisposable
                 }
                 goto Dispatch;
             }
-            if (!_pressedKeys.Add(key))
-                return;
-
-            var now = Environment.TickCount64;
-            if (_lastKeyDownAt.TryGetValue(key, out var last)
-                && now - last < DuplicateKeyDownSuppressionMilliseconds)
-            {
-                return;
-            }
-            _lastKeyDownAt[key] = now;
             invokeQuickScan = _quickScan.Kind == MapInputBindingKind.Keyboard
                 && _quickScan.VirtualKey == key
                 && IsKeyboardBindingActive(_quickScan);

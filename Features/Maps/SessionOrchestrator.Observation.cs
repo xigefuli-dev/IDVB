@@ -14,8 +14,35 @@ public sealed partial class SessionOrchestrator
     private long _observationGeneration;
     private long _observationNextAttemptAt;
 
+    public async Task SetContinuousObservationEnabledAsync(bool enabled)
+    {
+        if (_settings is null)
+            throw new InvalidOperationException("设置尚未加载。");
+        if (_settings.ContinuousObservationEnabled == enabled)
+            return;
+        _settings.ContinuousObservationEnabled = enabled;
+        try
+        {
+            await SaveSettingsAsync();
+        }
+        catch
+        {
+            _settings.ContinuousObservationEnabled = !enabled;
+            throw;
+        }
+        if (enabled)
+            StartMapObservation();
+        else
+        {
+            CancelMapObservation(clearPreview: true);
+            _overlayStatus.Clear();
+        }
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private bool CanObserveMap => !_disposed && _initialized && !_headless
-        && _settings is { IsEnabled: true, SelectMapByTagsEnabled: false, BackgroundScanEnabled: false }
+        && _settings is { IsEnabled: true, ContinuousObservationEnabled: true,
+            SelectMapByTagsEnabled: false, BackgroundScanEnabled: false }
         && !_silentScanActive && !_manualSelectionActive
         && Volatile.Read(ref _activeScanOperations) == 0
         && _lastRecognition is null && _pendingAlignmentIdentity is null
@@ -52,14 +79,15 @@ public sealed partial class SessionOrchestrator
         var match = _matchSession.Snapshot;
         var toggle = new MapGameToggleTransition(true, _gameMapToggleState.Version);
         var generation = Volatile.Read(ref _observationGeneration);
-        ShowMapObservationStatus("正在观察地图", "正在读取可见结构…");
+        _overlayStatus.Clear();
         // The completed quick scan's frame/deadline must not flow into future observations.
         using (ScanExecutionContext.Suppress())
             _observationTask = ObserveMapAsync(previous, scope, match, toggle, generation, delayFirstPass);
     }
 
     private bool IsMapObservationCurrent(MapMatchSnapshot match, MapGameToggleTransition toggle,
-        long generation) => !_disposed && _settings?.IsEnabled == true && IsCurrentMatchOperation(match)
+        long generation) => !_disposed && _settings is { IsEnabled: true, ContinuousObservationEnabled: true }
+        && IsCurrentMatchOperation(match)
         && _gameMapToggleState.IsCurrent(toggle)
         && generation == Volatile.Read(ref _observationGeneration);
 
@@ -95,10 +123,6 @@ public sealed partial class SessionOrchestrator
         {
             _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Error,
                 "持续观察已停止", details: new() { ["exception"] = ex.ToString() });
-            if (IsMapObservationCurrent(match, toggle, generation))
-            {
-                ShowMapObservationStatus("观察暂时中断", "下次开图将重试，也可手动扫描。");
-            }
         }
         finally
         {
@@ -117,8 +141,6 @@ public sealed partial class SessionOrchestrator
             () => IsMapObservationCurrent(match, toggle, generation));
         using var suppressDiagnostics = MapDiagnosticModeCapture.Suppress();
         var acquired = false;
-        var feedbackPublished = false;
-        var feedback = "未取得稳定地图画面，等待下一次观察。";
         try
         {
             acquired = await _scanGate.WaitAsync(Math.Max(0, execution.RemainingMilliseconds - 60), pass.Token);
@@ -155,7 +177,6 @@ public sealed partial class SessionOrchestrator
             if (frame is not null && execution.CatalogRevision is { } revision
                 && _observationFrameCache.Matches(frame, revision, mode))
             {
-                feedback = "可见结构未变化，等待新的地图信息。";
                 return;
             }
             _observationFrameCache.Reset();
@@ -165,8 +186,6 @@ public sealed partial class SessionOrchestrator
 
             var result = CreateObservationRecognitionState();
             await Task.Run(() => RunInitialSideEntranceRecognition(frame, result), pass.Token);
-            feedback = string.IsNullOrWhiteSpace(result.FailureReason)
-                ? "地图尚未确定，等待新的可见结构。" : result.FailureReason;
             if (!IsMapObservationCurrent(match, toggle, generation) || execution.Expired) return;
             if (!IsCurrentCaptureTarget(frame))
             {
@@ -181,7 +200,6 @@ public sealed partial class SessionOrchestrator
             else
             {
                 PublishMapObservation(result, frame, match, pass.Token);
-                feedbackPublished = true;
             }
         }
         catch (TimeoutException) { }
@@ -189,26 +207,8 @@ public sealed partial class SessionOrchestrator
         finally
         {
             if (acquired) _scanGate.Release();
-            var expired = execution.Expired;
             FinishScanExecution(execution);
-            // Feedback belongs to the observation lifecycle, not a successful
-            // recognition result. Timeout must remain visible without publishing
-            // an expired map/transform or reviving a closed/manual scan session.
-            if (!feedbackPublished && !token.IsCancellationRequested
-                && CanObserveMap && IsMapObservationCurrent(match, toggle, generation))
-                ShowMapObservationStatus("地图尚未确定", expired
-                    ? "本轮观察超时，稍后重试；也可手动扫描。" : feedback);
         }
-    }
-
-    private void ShowMapObservationStatus(string title, string message)
-    {
-        _statusMessage = message;
-        if (_captureSvc.TryGetForegroundClientBounds(out var bounds, out var window, out _)
-            && bounds is MapScreenRect client && window is IntPtr handle)
-            _overlayStatus.Show(new MapOverlayStatus(MapOverlayStatusLevel.Scanning, title, message),
-                client, handle, _settings!.ShowOverlayStatus, transient: false);
-        StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private IDisposable SuspendMapObservationCapture(NormalizedRectangle viewport, Func<bool> isCurrent)
@@ -271,10 +271,6 @@ public sealed partial class SessionOrchestrator
             && scan.Candidates.All(c => c.IdentityEvidence.State != ScanIdentityState.Unverified))
             _observationFrameCache.Remember(frame, execution.CatalogRevision, execution.Policy.Mode);
         if (usable) RefreshMiniMapForCurrentFloor();
-        _statusMessage = usable ? $"暂显 {preview!.Map.DisplayName} · 正在确认"
-            : _provisionalRecognition is not null ? "保留暂显资源 · 等待新的可见结构" : "正在观察，等待可见结构";
-        _overlayStatus.Show(new MapOverlayStatus(MapOverlayStatusLevel.Scanning,
-            "正在确认地图", _statusMessage), frame.ClientBounds, frame.WindowHandle, _settings!.ShowOverlayStatus, transient: false);
         _overlay.Show();
         _logCollector.Append(MapLogCategory.Overlay, MapLogLevel.Info,
             $"暂显发布 · action={(usable ? "replace" : "retain")} · hasMap={_overlay.HasMap}",

@@ -5,9 +5,8 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapGlobalInputService
 {
-    private static bool IsMarkedInjectedMouse(IntPtr lParam)
+    private static bool IsMarkedInjectedMouse(MsLlHookStruct mouse)
     {
-        var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
         return (mouse.Flags & 0x00000001) != 0
             && mouse.ExtraInfo == new IntPtr(InputInjectionMarkers.HostGeneratedInput);
     }

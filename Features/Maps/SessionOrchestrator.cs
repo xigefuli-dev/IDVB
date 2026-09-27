@@ -205,7 +205,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             _input.GameMapToggleInvoked += (_, _) =>
                 StartInputOperation("game-map-toggle", HandleGameMapToggleAsync);
             _input.ControlPanelToggleInvoked += (_, _) =>
-                RunInputAction("control-panel-toggle", ToggleControlPanel);
+                ToggleControlPanel();
             _input.SwitchFloorInvoked += (_, _) =>
                 RunInputAction("switch-floor", HandleSwitchFloorSafely);
             _input.SaveMapCacheInvoked += (_, _) =>
@@ -355,7 +355,13 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                         _recognition.SideEntranceReadyMapCount
                 });
 
-            ApplyBindings();
+            try { await SetEnabledAsync(_settings.IsEnabled); }
+            catch (Exception exception)
+            {
+                // Startup remains usable, but SetEnabledAsync has disabled and
+                // persisted the failed runtime and surfaced its error status.
+                LogInputHandlerOutcome("runtime-initialize", "handler-failed", exception);
+            }
             ApplyDisplaySettingsToOverlay();
 
             _initialized = true;

@@ -88,17 +88,22 @@ public sealed class MapViewportStabilityTracker : IDisposable
 
     public void Dispose() => Reset();
 
-    private static void MaskSaturatedDynamicPixels(
+    internal static void MaskSaturatedDynamicPixels(
         Mat source,
         Mat normalizedGray)
     {
         if (source.Channels() < 3)
             return;
+        // The mask is ultimately sampled with nearest-neighbor interpolation.
+        // Sample the same source pixels first: HSV and thresholds are pixel-local,
+        // so this preserves the mask exactly without full-resolution intermediates.
+        using var sampled = new Mat();
+        Cv2.Resize(source, sampled, normalizedGray.Size(), interpolation: InterpolationFlags.Nearest);
         using var bgr = new Mat();
         if (source.Channels() == 4)
-            Cv2.CvtColor(source, bgr, ColorConversionCodes.BGRA2BGR);
+            Cv2.CvtColor(sampled, bgr, ColorConversionCodes.BGRA2BGR);
         else
-            source.CopyTo(bgr);
+            sampled.CopyTo(bgr);
         using var hsv = new Mat();
         Cv2.CvtColor(bgr, hsv, ColorConversionCodes.BGR2HSV);
         var channels = Cv2.Split(hsv);

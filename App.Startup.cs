@@ -257,6 +257,10 @@ public partial class App
         WriteStartupTrace("Main page ready.");
     }
 
+    private static readonly string StartupLogPath = Path.Combine(
+        AppDataPaths.RootDirectory, "Logs",
+        $"startup-main-{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}-{Environment.ProcessId}.log");
+
     private static void WriteStartupTrace(string message, Exception? exception = null)
     {
         var detail = StartupTimeline.Write(message, exception);
@@ -267,9 +271,7 @@ public partial class App
             var text = $"{DateTimeOffset.Now:O} {detail}";
             if (exception is not null)
                 text += Environment.NewLine + exception;
-            File.AppendAllText(
-                Path.Combine(logDirectory, "startup.log"),
-                text + Environment.NewLine,
+            File.AppendAllText(StartupLogPath, text + Environment.NewLine,
                 System.Text.Encoding.UTF8);
         }
         catch

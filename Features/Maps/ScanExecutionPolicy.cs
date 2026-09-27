@@ -61,6 +61,7 @@ internal sealed class ScanExecutionContext : IDisposable
     private readonly Func<bool>? _isCurrent;
     private double? _completedMilliseconds;
     private bool _disposed;
+    private (ScanStructureIndex Index, MapScreenRect Viewport)? _alignmentIdentity;
     public static ScanExecutionContext? Current => Ambient.Value;
     public ScanExecutionPolicy Policy { get; }
     public CancellationToken CancellationToken => _cancellation;
@@ -110,6 +111,31 @@ internal sealed class ScanExecutionContext : IDisposable
     public void CompleteAutomaticPhase()
     {
         _completedMilliseconds ??= Stopwatch.GetElapsedTime(_started).TotalMilliseconds;
+    }
+    public IDisposable ConstrainAlignment(ScanStructureIndex index, MapScreenRect viewport)
+    {
+        var previous = _alignmentIdentity;
+        _alignmentIdentity = (index, viewport);
+        return new RestoreAlignmentIdentity(this, previous);
+    }
+    public bool AllowsAlignmentCandidate(MapStructureCandidate candidate, MapStructureRegistrationRequest request)
+    {
+        // Computation-space registration proposes poses. Only source-resolution
+        // acceptance may consume this source frame's identity evidence.
+        if (_alignmentIdentity is not { } identity || Frame is null
+            || request.ViewportBounds != identity.Viewport) return true;
+        if (request.PreparedReference is not { } reference) return false;
+        var transform = MapStructureValidator.BuildTransform(candidate, request, reference);
+        return ScanIdentityVerifier.Verify(Frame, identity.Index, transform, identity.Viewport, this).State
+            == ScanIdentityState.Supported;
+    }
+    public bool HasAlignmentConstraint(MapStructureRegistrationRequest request) =>
+        _alignmentIdentity is { } identity && Frame is not null
+        && request.ViewportBounds == identity.Viewport;
+    private sealed class RestoreAlignmentIdentity(ScanExecutionContext context,
+        (ScanStructureIndex Index, MapScreenRect Viewport)? previous) : IDisposable
+    {
+        public void Dispose() => context._alignmentIdentity = previous;
     }
     public void Dispose()
     {

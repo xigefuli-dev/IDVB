@@ -12,19 +12,21 @@ public sealed class ScanObservationTests
         using var frame = new CapturedGameFrame(new Mat(20, 20, MatType.CV_8UC3, Scalar.Black),
             bounds, bounds, new IntPtr(1));
         using var cache = new ScanObservationFrameCache();
-        cache.Remember(frame);
-        Assert.True(cache.Matches(frame));
+        cache.Remember(frame, "catalog-1", ScanPerformanceMode.Balanced);
+        Assert.True(cache.Matches(frame, "catalog-1", ScanPerformanceMode.Balanced));
+        Assert.False(cache.Matches(frame, "catalog-2", ScanPerformanceMode.Balanced));
+        Assert.False(cache.Matches(frame, "catalog-1", ScanPerformanceMode.Quality));
         using var changed = new CapturedGameFrame(frame.Image.Clone(), bounds, bounds, new IntPtr(1));
         changed.Image.Set(10, 10, new Vec3b(0, 0, 1));
-        Assert.False(cache.Matches(changed));
+        Assert.False(cache.Matches(changed, "catalog-1", ScanPerformanceMode.Balanced));
         using var moved = new CapturedGameFrame(frame.Image.Clone(), bounds with { X = 101 }, bounds, new IntPtr(1));
-        Assert.False(cache.Matches(moved));
+        Assert.False(cache.Matches(moved, "catalog-1", ScanPerformanceMode.Balanced));
         using var cropped = new CapturedGameFrame(frame.Image.Clone(), bounds, bounds with { Width = 799 }, new IntPtr(1));
-        Assert.False(cache.Matches(cropped));
+        Assert.False(cache.Matches(cropped, "catalog-1", ScanPerformanceMode.Balanced));
         using var otherWindow = new CapturedGameFrame(frame.Image.Clone(), bounds, bounds, new IntPtr(2));
-        Assert.False(cache.Matches(otherWindow));
+        Assert.False(cache.Matches(otherWindow, "catalog-1", ScanPerformanceMode.Balanced));
         cache.Reset();
-        Assert.False(cache.Matches(frame));
+        Assert.False(cache.Matches(frame, "catalog-1", ScanPerformanceMode.Balanced));
     }
 
     [Fact]

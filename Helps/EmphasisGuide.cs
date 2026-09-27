@@ -12,9 +12,10 @@ namespace IDVBuff.Helps;
 /// Full-page, modal onboarding guide.  Each step shades the application,
 /// optionally outlines a target, and presents an explanation above the shade.
 /// </summary>
-public sealed class EmphasisGuide : IDisposable
+public sealed partial class EmphasisGuide : IDisposable
 {
     private const int DefaultNextDelaySeconds = 3;
+    private const int FailedChecksBeforeSkipPrompt = 5;
     private readonly Panel _host;
     private readonly Grid _overlay = new();
     private readonly Canvas _filterLayer = new();
@@ -115,6 +116,7 @@ public sealed class EmphasisGuide : IDisposable
             MinHeight = 36
         };
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var consecutiveFailedChecks = 0;
         var checkMessage = new TextBlock
         {
             Foreground = FluentTheme.Brush("SystemFillColorCriticalBrush"),
@@ -194,6 +196,7 @@ public sealed class EmphasisGuide : IDisposable
                 var result = await step.CheckAsync(cancellationToken);
                 if (result.IsPassed)
                 {
+                    consecutiveFailedChecks = 0;
                     completion.TrySetResult();
                     return;
                 }
@@ -202,6 +205,16 @@ public sealed class EmphasisGuide : IDisposable
                     ? "尚未完成，请按提示重新操作后再次检查。"
                     : result.Message;
                 checkMessage.Visibility = Visibility.Visible;
+                consecutiveFailedChecks++;
+                if (consecutiveFailedChecks >= FailedChecksBeforeSkipPrompt)
+                {
+                    consecutiveFailedChecks = 0;
+                    if (await ConfirmSkipAfterFailedChecksAsync(step, checkMessage.Text))
+                    {
+                        completion.TrySetResult();
+                        return;
+                    }
+                }
                 button.Content = "检查";
                 button.IsEnabled = true;
             }

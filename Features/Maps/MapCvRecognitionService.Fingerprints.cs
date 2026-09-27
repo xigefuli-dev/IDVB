@@ -211,6 +211,16 @@ public sealed partial class MapCvRecognitionService
             incompleteScan.RetrievalCompleted = false;
         progress?.Invoke(0.12d);
 
+        if (ScanExecutionContext.Current is { CanCompute: false } cancelledScan)
+        {
+            cancelledScan.RetrievalCompleted = false;
+            return new SideEntranceScanResult
+            {
+                GateDetection = gateResult,
+                FailureReason = "扫描已取消或超过时间预算。"
+            };
+        }
+
         if (gateResult.Gates.Count == 0)
         {
             return new SideEntranceScanResult

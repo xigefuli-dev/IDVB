@@ -15,12 +15,12 @@ public sealed class MapObservationPresentationTests
         using var cache = new ScanObservationFrameCache();
         var first = Recognition("1f");
         display.Publish(overlay, first, frame, true);
-        cache.Remember(frame);
+        cache.Remember(frame, "catalog-1", ScanPerformanceMode.Balanced);
 
         for (var i = 1; i <= 20; i++)
         {
             frame.Image.Set(5, 5, new Vec3b(0, 0, (byte)i));
-            Assert.False(cache.Matches(frame));
+            Assert.False(cache.Matches(frame, "catalog-1", ScanPerformanceMode.Balanced));
             using (MapObservationPresentation.SuspendForCapture(overlay, () => true))
             {
                 Assert.False(overlay.IsVisible);
@@ -130,6 +130,15 @@ public sealed class MapObservationPresentationTests
         Assert.Equal(2, overlay.ShowCount);
     }
 
+    [Fact]
+    public void CaptureExcludedOverlayStaysVisibleWithoutRepainting()
+    {
+        var overlay = new RecordingOverlay { IsCaptureExclusionEnabled = true };
+        using (MapObservationPresentation.SuspendForCapture(overlay, () => true))
+            Assert.True(overlay.IsVisible);
+        Assert.Equal(0, overlay.ShowCount);
+    }
+
     private static CapturedGameFrame Frame() => new(
         new Mat(20, 20, MatType.CV_8UC3, Scalar.Black),
         new MapScreenRect(100, 100, 800, 600), new MapScreenRect(200, 200, 400, 300), new IntPtr(1));
@@ -149,6 +158,7 @@ public sealed class MapObservationPresentationTests
         public List<object?> PresentedMaps { get; } = [];
         public bool IsVisible { get; private set; } = true;
         public bool HasMap => Map is not null;
+        public bool IsCaptureExclusionEnabled { get; init; }
         public void UpdateMap(object recognition, object gameBounds, IntPtr gameWindowHandle,
             bool showStatusPreference, object? viewportBounds = null, bool preservePlayer = false)
         {

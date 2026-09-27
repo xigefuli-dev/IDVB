@@ -41,6 +41,7 @@
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartStateStore.cs" Link="Production\QuickStart\QuickStartStateStore.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Diagnostics\SavedDiagnosticDataRetention.cs" Link="Production\Diagnostics\SavedDiagnosticDataRetention.cs" />
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
     <Compile Include="..\Features\Plugins\PluginPreferencesStore.cs" Link="Production\Plugins\PluginPreferencesStore.cs" />

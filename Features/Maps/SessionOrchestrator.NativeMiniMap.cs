@@ -27,6 +27,8 @@ public sealed partial class SessionOrchestrator
         long lastGood = 0, lastLog = 0, lastScreenshot = 0, lastFrameTicks = 0;
         string? geometry = null;
         NativeMiniMapHeadingDetector? detector = null;
+        var enhancedEnabled = false;
+        long preferencesChecked = 0;
         void Report(string message, MapLogLevel level = MapLogLevel.Info)
         {
             if (Stopwatch.GetElapsedTime(lastLog).TotalSeconds < 2) return;
@@ -44,16 +46,24 @@ public sealed partial class SessionOrchestrator
                         || _gameMapToggleState.IsOpen)
                     {
                         Report("paused · reason=map_open_or_disabled");
+                        await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
                     if (_activeScanOperations > 0)
                     {
                         Report("paused · reason=scan_active");
+                        await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
-                    if (!Lifecycle.MainProgramPreferences.Load().EnhancedMiniMapEnabled)
+                    if (preferencesChecked == 0 || Stopwatch.GetElapsedTime(preferencesChecked).TotalSeconds >= 1)
+                    {
+                        enhancedEnabled = Lifecycle.MainProgramPreferences.Load().EnhancedMiniMapEnabled;
+                        preferencesChecked = Stopwatch.GetTimestamp();
+                    }
+                    if (!enhancedEnabled)
                     {
                         Report("paused · reason=enhanced_minimap_disabled");
+                        await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
                     var watch = Stopwatch.StartNew();

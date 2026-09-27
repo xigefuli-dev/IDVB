@@ -24,6 +24,11 @@ public sealed partial class MapCvRecognitionService
         double nativeScaleChangeRatio = MapSessionRules.NativeScaleChangeRatio,
         string? mapClass = null)
     {
+        using var identityConstraint = structureTuning?.Mode == MapStructureRegistrationMode.ScanVerification
+            && ScanExecutionContext.Current is { Frame: { } observation } scan
+            && ReferenceEquals(observation.Source, frame.Image)
+            && _sideEntranceFeatureCache.TryGetValue((selectedMapId, session.FloorKey), out var line)
+                ? scan.ConstrainAlignment(ScanStructureIndex.Get(line), frame.ViewportBounds) : null;
         var selectedMap = TryGetMap(selectedMapId);
         if (selectedMap is not null
             && MapFloorRules.GetFloorProfile(selectedMap, session.FloorKey)

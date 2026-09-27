@@ -87,11 +87,14 @@ public sealed partial class SessionOrchestrator
                 _overlay.Hide();
             try
             {
+                _hasCompletedQuickScanAlignment = false;
                 await RunRecognitionPipelineAsync();
-                scanCompleted = backgroundScan
-                    ? IsBackgroundScanCompleted
-                    : _hasCompletedQuickScanAlignment || _gameMapToggleState.IsOpen
-                        && candidateSelector is null && !_settings.SelectMapByTagsEnabled;
+                scanCompleted = !scanCancellation.IsCancellationRequested
+                    && IsCurrentMatchOperation(operationMatch)
+                    && (backgroundScan
+                    ? _backgroundScanStatus == BackgroundScanStatus.CompletedIdentified
+                    : _hasCompletedQuickScanAlignment
+                        && _lastRecognition?.Result.OverlayTransform is not null);
             }
             finally
             {
@@ -118,10 +121,7 @@ public sealed partial class SessionOrchestrator
             }
             finally
             {
-                var continueObserving = !scanCancellation.IsCancellationRequested && !scanExecution.IsSuperseded
-                    && candidateSelector is null;
                 CompleteQuickScanCancellationScope(scanScope);
-                if (continueObserving) StartMapObservation(delayFirstPass: true);
             }
         }
     }

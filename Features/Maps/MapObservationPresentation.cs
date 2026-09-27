@@ -60,7 +60,7 @@ internal sealed class MapObservationPresentation
         public CaptureLease(IOverlayWindow overlay, Func<bool> canRestore)
         {
             _canRestore = canRestore;
-            if (!overlay.IsVisible) return;
+            if (!overlay.IsVisible || overlay.IsCaptureExclusionEnabled) return;
             _overlay = overlay;
             // GDI captures the desktop, including our own map if it remains visible.
             overlay.Hide();

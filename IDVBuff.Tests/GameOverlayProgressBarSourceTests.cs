@@ -19,6 +19,47 @@ public sealed class GameOverlayProgressBarSourceTests
         Assert.Contains("_scanProgressOverlay.Fail(", operations);
     }
 
+    [Fact]
+    public void ManualScanCannotBecomeObservationOrSucceedFromAnOpenMap()
+    {
+        var root = FindRepositoryRoot();
+        string Read(string name) => File.ReadAllText(Path.Combine(root, "Features", "Maps", name));
+        var quick = Read("SessionOrchestrator.QuickScan.cs");
+        var pipeline = Read("SessionOrchestrator.Pipeline.Recognition.Part1.cs");
+        var lifecycle = Read("SessionOrchestrator.MatchLifecycle.cs");
+        Assert.DoesNotContain("StartMapObservation", quick);
+        Assert.DoesNotContain("CreateObservationRecognitionState", pipeline);
+        Assert.DoesNotContain("PublishMapObservation", pipeline);
+        Assert.DoesNotContain("_hasCompletedQuickScanAlignment ||", quick);
+        Assert.Contains("BackgroundScanStatus.CompletedIdentified", quick);
+        Assert.Contains("_hasCompletedQuickScanAlignment = false;", lifecycle);
+        Assert.Contains("ResolveCandidateSelectionAsync", pipeline);
+    }
+
+    [Fact]
+    public void DisabledHeadingDoesNotStartUnconditionalCaptureOrReadSettingsEveryFrame()
+    {
+        var root = FindRepositoryRoot();
+        var lifecycle = File.ReadAllText(Path.Combine(root, "Features", "Maps", "SessionOrchestrator.MatchLifecycle.cs"));
+        var heading = File.ReadAllText(Path.Combine(root, "Features", "Maps", "SessionOrchestrator.NativeMiniMap.cs"));
+        Assert.DoesNotContain("_captureSvc.PrepareViewportCapture()", lifecycle);
+        Assert.Contains("Stopwatch.GetElapsedTime(preferencesChecked).TotalSeconds >= 1", heading);
+        Assert.Contains("Task.Delay(1000, cancellationToken)", heading);
+    }
+
+    [Fact]
+    public void ObservationFeedbackDoesNotDependOnCompletedRecognition()
+    {
+        var path = Path.Combine(FindRepositoryRoot(), "Features", "Maps", "SessionOrchestrator.Observation.cs");
+        var source = File.ReadAllText(path);
+        var start = source[source.IndexOf("private void StartMapObservation", StringComparison.Ordinal)..
+            source.IndexOf("private bool IsMapObservationCurrent", StringComparison.Ordinal)];
+        Assert.Contains("ShowMapObservationStatus", start);
+        Assert.Contains("本轮观察超时", source);
+        Assert.Contains("!token.IsCancellationRequested", source);
+        Assert.Contains("_observationNextAttemptAt - Environment.TickCount64", source);
+    }
+
     private static string FindRepositoryRoot()
     {
         for (var current = new DirectoryInfo(AppContext.BaseDirectory);

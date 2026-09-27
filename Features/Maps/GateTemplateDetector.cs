@@ -14,7 +14,6 @@ public sealed partial class GateTemplateDetector : IDisposable
     private readonly IConfigProvider? _configProvider;
     private double? _warmScale;
     private bool _disposed;
-
     public GateTemplateDetector(string gatePath)
     {
         using var gate = Cv2.ImRead(gatePath, ImreadModes.Unchanged);
@@ -130,8 +129,9 @@ public sealed partial class GateTemplateDetector : IDisposable
 
                 foreach (var scale in scales)
                 {
-                    if (timeBudget.HasValue
-                        && detectTimer.Elapsed.TotalMilliseconds >= timeBudget.Value)
+                    if (ScanExecutionContext.Current is { CanCompute: false }
+                        || (timeBudget.HasValue
+                            && detectTimer.Elapsed.TotalMilliseconds >= timeBudget.Value))
                     {
                         budgetExceeded = true;
                         stopReason = GateSearchStopReason.BudgetExceeded;
@@ -199,8 +199,9 @@ public sealed partial class GateTemplateDetector : IDisposable
 
             foreach (var scale in scales)
             {
-                if (timeBudget.HasValue
-                    && detectTimer.Elapsed.TotalMilliseconds >= timeBudget.Value)
+                if (ScanExecutionContext.Current is { CanCompute: false }
+                    || (timeBudget.HasValue
+                        && detectTimer.Elapsed.TotalMilliseconds >= timeBudget.Value))
                 {
                     budgetExceeded = true;
                     stopReason = GateSearchStopReason.BudgetExceeded;
@@ -336,8 +337,6 @@ public sealed partial class GateTemplateDetector : IDisposable
     }
 
     public void ResetSuccessfulScale() => _warmScale = null;
-
-    // ── Scale lists per mode ──────────────────────────────────────────────
 
     private IReadOnlyList<double> GetScalesForMode(
         GateSearchContext context, double clientWidth)

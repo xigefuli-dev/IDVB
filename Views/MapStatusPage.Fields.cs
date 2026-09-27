@@ -10,8 +10,6 @@ namespace IDVBuff.Views;
 
 public sealed partial class MapStatusPage : UserControl
 {
-    /// <summary>Advances only after a map-display calibration is written successfully.</summary>
-    public long MapViewportCalibrationCompletedCount { get; private set; }
     private sealed class SliderSaveState
     {
         public CancellationTokenSource? Cancellation { get; set; }

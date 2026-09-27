@@ -3,11 +3,11 @@ namespace IDVBuff.Updater;
 internal static class UpdateLog
 {
     private static readonly object Sync = new();
-    private static readonly string LogPath = Path.Combine(
+    private static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "IDVB",
         "Logs",
-        "updater.log");
+        $"updater-{DateTime.UtcNow:yyyyMMdd}.log");
 
     public static string FilePath => LogPath;
 

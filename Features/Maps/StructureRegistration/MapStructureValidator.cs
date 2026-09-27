@@ -58,6 +58,9 @@ internal static partial class MapStructureValidator
             return MapStructureRejectionReason.InconsistentStructure;
         if (margin < requiredMargin)
             return MapStructureRejectionReason.AmbiguousCandidates;
+        if (request is not null && ScanExecutionContext.Current is { } scan
+            && !scan.AllowsAlignmentCandidate(best, request))
+            return MapStructureRejectionReason.InconsistentStructure;
         return MapStructureRejectionReason.None;
     }
 

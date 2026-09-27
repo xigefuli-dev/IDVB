@@ -154,7 +154,6 @@ public sealed partial class MainPage
 
     private async Task ShowPreMatchVideoGuidesAsync(MapStatusPage statusPage)
     {
-        var calibrationCountBeforeGuide = statusPage.MapViewportCalibrationCompletedCount;
         var calibrationVideoOpened = false;
         var startMatchVideoOpened = false;
         var inGameVideoOpened = false;
@@ -164,11 +163,9 @@ public sealed partial class MainPage
         [
             new EmphasisGuideStep(
                 "校准显示区域",
-                "请点击“校准地图区域”，按照视频教程完成一次完整地图画布的框选。完成校准后，点击“观看视频教程”，再点击检查。",
+                "请点击“校准地图区域”，完成一次完整地图画布的框选；如果已经校准并保存，可以直接继续。点击“观看视频教程”后，再点击检查。",
                 statusPage.GetMapViewportCalibrationControl(),
                 CheckAsync: _ => RequireCalibrationAndVideoAsync(
-                    statusPage,
-                    calibrationCountBeforeGuide,
                     calibrationVideoOpened),
                 EnterAsync: _ => BringCalibrationControlIntoViewAsync(statusPage),
                 TutorialVideoUri: TutorialVideoUri("vid1.mp4"),
@@ -243,16 +240,14 @@ public sealed partial class MainPage
             : EmphasisGuideCheckResult.TryAgain("请先点击“观看视频教程”并打开教程，再点击检查。"));
 
     private static Task<EmphasisGuideCheckResult> RequireCalibrationAndVideoAsync(
-        MapStatusPage page,
-        long calibrationCountBeforeGuide,
         bool videoWasOpened)
     {
         if (!videoWasOpened)
             return Task.FromResult(EmphasisGuideCheckResult.TryAgain("请先点击“观看视频教程”并打开教程。"));
 
-        return Task.FromResult(page.MapViewportCalibrationCompletedCount > calibrationCountBeforeGuide
+        return Task.FromResult(App.Session.Settings.IsMapViewportCalibrated
             ? EmphasisGuideCheckResult.Passed
-            : EmphasisGuideCheckResult.TryAgain("请在本次引导中完成一次“校准地图区域”后再检查。"));
+            : EmphasisGuideCheckResult.TryAgain("请先完成并保存“校准地图区域”，再点击检查。"));
     }
 
     private static async Task BringCalibrationControlIntoViewAsync(MapStatusPage page)

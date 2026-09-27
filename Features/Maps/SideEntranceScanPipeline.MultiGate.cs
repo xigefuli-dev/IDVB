@@ -11,6 +11,11 @@ public sealed partial class SideEntranceScanPipeline
     {
         if (capturedFrame.Empty() || candidates.Count == 0 || detectedGates.Count == 0) return [];
         var context = ScanExecutionContext.Current;
+        if (context is { CanCompute: false })
+        {
+            context.RetrievalCompleted = false;
+            return [];
+        }
         var policy = context?.Policy ?? ScanExecutionPolicy.For(ScanPerformanceMode.Balanced);
         var viewport = viewportBounds ?? new MapScreenRect(0, 0, capturedFrame.Width, capturedFrame.Height);
         // Authored anchor boxes can be larger than the detected icon. Freeze the union envelope

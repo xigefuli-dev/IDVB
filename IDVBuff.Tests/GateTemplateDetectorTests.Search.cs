@@ -8,6 +8,25 @@ namespace IDVBuff.Tests;
 public sealed partial class GateTemplateDetectorTests
 {
     [Fact]
+    public void CancelledObservationDoesNotStartAnyGateMatching()
+    {
+        using var detector = new GateTemplateDetector(Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png"));
+        using var image = BuildEmptyFrame();
+        using var gray = GateTemplateDetector.CreateMatchImage(image);
+        using var cancellation = new CancellationTokenSource();
+        using var scan = ScanExecutionContext.Enter(ScanPerformanceMode.Balanced, cancellation.Token);
+        cancellation.Cancel();
+        foreach (var mode in new[] { GateSearchMode.FullSearch, GateSearchMode.LocalConfirmationSearch })
+        {
+            var result = detector.Detect(gray, new MapScreenRect(0, 0, image.Width, image.Height),
+                BaselineClientWidth, .72, new GateSearchContext { Mode = mode,
+                    PredictedGateRegions = [new MapScreenRect(50, 50, 30, 30)], PredictedScale = .3 });
+            Assert.Equal(0, result.MatchTemplateCalls);
+            Assert.True(result.BudgetExceeded);
+        }
+    }
+
+    [Fact]
     public void ColdStartNoGateUsesFullSearch()
     {
         var gatePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png");

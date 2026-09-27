@@ -39,6 +39,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
     private Task? _worker;
     private Task? _cleanupTask;
     private string? _sessionDirectory;
+    private static string? _activeSessionDirectory;
     private long _recordCount;
     private bool _disposed;
     private readonly TimeSpan _retention;
@@ -67,13 +68,14 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
         RootDirectory = Path.GetFullPath(rootDirectory ?? Path.Combine(
             global::IDVBuff.AppDataPaths.RootDirectory,
             "AlignmentResearch"));
-        _retention = retention ?? TimeSpan.FromDays(30);
+        _retention = retention ?? TimeSpan.FromDays(7);
         _maximumBytes = Math.Max(1L, maximumBytes);
     }
 
     public bool IsEnabled => Volatile.Read(ref _channel) is not null;
     public long RecordCount => Interlocked.Read(ref _recordCount);
     public string? CurrentSessionDirectory => _sessionDirectory;
+    internal static string? ActiveSessionDirectory => Volatile.Read(ref _activeSessionDirectory);
     public Task? CleanupTask => Volatile.Read(ref _cleanupTask);
 
     public async Task WaitForCleanupAsync()
@@ -105,6 +107,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
                     sessionsRoot,
                     $"{DateTime.UtcNow:yyyy-MM-dd_HHmmss}--{Guid.NewGuid().ToString("N")[..8]}");
                 Directory.CreateDirectory(_sessionDirectory);
+                Volatile.Write(ref _activeSessionDirectory, _sessionDirectory);
                 _channel = Channel.CreateUnbounded<WriteRequest>(
                     new UnboundedChannelOptions
                     {
@@ -142,6 +145,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
             try { await workerToWait.WaitAsync(TimeSpan.FromSeconds(5)); }
             catch (Exception ex) { Warn(ex); }
         }
+        Interlocked.CompareExchange(ref _activeSessionDirectory, null, _sessionDirectory);
     }
 
     /// <summary>

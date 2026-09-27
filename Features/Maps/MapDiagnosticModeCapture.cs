@@ -23,6 +23,11 @@ internal static class MapDiagnosticModeCapture
         get { lock (Gate) return _matchDirectory is not null; }
     }
 
+    internal static string? ActiveMatchDirectory
+    {
+        get { lock (Gate) return _matchDirectory; }
+    }
+
     internal static void BeginMatch()
     {
         lock (Gate)

@@ -8,7 +8,8 @@ public sealed partial class MapCvRecognitionService
     private GateDetectionResult DetectScanGates(Mat image, MapScreenRect viewport, double clientWidth,
         double threshold, GateSearchContext search)
     {
-        if (ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.Fast)
+        if (ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.Fast
+            && Math.Max(image.Width, image.Height) <= 960)
             return _gateDetector.Detect(image, viewport, clientWidth, threshold, search);
 
         // Search the complete view and scale band at half resolution, then confirm every
@@ -24,7 +25,8 @@ public sealed partial class MapCvRecognitionService
         var complete = !coarse.BudgetExceeded;
         foreach (var gate in coarse.Gates)
         {
-            var left = ScanExecutionContext.Current!.RemainingMilliseconds - 60;
+            var left = ScanExecutionContext.Current is { IsAutomatic: true } execution
+                ? execution.RemainingMilliseconds - 60 : int.MaxValue;
             if (left <= 0) { complete = false; break; }
             var exact = _gateDetector.Detect(image, viewport, clientWidth, threshold,
                 new GateSearchContext

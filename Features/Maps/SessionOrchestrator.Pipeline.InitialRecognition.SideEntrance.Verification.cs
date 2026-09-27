@@ -42,14 +42,24 @@ public sealed partial class SessionOrchestrator
             ScanIdentityEvidence? bestEvidence = null;
             MapAlignmentSession? bestSeed = null;
             MapRecognitionAttempt? bestAttempt = null;
-            foreach (var hypothesis in hypotheses)
+            foreach (var proposal in hypotheses)
             {
+                var hypothesis = proposal;
                 if (!context.CanCompute) { complete = false; break; }
                 if (hypothesis.StructureIndex is not { } index
                     || !_recognition.TryCreateSideEntranceAlignmentSeed(hypothesis, frame.ViewportBounds, out var seed, out _))
                 { complete = false; continue; }
                 var evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, seed.LockedTransform, frame.ViewportBounds, context);
                 hypothesis.IdentityEvidence = evidence;
+                if (evidence.State == ScanIdentityState.Excluded && evidence.SupportedFraction >= .80
+                    && SideEntranceScanPipeline.RefineIdentityPose(hypothesis, evidenceFrame, frame.ViewportBounds, context) is { } refined
+                    && _recognition.TryCreateSideEntranceAlignmentSeed(refined, frame.ViewportBounds, out var refinedSeed, out _))
+                {
+                    hypothesis = refined;
+                    seed = refinedSeed;
+                    evidence = refined.IdentityEvidence;
+                    candidate.SearchHypotheses = hypotheses.Append(refined).ToArray();
+                }
                 if (ReferenceEquals(hypothesis, hypotheses[0])) candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
                 if (evidence.State != ScanIdentityState.Supported) continue;

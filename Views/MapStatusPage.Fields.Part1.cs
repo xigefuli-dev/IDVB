@@ -37,6 +37,7 @@ public sealed partial class MapStatusPage : UserControl
     private readonly Button _scanButton = CreateActionButton("3 秒后扫描");
     private readonly Button _manualButton = CreateActionButton("3 秒后手动识别");
     private readonly TextBlock _restMapDisplayBinding = CreateMutedText();
+    private readonly TextBlock _matchStateToggleBinding = CreateMutedText();
     private Grid? _root;
     private MapRuntimeBindingTarget? _recording;
     private readonly HashSet<uint> _recordingHeldKeys = [];

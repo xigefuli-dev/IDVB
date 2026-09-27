@@ -1,6 +1,7 @@
 // IDVB Remaster — Session Orchestrator（新架构唯一入口）
 using IDVBuff.Core.Contracts;
 using IDVBuff.Core.Models;
+using IDVBuff.Features.Notifications;
 using IDVBuff.Pipeline;
 using Microsoft.UI.Dispatching;
 using OpenCvSharp;
@@ -326,6 +327,48 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         return _controlPanel.IsVisible
             ? "handler-completed:shown"
             : "handler-rejected:panel-not-visible";
+    }
+
+    public async Task ToggleMatchStateAsync()
+    {
+        if (_disposed || !_settings!.IsEnabled || _manualSelectionActive) return;
+        if (_captureSvc.TryGetForegroundClientBounds(out var clientBoundsObj, out _, out _) &&
+            clientBoundsObj is MapScreenRect gameBounds)
+        {
+            OverlayNotificationCenter.UpdateGameBounds(gameBounds);
+        }
+        if (_matchSession.Snapshot.IsStarted)
+        {
+            if (_controlPanel?.IsVisible == true)
+                _controlPanel.Hide();
+            await EndMatchAsync(saveAutomaticMapCache: false);
+            if (!_headless)
+            {
+                OverlayNotificationCenter.Warning("已结束对局");
+            }
+        }
+        else
+        {
+            if (_controlPanel?.IsVisible == true)
+                _controlPanel.Hide();
+            var classes = await GetMapClassesAsync();
+            var mapClass = MapRuntimeSettingsRules.ResolveMapClass(classes, _settings.LastSelectedMapClass);
+            if (string.IsNullOrWhiteSpace(mapClass))
+            {
+                _statusMessage = "地图库中还没有可用的地图模式。";
+                StateChanged?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            if (!string.Equals(_settings.LastSelectedMapClass, mapClass, StringComparison.Ordinal))
+            {
+                await SetLastSelectedMapClassAsync(mapClass);
+            }
+            await BeginMatchAsync(mapClass);
+            if (!_headless)
+            {
+                OverlayNotificationCenter.Notice(!string.IsNullOrWhiteSpace(mapClass) ? $"已进入对局 · {mapClass}" : "已进入对局");
+            }
+        }
     }
 
     public bool TryCaptureCalibrationFrame(

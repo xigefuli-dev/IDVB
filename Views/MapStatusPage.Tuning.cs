@@ -50,6 +50,16 @@ public sealed partial class MapStatusPage : UserControl
     private void RefreshCore()
     {
         _refreshing = true;
+        var developerVisibility = IDVBuff.Lifecycle.MainProgramPreferences.Load().DeveloperMode
+            ? Visibility.Visible : Visibility.Collapsed;
+        _selectMapByTagsToggle.Visibility = developerVisibility;
+        _disableAutoFloorToggle.Visibility = developerVisibility;
+        foreach (var target in new[] { MapRuntimeBindingTarget.SwitchFloor,
+                     MapRuntimeBindingTarget.SaveMapCache, MapRuntimeBindingTarget.RestMapDisplay })
+        {
+            if (_bindingRows.TryGetValue(target, out var row))
+                row.Visibility = developerVisibility;
+        }
         _enabledToggle.IsOn = _runtime.Settings.IsEnabled;
         _continuousObservationToggle.IsOn = _runtime.Settings.ContinuousObservationEnabled;
         _continuousObservationToggle.Visibility =
@@ -273,6 +283,8 @@ public sealed partial class MapStatusPage : UserControl
             $"当前：{_runtime.Settings.SaveMapCacheBinding.DisplayName}";
         _restMapDisplayBinding.Text =
             $"当前：{_runtime.Settings.RestMapDisplayBinding.DisplayName}";
+        _matchStateToggleBinding.Text =
+            $"当前：{_runtime.Settings.MatchStateToggleBinding.DisplayName}";
         foreach (var target in _bindingButtons.Keys)
             RefreshBindingButtonAppearance(target);
         _overlayState.Text = _runtime.IsOverlayVisible

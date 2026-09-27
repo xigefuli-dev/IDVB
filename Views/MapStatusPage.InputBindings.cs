@@ -72,6 +72,7 @@ public sealed partial class MapStatusPage
         MapRuntimeBindingTarget.SwitchFloor => _runtime.Settings.SwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _runtime.Settings.SaveMapCacheBinding,
         MapRuntimeBindingTarget.RestMapDisplay => _runtime.Settings.RestMapDisplayBinding,
+        MapRuntimeBindingTarget.MatchStateToggle => _runtime.Settings.MatchStateToggleBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
 

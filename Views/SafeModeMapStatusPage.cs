@@ -38,7 +38,7 @@ public sealed class SafeModeMapStatusPage : UserControl
             {
                 XamlRoot = XamlRoot,
                 Title = "暂时无法开启",
-                Content = "请先关闭安全模式、完成全部按键绑定，并至少添加一张地图。关闭安全模式后需要重新启动 IDVB。",
+                Content = "请先关闭安全模式、完成必需按键绑定，并至少添加一张地图。关闭安全模式后需要重新启动 IDVB。",
                 CloseButtonText = "知道了"
             }.ShowAsync();
         };

@@ -55,7 +55,7 @@ public sealed partial class SessionOrchestrator
         if (App.IsSafeMode)
             missing.Add("关闭安全模式并重新启动 IDVB");
         if (_settings is null || !HasRequiredInputBindings(_settings))
-            missing.Add("完成全部按键绑定");
+            missing.Add("完成游戏地图开关、外置控件层和快捷扫描的按键绑定");
         if (_recognition.TotalMapCount < 1)
             missing.Add("至少添加一张地图");
 
@@ -72,10 +72,7 @@ public sealed partial class SessionOrchestrator
     private static bool HasRequiredInputBindings(MapRuntimeSettings settings) =>
         settings.GameMapToggleBinding.IsConfigured
         && settings.ControlPanelToggleBinding.IsConfigured
-        && settings.QuickScanBinding.IsConfigured
-        && settings.SwitchFloorBinding.IsConfigured
-        && settings.SaveMapCacheBinding.IsConfigured
-        && settings.RestMapDisplayBinding.IsConfigured;
+        && settings.QuickScanBinding.IsConfigured;
 
     public async Task SetOverlayStatusVisibleAsync(bool v) { _settings!.ShowOverlayStatus = true; await SaveSettingsAsync(); _overlay.SetStatusVisible(true); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetReverseAlternateDisplayAsync(bool v) { _settings!.ReverseAlternateDisplay = false; await SaveSettingsAsync(); _overlay.SetReverseAlternateDisplay(false); await SaveOverlayConfigToPresetAsync(); }
@@ -294,6 +291,7 @@ public sealed partial class SessionOrchestrator
             _settings!.TraditionalWindowSwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _settings!.SaveMapCacheBinding,
         MapRuntimeBindingTarget.RestMapDisplay => _settings!.RestMapDisplayBinding,
+        MapRuntimeBindingTarget.MatchStateToggle => _settings!.MatchStateToggleBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
 
@@ -312,6 +310,7 @@ public sealed partial class SessionOrchestrator
                 break;
             case MapRuntimeBindingTarget.SaveMapCache: _settings!.SaveMapCacheBinding = binding; break;
             case MapRuntimeBindingTarget.RestMapDisplay: _settings!.RestMapDisplayBinding = binding; break;
+            case MapRuntimeBindingTarget.MatchStateToggle: _settings!.MatchStateToggleBinding = binding; break;
             default: throw new ArgumentOutOfRangeException(nameof(target), target, null);
         }
     }
@@ -334,7 +333,8 @@ public sealed partial class SessionOrchestrator
                 _settings.ControlPanelToggleBinding,
                 _settings.SwitchFloorBinding,
                 _settings.SaveMapCacheBinding,
-                _settings.RestMapDisplayBinding);
+                _settings.RestMapDisplayBinding,
+                _settings.MatchStateToggleBinding);
     }
 
     /// <summary>将当前显示设置批量推送到叠加层窗口。</summary>

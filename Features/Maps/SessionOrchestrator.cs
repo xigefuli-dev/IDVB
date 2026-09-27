@@ -212,6 +212,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 StartInputOperation("save-map-cache", SaveCurrentMapCacheAsync);
             _input.RestMapDisplayInvoked += (_, _) =>
                 StartInputOperation("rest-map-display", RestMapDisplayAsync);
+            _input.MatchStateToggleInvoked += (_, _) =>
+                StartInputOperation("match-state-toggle", ToggleMatchStateAsync);
         }
     }
 

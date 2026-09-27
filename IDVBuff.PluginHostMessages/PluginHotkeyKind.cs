@@ -14,5 +14,6 @@ public enum PluginHotkeyKind
     SwitchFloor,
     SaveMapCache,
     RestMapDisplay,
-    Alt
+    Alt,
+    MatchStateToggle
 }

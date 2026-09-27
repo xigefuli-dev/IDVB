@@ -10,7 +10,7 @@ public sealed partial class MapRuntimeSettings
         [
             QuickScanBinding, OverlayToggleBinding, ManualRecognitionBinding,
             GameMapToggleBinding, ControlPanelToggleBinding, SwitchFloorBinding,
-            SaveMapCacheBinding, RestMapDisplayBinding
+            SaveMapCacheBinding, RestMapDisplayBinding, MatchStateToggleBinding
         ];
         for (var i = 0; i < bindings.Length; i++)
         {
@@ -69,6 +69,7 @@ public sealed partial class MapRuntimeSettings
         };
         SaveMapCacheBinding ??= new MapInputBinding();
         RestMapDisplayBinding ??= new MapInputBinding();
+        MatchStateToggleBinding ??= new MapInputBinding();
         RecognitionTuning ??= new MapRecognitionTuning();
         StructureRegistrationTuning ??= new MapStructureRegistrationTuning();
         SessionTuning ??= new MapSessionTuning();
@@ -83,6 +84,7 @@ public sealed partial class MapRuntimeSettings
         NormalizeBinding(TraditionalWindowSwitchFloorBinding);
         NormalizeBinding(SaveMapCacheBinding);
         NormalizeBinding(RestMapDisplayBinding);
+        NormalizeBinding(MatchStateToggleBinding);
         if (QuickScanBinding.IsConfigured
             && QuickScanBinding.Equals(OverlayToggleBinding))
         {
@@ -138,6 +140,18 @@ public sealed partial class MapRuntimeSettings
                 || RestMapDisplayBinding.Equals(SaveMapCacheBinding)))
         {
             RestMapDisplayBinding = new MapInputBinding();
+        }
+        if (MatchStateToggleBinding.IsConfigured
+            && (MatchStateToggleBinding.Equals(QuickScanBinding)
+                || MatchStateToggleBinding.Equals(OverlayToggleBinding)
+                || MatchStateToggleBinding.Equals(ManualRecognitionBinding)
+                || MatchStateToggleBinding.Equals(GameMapToggleBinding)
+                || MatchStateToggleBinding.Equals(ControlPanelToggleBinding)
+                || MatchStateToggleBinding.Equals(SwitchFloorBinding)
+                || MatchStateToggleBinding.Equals(SaveMapCacheBinding)
+                || MatchStateToggleBinding.Equals(RestMapDisplayBinding)))
+        {
+            MatchStateToggleBinding = new MapInputBinding();
         }
         RecognitionTuning.Normalize();
         RecognitionTuning.ForceBestRecognitionResult = false;

@@ -239,6 +239,14 @@ public sealed partial class MapGlobalInputService : IDisposable
                         "rest-map-display",
                         () => RestMapDisplayInvoked?.Invoke(this, invoked));
                 }
+                if (isDown
+                    && _matchStateToggle.Kind == MapInputBindingKind.Mouse
+                    && _matchStateToggle.MouseButton == button)
+                {
+                    DispatchInput(invoked, "mouse", _matchStateToggle.DisplayName,
+                        "match-state-toggle",
+                        () => MatchStateToggleInvoked?.Invoke(this, invoked));
+                }
 
                 DispatchPluginMouseInput(button, timestamp, isDown);
             }

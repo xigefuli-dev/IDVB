@@ -52,7 +52,8 @@ public enum MapRuntimeBindingTarget
     SwitchFloor,
     TraditionalWindowSwitchFloor,
     SaveMapCache,
-    RestMapDisplay
+    RestMapDisplay,
+    MatchStateToggle
 }
 /*
  * 文件职责：MapRuntimeSettings.Enums。

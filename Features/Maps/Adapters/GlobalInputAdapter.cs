@@ -19,6 +19,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
         _input.SwitchFloorInvoked += (_, args) => SwitchFloorInvoked?.Invoke(this, args);
         _input.SaveMapCacheInvoked += (_, args) => SaveMapCacheInvoked?.Invoke(this, args);
         _input.RestMapDisplayInvoked += (_, args) => RestMapDisplayInvoked?.Invoke(this, args);
+        _input.MatchStateToggleInvoked += (_, args) => MatchStateToggleInvoked?.Invoke(this, args);
         _input.AltInvoked += (_, args) => AltInvoked?.Invoke(this, args);
         _input.MouseWheelScrolled += (_, args) => MouseWheelScrolled?.Invoke(this, args);
         _input.PluginInputInvoked += (_, args) => PluginInputInvoked?.Invoke(this, args);
@@ -32,6 +33,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
     public event EventHandler<object>? SwitchFloorInvoked;
     public event EventHandler<object>? SaveMapCacheInvoked;
     public event EventHandler<object>? RestMapDisplayInvoked;
+    public event EventHandler<object>? MatchStateToggleInvoked;
     public event EventHandler<object>? AltInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
     public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
@@ -39,7 +41,7 @@ public sealed class GlobalInputAdapter : IGlobalInput
     public void ApplyBindings(object quickScan, object overlayToggle,
         object manualRecognition, object gameMapToggle,
         object controlPanelToggle, object switchFloor, object saveMapCache,
-        object restMapDisplay) =>
+        object restMapDisplay, object? matchStateToggle = null) =>
         _input.ApplyBindings(
             (MapInputBinding)quickScan,
             (MapInputBinding)overlayToggle,
@@ -48,7 +50,8 @@ public sealed class GlobalInputAdapter : IGlobalInput
             (MapInputBinding)controlPanelToggle,
             (MapInputBinding)switchFloor,
             (MapInputBinding)saveMapCache,
-            (MapInputBinding)restMapDisplay);
+            (MapInputBinding)restMapDisplay,
+            matchStateToggle as MapInputBinding);
 
     public void ClearBindings() => _input.ClearBindings();
 

@@ -33,6 +33,8 @@ public sealed partial class MapListPage : UserControl
         _modernContinuousLineStart = null;
         _modernCreationUndoStack.Clear();
         _modernSelection = null;
+        _modernSelectedAnnotationIds.Clear();
+        _modernAnnotationSelectionAnchorId = null;
         _modernInteraction = EditorInteractionKind.None;
         _modernFocusMode = false;
         _modernLayerDrawerOpen = false;

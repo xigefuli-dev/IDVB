@@ -49,7 +49,9 @@ public sealed partial class SessionOrchestrator
         int lowStructureReadinessFrameCount = 3,
         bool prepareNativeStructure = false,
         bool prepareVpsg3Structure = false,
-        AutoFloorCapture? autoFloor = null)
+        AutoFloorCapture? autoFloor = null,
+        bool allowPartialMap = false,
+        Func<NormalizedRectangle, IDisposable>? suspendOverlayForCapture = null)
     {
         var sessionTuning = _settings!.SessionTuning;
         if (_captureSvc.TryGetForegroundClientBounds(
@@ -125,6 +127,7 @@ public sealed partial class SessionOrchestrator
         {
             while (!_disposed
                 && !cancellationToken.IsCancellationRequested
+                && (shouldContinue?.Invoke() ?? true)
                 && ScanExecutionContext.Current is not { CanCompute: false }
                 && stopwatch.ElapsedMilliseconds <= timeout)
             {
@@ -138,6 +141,8 @@ public sealed partial class SessionOrchestrator
                     attemptIndex: attempts);
                 try
                 {
+                    // Restore before stability analysis or the next inter-frame wait.
+                    using var captureVisibility = suspendOverlayForCapture?.Invoke(viewport);
                     captured = _captureSvc.TryCaptureViewport(
                         viewport,
                         out frameObj,
@@ -169,6 +174,11 @@ public sealed partial class SessionOrchestrator
                             lastPresence = MapViewportPresenceDetector.Evaluate(
                                 current.Image,
                                 GetCurrentMapViewportPresenceReference());
+                            if (!lastPresence.IsPresent && allowPartialMap
+                                && ScanExecutionContext.Current is { CanCompute: true }
+                                && ScanObservationRules.HasVisibleStructure(current.Image))
+                                lastPresence = new MapViewportPresenceResult(true,
+                                    "partial-structure-pending-verification", 0d, lastPresence.BlueGrayFraction);
                         }
                         finally
                         {

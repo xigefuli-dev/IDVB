@@ -14,6 +14,10 @@ public sealed partial class SessionOrchestrator
     private sealed class InitialRecognitionPipelineState
     {
         public RuntimeMapRecognition? Recognition;
+        public bool ObserveUntilConfirmed;
+        public Guid? PreviousPreviewMapId;
+        public string? PreviousPreviewFloor;
+        public RuntimeMapRecognition? ProvisionalRecognition;
         public string? FailureReason;
         public IReadOnlyList<MapRecognitionChoice>? PendingChoices;
         public string PendingChoicesReason = string.Empty;

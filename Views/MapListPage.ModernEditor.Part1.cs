@@ -211,6 +211,8 @@ public sealed partial class MapListPage : UserControl
         _activeFloorKey = floorKey;
         _modernToolState.ActiveFloorKey = floorKey;
         _modernSelection = null;
+        _modernSelectedAnnotationIds.Clear();
+        _modernAnnotationSelectionAnchorId = null;
         _activeAnchorId = null;
         RefreshModernToolVisuals();
 

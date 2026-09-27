@@ -72,6 +72,8 @@ public sealed partial class MapListPage : UserControl
     private readonly Dictionary<string, ModernFloorBitmap> _modernFloorBitmaps =
         new(StringComparer.OrdinalIgnoreCase);
     private EditorSelection? _modernSelection;
+    private readonly HashSet<Guid> _modernSelectedAnnotationIds = [];
+    private Guid? _modernAnnotationSelectionAnchorId;
     private EditorInteractionKind _modernInteraction;
     private Point _modernPointerStart;
     private Point _modernPointerCurrent;
@@ -420,6 +422,8 @@ public sealed partial class MapListPage : UserControl
         _modernConcealHoverPoint = null;
         _modernGateHoverPoint = null;
         _modernSelection = null;
+        _modernSelectedAnnotationIds.Clear();
+        _modernAnnotationSelectionAnchorId = null;
         _modernExportRendering = false;
         _modernExportInProgress = false;
         _modernToolState.Reset();

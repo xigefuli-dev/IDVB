@@ -75,6 +75,9 @@ public interface IOverlayWindow : IDisposable
     /// <summary>Clears only the transient status layer.</summary>
     void ClearStatus();
 
+    /// <summary>Marks the calibrated screen region while map identity is provisional.</summary>
+    void SetObservationRegion(object? /* MapScreenRect? */ viewportBounds) { }
+
     /// <summary>
     /// 更新玩家标记位置。
     /// </summary>

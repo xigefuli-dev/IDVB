@@ -87,6 +87,7 @@ public sealed partial class SessionOrchestrator
 
     private void CancelMatchOperations()
     {
+        CancelMapObservation();
         EndAdaptiveMapOpen("match lifecycle changed");
         CancelOrbTracking("match lifecycle changed");
         InvalidateActiveMapOpenOperation("match lifecycle changed");
@@ -138,6 +139,7 @@ public sealed partial class SessionOrchestrator
 
     private async Task DrainMatchOperationsAsync()
     {
+        await _observationTask;
         await _nativeMiniMapCaptureTask;
         await DrainOrbTrackingAsync();
         await _scanGate.WaitAsync();
@@ -152,6 +154,10 @@ public sealed partial class SessionOrchestrator
     /// </summary>
     private void UnlockMapForRescan()
     {
+        CancelMapObservation(clearPreview: true);
+        _overlay.ClearMap();
+        _overlayStatus.Clear();
+        RefreshMiniMapForCurrentFloor();
         // 再次快捷扫描是显式请求重新识别：作废尚未消费的后台扫描结果。
         ClearPendingBackgroundScan();
         _lowStructureRecoveryCursor.Reset();
@@ -208,6 +214,7 @@ public sealed partial class SessionOrchestrator
 
     private void ResetMatchTransientState(bool resetAutomaticCacheSamples)
     {
+        CancelMapObservation(clearPreview: true);
         // 对局结束：作废尚未消费的后台扫描结果，下一局重新开始。
         ClearPendingBackgroundScan();
         ClearOptimisticPresentation();

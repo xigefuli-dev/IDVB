@@ -35,6 +35,7 @@ public sealed partial class MainPage : Page
     private bool _navigationHoverIndicatorShown;
     private bool _navigationIsCompact;
     private bool _navigationCompactPreference;
+    private bool _onboardingNavigationLocked;
     private readonly ShellLayoutMemory _layoutMemory = ShellLayoutMemory.Load();
     private bool _hasSavedNavigationWidth;
     private GridLength _savedNavigationWidth;
@@ -138,6 +139,8 @@ public sealed partial class MainPage : Page
         }
         else if (entry.Node.Children.Count > 0)
         {
+            if (_onboardingNavigationLocked)
+                return;
             if (_navigationIsCompact && TryNavigateToNextCompactChild(entry))
                 return;
 
@@ -434,6 +437,8 @@ public sealed partial class MainPage : Page
 
     internal void SetNavigationCompact(bool compact)
     {
+        if (_onboardingNavigationLocked)
+            compact = false;
         if (_navigationIsCompact == compact)
             return;
 
@@ -482,20 +487,4 @@ public sealed partial class MainPage : Page
         UpdateNavigationCompactButtonAccessibility();
     }
 
-    private void QueueNavigationLayoutRefreshAfterCompactChange()
-    {
-        DispatcherQueue.TryEnqueue(() =>
-        {
-            // Compact mode changes both the navigation width and child visibility.
-            // Force that layout to settle before reading TransformToVisual; otherwise
-            // a selected child can retain the compact parent row's/stale Y position.
-            NavigationSurface.UpdateLayout();
-
-            var selectionTarget = GetVisibleNavigationEntry(_selectedNavigationEntry);
-            if (selectionTarget is not null)
-                QueueSelectionIndicatorAnimation(selectionTarget);
-
-            RequestNavigationLayoutRefresh();
-        });
-    }
 }

@@ -325,6 +325,9 @@
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
     <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
     <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
+    <Compile Include="..\Features\Maps\ScanObservationRules.cs" Link="Production\ScanObservationRules.cs" />
+    <Compile Include="..\Features\Maps\ScanObservationFrameCache.cs" Link="Production\ScanObservationFrameCache.cs" />
+    <Compile Include="..\Features\Maps\MapObservationPresentation.cs" Link="Production\MapObservationPresentation.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.cs" Link="Production\IdvmPackageService.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.Part*.cs" />
     <Compile Include="..\Features\Maps\IdvmPackageService.Reader.cs" Link="Production\IdvmPackageService.Reader.cs" />

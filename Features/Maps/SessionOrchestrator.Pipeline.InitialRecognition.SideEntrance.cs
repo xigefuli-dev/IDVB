@@ -125,10 +125,19 @@ public sealed partial class SessionOrchestrator
             var selectedId = ScanIdentityVerifier.SelectIdentity(candidates,
                 context?.RetrievalCompleted == true && candidates.Count == sideScan.EligibleMapCount,
                 context?.CanCompute == true, context?.VariantGroups);
-            var choices = BuildScanVerificationChoices(reliable, candidates, frame,
-                requireStrictStructureRegistration, out _);
+            var preview = ScanObservationRules.SelectPreview(candidates,
+                result.PreviousPreviewMapId, result.PreviousPreviewFloor);
+            result.ProvisionalRecognition = reliable.FirstOrDefault(item =>
+                ReferenceEquals(item.Candidate, preview)).Attempt?.Recognition;
             if (selectedId is null)
             {
+                if (result.ObserveUntilConfirmed)
+                {
+                    failureReason = "正在观察可见结构，地图身份尚未确定。";
+                    return;
+                }
+                var choices = BuildScanVerificationChoices(reliable, candidates, frame,
+                    requireStrictStructureRegistration, out _);
                 var diagnosticPath = MapDiagnosticModeCapture.WriteUnresolvedScan(
                     frame, context?.Frame, candidates,
                     context?.Policy.Mode ?? ScanPerformanceMode.Balanced);

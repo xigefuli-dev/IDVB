@@ -26,6 +26,8 @@ public sealed partial class SessionOrchestrator
             return;
         }
 
+        CancelMapObservation(clearPreview: true);
+
         var scanGeneration = Interlocked.Increment(ref _scanRequestGeneration);
         var scanScope = BeginQuickScanCancellationScope();
         var scanCancellation = scanScope.Token;
@@ -88,7 +90,8 @@ public sealed partial class SessionOrchestrator
                 await RunRecognitionPipelineAsync();
                 scanCompleted = backgroundScan
                     ? IsBackgroundScanCompleted
-                    : _hasCompletedQuickScanAlignment;
+                    : _hasCompletedQuickScanAlignment || _gameMapToggleState.IsOpen
+                        && candidateSelector is null && !_settings.SelectMapByTagsEnabled;
             }
             finally
             {
@@ -113,7 +116,13 @@ public sealed partial class SessionOrchestrator
                 scanExecution.Dispose();
                 FinishScanExecution(scanExecution);
             }
-            finally { CompleteQuickScanCancellationScope(scanScope); }
+            finally
+            {
+                var continueObserving = !scanCancellation.IsCancellationRequested && !scanExecution.IsSuperseded
+                    && candidateSelector is null;
+                CompleteQuickScanCancellationScope(scanScope);
+                if (continueObserving) StartMapObservation(delayFirstPass: true);
+            }
         }
     }
 

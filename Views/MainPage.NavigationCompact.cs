@@ -22,6 +22,8 @@ public sealed partial class MainPage
 
     private void NavigationCompact_Click(object sender, RoutedEventArgs e)
     {
+        if (_onboardingNavigationLocked)
+            return;
         _navigationCompactPreference = !_navigationIsCompact;
         _layoutMemory.NavigationCompact = _navigationCompactPreference;
         _layoutMemory.Save();
@@ -170,5 +172,22 @@ public sealed partial class MainPage
         var description = _navigationIsCompact ? "展开导航栏" : "收起导航栏";
         ToolTipService.SetToolTip(NavigationCompactButton, description);
         AutomationProperties.SetName(NavigationCompactButton, description);
+    }
+
+    private void QueueNavigationLayoutRefreshAfterCompactChange()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // Compact mode changes both the navigation width and child visibility.
+            // Force that layout to settle before reading TransformToVisual; otherwise
+            // a selected child can retain the compact parent row's/stale Y position.
+            NavigationSurface.UpdateLayout();
+
+            var selectionTarget = GetVisibleNavigationEntry(_selectedNavigationEntry);
+            if (selectionTarget is not null)
+                QueueSelectionIndicatorAnimation(selectionTarget);
+
+            RequestNavigationLayoutRefresh();
+        });
     }
 }

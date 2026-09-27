@@ -328,6 +328,7 @@ public sealed partial class SessionOrchestrator
     {
         if (_settings is not { IsEnabled: true })
         {
+            CancelMapObservation(clearPreview: true);
             _input.ClearBindings();
             return;
         }
@@ -349,6 +350,7 @@ public sealed partial class SessionOrchestrator
             if (throwOnFailure)
                 throw;
             _settings.IsEnabled = false;
+            CancelMapObservation(clearPreview: true);
             _statusMessage = $"热键注册失败：{ex.Message}";
         }
     }

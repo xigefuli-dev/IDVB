@@ -30,6 +30,8 @@ public sealed partial class MapListPage : UserControl
         }
         else if (_modernToolState.ActiveTool == MapEditorTool.Select)
         {
+            _modernSelectedAnnotationIds.Clear();
+            _modernAnnotationSelectionAnchorId = null;
             var normalized = ToModernNormalizedPoint(pointer.Position, false);
             if (normalized is null)
                 return;
@@ -279,6 +281,8 @@ public sealed partial class MapListPage : UserControl
         if (hit is not { Kind: EditorSelectionKind.Annotation })
             return;
         _modernSelection = hit;
+        _modernSelectedAnnotationIds.Clear();
+        _modernAnnotationSelectionAnchorId = null;
         if (FindModernSelectedAnnotation()?.Type == MapAnnotationType.Text)
             await EditModernSelectedTextAsync();
         e.Handled = true;

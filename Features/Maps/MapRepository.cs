@@ -158,7 +158,6 @@ public sealed partial class MapRepository
             var record = existing ?? new MapRecord
             {
                 Id = draft.Id ?? Guid.NewGuid(),
-                SequenceNumber = catalog.NextSequenceNumber++,
                 CreatedAt = DateTimeOffset.UtcNow
             };
             isNewRecord = existing is null;
@@ -193,6 +192,15 @@ public sealed partial class MapRepository
             var targetClass = catalog.Classes.SingleOrDefault(candidate => string.Equals(
                 candidate, requestedClass, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("所选 Class 已不存在，请返回列表后重试。");
+            if (isNewRecord)
+            {
+                var classMaps = catalog.Maps.Where(map => string.Equals(
+                    map.Class, targetClass, StringComparison.OrdinalIgnoreCase)).ToArray();
+                var nextByCount = classMaps.Length + 1;
+                record.SequenceNumber = classMaps.Any(map => map.SequenceNumber == nextByCount)
+                    ? Math.Max(nextByCount, classMaps.Max(map => map.SequenceNumber) + 1)
+                    : nextByCount;
+            }
             if (existing is not null
                 && !string.Equals(existing.Class, targetClass, StringComparison.OrdinalIgnoreCase)
                 && catalog.VariantGroups.Any(group => group.MapIds.Contains(existing.Id)))

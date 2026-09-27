@@ -95,7 +95,8 @@ internal sealed record MapOverlayRenderScene(
     bool ShowFloorOnMiniMap = false,
     float? MiniMapRotationDegrees = null,
     IReadOnlyList<MiniMapTrackedPlayer>? MiniMapPlayers = null,
-    MapScreenRect? PlayerClipBounds = null);
+    MapScreenRect? PlayerClipBounds = null,
+    MapScreenRect? ObservationRegion = null);
 
 internal static partial class MapOverlayBitmapRenderer
 {
@@ -325,6 +326,19 @@ internal static partial class MapOverlayBitmapRenderer
     private static void DrawDynamicParts(Graphics graphics, MapOverlayRenderScene scene)
     {
         var dpiScale = ScaleFor(scene.Dpi);
+        if (scene.ObservationRegion is { IsValid: true } region)
+        {
+            // Screen-space calibration bounds, independent of the tentative map transform.
+            using var pen = new Pen(Color.FromArgb(235, 255, 213, 79), 1.5f * dpiScale)
+            {
+                DashPattern = [5f, 4f],
+                DashCap = DashCap.Flat
+            };
+            var inset = pen.Width / 2f;
+            if (region.Width > pen.Width && region.Height > pen.Width)
+                graphics.DrawRectangle(pen, (float)region.X + inset, (float)region.Y + inset,
+                    (float)region.Width - pen.Width, (float)region.Height - pen.Width);
+        }
         var statusScale = Math.Clamp(scene.StatusScale, 0f, 1f);
         var statusSize = scene.ShowStatus && scene.Status is not null && statusScale > 0f
             ? MeasureStatusPanel(graphics, scene.Status, dpiScale * statusScale)

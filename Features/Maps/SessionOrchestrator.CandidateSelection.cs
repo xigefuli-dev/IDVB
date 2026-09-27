@@ -371,6 +371,7 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         bool userConfirmed)
     {
+        CancelMapObservation(clearPreview: true);
         InvalidateActiveMapOpenOperation("candidate-identity-committed");
         _recentConfirmedFloorPreference = null;
         _recentConfirmedFloorMapId = Guid.Empty;

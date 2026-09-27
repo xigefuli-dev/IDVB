@@ -84,11 +84,11 @@ public sealed class ScanIdentitySafetyTests
     }
 
     [Fact]
-    public void ActualFitCanSelectSecondRetrievedMap()
+    public void BetterFitDoesNotDisproveAnotherSupportedIdentity()
     {
         var first = Candidate(ScanIdentityState.Supported, 2);
         var second = Candidate(ScanIdentityState.Supported, .4);
-        Assert.Equal(second.Map.Id, ScanIdentityVerifier.SelectIdentity([first, second], true, true));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([first, second], true, true));
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public sealed class ScanIdentitySafetyTests
         Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
         Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
         winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = .995 };
-        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
     }
 
     [Fact]

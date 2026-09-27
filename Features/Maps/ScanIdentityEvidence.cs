@@ -97,7 +97,9 @@ internal static class ScanIdentityVerifier
         var supported = candidates.Where(c => c.IdentityEvidence.State == ScanIdentityState.Supported
                 && c.Disposition == SideEntranceCandidateDisposition.Reliable)
             .OrderBy(c => FitCost(c.IdentityEvidence)).ToArray();
-        if (supported.Length == 0) return null;
+        // A better fit can choose a provisional resource, but cannot disprove another
+        // identity which also explains the visible fragment. Keep observing it.
+        if (supported.Length != 1) return null;
         // A local contour veto is not evidence that a near-identical sibling is absent.
         // Icons and reference omissions can trigger that veto even at >97% full-frame
         // support. Keep the declared variant group unresolved instead of letting the
@@ -124,9 +126,6 @@ internal static class ScanIdentityVerifier
                     return null;
             }
         }
-        // The class is a closed set. Compare actual full-frame fit, not single-map aperture margin.
-        if (supported.Length > 1 && FitCost(supported[1].IdentityEvidence) - FitCost(supported[0].IdentityEvidence) < .35)
-            return null;
         return winnerId;
     }
     private static double FitCost(ScanIdentityEvidence evidence) =>

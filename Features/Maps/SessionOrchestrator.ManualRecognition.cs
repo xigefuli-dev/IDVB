@@ -21,6 +21,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         if (!_captureSvc.TryGetForegroundClientBounds(out _, out _, out _))
             return;
 
+        CancelMapObservation();
+        await _observationTask;
+        if (!IsCurrentMatchOperation(operationMatch)) return;
+
         if (!await _scanGate.WaitAsync(0))
         {
             _statusMessage = "已有扫描正在进行，请稍候。";

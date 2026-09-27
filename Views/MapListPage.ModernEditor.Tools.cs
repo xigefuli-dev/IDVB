@@ -35,6 +35,8 @@ public sealed partial class MapListPage : UserControl
         _modernToolState.Select(tool);
         CancelModernInteraction(restoreGeometry: true);
         _modernSelection = null;
+        _modernSelectedAnnotationIds.Clear();
+        _modernAnnotationSelectionAnchorId = null;
         SetModernStatus(tool == MapEditorTool.Gate
             ? _modernToolState.UsesPrimaryGatePair
                 ? "请先点击标记正门。"
@@ -139,6 +141,19 @@ public sealed partial class MapListPage : UserControl
         if (!MapAnnotationColor.TryNormalize(color, out var normalized))
             return;
         _currentAnnotationColor = normalized;
+        if (_draft is not null && _modernSelectedAnnotationIds.Count > 0)
+        {
+            foreach (var annotation in GetActiveFloorProfile().Annotations)
+            {
+                if (!_modernSelectedAnnotationIds.Contains(annotation.Id))
+                    continue;
+                annotation.ColorHex = normalized;
+                annotation.ColorIndex = MapAnnotationColor.ToLegacyIndex(normalized);
+            }
+            RenderModernEditor();
+            RefreshModernLayerList();
+            SetModernStatus($"已更改 {_modernSelectedAnnotationIds.Count} 个图形元素的颜色。");
+        }
         if (_modernColorIndicator is not null)
             _modernColorIndicator.Background = new SolidColorBrush(ParseEditorColor(normalized));
     }

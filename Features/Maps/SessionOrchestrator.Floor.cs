@@ -305,7 +305,9 @@ public sealed partial class SessionOrchestrator
         // A map may be confidently identified before a usable screen
         // transform is available. The persistent mini-map only needs the
         // map identity and floor image, so it must not wait for alignment.
-        var lockedRecognition = _lastRecognition ?? _pendingAlignmentIdentity;
+        var provisional = _lastRecognition is null && _pendingAlignmentIdentity is null;
+        var lockedRecognition = _lastRecognition ?? _pendingAlignmentIdentity ?? _provisionalRecognition;
+        var displayFloor = provisional ? lockedRecognition?.Result.Floor : _currentFloorKey;
         if (!Settings.PersistentMiniMapEnabled
             || lockedRecognition?.Map is not { } map)
         {
@@ -320,15 +322,15 @@ public sealed partial class SessionOrchestrator
             && recognition.Result.OverlayTransform is { } existingTransform
             && string.Equals(
                 recognition.Result.Floor,
-                _currentFloorKey ?? recognition.Result.Floor,
+                displayFloor ?? recognition.Result.Floor,
                 StringComparison.Ordinal))
         {
             transform = existingTransform;
-            effectiveFloorKey = _currentFloorKey ?? recognition.Result.Floor;
+            effectiveFloorKey = displayFloor ?? recognition.Result.Floor;
         }
         else
         {
-            effectiveFloorKey = _currentFloorKey
+            effectiveFloorKey = displayFloor
                 ?? MapFloorRules.GetPrimaryFloorKey(map);
             var floorProfile = MapFloorRules.GetFloorProfile(map, effectiveFloorKey)
                 ?? map.Recognition?.FirstFloor;
@@ -398,6 +400,7 @@ public sealed partial class SessionOrchestrator
                 a.IsStrikethrough))
             .ToArray();
         var floorLabel = MapFloorRules.GetFloorDisplayName(map, effectiveFloorKey);
+        if (provisional) floorLabel += " · 暂显，正在确认";
         _overlay.SetPersistentMiniMapState(
             overlayPath,
             transform,

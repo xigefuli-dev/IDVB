@@ -21,6 +21,10 @@ public sealed partial class MapListPage : UserControl
             return;
         _modernLayerList.Children.Clear();
         var profile = GetActiveFloorProfile();
+        _modernSelectedAnnotationIds.IntersectWith(profile.Annotations.Select(annotation => annotation.Id));
+        if (_modernAnnotationSelectionAnchorId is Guid anchorId
+            && !profile.Annotations.Any(annotation => annotation.Id == anchorId))
+            _modernAnnotationSelectionAnchorId = null;
         _modernLayerList.Children.Add(CreateModernLayerGroup("image", "地图图片",
         [
             new ModernLayerItem("image", GetModernFloorDisplayName(_activeFloorKey), "\uEB9F")
@@ -140,7 +144,10 @@ public sealed partial class MapListPage : UserControl
 
     private Grid CreateModernLayerRow(string groupKey, ModernLayerItem item)
     {
-        var selected = item.Selection is not null && Equals(_modernSelection, item.Selection);
+        var selected = item.Selection is not null &&
+            (item.Selection.Kind == EditorSelectionKind.Annotation && item.Selection.Id is Guid annotationId
+                ? _modernSelectedAnnotationIds.Contains(annotationId)
+                : Equals(_modernSelection, item.Selection));
         var row = new Grid
         {
             MinHeight = 38,
@@ -174,7 +181,48 @@ public sealed partial class MapListPage : UserControl
             if (item.Selection is null || !IsModernItemVisible(groupKey, item.Key))
                 return;
             _modernToolState.Select(MapEditorTool.Select);
-            _modernSelection = item.Selection;
+            if (item.Selection.Kind == EditorSelectionKind.Annotation && item.Selection.Id is Guid id)
+            {
+                if (IsModernKeyDown(Windows.System.VirtualKey.Shift))
+                {
+                    var annotations = GetActiveFloorProfile().Annotations;
+                    var ids = annotations.Select(annotation => annotation.Id).ToList();
+                    var start = _modernAnnotationSelectionAnchorId is Guid anchor
+                        ? ids.IndexOf(anchor)
+                        : -1;
+                    var end = ids.IndexOf(id);
+                    if (start < 0)
+                    {
+                        start = end;
+                        _modernAnnotationSelectionAnchorId = id;
+                    }
+                    if (!IsModernKeyDown(Windows.System.VirtualKey.Control))
+                        _modernSelectedAnnotationIds.Clear();
+                    for (var index = Math.Min(start, end); index <= Math.Max(start, end); index++)
+                        _modernSelectedAnnotationIds.Add(ids[index]);
+                }
+                else if (IsModernKeyDown(Windows.System.VirtualKey.Control))
+                {
+                    if (!_modernSelectedAnnotationIds.Add(id))
+                        _modernSelectedAnnotationIds.Remove(id);
+                    _modernAnnotationSelectionAnchorId = id;
+                }
+                else
+                {
+                    _modernSelectedAnnotationIds.Clear();
+                    _modernSelectedAnnotationIds.Add(id);
+                    _modernAnnotationSelectionAnchorId = id;
+                }
+                _modernSelection = _modernSelectedAnnotationIds.Count == 1
+                    ? new EditorSelection(EditorSelectionKind.Annotation, _modernSelectedAnnotationIds.First())
+                    : null;
+            }
+            else
+            {
+                _modernSelectedAnnotationIds.Clear();
+                _modernAnnotationSelectionAnchorId = null;
+                _modernSelection = item.Selection;
+            }
             RefreshModernToolVisuals();
             RenderModernEditor();
             RefreshModernLayerList();
@@ -205,6 +253,8 @@ public sealed partial class MapListPage : UserControl
             _hiddenEditorGroups.Remove(groupKey);
         if (_hiddenEditorGroups.Contains(groupKey) && SelectionBelongsToModernGroup(_modernSelection, groupKey))
             _modernSelection = null;
+        if (groupKey == "graphics" && _hiddenEditorGroups.Contains(groupKey))
+            _modernSelectedAnnotationIds.Clear();
         if (groupKey == "image" && _modernImage is not null)
             _modernImage.Visibility = IsModernItemVisible("image", "image") ? Visibility.Visible : Visibility.Collapsed;
         RenderModernEditor();
@@ -217,6 +267,8 @@ public sealed partial class MapListPage : UserControl
             _hiddenEditorItems.Remove(itemKey);
         if (_hiddenEditorItems.Contains(itemKey) && selection is not null && Equals(selection, _modernSelection))
             _modernSelection = null;
+        if (_hiddenEditorItems.Contains(itemKey) && selection?.Kind == EditorSelectionKind.Annotation && selection.Id is Guid id)
+            _modernSelectedAnnotationIds.Remove(id);
         if (itemKey == "image" && _modernImage is not null)
             _modernImage.Visibility = IsModernItemVisible(groupKey, itemKey) ? Visibility.Visible : Visibility.Collapsed;
         RenderModernEditor();

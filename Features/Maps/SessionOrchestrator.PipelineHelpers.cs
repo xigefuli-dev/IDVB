@@ -46,6 +46,12 @@ public sealed partial class SessionOrchestrator
         }
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
+        else if (CanObserveMap)
+        {
+            ClearPendingBackgroundScan();
+            RefreshMiniMapForCurrentFloor();
+            StartMapObservation();
+        }
         else if (_settings.SilentScanEnabled
             && _pendingAlignmentIdentity is null
             && _lastRecognition is null)
@@ -88,6 +94,8 @@ public sealed partial class SessionOrchestrator
 
     private async Task EndMapDisplayAsync(string reason)
     {
+        CancelMapObservation();
+        CancelQuickScan();
         ClearOptimisticPresentation();
         CancelMapOpenAlignment();
         EndAdaptiveMapOpen(reason);

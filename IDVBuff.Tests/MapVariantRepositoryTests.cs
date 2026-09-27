@@ -8,6 +8,40 @@ namespace IDVBuff.Tests;
 public sealed class MapVariantRepositoryTests
 {
     [Fact]
+    public async Task NewMapUsesSequenceWithinItsClass()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var repository = new MapRepository(Path.Combine(root, "Maps"));
+            await repository.CreateClassAsync("S2");
+            var first = await SaveMapsAsync(repository, root, "A", "B");
+            var imagePath = Path.Combine(root, "map.png");
+            var recognition = new MapRecognitionProfile();
+            recognition.EnsureStandardAnchors();
+            recognition.FirstFloor.FindAnchor("main-entrance")!.Bounds =
+                new NormalizedRectangle { X = 0.1, Y = 0.2, Width = 0.1, Height = 0.1 };
+            recognition.FirstFloor.FindAnchor("side-entrance")!.Bounds =
+                new NormalizedRectangle { X = 0.7, Y = 0.6, Width = 0.1, Height = 0.1 };
+            var second = await repository.SaveAsync(new MapDraft
+            {
+                Class = "S2",
+                FloorOnePath = imagePath,
+                FloorTwoPath = imagePath,
+                Recognition = recognition
+            });
+
+            Assert.Equal([1, 2], first.Select(map => map.SequenceNumber));
+            Assert.Equal("地图 1", second.DisplayName);
+            Assert.Equal(1, (await repository.GetMapsAsync()).Single(map => map.Id == second.Id).SequenceNumber);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task ToggleEnforcesWholeGroupsAndReusesFreedPaletteSlots()
     {
         var root = CreateRoot();

@@ -72,7 +72,6 @@ public sealed partial class MapOverlayWindow : IDisposable
     public int PresentCount => Volatile.Read(ref _presentCount);
     public double? CurrentMiniMapScale => _persistentMiniMap is not null ? _miniMapScale : null;
     public bool HasStatus => _status is not null;
-    private bool HasContent => HasMap || HasStatus || _persistentMiniMap is not null;
     public void UpdateStatus(
         MapOverlayStatus status,
         MapScreenRect gameBounds,
@@ -320,6 +319,7 @@ public sealed partial class MapOverlayWindow : IDisposable
     public void Clear()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        _observationRegion = null;
         _map = null;
         _player = null;
         _mapId = Guid.Empty;
@@ -443,7 +443,8 @@ public sealed partial class MapOverlayWindow : IDisposable
             ShowFloorOnMiniMap: _showFloorOnMiniMap,
             MiniMapRotationDegrees: ResolveMiniMapRotation(),
             MiniMapPlayers: GetCurrentMiniMapPlayers(),
-            PlayerClipBounds: visibleMap?.ClipBounds);
+            PlayerClipBounds: visibleMap?.ClipBounds,
+            ObservationRegion: GetObservationRegion());
 
         try
         {

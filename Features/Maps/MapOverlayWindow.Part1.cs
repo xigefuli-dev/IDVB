@@ -45,6 +45,7 @@ public sealed partial class MapOverlayWindow : IDisposable
                 {
                     Status = null,
                     ShowStatus = false,
+                    ObservationRegion = null,
                     Player = null,
                     MiniMap = null
                 });

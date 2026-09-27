@@ -58,6 +58,9 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
 
     public void ClearStatus() => _window.ClearStatus();
 
+    public void SetObservationRegion(object? viewportBounds)
+        => _window.SetObservationRegion((MapScreenRect?)viewportBounds);
+
     public void UpdatePlayer(object? player)
         => _window.UpdatePlayer((MapPlayerState?)player);
 

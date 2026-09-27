@@ -57,6 +57,7 @@ public sealed partial class SessionOrchestrator
             || execution.Frame is not { } observation || execution.Expired
             || !ReferenceEquals(observation.Source, frame.Image)
             || cancellation.IsCancellationRequested || !IsCurrentMatchOperation(match)
+            || !IsCurrentCaptureTarget(frame)
             || execution.CatalogRevision?.Equals(_recognition.CatalogRevision) != true
             || execution.CatalogRevision.Equals(_mapRepository.GetCatalogRevision()) != true
             || !string.Equals(recognition.Map.Class, match.MapClass, StringComparison.OrdinalIgnoreCase))
@@ -77,6 +78,12 @@ public sealed partial class SessionOrchestrator
         // No await between this generation/deadline check and first publication. The UI thread
         // owns the transaction; manual selection and future opens use their independent paths.
         using var present = _overlay.DeferPresent();
+        _provisionalRecognition = null;
+        _provisionalCatalogRevision = null;
+        _observationFrameCache.Reset();
+        _observationPresentation.Reset();
+        _overlay.SetObservationRegion(null);
+        _overlayStatus.Clear();
         _mapOpenSession.LockAlignedMap(recognition.Map.Id, recognition.Result.Floor,
             MapSimilarityTransform.FromOverlay(transform), MapLocationMethod.StructureTranslation,
             recognition.Result.LocalizationConfidence);
@@ -92,7 +99,7 @@ public sealed partial class SessionOrchestrator
         _lastGameBounds = frame.ClientBounds;
         _lastGameWindowHandle = frame.WindowHandle;
         _hasCompletedQuickScanAlignment = true;
-        _gameMapToggleState.MarkOpen();
+        if (!_gameMapToggleState.IsOpen) _gameMapToggleState.MarkOpen();
         _overlay.UpdateMap(recognition, frame.ClientBounds, frame.WindowHandle, _settings!.ShowOverlayStatus);
         _overlay.Show();
         RefreshMiniMapForCurrentFloor();

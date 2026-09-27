@@ -406,7 +406,7 @@ function Show-RemainingBuildProcesses($Processes) {
 
 function Invoke-GracefulBuildProcessCleanup {
     Write-Host 'Attempting the approved graceful cleanup: dotnet build-server shutdown.'
-    & dotnet build-server shutdown
+    $null = & dotnet build-server shutdown
     Assert-Success 'Gracefully clean up .NET build servers'
     Start-Sleep -Milliseconds 500
     @(Get-RemainingBuildProcesses)
@@ -414,7 +414,7 @@ function Invoke-GracefulBuildProcessCleanup {
 
 function Assert-BuildProcessesClosed {
     Write-Host 'Shutting down .NET build servers before starting the immutable build...'
-    & dotnet build-server shutdown
+    $null = & dotnet build-server shutdown
     Assert-Success 'Shut down .NET build servers'
 
     $remaining = @(Get-RemainingBuildProcesses)

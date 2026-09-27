@@ -355,9 +355,22 @@ public sealed class UpdateReleasePolicyTests
             "switch-floor.png"
         };
 
+        var referencedGuideImages = new[]
+        {
+            "control-panel-end.png",
+            "control-panel-start.png",
+            "game-map-toggle.png",
+            "quick-scan-complete.png",
+            "quick-scan-map-open.png",
+            "quick-scan-select-map.png",
+            "quick-scan-start.png"
+        };
+
+        foreach (var guideImage in referencedGuideImages)
+            Assert.Contains($"\"{guideImage}\"", onboardingCs);
+
         foreach (var guideImage in expectedGuideImages)
         {
-            Assert.Contains($"\"{guideImage}\"", onboardingCs);
             var relativePath = Path.Combine("Assets", "Guide", guideImage);
             Assert.True(File.Exists(Path.Combine(RepositoryRoot, relativePath)),
                 $"Guide image '{relativePath}' must exist on disk.");

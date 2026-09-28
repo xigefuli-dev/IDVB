@@ -5,101 +5,66 @@ namespace IDVBuff.Tests;
 
 public sealed partial class SideEntranceScanPipelineTests
 {
-    [Fact(Skip = "等待接上新版真·快速扫描二值结构特征后适配")]
+    [Fact]
     public void MultiGateScanAssociatesCandidateWithItsOwnGate()
     {
-        using var template = BuildTexture(64, 64, seed: 151);
-        using var frame = BuildTexture(1200, 440, seed: 157);
-        using (var target = new Mat(frame, new Rect(900, 140, 64, 64)))
-            template.CopyTo(target);
-        Cv2.Rectangle(frame, new Rect(922, 162, 20, 20), Scalar.All(128), -1);
-
-        var map = CreateMap();
-        var profile = MapFloorRules.GetFloorProfile(map, "1f")!;
-        profile.SideEntranceFeatureCenterX = 200d;
-        profile.SideEntranceFeatureCenterY = 300d;
-        profile.SideEntranceFeatureRadius = 32;
-        profile.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
-        {
-            X = 0.19d,
-            Y = 0.3625d,
-            Width = 0.02d,
-            Height = 0.025d
-        };
-        var unrelated = new GateDetection
-        {
-            Score = 0.97d,
-            Scale = 1d,
-            ScreenBounds = new MapScreenRect(80d, 340d, 20d, 20d)
-        };
-        var correct = new GateDetection
-        {
-            Score = 0.91d,
-            Scale = 1d,
-            ScreenBounds = new MapScreenRect(922d, 162d, 20d, 20d)
-        };
-
-        var results = new SideEntranceScanPipeline().RunScan(
-            frame,
-            [(map, "1f", template)],
-            detectedGates: [unrelated, correct],
-            topK: 1,
-            viewportBounds: new MapScreenRect(0d, 0d, frame.Width, frame.Height));
-
+        using var scene = new StructuralScanScene(x: 70, y: 50);
+        var results = new SideEntranceScanPipeline().RunScan(scene.Frame,
+            [(scene.Map, "1f", scene.Line)], detectedGates: [scene.UnrelatedGate, scene.Gate],
+            viewportBounds: scene.Viewport);
         var candidate = Assert.Single(results);
-        Assert.Same(correct, candidate.AssociatedGate);
+        Assert.Same(scene.Gate, candidate.AssociatedGate);
         Assert.Equal(1, candidate.AssociatedGateIndex);
-        Assert.Equal(
-            SideEntranceGateAssociationKind.DetectedGate,
-            candidate.GateAssociationKind);
-        Assert.InRange(candidate.GateSpatialResidualPixels, 0d, 20d);
+        Assert.Equal(SideEntranceGateAssociationKind.DetectedGate, candidate.GateAssociationKind);
+        scene.AssertPose(candidate);
     }
 
-    [Fact(Skip = "等待接上新版真·快速扫描二值结构特征后适配")]
-    public void MultiGateScanRescuesStrongTemplateWhenNoGateAssociationIsValid()
+    [Fact]
+    public void MultiGateScanDoesNotRescueStructureWithoutAValidGate()
     {
-        using var template = BuildTexture(64, 64, seed: 163);
-        using var frame = BuildTexture(520, 440, seed: 167);
-        using (var target = new Mat(frame, new Rect(80, 70, 64, 64)))
-            template.CopyTo(target);
-
-        var map = CreateMap();
-        var profile = MapFloorRules.GetFloorProfile(map, "1f")!;
-        profile.SideEntranceFeatureCenterX = 200d;
-        profile.SideEntranceFeatureCenterY = 300d;
-        profile.SideEntranceFeatureRadius = 32;
-        profile.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
+        using var scene = new StructuralScanScene();
+        var pipeline = new SideEntranceScanPipeline();
+        Assert.Empty(pipeline.RunScan(scene.Frame, [(scene.Map, "1f", scene.Line)],
+            detectedGates: [], viewportBounds: scene.Viewport));
+        Assert.Empty(pipeline.RunScan(scene.Frame, [(scene.Map, "1f", scene.Line)]));
+        var unrelatedGate = scene.UnrelatedGate;
+        var candidates = pipeline.RunScan(scene.Frame, [(scene.Map, "1f", scene.Line)],
+            detectedGates: [unrelatedGate], viewportBounds: scene.Viewport);
+        Assert.NotEmpty(candidates);
+        Assert.All(candidates, candidate =>
         {
-            X = 0.19d,
-            Y = 0.3625d,
-            Width = 0.02d,
-            Height = 0.025d
-        };
-        var unrelated = new GateDetection
-        {
-            Score = 0.96d,
-            Scale = 1d,
-            ScreenBounds = new MapScreenRect(470d, 390d, 20d, 20d)
-        };
-
-        var results = new SideEntranceScanPipeline().RunScan(
-            frame,
-            [(map, "1f", template)],
-            detectedGates: [unrelated],
-            topK: 1,
-            viewportBounds: new MapScreenRect(0d, 0d, frame.Width, frame.Height));
-
-        var candidate = Assert.Single(results);
-        Assert.Null(candidate.AssociatedGate);
-        Assert.Equal(-1, candidate.AssociatedGateIndex);
-        Assert.Equal(
-            SideEntranceGateAssociationKind.TemplateOnlyRescue,
-            candidate.GateAssociationKind);
-        Assert.True(candidate.MatchScore >= 0.68d);
-        Assert.True(double.IsPositiveInfinity(
-            candidate.GateSpatialResidualPixels));
+            Assert.Same(unrelatedGate, candidate.AssociatedGate);
+            Assert.Equal(SideEntranceGateAssociationKind.DetectedGate, candidate.GateAssociationKind);
+            Assert.All(candidate.SearchHypotheses, hypothesis =>
+                Assert.NotEqual(ScanIdentityState.Supported, scene.Verify(hypothesis).State));
+        });
+        Assert.Null(ScanIdentityVerifier.SelectIdentity(candidates, true, true));
     }
 
+    [Fact]
+    public void MultiGateScanDoesNotRescueUnrelatedCandidatesWhenValidGateAssociationExists()
+    {
+        using var scene = new StructuralScanScene();
+        var wrongMap = scene.CreateMatchingMap();
+        using var wrongLine = new Mat(600, 800, MatType.CV_8UC1, Scalar.Black);
+        Cv2.Rectangle(wrongLine, new Rect(40, 40, 90, 70), Scalar.White, 1);
+        var results = new SideEntranceScanPipeline().RunScan(scene.Frame,
+            [(scene.Map, "1f", scene.Line), (wrongMap, "1f", wrongLine)],
+            detectedGates: [scene.Gate], viewportBounds: scene.Viewport);
+        // Retrieval is intentionally inclusive; unsupported identities must remain
+        // visible until verification excludes them, rather than vanishing by rank.
+        Assert.Equal(2, results.Count);
+        var correct = Assert.Single(results, c => c.Map.Id == scene.Map.Id);
+        scene.AssertPose(correct);
+        correct.IdentityEvidence = scene.Verify(correct);
+        var wrong = Assert.Single(results, c => c.Map.Id == wrongMap.Id);
+        Assert.All(wrong.SearchHypotheses, hypothesis =>
+            Assert.Equal(ScanIdentityState.Excluded, scene.Verify(hypothesis).State));
+        wrong.IdentityEvidence = scene.Verify(wrong);
+        Assert.All(results, c => Assert.Equal(SideEntranceGateAssociationKind.DetectedGate, c.GateAssociationKind));
+        // A unique supported contour still awaits the separate alignment stage.
+        Assert.Null(ScanIdentityVerifier.SelectIdentity(results, true, true));
+    }
     [Fact]
     public void GateMaskClearsEveryGateWithViewportOffset()
     {
@@ -132,62 +97,4 @@ public sealed partial class SideEntranceScanPipelineTests
         Assert.Equal(firstMean.Val0, secondMean.Val0, 8);
     }
 
-    [Fact(Skip = "等待接上新版真·快速扫描二值结构特征后适配")]
-    public void MultiGateScanDoesNotRescueUnrelatedCandidatesWhenValidGateAssociationExists()
-    {
-        using var templateCorrect = BuildTexture(64, 64, seed: 181);
-        using var templateUnrelated = BuildTexture(64, 64, seed: 187);
-        using var frame = BuildTexture(1200, 440, seed: 193);
-
-        using (var target = new Mat(frame, new Rect(900, 140, 64, 64)))
-            templateCorrect.CopyTo(target);
-        using (var target2 = new Mat(frame, new Rect(100, 100, 64, 64)))
-            templateUnrelated.CopyTo(target2);
-
-        var mapCorrect = CreateMap();
-        var profileCorrect = MapFloorRules.GetFloorProfile(mapCorrect, "1f")!;
-        profileCorrect.SideEntranceFeatureCenterX = 200d;
-        profileCorrect.SideEntranceFeatureCenterY = 300d;
-        profileCorrect.SideEntranceFeatureRadius = 32;
-        profileCorrect.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
-        {
-            X = 0.19d,
-            Y = 0.3625d,
-            Width = 0.02d,
-            Height = 0.025d
-        };
-
-        var mapUnrelated = CreateMap();
-        var profileUnrelated = MapFloorRules.GetFloorProfile(mapUnrelated, "1f")!;
-        profileUnrelated.SideEntranceFeatureCenterX = 500d;
-        profileUnrelated.SideEntranceFeatureCenterY = 500d;
-        profileUnrelated.SideEntranceFeatureRadius = 32;
-        profileUnrelated.FindAnchor("side-entrance")!.Bounds = new NormalizedRectangle
-        {
-            X = 0.5d,
-            Y = 0.5d,
-            Width = 0.02d,
-            Height = 0.025d
-        };
-
-        var detectedGate = new GateDetection
-        {
-            Score = 0.95d,
-            Scale = 1d,
-            ScreenBounds = new MapScreenRect(920d, 160d, 20d, 20d)
-        };
-
-        var results = new SideEntranceScanPipeline().RunScan(
-            frame,
-            [(mapCorrect, "1f", templateCorrect), (mapUnrelated, "1f", templateUnrelated)],
-            detectedGates: [detectedGate],
-            topK: 5,
-            viewportBounds: new MapScreenRect(0d, 0d, frame.Width, frame.Height));
-
-        Assert.Single(results);
-        Assert.Equal(mapCorrect.Id, results[0].Map.Id);
-        Assert.Equal(
-            SideEntranceGateAssociationKind.DetectedGate,
-            results[0].GateAssociationKind);
-    }
 }

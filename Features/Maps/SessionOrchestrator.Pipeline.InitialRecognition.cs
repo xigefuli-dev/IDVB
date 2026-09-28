@@ -15,6 +15,9 @@ public sealed partial class SessionOrchestrator
     {
         public RuntimeMapRecognition? Recognition;
         public bool ObserveUntilConfirmed;
+        public ScanIdentitySelectionPolicy IdentitySelectionPolicy => ObserveUntilConfirmed
+            ? ScanIdentitySelectionPolicy.RequireUniqueSupport
+            : ScanIdentitySelectionPolicy.AllowDominantSupport;
         public Guid? PreviousPreviewMapId;
         public string? PreviousPreviewFloor;
         public RuntimeMapRecognition? ProvisionalRecognition;

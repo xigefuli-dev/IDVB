@@ -63,6 +63,10 @@ internal sealed class ScanExecutionContext : IDisposable
     private bool _disposed;
     private (ScanStructureIndex Index, MapScreenRect Viewport)? _alignmentIdentity;
     public static ScanExecutionContext? Current => Ambient.Value;
+    public string ScanId { get; } = Guid.NewGuid().ToString("N");
+    public string ComputeStopReason => _cancellation.IsCancellationRequested ? "cancelled"
+        : IsSuperseded ? "superseded" : RemainingMilliseconds <= 60 && IsAutomatic
+            ? "commit-budget-reserved" : "none";
     public ScanExecutionPolicy Policy { get; }
     public CancellationToken CancellationToken => _cancellation;
     public ScanFrameEvidence? Frame { get; private set; }

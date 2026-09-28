@@ -180,6 +180,13 @@ public sealed partial class SessionOrchestrator
             {
                 using (trace.StartTopLevel("route_prepare"))
                     UnlockMapForRescan();
+                if (!scanExecution.CanCompute)
+                {
+                    _statusMessage = "扫描准备超时，未开始识别；请保持地图打开后重试。";
+                    trace.SetTerminal("failed", "scan-preparation-deadline");
+                    StateChanged?.Invoke(this, EventArgs.Empty);
+                    return;
+                }
                 await RunRecognitionPipelineCoreAsync(
                     operationMatch,
                     cancellationToken);

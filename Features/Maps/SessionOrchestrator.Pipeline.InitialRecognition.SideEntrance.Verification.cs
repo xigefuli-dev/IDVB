@@ -6,36 +6,53 @@ public sealed partial class SessionOrchestrator
 {
     private List<(SideEntranceScanCandidate Candidate, MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>
         VerifySideEntranceCandidates(CapturedGameFrame frame, IReadOnlyList<SideEntranceScanCandidate> candidates,
-            MapRecognitionTuning sideAlignmentTuning, Dictionary<string, double> timings)
+            MapRecognitionTuning sideAlignmentTuning, Dictionary<string, double> timings,
+            ScanIdentitySelectionPolicy selectionPolicy)
     {
         var context = ScanExecutionContext.Current;
         var evidenceFrame = context?.Frame;
         var reliable = new List<(SideEntranceScanCandidate Candidate, MapAlignmentSession Seed, MapRecognitionAttempt Attempt)>();
         if (evidenceFrame is null) return reliable;
         var timer = Stopwatch.StartNew();
-        if (context!.Policy.Mode == ScanPerformanceMode.Quality)
-        {
-            // Compare every in-class member using its own anchors and scale basins. Never borrow
-            // the hit map's transform or skip a sibling because it fell below retrieval TopK.
-            var hits = candidates.Where(c => c.SearchHypotheses.Any(h =>
-                h.StructureIndex is { } index
-                && _recognition.TryCreateSideEntranceAlignmentSeed(h, frame.ViewportBounds, out var seed, out _)
-                && ScanIdentityVerifier.Verify(evidenceFrame, index, seed.LockedTransform, frame.ViewportBounds, context).State
-                    == ScanIdentityState.Supported)).Select(c => c.Map.Id).ToHashSet();
-            foreach (var group in context.VariantGroups.Where(g => g.Any(hits.Contains)))
-            foreach (var variant in candidates.Where(c => group.Contains(c.Map.Id)))
-            {
-                var refined = SideEntranceScanPipeline.RefineVariant(variant, evidenceFrame, frame.ViewportBounds, context);
-                if (refined.Count >= variant.SearchHypotheses.Count && refined.Count > 0)
-                    variant.SearchHypotheses = refined;
-            }
-        }
-        var completed = 0;
-        var formal = 0;
-        using var budget = MapNoDoorAlignmentBudgetContext.Enter(() => Math.Max(0, context!.RemainingMilliseconds - 60));
+        // Compare the whole class before spending time on formal alignment.
+        // A cold registration of one family must not starve unrelated identities.
         foreach (var candidate in candidates)
         {
             if (!context!.CanCompute) break;
+            var hypotheses = candidate.SearchHypotheses.Count > 0 ? candidate.SearchHypotheses : new[] { candidate };
+            foreach (var hypothesis in hypotheses)
+            {
+                if (!context.CanCompute) break;
+                if (hypothesis.StructureIndex is { } index
+                    && _recognition.TryCreateSideEntranceAlignmentSeed(hypothesis, frame.ViewportBounds, out var seed, out _))
+                    hypothesis.IdentityEvidence = ScanIdentityVerifier.Verify(evidenceFrame, index,
+                        seed.LockedTransform, frame.ViewportBounds, context);
+            }
+            candidate.IdentityEvidence = hypotheses.Select(h => h.IdentityEvidence)
+                .OrderByDescending(e => e.State == ScanIdentityState.Supported)
+                .ThenByDescending(e => e.State == ScanIdentityState.Unverified)
+                .ThenBy(ScanIdentityVerifier.FitCost).First();
+            candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        }
+        timings["scan_class_evidence"] = timer.Elapsed.TotalMilliseconds;
+        var completed = 0;
+        var formal = 0;
+        var reusedFamily = 0;
+        var dominatedAlignments = 0;
+        using var budget = MapNoDoorAlignmentBudgetContext.Enter(() => Math.Max(0, context!.RemainingMilliseconds - 60));
+        foreach (var candidate in candidates.OrderByDescending(c => c.IdentityEvidence.State == ScanIdentityState.Supported)
+            .ThenBy(c => ScanIdentityVerifier.FitCost(c.IdentityEvidence))
+            .ThenBy(c => c.Map.SequenceNumber).ThenBy(c => c.Map.Id))
+        {
+            if (!context!.CanCompute) break;
+            if (context.VariantGroups.Any(group => group.Contains(candidate.Map.Id)
+                && reliable.Any(item => group.Contains(item.Candidate.Map.Id))))
+            {
+                // Its own floor/anchor evidence was compared above. Reusing the
+                // family decision never copies a sibling's pose or marks it green.
+                reusedFamily++;
+                continue;
+            }
             var hypotheses = candidate.SearchHypotheses.Count > 0 ? candidate.SearchHypotheses : new[] { candidate };
             var complete = true;
             var supported = false;
@@ -49,10 +66,15 @@ public sealed partial class SessionOrchestrator
                 if (hypothesis.StructureIndex is not { } index
                     || !_recognition.TryCreateSideEntranceAlignmentSeed(hypothesis, frame.ViewportBounds, out var seed, out _))
                 { complete = false; continue; }
-                var evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, seed.LockedTransform, frame.ViewportBounds, context);
-                hypothesis.IdentityEvidence = evidence;
+                var evidence = hypothesis.IdentityEvidence;
+                var competitiveCost = selectionPolicy == ScanIdentitySelectionPolicy.AllowDominantSupport
+                    && reliable.Count > 0
+                    ? reliable.Min(item => ScanIdentityVerifier.FitCost(item.Candidate.IdentityEvidence))
+                        + ScanIdentityVerifier.DominantFitMargin
+                    : double.PositiveInfinity;
                 if (evidence.State == ScanIdentityState.Excluded && evidence.SupportedFraction >= .80
-                    && SideEntranceScanPipeline.RefineIdentityPose(hypothesis, evidenceFrame, frame.ViewportBounds, context) is { } refined
+                    && SideEntranceScanPipeline.RefineIdentityPose(hypothesis, evidenceFrame, frame.ViewportBounds,
+                        context, competitiveCost) is { } refined
                     && _recognition.TryCreateSideEntranceAlignmentSeed(refined, frame.ViewportBounds, out var refinedSeed, out _))
                 {
                     hypothesis = refined;
@@ -60,9 +82,25 @@ public sealed partial class SessionOrchestrator
                     evidence = refined.IdentityEvidence;
                     candidate.SearchHypotheses = hypotheses.Append(refined).ToArray();
                 }
-                if (ReferenceEquals(hypothesis, hypotheses[0])) candidate.IdentityEvidence = evidence;
+                // A weaker alternative pose must not erase this identity's best
+                // support before the family-versus-outsider comparison below.
+                if (evidence.State == ScanIdentityState.Supported
+                    && (candidate.IdentityEvidence.State != ScanIdentityState.Supported
+                        || ScanIdentityVerifier.FitCost(evidence) < ScanIdentityVerifier.FitCost(candidate.IdentityEvidence)))
+                    candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
                 if (evidence.State != ScanIdentityState.Supported) continue;
+                // Refinement can recover a weak outside identity. Keep that
+                // evidence in the final comparison, but do not spend a full
+                // registration/rescue on it if a verified family already wins.
+                // Later refinements and the commit guard rerun the same decision.
+                if (ScanIdentityVerifier.SelectIdentity(candidates, context.RetrievalCompleted,
+                    context.CanCompute, context.VariantGroups, selectionPolicy) is { } winner
+                    && winner != candidate.Map.Id)
+                {
+                    dominatedAlignments++;
+                    continue;
+                }
                 LogScanVerificationCandidateSelected(hypothesis, completed);
                 var structureTuning = CreateScanVerificationTuning(
                     MapScaleSeedResolver.CreateStrictInitialIdentityValidationTuning(
@@ -74,19 +112,19 @@ public sealed partial class SessionOrchestrator
                 formal++;
                 if (attempt.Recognition?.Result.OverlayTransform is not { } finalTransform || !attempt.StructureAccepted)
                 {
-                    hypothesis.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
+                    // The original pose still supports this identity. It cannot be
+                    // selected without alignment, but it must remain a competitor.
                     complete = false;
                     continue;
                 }
                 // Re-evaluate the transform that will actually be consumed, including rescue/precision changes.
                 evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, finalTransform, frame.ViewportBounds, context);
-                hypothesis.VerifiedTransform = finalTransform;
-                hypothesis.IdentityEvidence = evidence;
-                if (ReferenceEquals(hypothesis, hypotheses[0])) candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
                 // Rejection of the moved transform does not disprove the original
                 // supported identity; registration has not confirmed a usable pose.
                 if (evidence.State != ScanIdentityState.Supported) { complete = false; continue; }
+                hypothesis.VerifiedTransform = finalTransform;
+                hypothesis.IdentityEvidence = evidence;
                 if (bestEvidence is null || evidence.ForwardMeanPixels < bestEvidence.ForwardMeanPixels)
                 {
                     bestEvidence = evidence;
@@ -118,8 +156,7 @@ public sealed partial class SessionOrchestrator
             else
             {
                 candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
-                if (!complete) candidate.IdentityEvidence = ScanIdentityEvidence.Unverified("verification-incomplete");
-                candidate.RejectionDetail = candidate.IdentityEvidence.Reason;
+                candidate.RejectionDetail = complete ? candidate.IdentityEvidence.Reason : "alignment-not-confirmed";
             }
             completed++;
             _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
@@ -139,13 +176,24 @@ public sealed partial class SessionOrchestrator
         timings["scan_verification"] = timer.Elapsed.TotalMilliseconds;
         _lastDiagnostics!.ScanCandidateCount = candidates.Count;
         _lastDiagnostics.ScanVerificationCandidateCount = candidates.Count;
-        _lastDiagnostics.ScanVerifiedCandidateCount = completed;
+        _lastDiagnostics.ScanVerifiedCandidateCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
         _lastDiagnostics.ScanVerificationTimedOut = !context!.CanCompute;
         _lastDiagnostics.ScanEarlyExited = false;
         _lastDiagnostics.ScanFormalStructureAttemptCount = formal;
         _lastDiagnostics.ScanFormalStructureAcceptedCount = reliable.Count;
         _lastDiagnostics.ScanTotalVerificationMilliseconds = timer.Elapsed.TotalMilliseconds;
         _lastDiagnostics.ScanEffectiveBudgetMilliseconds = context.Policy.BudgetMilliseconds;
+        _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+            "扫描分阶段验证完成",
+            details: new()
+            {
+                ["comparedIdentities"] = _lastDiagnostics.ScanVerifiedCandidateCount,
+                ["formalAlignments"] = formal,
+                ["verifiedMembers"] = reliable.Count,
+                ["skippedSiblingAlignments"] = reusedFamily,
+                ["skippedDominatedAlignments"] = dominatedAlignments,
+                ["classEvidenceMs"] = timings["scan_class_evidence"]
+            });
         return reliable;
     }
 

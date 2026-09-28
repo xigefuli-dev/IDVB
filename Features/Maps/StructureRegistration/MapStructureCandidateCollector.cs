@@ -31,6 +31,13 @@ internal static partial class MapStructureCandidateCollector
         output.Add(current);
         if (ScanExecutionContext.Current is { } scan && scan.HasAlignmentConstraint(request))
         {
+            // The gate-anchored seed already passed dense identity evidence. If
+            // its rounded formal pose passes every absolute/identity gate too,
+            // evaluating all 48 neighbours adds no acceptance evidence. Keep the
+            // bounded repair search only for a pose that actually needs repair.
+            if (MapStructureValidator.ValidateAbsolute(current, tuning,
+                restrictedSearch: true, request) == MapStructureRejectionReason.None)
+                return;
             // Coarse registration rounds translation into reference pixels. Keep
             // the bounded neighbouring poses available to original-frame validation
             // instead of accepting its single best average-distance location.

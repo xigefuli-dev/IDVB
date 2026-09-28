@@ -15,6 +15,7 @@ public sealed class MapLogRepository
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
     };
+    private static readonly JsonSerializerOptions JournalOptions = new(JsonOptions) { WriteIndented = false };
 
     private readonly string _logDirectory;
 
@@ -45,27 +46,82 @@ public sealed class MapLogRepository
         string sessionPath,
         IReadOnlyList<MapLogEntry> entries,
         CancellationToken cancellationToken = default) =>
-        AppendBatchAsync(sessionPath, entries, cancellationToken);
+        AppendWithRecoveryAsync(sessionPath, entries, cancellationToken);
 
     public Task FinalizeAsync(
         string sessionPath,
         IReadOnlyList<MapLogEntry> entries,
         CancellationToken cancellationToken = default) =>
-        AppendBatchAsync(sessionPath, entries, cancellationToken);
+        AppendWithRecoveryAsync(sessionPath, entries, cancellationToken);
+
+    private async Task AppendWithRecoveryAsync(string path, IReadOnlyList<MapLogEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        if (entries.Count == 0) return;
+        var journal = path + ".recovery.jsonl";
+        if (!File.Exists(journal))
+        {
+            try
+            {
+                await AppendBatchAsync(path, entries, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Preserve the original evidence. A mapped reader can prevent SetLength;
+                // all subsequent batches use an append-only sidecar instead of going dark.
+                var notice = JsonSerializer.Serialize(new
+                {
+                    kind = "persistence-failover", timestamp = DateTimeOffset.UtcNow,
+                    originalPath = path, exception = ex.GetType().FullName, ex.Message,
+                    ex.HResult, firstSequence = entries[0].Sequence
+                }, JournalOptions);
+                await File.AppendAllTextAsync(journal, "\n" + notice + "\n", cancellationToken).ConfigureAwait(false);
+            }
+        }
+        // Start each batch on a fresh line so a partial write cannot swallow a later batch.
+        await File.AppendAllTextAsync(journal,
+            "\n" + JsonSerializer.Serialize(entries, JournalOptions) + "\n", cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<IReadOnlyList<MapLogEntry>> ReadSessionAsync(
         string sessionPath,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(sessionPath) || !File.Exists(sessionPath))
+        if (string.IsNullOrWhiteSpace(sessionPath))
             return [];
-
-        await using var stream = File.OpenRead(sessionPath);
-        return await JsonSerializer.DeserializeAsync<List<MapLogEntry>>(
-                   stream,
-                   JsonOptions,
-                   cancellationToken)
-               ?? [];
+        var entries = new List<MapLogEntry>();
+        var journal = sessionPath + ".recovery.jsonl";
+        if (File.Exists(sessionPath))
+        {
+            try
+            {
+                await using var stream = File.OpenRead(sessionPath);
+                entries.AddRange(await JsonSerializer.DeserializeAsync<List<MapLogEntry>>(
+                    stream, JsonOptions, cancellationToken).ConfigureAwait(false) ?? []);
+            }
+            catch (Exception ex) when (File.Exists(journal) && (ex is IOException or JsonException))
+            {
+                entries.Add(new MapLogEntry { Sequence = 0, Timestamp = DateTimeOffset.UtcNow,
+                    Category = MapLogCategory.System, Level = MapLogLevel.Error,
+                    Message = "Original log unreadable; recovery journal only: " + ex.Message });
+            }
+        }
+        if (File.Exists(journal))
+        {
+            foreach (var line in await File.ReadAllLinesAsync(journal, cancellationToken).ConfigureAwait(false))
+            {
+                if (!line.StartsWith('[')) continue; // failover metadata or blank separator
+                try { entries.AddRange(JsonSerializer.Deserialize<List<MapLogEntry>>(line, JsonOptions) ?? []); }
+                catch (JsonException)
+                {
+                    entries.Add(new MapLogEntry { Sequence = 0, Timestamp = DateTimeOffset.UtcNow,
+                        Category = MapLogCategory.System, Level = MapLogLevel.Error,
+                        Message = "Incomplete recovery batch; diagnostic records may be missing." });
+                }
+            }
+        }
+        return entries.GroupBy(e => e.Sequence).Select(g => g.First()).OrderBy(e => e.Sequence).ToArray();
     }
 
     public void DeleteSession(string sessionPath)
@@ -75,6 +131,7 @@ public sealed class MapLogRepository
             foreach (var path in new[]
             {
                 sessionPath,
+                sessionPath + ".recovery.jsonl",
                 sessionPath + ".tmp",
                 sessionPath + ".final.tmp"
             })
@@ -167,7 +224,7 @@ public sealed class MapLogRepository
             {
                 try
                 {
-                    File.Delete(file);
+                    DeleteSession(file);
                 }
                 catch
                 {

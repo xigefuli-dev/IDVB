@@ -107,8 +107,7 @@ public sealed partial class SessionOrchestrator
             // pre-scan toggle state.
             scanSucceeded = true;
 
-            // Template retrieval only determines which identities are worth
-            // testing. Every retained candidate has one formal structure pass.
+            // Compare every identity, then formally align the strongest members.
             const bool requireStrictStructureRegistration = true;
             var sideAlignmentTuning = CreateInitialAlignmentRecognitionTuning();
             if (sideAlignmentTuning.GateTemplateThreshold
@@ -120,14 +119,38 @@ public sealed partial class SessionOrchestrator
             initialPostProcess.Complete();
             initialPostProcess = null;
 
-            var reliable = VerifySideEntranceCandidates(frame, candidates, sideAlignmentTuning, sideTimings);
+            var reliable = VerifySideEntranceCandidates(frame, candidates, sideAlignmentTuning, sideTimings,
+                result.IdentitySelectionPolicy);
+            // Preserve the verified choices even if publication later loses its
+            // deadline/context. Never rebuild an empty list from catalog order.
+            if (!result.ObserveUntilConfirmed)
+                pendingChoices = BuildScanVerificationChoices(reliable, candidates, frame,
+                    requireStrictStructureRegistration, out _);
             var context = ScanExecutionContext.Current;
-            var selectedId = ScanIdentityVerifier.SelectIdentity(candidates,
+            var decision = ScanIdentityVerifier.EvaluateSelection(candidates,
                 context?.RetrievalCompleted == true && candidates.Count == sideScan.EligibleMapCount,
                 context?.CanCompute == true, context?.VariantGroups,
-                result.ObserveUntilConfirmed
-                    ? ScanIdentitySelectionPolicy.RequireUniqueSupport
-                    : ScanIdentitySelectionPolicy.AllowDominantSupport);
+                result.IdentitySelectionPolicy);
+            var selectedId = decision.MapId;
+            _logCollector.Append(MapLogCategory.ScanLifecycle,
+                selectedId is null ? MapLogLevel.Warning : MapLogLevel.Info,
+                $"扫描身份决策 · reason={decision.Reason}", details: new()
+                {
+                    ["selectedMapId"] = selectedId, ["reason"] = decision.Reason,
+                    ["policy"] = result.IdentitySelectionPolicy.ToString(),
+                    ["retrievalComplete"] = context?.RetrievalCompleted,
+                    ["computeStopReason"] = context?.ComputeStopReason,
+                    ["eligibleCount"] = sideScan.EligibleMapCount,
+                    ["variantGroups"] = context?.VariantGroups,
+                    ["candidates"] = candidates.Select(c => new
+                    {
+                        c.Map.Id, c.Map.SequenceNumber, c.FloorKey,
+                        state = c.IdentityEvidence.State.ToString(), disposition = c.Disposition.ToString(),
+                        c.IdentityEvidence.Reason, fitCost = ScanIdentityVerifier.FitCost(c.IdentityEvidence),
+                        c.IdentityEvidence.SupportedFraction, c.IdentityEvidence.LongestConflictPixels,
+                        c.RejectionDetail, hasVerifiedTransform = c.VerifiedTransform is not null
+                    }).ToArray()
+                });
             var preview = ScanObservationRules.SelectPreview(candidates,
                 result.PreviousPreviewMapId, result.PreviousPreviewFloor);
             result.ProvisionalRecognition = reliable.FirstOrDefault(item =>
@@ -139,8 +162,6 @@ public sealed partial class SessionOrchestrator
                     failureReason = "正在观察可见结构，地图身份尚未确定。";
                     return;
                 }
-                var choices = BuildScanVerificationChoices(reliable, candidates, frame,
-                    requireStrictStructureRegistration, out _);
                 var diagnosticPath = MapDiagnosticModeCapture.WriteUnresolvedScan(
                     frame, context?.Frame, candidates,
                     context?.Policy.Mode ?? ScanPerformanceMode.Balanced);
@@ -148,8 +169,15 @@ public sealed partial class SessionOrchestrator
                     _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
                         "未确定身份的扫描原始证据已保存",
                         details: new() { ["path"] = diagnosticPath });
-                pendingChoices = choices;
-                pendingChoicesReason = "地图尚未确定：当前类别中仍有未排除的竞争结果，或可见结构证据不足。";
+                pendingChoicesReason = decision.Reason switch
+                {
+                    "all-identities-excluded" => "地图尚未确定：所有候选均未通过可见结构校验，请查看冲突诊断。",
+                    "supported-without-confirmed-alignment" => "地图尚未确定：存在结构匹配，但尚未完成可信对齐。",
+                    "unverified-identities" => "地图尚未确定：仍有候选未完成验证。",
+                    "retrieval-incomplete" => "地图尚未确定：候选检索未完成。",
+                    "execution-unavailable" => "地图尚未确定：扫描已取消、被新请求替代或计算预算已用尽。",
+                    _ => "地图尚未确定：多张地图通过结构校验，尚不能唯一确认。"
+                };
                 failureReason = pendingChoicesReason;
                 return;
             }

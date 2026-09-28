@@ -68,7 +68,7 @@ public sealed partial class SessionOrchestrator
         if (candidate?.StructureIndex is not { } index
             || ScanIdentityVerifier.SelectIdentity(scan!.Candidates, execution.RetrievalCompleted
                 && scan.Candidates.Count == scan.EligibleMapCount, execution.CanCompute,
-                execution.VariantGroups) != recognition.Map.Id)
+                execution.VariantGroups, result.IdentitySelectionPolicy) != recognition.Map.Id)
             return false;
         var final = ScanIdentityVerifier.Verify(observation, index, transform, frame.ViewportBounds, execution);
         if (final.State != ScanIdentityState.Supported || !execution.CanCompute
@@ -104,6 +104,16 @@ public sealed partial class SessionOrchestrator
         _overlay.Show();
         RefreshMiniMapForCurrentFloor();
         _statusMessage = $"已确认 {recognition.Map.DisplayName} · 结构支持 {final.SupportedFraction:P0}";
+        _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+            $"扫描自动提交成功 · map={recognition.Map.SequenceNumber}#{recognition.Result.Floor}",
+            details: new()
+            {
+                ["mapId"] = recognition.Map.Id,
+                ["selectionPolicy"] = result.IdentitySelectionPolicy.ToString(),
+                ["variantGroup"] = execution.VariantGroups.FirstOrDefault(g => g.Contains(recognition.Map.Id)),
+                ["support"] = final.SupportedFraction,
+                ["decisionElapsedMs"] = execution.ElapsedMilliseconds
+            });
         StateChanged?.Invoke(this, EventArgs.Empty);
         return true;
     }

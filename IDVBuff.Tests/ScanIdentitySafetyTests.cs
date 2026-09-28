@@ -148,34 +148,137 @@ public sealed class ScanIdentitySafetyTests
     }
 
     [Fact]
-    public void SmallerMeanDistanceCannotResolveContradictoryVariantCoverage()
+    public void DeclaredVariantsSelectBestVerifiedFitWithoutDemandingUniqueMember()
     {
         var winner = Candidate(ScanIdentityState.Supported, .4406356);
         winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = .9774476 };
         var sibling = Candidate(ScanIdentityState.Supported, .9453689);
         sibling.IdentityEvidence = sibling.IdentityEvidence with { SupportedFraction = .9896524 };
         Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
-        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
-        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups,
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups,
             ScanIdentitySelectionPolicy.AllowDominantSupport));
         winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = .995 };
-        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
         Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups,
             ScanIdentitySelectionPolicy.AllowDominantSupport));
     }
 
     [Fact]
-    public void LocalVetoCannotEliminateWellSupportedVariant()
+    public void ExcludedSiblingDoesNotVetoVerifiedMemberOfDeclaredGroup()
     {
         var winner = Candidate(ScanIdentityState.Supported, .23);
         var sibling = Candidate(ScanIdentityState.Excluded, .88);
         sibling.IdentityEvidence = sibling.IdentityEvidence with
         { SupportedFraction = .97, Reason = "visible-contour-conflict", LongestConflictPixels = 30 };
         Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
-        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
         // An actually dissimilar sibling still permits a unique supported winner.
         sibling.IdentityEvidence = sibling.IdentityEvidence with { SupportedFraction = .3 };
         Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+    }
+
+    [Fact]
+    public void VariantGroupCannotHideUnfinishedOrUnrelatedCompetitor()
+    {
+        var winner = Candidate(ScanIdentityState.Supported, .2);
+        var sibling = Candidate(ScanIdentityState.Supported, .2);
+        var other = Candidate(ScanIdentityState.Supported, .25);
+        Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
+        foreach (var policy in Enum.GetValues<ScanIdentitySelectionPolicy>())
+        {
+            Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling, other], true, true, groups, policy));
+            sibling.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
+            Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups, policy));
+            sibling.IdentityEvidence = other.IdentityEvidence;
+            Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], false, true, groups, policy));
+            Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, false, groups, policy));
+        }
+    }
+
+    [Fact]
+    public void EqualVariantFitsHaveStableChoiceRegardlessOfRetrievalOrder()
+    {
+        var a = Candidate(ScanIdentityState.Supported, .2);
+        var b = Candidate(ScanIdentityState.Supported, .2);
+        Guid[][] groups = [[a.Map.Id, b.Map.Id]];
+        var expected = ScanIdentityVerifier.SelectIdentity([a, b], true, true, groups);
+        Assert.NotNull(expected);
+        Assert.Equal(expected, ScanIdentityVerifier.SelectIdentity([b, a], true, true, groups));
+    }
+
+    [Fact]
+    public void FamilyNeedsOneAlignedMemberAndComparesOutsideSupportByPolicy()
+    {
+        var aligned = Candidate(ScanIdentityState.Supported, .2);
+        var sibling = Candidate(ScanIdentityState.Supported, .1);
+        sibling.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Guid[][] groups = [[aligned.Map.Id, sibling.Map.Id]];
+        Assert.Equal(aligned.Map.Id, ScanIdentityVerifier.SelectIdentity([aligned, sibling], true, true, groups));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([aligned, sibling], true, true));
+        var outsider = Candidate(ScanIdentityState.Supported, 3);
+        outsider.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([aligned, sibling, outsider], true, true, groups));
+        Assert.Equal(aligned.Map.Id, ScanIdentityVerifier.SelectIdentity([aligned, sibling, outsider], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
+        outsider.IdentityEvidence = outsider.IdentityEvidence with { ForwardMeanPixels = .3 };
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([aligned, sibling, outsider], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
+        outsider.IdentityEvidence = outsider.IdentityEvidence with { ForwardMeanPixels = .05 };
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([aligned, sibling, outsider], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
+        aligned.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([aligned, sibling], true, true, groups));
+    }
+
+    [Fact]
+    public void ScreenshotMapThreeFamilyBeatsFullyComparedButUnalignedMapTwentyOne()
+    {
+        var winner = Candidate(ScanIdentityState.Supported, .38693497949264544);
+        winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = 1 };
+        var sibling = Candidate(ScanIdentityState.Supported, .23767232876148223);
+        sibling.IdentityEvidence = sibling.IdentityEvidence with { SupportedFraction = 1 };
+        sibling.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        var outsider = Candidate(ScanIdentityState.Supported, 3.066247582654614);
+        outsider.IdentityEvidence = outsider.IdentityEvidence with { SupportedFraction = .8817086527929902 };
+        outsider.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
+        foreach (var candidates in new[] { new[] { winner, sibling, outsider }, new[] { outsider, sibling, winner } })
+        {
+            Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity(candidates, true, true, groups,
+                ScanIdentitySelectionPolicy.AllowDominantSupport));
+            Assert.Null(ScanIdentityVerifier.SelectIdentity(candidates, true, true, groups));
+        }
+        outsider.IdentityEvidence = ScanIdentityEvidence.Unverified("deadline");
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling, outsider], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
+    }
+
+    [Fact]
+    public void OverlappingFamiliesCannotHideNearTieOutsideEachDeclaredGroup()
+    {
+        var winner = Candidate(ScanIdentityState.Supported, .2);
+        var bridge = Candidate(ScanIdentityState.Supported, .2);
+        var outsider = Candidate(ScanIdentityState.Supported, .3);
+        bridge.Disposition = outsider.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Guid[][] groups = [[winner.Map.Id, bridge.Map.Id], [bridge.Map.Id, outsider.Map.Id]];
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, bridge, outsider], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
+    }
+
+    [Fact]
+    public void RefinementBoundAssumesEveryUntestedDensePointMatchesPerfectly()
+    {
+        // 100 sampled points with distance 300 and 20 misses. With 1,000 total
+        // points, the best possible full-frame cost is .4, not the sample's 4.
+        Assert.False(ScanIdentityVerifier.CannotBeatFitCost(300, 20, 1000, .41));
+        Assert.True(ScanIdentityVerifier.CannotBeatFitCost(300, 20, 1000, .39));
+        Assert.False(ScanIdentityVerifier.CannotBeatFitCost(300, 20, 1000, double.PositiveInfinity));
+        var fullEvidence = new ScanIdentityEvidence(ScanIdentityState.Supported, 1000, 1000,
+            .3, .98, 0, "perfect-remaining-points");
+        Assert.Equal(.4, ScanIdentityVerifier.FitCost(fullEvidence), 10);
+        // More measured distance or misses can never improve the lower bound.
+        Assert.True(ScanIdentityVerifier.CannotBeatFitCost(320, 21, 1000, .41));
     }
 
     [Fact]

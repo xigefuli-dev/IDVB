@@ -6,7 +6,8 @@ public sealed partial class SideEntranceScanPipeline
     // verifier's support boundary. Refine a near fit before excluding its identity.
     // Every proposal remains gate-anchored and must pass the unchanged full verifier.
     internal static SideEntranceScanCandidate? RefineIdentityPose(SideEntranceScanCandidate seed,
-        ScanFrameEvidence frame, MapScreenRect viewport, ScanExecutionContext context)
+        ScanFrameEvidence frame, MapScreenRect viewport, ScanExecutionContext context,
+        double maximumCompetitiveFitCost = double.PositiveInfinity)
     {
         var profile = MapFloorRules.GetFloorProfile(seed.Map, seed.FloorKey);
         var anchor = MapScanFloorRules.GetScanFeatureAnchor(seed.Map, seed.FloorKey);
@@ -34,17 +35,31 @@ public sealed partial class SideEntranceScanPipeline
                 var y = gy + dy - ay * scale;
                 var hits = 0;
                 var distance = 0d;
+                var tested = 0;
+                var dominated = false;
                 foreach (var p in points)
                 {
                     var d = index.Distance((p.X - x) / scale, (p.Y - y) / scale, scale);
                     if (d <= ScanIdentityVerifier.SupportTolerancePixels) hits++;
                     distance += d;
+                    tested++;
+                    // This is a lower bound on the FULL dense-frame fit cost:
+                    // every untested point is assumed to match perfectly. The
+                    // uniform sample is a subset, so the bound also holds when
+                    // dense points exceed the sample size. No near tie is pruned.
+                    if (ScanIdentityVerifier.CannotBeatFitCost(distance, tested - hits,
+                        frame.DensePoints.Length, maximumCompetitiveFitCost))
+                    {
+                        dominated = true;
+                        break;
+                    }
                 }
                 context.TestedHypotheses++;
+                if (dominated) continue;
                 if (hits > bestHits || (hits == bestHits && distance < bestDistance))
                 { bestHits = hits; bestDistance = distance; bestX = x; bestY = y; }
             }
-            proposals.Add((scale, bestX, bestY, bestHits, bestDistance));
+            if (bestHits >= 0) proposals.Add((scale, bestX, bestY, bestHits, bestDistance));
         }
         foreach (var p in proposals.OrderByDescending(p => p.hits).ThenBy(p => p.distance))
         {

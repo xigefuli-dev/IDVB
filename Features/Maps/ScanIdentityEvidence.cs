@@ -95,57 +95,47 @@ internal sealed class ScanStructureIndex
 
 internal static class ScanIdentityVerifier
 {
+    internal sealed record SelectionDecision(Guid? MapId, string Reason);
     public static Guid? SelectIdentity(IReadOnlyList<SideEntranceScanCandidate> candidates,
         bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null,
         ScanIdentitySelectionPolicy selectionPolicy = ScanIdentitySelectionPolicy.RequireUniqueSupport)
+        => EvaluateSelection(candidates, retrievalComplete, withinBudget, variantGroups, selectionPolicy).MapId;
+
+    internal static SelectionDecision EvaluateSelection(IReadOnlyList<SideEntranceScanCandidate> candidates,
+        bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null,
+        ScanIdentitySelectionPolicy selectionPolicy = ScanIdentitySelectionPolicy.RequireUniqueSupport)
     {
-        if (!retrievalComplete || !withinBudget || candidates.Any(c => c.IdentityEvidence.State == ScanIdentityState.Unverified))
-            return null;
-        var supported = candidates.Where(c => c.IdentityEvidence.State == ScanIdentityState.Supported
-                && c.Disposition == SideEntranceCandidateDisposition.Reliable)
-            .OrderBy(c => FitCost(c.IdentityEvidence)).ToArray();
-        if (supported.Length == 0) return null;
-        // Continuous observation can keep collecting evidence, so it must not turn a
-        // provisional ranking into an identity lock while another map remains supported.
-        // A user-triggered closed-set scan has already compared the whole active class;
-        // preserve the pre-observation behavior there and accept a clearly dominant fit.
-        if (selectionPolicy == ScanIdentitySelectionPolicy.RequireUniqueSupport
-            && supported.Length != 1)
-            return null;
-        // A local contour veto is not evidence that a near-identical sibling is absent.
-        // Icons and reference omissions can trigger that veto even at >97% full-frame
-        // support. Keep the declared variant group unresolved instead of letting the
-        // first sibling just below the contour threshold win by elimination.
-        var winnerId = supported[0].Map.Id;
-        foreach (var group in variantGroups ?? [])
-        {
-            if (!group.Contains(winnerId)) continue;
-            foreach (var sibling in candidates.Where(c => c.Map.Id != winnerId && group.Contains(c.Map.Id)))
-            {
-                // Mean distance can improve by fitting a shared room more tightly
-                // while explaining less of the visible structure. That trade-off
-                // cannot establish which near-identical variant is present.
-                if (sibling.IdentityEvidence.State == ScanIdentityState.Supported
-                    && sibling.IdentityEvidence.SupportedFraction > supported[0].IdentityEvidence.SupportedFraction)
-                    return null;
-                var evidence = sibling.SearchHypotheses.Count > 0
-                    ? sibling.SearchHypotheses.Select(h => h.IdentityEvidence)
-                    : [sibling.IdentityEvidence];
-                if (evidence.Any(e => e.State == ScanIdentityState.Excluded
-                    && e.TestedPoints == e.TotalPoints && e.TotalPoints > 0
-                    && e.SupportedFraction >= MinimumSupport
-                    && e.Reason is "visible-contour-conflict" or "spatial-support-conflict"))
-                    return null;
-            }
-        }
-        if (selectionPolicy == ScanIdentitySelectionPolicy.AllowDominantSupport
-            && supported.Length > 1
-            && FitCost(supported[1].IdentityEvidence) - FitCost(supported[0].IdentityEvidence) < .35)
-            return null;
-        return winnerId;
+        if (!retrievalComplete) return new(null, "retrieval-incomplete");
+        if (!withinBudget) return new(null, "execution-unavailable");
+        if (candidates.Any(c => c.IdentityEvidence.State == ScanIdentityState.Unverified))
+            return new(null, "unverified-identities");
+        var supported = candidates.Where(c => c.IdentityEvidence.State == ScanIdentityState.Supported)
+            .OrderBy(c => FitCost(c.IdentityEvidence))
+            .ThenByDescending(c => c.IdentityEvidence.SupportedFraction)
+            .ThenBy(c => c.Map.SequenceNumber).ThenBy(c => c.Map.Id).ToArray();
+        var verified = supported.Where(c => c.Disposition == SideEntranceCandidateDisposition.Reliable).ToArray();
+        if (verified.Length == 0) return new(null, supported.Length == 0
+            ? "all-identities-excluded" : "supported-without-confirmed-alignment");
+        // Compare identities at the user-selectable family boundary. Only the
+        // selected member needs a confirmed alignment; a fully compared losing
+        // identity must not force a dialog merely because it was not aligned.
+        var winnerId = verified[0].Map.Id;
+        var winnerCost = FitCost(verified[0].IdentityEvidence);
+        // Do not transitively merge overlapping groups. Each declared family has
+        // to beat every supported identity outside that one family independently.
+        var families = (variantGroups ?? []).Where(group => group.Contains(winnerId))
+            .Append(new[] { winnerId });
+        var selected = families.Any(family => supported.Where(c => !family.Contains(c.Map.Id)).All(c =>
+            selectionPolicy == ScanIdentitySelectionPolicy.AllowDominantSupport
+            && FitCost(c.IdentityEvidence) - winnerCost >= DominantFitMargin));
+        return new(selected ? winnerId : null, selected ? "selected" : "competing-supported-identities");
     }
-    private static double FitCost(ScanIdentityEvidence evidence) =>
+    internal const double DominantFitMargin = .35;
+    internal static double FitCost(ScanIdentityEvidence evidence) =>
         evidence.ForwardMeanPixels + (1 - evidence.SupportedFraction) * 5;
+    internal static bool CannotBeatFitCost(double partialDistance, int unsupportedPoints,
+        int totalPoints, double competitiveCost) => totalPoints > 0
+        && (partialDistance + unsupportedPoints * 5d) / totalPoints >= competitiveCost;
     // Same safety policy in every mode. Distances are measured in screen pixels.
     internal const double SupportTolerancePixels = 5.5;
     internal const double MinimumSupport = .88;

@@ -27,6 +27,10 @@ public sealed partial class SessionOrchestrator
         }
 
         CancelMapObservation(clearPreview: true);
+        // Rescanning supersedes the old map's alignment before waiting for its
+        // gate. Otherwise recovery of a wrong manual choice consumes this scan.
+        Interlocked.Increment(ref _continuousAlignmentGeneration);
+        InvalidateActiveMapOpenOperation("quick scan requested");
 
         var scanGeneration = Interlocked.Increment(ref _scanRequestGeneration);
         var scanScope = BeginQuickScanCancellationScope();

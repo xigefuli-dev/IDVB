@@ -118,6 +118,15 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
         double? elapsedMs = null,
         Dictionary<string, object?>? details = null)
     {
+        if (ScanExecutionContext.Current is { } scan)
+        {
+            details = details is null ? new() : new(details);
+            details["scanId"] = scan.ScanId;
+            details["scanElapsedMs"] = scan.ElapsedMilliseconds;
+            details["scanRemainingMs"] = scan.RemainingMilliseconds;
+            details["scanCancelled"] = scan.CancellationToken.IsCancellationRequested;
+            details["scanSuperseded"] = scan.IsSuperseded;
+        }
         WritePlainTextOutput(category, level, message, elapsedMs, details);
         lock (_stateGate)
         {
@@ -281,7 +290,13 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
                 foreach (var detail in details)
                 {
                     outputMessage += $" | {detail.Key}="
-                        + (Convert.ToString(detail.Value, CultureInfo.InvariantCulture) ?? "null");
+                        + (detail.Value is null ? "null" : detail.Value is string or ValueType
+                            ? Convert.ToString(detail.Value, CultureInfo.InvariantCulture)
+                            : System.Text.Json.JsonSerializer.Serialize(detail.Value,
+                                new System.Text.Json.JsonSerializerOptions
+                                {
+                                    NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
+                                }));
                 }
             }
             OutputLog.Write(level.ToString(), $"MAP/{category}", outputMessage);

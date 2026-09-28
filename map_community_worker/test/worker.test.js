@@ -75,7 +75,14 @@ function createEnvironment() {
             return { results: list };
           }
           if (sql.includes("FROM users")) return { results: [...users.values()] };
-          if (sql.includes("FROM feedbacks")) return { results: [...feedbacks.values()] };
+          if (sql.includes("FROM feedbacks")) {
+            return { results: [...feedbacks.values()].map((item) => {
+              const result = { ...item };
+              if (!sql.includes("f.logs_key")) delete result.logs_key;
+              if (!sql.includes("f.diagnostics_key")) delete result.diagnostics_key;
+              return result;
+            }) };
+          }
           if (sql.includes("FROM announcements")) {
             let list = [...announcements.values()];
             if (sql.includes("WHERE a.is_published = 1")) {
@@ -667,8 +674,33 @@ test("builder can view all users and certify regular users without promoting to 
   assert.equal(refreshedUsers.find((user) => user.id === userAId).isOfficial, true);
 });
 
-test("builder can view feedbacks and download logs and diagnostics packages", async () => {
+test("only a signed-in builder can pull feedbacks and download attachments", async () => {
   const env = createEnvironment();
+  const unauthenticated = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks"), env);
+  assert.equal(unauthenticated.status, 401);
+  assert.equal((await unauthenticated.json()).error, "login_required");
+
+  // 普通账户和仅官方认证账户都不是 Builder，不能拉取 Feedback。
+  const regOfficial = await worker.fetch(new Request("https://community.idvb.test/api/auth/register", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "official@idvb.test", displayName: "官方认证用户", password: "Password1234!", turnstileToken: "pass" }),
+  }), env);
+  const cookieOfficial = regOfficial.headers.get("set-cookie");
+  const officialId = (await regOfficial.json()).user.id;
+
+  const regularList = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    method: "GET", headers: { cookie: cookieOfficial },
+  }), env);
+  assert.equal(regularList.status, 403);
+  assert.equal((await regularList.json()).error, "builder_required");
+
+  env.users.get(officialId).is_official = 1;
+  const officialList = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    method: "GET", headers: { cookie: cookieOfficial },
+  }), env);
+  assert.equal(officialList.status, 403);
+  assert.equal((await officialList.json()).error, "builder_required");
+
   // 建设者用户登录
   const regBuilder = await worker.fetch(new Request("https://community.idvb.test/api/auth/register", {
     method: "POST", headers: { "content-type": "application/json" },
@@ -696,6 +728,19 @@ test("builder can view feedbacks and download logs and diagnostics packages", as
   const listJson = await listRes.json();
   assert.equal(listJson.feedbacks.length, 1);
   assert.equal(listJson.feedbacks[0].id, feedbackId);
+  assert.equal("logs_key" in listJson.feedbacks[0], false);
+  assert.equal("diagnostics_key" in listJson.feedbacks[0], false);
+
+  // 发布令牌只代表桌面发布身份，不能替代 Builder 的网页登录会话。
+  const tokenRes = await worker.fetch(new Request("https://community.idvb.test/api/auth/publish-token", {
+    method: "POST", headers: { cookie: cookieBuilder },
+  }), env);
+  const publishToken = (await tokenRes.json()).token;
+  const tokenOnlyList = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    method: "GET", headers: { authorization: `Bearer ${publishToken}` },
+  }), env);
+  assert.equal(tokenOnlyList.status, 401);
+  assert.equal((await tokenOnlyList.json()).error, "login_required");
 
   // 建设者下载日志附件
   const downloadRes = await worker.fetch(new Request(`https://community.idvb.test/api/builder/feedbacks/${feedbackId}/download/logs`, {
@@ -703,6 +748,100 @@ test("builder can view feedbacks and download logs and diagnostics packages", as
   }), env);
   assert.equal(downloadRes.status, 200);
   assert.equal(downloadRes.headers.get("content-type"), "application/zip");
+  assert.equal(downloadRes.headers.get("cache-control"), "no-store");
+  assert.equal(downloadRes.headers.get("cross-origin-resource-policy"), "same-origin");
+  assert.equal(downloadRes.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(downloadRes.headers.get("access-control-allow-origin"), null);
+
+  const crossSiteDownload = await worker.fetch(new Request(`https://community.idvb.test/api/builder/feedbacks/${feedbackId}/download/logs`, {
+    method: "GET", headers: { cookie: cookieBuilder, "sec-fetch-site": "cross-site" },
+  }), env);
+  assert.equal(crossSiteDownload.status, 403);
+  assert.equal((await crossSiteDownload.json()).error, "cross_site_request");
+
+  const officialDownload = await worker.fetch(new Request(`https://community.idvb.test/api/builder/feedbacks/${feedbackId}/download/logs`, {
+    method: "GET", headers: { cookie: cookieOfficial },
+  }), env);
+  assert.equal(officialDownload.status, 403);
+  assert.equal((await officialDownload.json()).error, "builder_required");
+});
+
+test("feedback pull authorization ignores caller-controlled role hints and rechecks the current database role", async () => {
+  const env = createEnvironment();
+  const registration = await worker.fetch(new Request("https://community.idvb.test/api/auth/register", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "security-audit@idvb.test", displayName: "权限审计", password: "Password1234!", turnstileToken: "pass" }),
+  }), env);
+  const cookie = registration.headers.get("set-cookie");
+  const userId = (await registration.json()).user.id;
+  const user = env.users.get(userId);
+
+  const hintedRequest = await worker.fetch(new Request(
+    "https://community.idvb.test/api/builder/feedbacks?is_builder=1&isBuilder=true&role=builder",
+    {
+      headers: {
+        cookie,
+        "x-idvb-role": "builder",
+        "x-user-is-builder": "1",
+        "x-http-method-override": "GET",
+      },
+    },
+  ), env);
+  assert.equal(hintedRequest.status, 403);
+  assert.equal((await hintedRequest.json()).error, "builder_required");
+
+  const bodyClaim = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ is_builder: 1, isBuilder: true, role: "builder" }),
+  }), env);
+  assert.equal(bodyClaim.status, 404);
+
+  const [cookiePair] = cookie.split(";");
+  const [cookieName, cookieValue] = cookiePair.split("=");
+  const tamperedCookie = await worker.fetch(new Request(
+    "https://community.idvb.test/api/builder/feedbacks?is_builder=1",
+    { headers: { cookie: `${cookieName}=${cookieValue}tampered` } },
+  ), env);
+  assert.equal(tamperedCookie.status, 401);
+  assert.equal((await tamperedCookie.json()).error, "login_required");
+
+  // 非数据库整数 1 的 truthy 值也必须失败关闭。
+  user.is_builder = "1";
+  const stringRole = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    headers: { cookie },
+  }), env);
+  assert.equal(stringRole.status, 403);
+
+  user.is_builder = 1;
+  const builderRequest = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    headers: { cookie },
+  }), env);
+  assert.equal(builderRequest.status, 200);
+  assert.equal(builderRequest.headers.get("cache-control"), "no-store");
+  assert.equal(builderRequest.headers.get("access-control-allow-origin"), null);
+
+  const crossSiteRequest = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    headers: { cookie, "sec-fetch-site": "cross-site" },
+  }), env);
+  assert.equal(crossSiteRequest.status, 403);
+  assert.equal((await crossSiteRequest.json()).error, "cross_site_request");
+
+  const foreignOriginRequest = await worker.fetch(new Request("https://community.idvb.test/api/builder/feedbacks", {
+    headers: { cookie, origin: "https://attacker.idvb.test" },
+  }), env);
+  assert.equal(foreignOriginRequest.status, 403);
+  assert.equal((await foreignOriginRequest.json()).error, "origin_mismatch");
+
+  // 已登录后被撤销 Builder 身份，旧会话必须立即失去权限；is_official 不能兜底。
+  user.is_builder = 0;
+  user.is_official = 1;
+  const downgradedSession = await worker.fetch(new Request(
+    "https://community.idvb.test/api/builder/feedbacks?role=builder",
+    { headers: { cookie, "x-idvb-role": "builder" } },
+  ), env);
+  assert.equal(downgradedSession.status, 403);
+  assert.equal((await downgradedSession.json()).error, "builder_required");
 });
 
 test("builder can view all maps, toggle visibility, and delete maps while non-builder is rejected", async () => {

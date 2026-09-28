@@ -383,22 +383,8 @@ public sealed partial class SessionOrchestrator
                 anchor.DisplayName,
                 anchor.Bounds!.Clone()))
             .ToArray();
-        var annotations = profile.Annotations
-            .Where(a => a.IsValid)
-            .Select(a => new MapOverlayRenderAnnotation(
-                a.Type,
-                a.ColorIndex,
-                a.EffectiveColorHex,
-                a.Bounds?.Clone(),
-                a.Start?.Clone(),
-                a.End?.Clone(),
-                a.Text,
-                a.FontFamily,
-                a.FontSize,
-                a.IsBold,
-                a.IsItalic,
-                a.IsStrikethrough))
-            .ToArray();
+        var annotations = MapOverlayRenderAnnotation.FromProfile(profile,
+            map.Floors.FirstOrDefault(floor => floor.Key == effectiveFloorKey));
         var floorLabel = MapFloorRules.GetFloorDisplayName(map, effectiveFloorKey);
         if (provisional) floorLabel += " · 暂显，正在确认";
         _overlay.SetPersistentMiniMapState(

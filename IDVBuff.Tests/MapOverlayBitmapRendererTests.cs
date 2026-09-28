@@ -412,6 +412,68 @@ public sealed partial class MapOverlayBitmapRendererTests
         }
     }
 
+    [Theory]
+    [InlineData(100)]
+    [InlineData(50)]
+    public void Render_AnnotationsProjectSourceCropAtEveryOutputScale(int size)
+    {
+        var imagePath = CreateSolidImage(Color.Transparent, size, size);
+        try
+        {
+            var line = new MapOverlayRenderAnnotation(MapAnnotationType.Line, 0, "#FF0000", null,
+                new NormalizedPoint { X = .1, Y = .4 },
+                new NormalizedPoint { X = .9, Y = .4 },
+                SourceRegion: new NormalizedRectangle { X = .25, Y = .25, Width = .5, Height = .5 });
+            var map = new MapOverlayRenderMap(imagePath, 0, 0, size, size, [], Annotations: [line]);
+            using var result = MapOverlayBitmapRenderer.RenderMapLayer(map, 96, false, false, true, true, true, 1);
+            // Source y=.4 maps to (.4-.25)/.5=.3; both endpoints lie outside the crop.
+            Assert.True(result.GetPixel(size / 2, size * 3 / 10).R > 200);
+            Assert.Equal(0, result.GetPixel(size / 2, size * 4 / 10).A);
+            Assert.True(result.GetPixel(2, size * 3 / 10).A > 0);
+        }
+        finally { File.Delete(imagePath); }
+    }
+
+    [Fact]
+    public void Render_FreeCropClipsAnnotationsAndSameCountEditsInvalidateLayer()
+    {
+        var imagePath = CreateSolidImage(Color.Transparent, 100, 100);
+        try
+        {
+            var line = new MapOverlayRenderAnnotation(MapAnnotationType.Line, 0, "#FF0000", null,
+                new NormalizedPoint { X = .1, Y = .5 }, new NormalizedPoint { X = .9, Y = .5 },
+                FreeCropPoints: [new() { X = .2, Y = .2 }, new() { X = .8, Y = .2 }, new() { X = .2, Y = .8 }]);
+            var map = new MapOverlayRenderMap(imagePath, 0, 0, 100, 100, [], Annotations: [line]);
+            using var first = MapOverlayBitmapRenderer.RenderMapLayer(map, 96, false, false, true, true, true, 1);
+            Assert.True(first.GetPixel(30, 50).A > 0);
+            Assert.Equal(0, first.GetPixel(70, 50).A);
+            var changed = line with { Start = new() { X = .1, Y = .3 }, End = new() { X = .9, Y = .3 } };
+            using var second = MapOverlayBitmapRenderer.RenderMapLayer(map with { Annotations = [changed] },
+                96, false, false, true, true, true, 1);
+            Assert.Equal(0, second.GetPixel(30, 50).A);
+            Assert.True(second.GetPixel(30, 30).A > 0);
+        }
+        finally { File.Delete(imagePath); }
+    }
+
+    [Fact]
+    public void AnnotationProjectionUsesRasterizedFloorCropWithoutChangingSavedGeometry()
+    {
+        var annotation = new MapAnnotation { Type = MapAnnotationType.Line, ColorHex = "#FF0000",
+            Start = new() { X = .3, Y = .4 }, End = new() { X = .7, Y = .6 } };
+        var profile = new FloorRecognitionProfile {
+            RecognitionRegion = new() { X = .253, Y = .257, Width = .501, Height = .501 },
+            Annotations = [annotation] };
+        var projected = Assert.Single(MapOverlayRenderAnnotation.FromProfile(profile,
+            new FloorDefinition { ImageWidth = 100, ImageHeight = 80 }));
+        Assert.Equal(.25, projected.SourceRegion!.X, 8);
+        Assert.Equal(.25, projected.SourceRegion.Y, 8);
+        Assert.Equal(.51, projected.SourceRegion.Width, 8);
+        Assert.Equal(41d / 80, projected.SourceRegion.Height, 8);
+        Assert.Equal(.3, annotation.Start!.X);
+        Assert.Equal(.253, profile.RecognitionRegion.X);
+    }
+
     internal static string CreateSolidImage(Color color, int width = 12, int height = 12)
     {
         var path = Path.Combine(Path.GetTempPath(), $"idvbuff-overlay-{Guid.NewGuid():N}.png");

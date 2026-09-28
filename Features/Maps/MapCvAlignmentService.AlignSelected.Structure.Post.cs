@@ -32,12 +32,18 @@ internal static partial class MapCvAlignmentService
         PopulateStructureDiagnostics(diagnostics, structure);
 
         var effectiveStructureConfidence = structure.Confidence;
+        var acceptedByStructureGates =
+            MapOpenAlignmentRouteRules.IsAcceptedStructureAlignment(
+                structureTuning.Channel,
+                structure.Accepted,
+                structure.Transform is not null,
+                effectiveStructureConfidence,
+                tuning.MinimumConfidence);
 
         var postStructureTimer = Stopwatch.StartNew();
-        if (!structure.Accepted
-            || structure.Transform is null
-            || (effectiveStructureConfidence < tuning.MinimumConfidence
-                && !tuning.ForceBestRecognitionResult))
+        // Keep the null check explicit so subsequent transform consumption is
+        // statically proven safe; the shared policy also checks it at runtime.
+        if (!acceptedByStructureGates || structure.Transform is null)
         {
             diagnostics.TrackingMode =
                 MapAlignmentTrackingMode.HoldingLastTransform;
@@ -65,10 +71,7 @@ internal static partial class MapCvAlignmentService
                 };
             }
 
-            var failureReason = structure.Accepted
-                && structure.Confidence < tuning.MinimumConfidence
-                    ? $"结构配准置信度 {structure.Confidence:P0} 低于阈值 {tuning.MinimumConfidence:P0}"
-                    : structure.FailureReason;
+            var failureReason = structure.FailureReason;
             diagnostics.StructureAttempted = true;
             diagnostics.StructureAccepted = false;
             diagnostics.StructureFailureReason = failureReason;
@@ -144,8 +147,7 @@ internal static partial class MapCvAlignmentService
                 : MapAlignmentTrackingMode.SingleGateTracking;
         diagnostics.UsedForcedBestResult =
             tuning.ForceBestRecognitionResult
-            && (structure.WasForcedBestCandidate
-                || structure.Confidence < tuning.MinimumConfidence);
+            && structure.WasForcedBestCandidate;
         diagnostics.StructureAttempted = true;
         diagnostics.StructureAccepted = structure.Accepted;
         diagnostics.StructureFailureReason =

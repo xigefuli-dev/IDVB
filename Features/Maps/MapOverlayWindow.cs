@@ -163,22 +163,8 @@ public sealed partial class MapOverlayWindow : IDisposable
                 anchor.DisplayName,
                 anchor.Bounds!.Clone()))
             .ToArray();
-        var annotations = profile.Annotations
-            .Where(a => a.IsValid)
-            .Select(a => new MapOverlayRenderAnnotation(
-                a.Type,
-                a.ColorIndex,
-                a.EffectiveColorHex,
-                a.Bounds?.Clone(),
-                a.Start?.Clone(),
-                a.End?.Clone(),
-                a.Text,
-                a.FontFamily,
-                a.FontSize,
-                a.IsBold,
-                a.IsItalic,
-                a.IsStrikethrough))
-            .ToArray();
+        var annotations = MapOverlayRenderAnnotation.FromProfile(profile,
+            recognition.Map.Floors.FirstOrDefault(floor => floor.Key == recognition.Result.Floor));
         _map = new MapOverlayRenderMap(
             recognition.FloorImagePath,
             ToFiniteSingle(transform.OffsetX - gameBounds.X),

@@ -176,18 +176,18 @@ internal static partial class MapOpenAlignmentRouteRules
         bool structureAccepted,
         bool hasTransform,
         double confidence,
-        double minimumStandardConfidence) =>
+        double _) =>
         structureAccepted
         && hasTransform
         && double.IsFinite(confidence)
-        // Low-structure registration owns its acceptance formula. Once its
-        // channel-specific hard gates pass, do not run the result through the
-        // unrelated standard-floor confidence threshold a second time.
-        && (channel == MapAlignmentChannel.LowStructure
-            || confidence >= Math.Clamp(
-                minimumStandardConfidence,
-                0d,
-                1d));
+        // Structure registration owns its acceptance formula for every
+        // channel. Once the channel-specific Chamfer, coverage, partition,
+        // uniqueness and bounds gates pass, do not run the transform through
+        // the unrelated map-recognition confidence threshold a second time.
+        // That duplicate gate made sparse but geometrically valid 1600x900
+        // observations depend on how much of the map had been explored.
+        && (channel is MapAlignmentChannel.Standard
+            or MapAlignmentChannel.LowStructure);
 
     internal static bool ShouldAttemptSideEntranceGlobalRecovery(
         bool isInitialSideEntranceSeed,

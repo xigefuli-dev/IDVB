@@ -1,0 +1,110 @@
+{
+  "format": "IDVA",
+  "format_name": "Identity Vision Algorithm",
+  "schema_version": "1.1",
+  "algorithm_id": "structure.zongcai.native-reference.v1",
+  "display_name": "总裁干净地图 · 原生同源结构线图",
+  "profile_family": "structure-map",
+  "profile_style": "zongcai-clean-native-reference",
+  "geometry_policy": {
+    "preserve_input_size": true,
+    "allow_resize": false,
+    "allow_rotation": false,
+    "allow_warp": false
+  },
+  "runtime": {
+    "engine": "idvb-opencv-pipeline",
+    "language": "declarative-json",
+    "minimum_engine_version": "1.0"
+  },
+  "input": {
+    "type": "raster-image",
+    "color_order": "BGR"
+  },
+  "output": {
+    "type": "binary-edge-map",
+    "background": 0,
+    "edge": 255,
+    "line_width_px": 2
+  },
+  "pipeline": [
+    {
+      "stage": "color_classification",
+      "mode": "HSV_RANGE"
+    },
+    {
+      "stage": "morph_open",
+      "kernel": [
+        5,
+        5
+      ]
+    },
+    {
+      "stage": "morph_close",
+      "kernels": [
+        [
+          3,
+          3
+        ]
+      ]
+    },
+    {
+      "stage": "contours",
+      "retrieval": "RETR_CCOMP",
+      "chain": "CHAIN_APPROX_SIMPLE",
+      "approx_poly_dp_epsilon": 0.55,
+      "min_perimeter_px": 30
+    },
+    {
+      "stage": "draw_edges",
+      "mode": "CONTOURS",
+      "line_width_px": 2,
+      "antialias": false
+    }
+  ],
+  "parameters": {
+    "room_hsv_ranges": [
+      {
+        "lo": [
+          0,
+          18,
+          1
+        ],
+        "hi": [
+          25,
+          165,
+          200
+        ]
+      },
+      {
+        "lo": [
+          170,
+          18,
+          1
+        ],
+        "hi": [
+          179,
+          165,
+          200
+        ]
+      }
+    ],
+    "corridor_hsv_lo": [
+      95,
+      14,
+      1
+    ],
+    "corridor_hsv_hi": [
+      130,
+      105,
+      200
+    ]
+  },
+  "provenance": {
+    "implementation": "IDVA 1.1 declarative native contour geometry",
+    "contract": "Shared native HSV hue/saturation classes, 5x5 opening, 3x3 closing, CCOMP contours, 30px minimum perimeter, 0.55px approximation and 2px binary edges.",
+    "compatibility": "Existing IDVA 1.1 stages only; no Python or new runtime mode required.",
+    "scope": "Clean Zongcai floor images only, never live fogged captures. Native hue/saturation and maximum brightness remain unchanged; minimum brightness is 1 to include dark original corridors. No HUD exclusion, hole-area deletion or fog visibility gating. Gate-anchor masking remains the responsibility of the scan reference loader.",
+    "scale_policy": "No resize or warp. Preserves interior contours above the shared perimeter threshold so native-screen enlargement does not reveal walls deleted solely by the old 900px hole-area filter. Pixel morphology is not scale invariant."
+  }
+}

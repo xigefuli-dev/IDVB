@@ -357,6 +357,9 @@
 
   <ItemGroup>
     <None Include="..\Assets\Gate.png" Link="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Assets\Algorithms\structure-zongcai-native-reference-v1.idva"
+          Link="Assets\Algorithms\structure-zongcai-native-reference-v1.idva"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\Assets\Algorithms\structure-native-observed-v2.idva"
           Link="Assets\Algorithms\structure-native-observed-v2.idva"
           CopyToOutputDirectory="PreserveNewest" />

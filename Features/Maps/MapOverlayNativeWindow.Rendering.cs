@@ -40,7 +40,36 @@ internal sealed record MapOverlayRenderAnnotation(
     double? FontSize = null,
     bool? IsBold = null,
     bool? IsItalic = null,
-    bool? IsStrikethrough = null);
+    bool? IsStrikethrough = null,
+    NormalizedRectangle? SourceRegion = null,
+    IReadOnlyList<NormalizedPoint>? FreeCropPoints = null)
+{
+    internal static MapOverlayRenderAnnotation[] FromProfile(FloorRecognitionProfile profile, FloorDefinition? floor)
+    {
+        var region = profile.GetEffectiveRecognitionRegion();
+        var points = profile.FreeCropPoints.Where(point => point.IsValid).Select(point => point.Clone()).ToArray();
+        if (floor is { ImageWidth: > 0, ImageHeight: > 0 })
+        {
+            // Match the integer crop used by MapBackgroundProcessor after downsampling.
+            var width = floor.ImageWidth;
+            var height = floor.ImageHeight;
+            var left = Math.Clamp((int)Math.Floor(region.X * width), 0, width - 1);
+            var top = Math.Clamp((int)Math.Floor(region.Y * height), 0, height - 1);
+            var right = Math.Clamp((int)Math.Ceiling((region.X + region.Width) * width), left + 1, width);
+            var bottom = Math.Clamp((int)Math.Ceiling((region.Y + region.Height) * height), top + 1, height);
+            region = new() { X = (double)left / width, Y = (double)top / height,
+                Width = (double)(right - left) / width, Height = (double)(bottom - top) / height };
+            foreach (var point in points)
+            {
+                point.X = Math.Round(point.X * (width - 1)) / width;
+                point.Y = Math.Round(point.Y * (height - 1)) / height;
+            }
+        }
+        return profile.Annotations.Where(a => a.IsValid).Select(a => new MapOverlayRenderAnnotation(
+            a.Type, a.ColorIndex, a.EffectiveColorHex, a.Bounds?.Clone(), a.Start?.Clone(), a.End?.Clone(),
+            a.Text, a.FontFamily, a.FontSize, a.IsBold, a.IsItalic, a.IsStrikethrough, region, points)).ToArray();
+    }
+}
 
 internal sealed record MapOverlayRenderMap(
     string ImagePath,

@@ -20,6 +20,7 @@ public sealed partial class MapFeatureCacheTests
     }
 
     [Theory]
+    [InlineData(1600, 900)]
     [InlineData(1920, 1080)]
     [InlineData(2560, 1440)]
     [InlineData(2560, 1600)]

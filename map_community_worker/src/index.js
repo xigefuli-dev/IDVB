@@ -889,6 +889,15 @@ async function requireBuilder(request, env) {
   return user;
 }
 
+async function requireSignedInBuilder(request, env) {
+  rejectCrossSite(request, new URL(request.url));
+  const user = await requireSessionUser(request, env);
+  if (user.is_builder !== 1) {
+    throw new ApiError(403, "builder_required", "只有已登录的建设者账户才能拉取反馈。");
+  }
+  return user;
+}
+
 function calculateWeightedLength(text) {
   if (!text || typeof text !== "string") return 0;
   const trimmed = text.trim();
@@ -1024,12 +1033,12 @@ async function certifyUserResponse(request, env, targetUserId) {
 }
 
 async function builderFeedbacksResponse(request, env) {
-  await requireBuilder(request, env);
+  await requireSignedInBuilder(request, env);
   const result = await env.COMMUNITY_DB.prepare(
     `SELECT f.id, f.user_id, u.display_name AS user_name, u.email AS user_email,
             f.description, f.client_version, f.client_ip,
-            f.has_logs, f.logs_key, f.logs_size,
-            f.has_diagnostics, f.diagnostics_key, f.diagnostics_size,
+            f.has_logs, f.logs_size,
+            f.has_diagnostics, f.diagnostics_size,
             f.status, f.created_at
        FROM feedbacks f
        LEFT JOIN users u ON f.user_id = u.id
@@ -1039,7 +1048,7 @@ async function builderFeedbacksResponse(request, env) {
 }
 
 async function builderFeedbackDownloadResponse(request, env, feedbackId, type) {
-  await requireBuilder(request, env);
+  await requireSignedInBuilder(request, env);
   if (type !== "logs" && type !== "diagnostics") {
     throw new ApiError(400, "invalid_type", "附件类型必须为 logs 或 diagnostics。");
   }
@@ -1068,6 +1077,8 @@ async function builderFeedbackDownloadResponse(request, env, feedbackId, type) {
   headers.set("content-disposition", `attachment; filename="${type}-${feedbackId.slice(0, 8)}.zip"`);
   headers.set("access-control-expose-headers", "content-disposition");
   headers.set("cache-control", "no-store");
+  headers.set("cross-origin-resource-policy", "same-origin");
+  headers.set("x-content-type-options", "nosniff");
 
   return new Response(object.body, { headers });
 }

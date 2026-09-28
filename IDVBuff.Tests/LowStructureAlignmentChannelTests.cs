@@ -154,11 +154,11 @@ public sealed class LowStructureAlignmentChannelTests
 
     [Theory]
     [InlineData(MapAlignmentChannel.LowStructure, true, true, 0.48d, 0.60d, true)]
-    [InlineData(MapAlignmentChannel.Standard, true, true, 0.48d, 0.60d, false)]
+    [InlineData(MapAlignmentChannel.Standard, true, true, 0.48d, 0.60d, true)]
     [InlineData(MapAlignmentChannel.LowStructure, false, true, 0.90d, 0.60d, false)]
     [InlineData(MapAlignmentChannel.LowStructure, true, false, 0.90d, 0.60d, false)]
     [InlineData(MapAlignmentChannel.LowStructure, true, true, double.NaN, 0.60d, false)]
-    public void LowStructureHardGateAcceptanceIsNotRejectedByStandardConfidence(
+    public void StructureHardGateAcceptanceIsNotRejectedByRecognitionConfidence(
         MapAlignmentChannel channel,
         bool accepted,
         bool hasTransform,

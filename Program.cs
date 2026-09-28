@@ -5,6 +5,7 @@ using Velopack;
 using IDVBuff.Diagnostics;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using IDVBuff.Features.Maps;
 
 namespace IDVBuff;
 
@@ -30,7 +31,8 @@ public static class Program
             .Run();
 
         var lifecycleCompleted = Stopwatch.GetTimestamp();
-        StartupTimeline.Initialize(mainEntered, mainUtc, lifecycleCompleted);
+        if (MapRuntimeSettingsRepository.IsLogCollectionEnabled())
+            StartupTimeline.Initialize(mainEntered, mainUtc, lifecycleCompleted);
         return RunApplication(args);
     }
 

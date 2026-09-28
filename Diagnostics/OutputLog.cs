@@ -200,6 +200,7 @@ public static class OutputLog
 
             writer.Dispose();
             writer = null;
+            CurrentLogPath = null;
             logSizeLimitReached = false;
         }
     }

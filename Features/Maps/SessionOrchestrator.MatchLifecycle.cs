@@ -224,6 +224,7 @@ public sealed partial class SessionOrchestrator
         InvalidateActiveMapOpenOperation("match transient state reset");
         _overlayStatus.Clear();
         _alignmentResultHidden = false;
+        ClearHiddenRealtimeTransform();
         _overlay.SetMapContentVisible(true);
         _overlay.Clear();
         MapOverlayBitmapRenderer.InvalidateImageCache();

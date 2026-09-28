@@ -23,7 +23,10 @@ public sealed partial class MapOverlayWindow
             return;
         _showMapContent = visible;
         if (!visible)
-            _mapNativeWindow.Hide();
+        {
+            if (_mapNativeWindow.IsVisible)
+                _mapNativeWindow.Hide();
+        }
         if (IsVisible)
             Present();
     }
@@ -44,9 +47,11 @@ public sealed partial class MapOverlayWindow
 
     private void PresentMapLayerOnly()
     {
-        if (_map is not null && _showMainContent && _showMapContent)
+        if (!_showMapContent)
+            return;
+        if (_map is not null && _showMainContent)
             PresentMapLayer(_map, ResolveOverlayDpi());
-        else
+        else if (_mapNativeWindow.IsVisible)
             _mapNativeWindow.Hide();
     }
 
@@ -70,7 +75,7 @@ public sealed partial class MapOverlayWindow
                 map,
                 dpi,
                 _showGateMarkers && map.SupportsVectorRoutes,
-                _showAuxiliaryAnchors,
+                false,
                 _showTextAnnotations && map.SupportsVectorRoutes,
                 _showBoxAnnotations && map.SupportsVectorRoutes,
                 _showLineAnnotations && map.SupportsVectorRoutes,
@@ -96,9 +101,12 @@ public sealed partial class MapOverlayWindow
 
     private void MoveMapLayerOnly()
     {
-        if (_map is null || !_showMainContent || !_showMapContent)
+        if (!_showMapContent)
+            return;
+        if (_map is null || !_showMainContent)
         {
-            _mapNativeWindow.Hide();
+            if (_mapNativeWindow.IsVisible)
+                _mapNativeWindow.Hide();
             return;
         }
 

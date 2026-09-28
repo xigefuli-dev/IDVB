@@ -72,18 +72,17 @@ internal static partial class MapOverlayBitmapRenderer
         bool showTextAnnotationsOnMiniMap,
         bool showBoxAnnotationsOnMiniMap,
         bool showLineAnnotationsOnMiniMap,
-        bool showGateMarkers,
-        bool showAuxiliaryAnchors,
-        bool showTextAnnotations,
-        bool showBoxAnnotations,
-        bool showLineAnnotations,
         bool showFloorOnMiniMap)
     {
-        var gm = showGateMarkersOnMiniMap && showGateMarkers;
-        var aa = showAuxiliaryAnchorsOnMiniMap && showAuxiliaryAnchors;
-        var ta = showTextAnnotationsOnMiniMap && showTextAnnotations;
-        var ba = showBoxAnnotationsOnMiniMap && showBoxAnnotations;
-        var la = showLineAnnotationsOnMiniMap && showLineAnnotations;
+        // Mini-map route visibility is independent from the aligned main-map
+        // layer. Before the first alignment the main map is intentionally
+        // absent, but the locked map identity already supplies complete route
+        // annotations for the persistent mini-map.
+        var gm = showGateMarkersOnMiniMap;
+        var aa = showAuxiliaryAnchorsOnMiniMap;
+        var ta = showTextAnnotationsOnMiniMap;
+        var ba = showBoxAnnotationsOnMiniMap;
+        var la = showLineAnnotationsOnMiniMap;
         var key = $"{Path.GetFullPath(miniMap.ImagePath)}|dpi={dpiScale:F2}|op={miniMapOpacity:F2}|gm={gm}|aa={aa}|ta={ta}|ba={ba}|la={la}|fl={showFloorOnMiniMap}|flbl={miniMap.FloorLabel}|anc={miniMap.Anchors.Count}|ann={System.Text.Json.JsonSerializer.Serialize(miniMap.Annotations)}";
 
         lock (ImageCacheLock)
@@ -162,11 +161,6 @@ internal static partial class MapOverlayBitmapRenderer
         bool showTextAnnotationsOnMiniMap = false,
         bool showBoxAnnotationsOnMiniMap = false,
         bool showLineAnnotationsOnMiniMap = false,
-        bool showGateMarkers = true,
-        bool showAuxiliaryAnchors = true,
-        bool showTextAnnotations = true,
-        bool showBoxAnnotations = true,
-        bool showLineAnnotations = true,
         bool showFloorOnMiniMap = false,
         float? rotationDegrees = null,
         IReadOnlyList<MiniMapTrackedPlayer>? miniMapPlayers = null)
@@ -189,11 +183,6 @@ internal static partial class MapOverlayBitmapRenderer
             showTextAnnotationsOnMiniMap,
             showBoxAnnotationsOnMiniMap,
             showLineAnnotationsOnMiniMap,
-            showGateMarkers,
-            showAuxiliaryAnchors,
-            showTextAnnotations,
-            showBoxAnnotations,
-            showLineAnnotations,
             showFloorOnMiniMap);
 
         var state = graphics.Save();

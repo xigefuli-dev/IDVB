@@ -238,7 +238,8 @@ public sealed class MapOverlayStatusCoordinatorTests
             IntPtr handle, bool show, bool preservePlayer = false) { }
         public void SetPersistentMiniMapState(string path, object transform, object bounds,
             IntPtr handle, double scale, object? anchors = null,
-            object? annotations = null, string? floorLabel = null) { }
+            object? annotations = null, string? floorLabel = null,
+            bool supportsVectorRoutes = false) { }
         public void ClearPersistentMiniMap() { }
         public void SetStatusVisible(bool value) { }
         public void SetReverseAlternateDisplay(bool value) { }

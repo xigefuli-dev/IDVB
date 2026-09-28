@@ -65,7 +65,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private bool _elevationEventRaised;
     private bool _manualSelectionActive;
     private bool _matchPluginsActivated;
-    private bool _alignmentResultHidden;
+    private volatile bool _alignmentResultHidden;
     private int _activeScanOperations;
 
     // TODO: 扫描/对齐逻辑实现后填充以下字段

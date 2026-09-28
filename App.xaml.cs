@@ -47,9 +47,10 @@ namespace IDVBuff
             // First-chance exception capture is intentionally diagnostic-only.
             // Enabling it for every production GUI process turns a handled
             // exception loop into a high-volume allocation and disk-write loop.
-            OutputLog.Initialize(
-                captureFirstChanceExceptions: !isCliLaunch
-                    && (System.Diagnostics.Debugger.IsAttached || AppDataPaths.IsTestBuild));
+            if (MapRuntimeSettingsRepository.IsLogCollectionEnabled())
+                OutputLog.Initialize(
+                    captureFirstChanceExceptions: !isCliLaunch
+                        && (System.Diagnostics.Debugger.IsAttached || AppDataPaths.IsTestBuild));
             SavedDiagnosticDataRetention.Start();
             WriteStartupTrace("Output logging initialized.");
             OfficialFeedbackService.TokenProvider = () => Features.Accounts.AccountSession.PublishToken;

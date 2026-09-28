@@ -5,6 +5,7 @@ public sealed partial class SessionOrchestrator
     private int _realtimeTransformReferenceWidth;
     private int _realtimeTransformReferenceHeight;
     private int _realtimeTransformOrientationDegrees;
+    private readonly LatestRealtimeTransformBuffer _hiddenRealtimeTransform = new();
 
     private void PublishRealtimeMapTransform(
         OrbTrackingContext context,
@@ -14,13 +15,21 @@ public sealed partial class SessionOrchestrator
         long timestamp,
         double confidence)
     {
-        _realtimeMapTransformPublisher.Publish(new RealtimeTransformState(
+        var state = new RealtimeTransformState(
             scale,
             tx,
             ty,
             timestamp,
             confidence,
-            context.Generation));
+            context.Generation);
+        if (_alignmentResultHidden)
+        {
+            _hiddenRealtimeTransform.Hold(state);
+            if (_alignmentResultHidden)
+                return;
+            _hiddenRealtimeTransform.DiscardIfLatest(state);
+        }
+        _realtimeMapTransformPublisher.Publish(state);
     }
 
     private bool ApplyRealtimeMapTransform(RealtimeTransformState state)
@@ -32,6 +41,13 @@ public sealed partial class SessionOrchestrator
             || _realtimeTransformReferenceHeight <= 0)
         {
             return false;
+        }
+        if (_alignmentResultHidden)
+        {
+            _hiddenRealtimeTransform.Hold(state);
+            if (_alignmentResultHidden)
+                return true;
+            _hiddenRealtimeTransform.DiscardIfLatest(state);
         }
 
         var transform = MapCanonicalTransformMath.BuildOverlayTransform(
@@ -47,4 +63,13 @@ public sealed partial class SessionOrchestrator
         _overlay.UpdateMapTransform(transform, preservePlayer: true);
         return true;
     }
+
+    private void ApplyLatestHiddenRealtimeTransform()
+    {
+        if (_hiddenRealtimeTransform.TryTake(out var latest))
+            ApplyRealtimeMapTransform(latest);
+    }
+
+    private void ClearHiddenRealtimeTransform() =>
+        _hiddenRealtimeTransform.Clear();
 }

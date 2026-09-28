@@ -211,14 +211,6 @@ public sealed partial class MapStatusPage : UserControl
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
 
-    private async void ShowRoutes_Toggled(object sender, RoutedEventArgs e)
-    {
-        if (_refreshing) return;
-        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
-        try { await _runtime.SetShowRoutesAsync(_showRoutesToggle.IsOn); }
-        catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
-    }
-
     private void MapOpacity_Changed(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_refreshing || double.IsNaN(args.NewValue)) return;
@@ -452,9 +444,10 @@ public sealed partial class MapStatusPage : UserControl
     {
         if (_refreshing)
             return;
+        var collectLogs = _collectLogsToggle.IsOn;
         try
         {
-            if (!_collectLogsToggle.IsOn
+            if (!collectLogs
                 && !await ConfirmDataCleanupAsync(
                     "关闭日志收集",
                     "关闭后会清理已收集的日志数据和临时文件，此操作不可恢复。"))
@@ -463,7 +456,7 @@ public sealed partial class MapStatusPage : UserControl
                 return;
             }
 
-            await _runtime.SetCollectLogsAsync(_collectLogsToggle.IsOn);
+            await _runtime.SetCollectLogsAsync(collectLogs);
         }
         catch (Exception exception)
         {
@@ -484,9 +477,10 @@ public sealed partial class MapStatusPage : UserControl
     {
         if (_refreshing)
             return;
+        var diagnosticMode = _diagnosticModeToggle.IsOn;
         try
         {
-            if (!_diagnosticModeToggle.IsOn
+            if (!diagnosticMode
                 && !await ConfirmDataCleanupAsync(
                     "关闭诊断模式",
                     "关闭后会清理诊断模式文件夹中的全部图片，此操作不可恢复。"))
@@ -494,7 +488,7 @@ public sealed partial class MapStatusPage : UserControl
                 RestoreToggle(_diagnosticModeToggle);
                 return;
             }
-            await _runtime.SetDiagnosticModeAsync(_diagnosticModeToggle.IsOn);
+            await _runtime.SetDiagnosticModeAsync(diagnosticMode);
         }
         catch (Exception exception)
         {

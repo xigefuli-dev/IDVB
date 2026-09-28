@@ -242,6 +242,46 @@ public sealed class MapLogCollectorTests
         }
     }
 
+    [Fact]
+    public async Task ClearDataRemovesAllApplicationLogsAndTemporaryData()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            foreach (var name in new[]
+            {
+                "scan-log-test.json",
+                "scan-log-test.json.tmp",
+                "output-log-test.log",
+                "startup-test.log",
+                "startup.log",
+                "updater-test.log",
+                "updater.log",
+                "flush-errors.log",
+                "pending.tmp"
+            })
+                await File.WriteAllTextAsync(Path.Combine(root, name), "diagnostic");
+            await File.WriteAllTextAsync(Path.Combine(root, "keep-me.txt"), "user data");
+            var startupDiagnostics = Directory.CreateDirectory(
+                Path.Combine(root, "StartupDiagnostics", "capture"));
+            await File.WriteAllTextAsync(
+                Path.Combine(startupDiagnostics.FullName, "startup.nettrace"),
+                "trace");
+
+            await using var collector = new MapLogCollector(new MapLogRepository(root));
+            await collector.ClearDataAsync();
+
+            Assert.Equal(
+                ["keep-me.txt"],
+                Directory.GetFiles(root).Select(path => Path.GetFileName(path)!).Order().ToArray());
+            Assert.False(Directory.Exists(Path.Combine(root, "StartupDiagnostics")));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
     private static async Task<List<MapLogEntry>> ReadEntriesAsync(string path)
     {
         await using var stream = File.OpenRead(path);

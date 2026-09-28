@@ -12,6 +12,8 @@ public sealed partial class SessionOrchestrator
         }
 
         _alignmentResultHidden = !_alignmentResultHidden;
+        if (!_alignmentResultHidden)
+            ApplyLatestHiddenRealtimeTransform();
         _overlay.SetMapContentVisible(!_alignmentResultHidden);
 
         if (_alignmentResultHidden)

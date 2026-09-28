@@ -111,17 +111,6 @@ public sealed partial class IdvmPackageService
         return manifest;
     }
 
-    private static void ValidateSupportedPlatforms(IReadOnlyList<string>? platforms)
-    {
-        if (platforms is null || platforms.Count == 0
-            || platforms.Count != platforms.Distinct(StringComparer.Ordinal).Count()
-            || platforms.Any(platform => !IdvmPlatformCompatibility.IsKnown(platform)))
-        {
-            throw new InvalidDataException(
-                "IDVM 1.4 supportedPlatforms 必须从 windows、android、ios、web 中声明至少一个平台，且不得重复。");
-        }
-    }
-
     private static void ValidateManifestRelationships(
         ManifestDto manifest,
         bool allowMarkers)
@@ -502,20 +491,4 @@ public sealed partial class IdvmPackageService
         }
     }
 
-    private static void ValidateMarkerKeys(
-        IReadOnlyList<string>? markerKeys,
-        bool allowMarkers)
-    {
-        if (markerKeys is null)
-            throw new InvalidDataException("楼层 markerKeys 必须为数组。");
-        if (!allowMarkers && markerKeys.Count != 0)
-            throw new InvalidDataException("IDVM 旧版本不能声明楼层 markerKeys。");
-        if (markerKeys.Count > 32
-            || markerKeys.Any(key => !MapFloorMarkerRules.IsValid(key)))
-            throw new InvalidDataException("楼层 markerKeys 包含非法标记。");
-        if (!MapFloorMarkerRules.Normalize(markerKeys).SequenceEqual(
-                markerKeys,
-                StringComparer.Ordinal))
-            throw new InvalidDataException("楼层 markerKeys 必须小写、去重并稳定排序。");
-    }
 }

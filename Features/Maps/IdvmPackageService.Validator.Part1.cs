@@ -3,6 +3,22 @@ using System.Security.Cryptography;
 namespace IDVBuff.Features.Maps;
 public sealed partial class IdvmPackageService
 {
+    private static void ValidateMarkerKeys(
+        IReadOnlyList<string>? markerKeys,
+        bool allowMarkers)
+    {
+        if (markerKeys is null)
+            throw new InvalidDataException("楼层 markerKeys 必须为数组。");
+        if (!allowMarkers && markerKeys.Count != 0)
+            throw new InvalidDataException("IDVM 旧版本不能声明楼层 markerKeys。");
+        if (markerKeys.Count > 32
+            || markerKeys.Any(key => !MapFloorMarkerRules.IsValid(key)))
+            throw new InvalidDataException("楼层 markerKeys 包含非法标记。");
+        if (!MapFloorMarkerRules.Normalize(markerKeys).SequenceEqual(
+                markerKeys,
+                StringComparer.Ordinal))
+            throw new InvalidDataException("楼层 markerKeys 必须小写、去重并稳定排序。");
+    }
 
     private static void ValidateTags(IReadOnlyList<MetadataTagDto> tags, bool allowTags)
     {

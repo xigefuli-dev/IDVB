@@ -27,6 +27,53 @@ internal readonly record struct RealtimeTransformTelemetry(
     double P95EndToEndMs);
 
 /// <summary>
+/// Retains only the newest transform while presentation is suppressed. Tracking
+/// can continue at full rate without enqueueing invisible work on the UI thread.
+/// </summary>
+internal sealed class LatestRealtimeTransformBuffer
+{
+    private readonly object _gate = new();
+    private RealtimeTransformState _latest;
+    private bool _hasLatest;
+
+    internal void Hold(RealtimeTransformState state)
+    {
+        lock (_gate)
+        {
+            _latest = state;
+            _hasLatest = true;
+        }
+    }
+
+    internal bool TryTake(out RealtimeTransformState state)
+    {
+        lock (_gate)
+        {
+            state = _latest;
+            if (!_hasLatest)
+                return false;
+            _hasLatest = false;
+            return true;
+        }
+    }
+
+    internal void DiscardIfLatest(RealtimeTransformState state)
+    {
+        lock (_gate)
+        {
+            if (_hasLatest && _latest.Equals(state))
+                _hasLatest = false;
+        }
+    }
+
+    internal void Clear()
+    {
+        lock (_gate)
+            _hasLatest = false;
+    }
+}
+
+/// <summary>
 /// Latest-only dispatcher bridge for realtime transforms. Publishing is
 /// allocation-free after construction and never mutates business session state.
 /// </summary>

@@ -411,12 +411,12 @@ public sealed partial class MapOverlayWindow : IDisposable
             GameScreenBounds: _gameBounds,
             MonitorWorkingArea: monitorWorkingArea,
             ShowGateMarkers: _showGateMarkers && (visibleMap?.SupportsVectorRoutes ?? false),
-            ShowAuxiliaryAnchors: _showAuxiliaryAnchors,
+            ShowAuxiliaryAnchors: false,
             ShowTextAnnotations: _showTextAnnotations && (visibleMap?.SupportsVectorRoutes ?? false),
             ShowBoxAnnotations: _showBoxAnnotations && (visibleMap?.SupportsVectorRoutes ?? false),
             ShowLineAnnotations: _showLineAnnotations && (visibleMap?.SupportsVectorRoutes ?? false),
-            ShowGateMarkersOnMiniMap: _showGateMarkersOnMiniMap,
-            ShowAuxiliaryAnchorsOnMiniMap: _showAuxiliaryAnchorsOnMiniMap,
+            ShowGateMarkersOnMiniMap: false,
+            ShowAuxiliaryAnchorsOnMiniMap: false,
             ShowTextAnnotationsOnMiniMap: _showTextAnnotationsOnMiniMap
                 && (_persistentMiniMap?.SupportsVectorRoutes ?? false),
             ShowBoxAnnotationsOnMiniMap: _showBoxAnnotationsOnMiniMap
@@ -441,7 +441,7 @@ public sealed partial class MapOverlayWindow : IDisposable
         {
             if (visibleMap is not null)
                 PresentMapLayer(visibleMap, dpi);
-            else
+            else if (_mapNativeWindow.IsVisible)
                 _mapNativeWindow.Hide();
 
             var renderScene = MapOperationTraceAmbient.StartChild(

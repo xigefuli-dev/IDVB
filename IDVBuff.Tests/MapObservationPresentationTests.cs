@@ -180,7 +180,8 @@ public sealed class MapObservationPresentationTests
             IntPtr gameWindowHandle, bool showStatusPreference, bool preservePlayer = false) { }
         public void SetPersistentMiniMapState(string imagePath, object transform, object gameBounds,
             IntPtr gameWindowHandle, double miniMapScale, object? anchors = null,
-            object? annotations = null, string? floorLabel = null) { }
+            object? annotations = null, string? floorLabel = null,
+            bool supportsVectorRoutes = false) { }
         public void ClearPersistentMiniMap() { }
         public void SetStatusVisible(bool visible) { }
         public void SetReverseAlternateDisplay(bool enabled) { }

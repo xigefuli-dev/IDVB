@@ -171,7 +171,7 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
             Debug.WriteLine($"[MapLogCollector] cleanup wait failed: {exception}");
         }
 
-        _repository.ClearData();
+        ThrowIfCleanupFailed(_repository.ClearData());
     }
 
     /// <summary>

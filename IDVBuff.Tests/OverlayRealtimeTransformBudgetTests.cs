@@ -64,4 +64,36 @@ public sealed class OverlayRealtimeTransformBudgetTests
         Assert.Equal(999, metrics.CoalescedTransforms);
         Assert.Equal(1, metrics.AppliedTransforms);
     }
+
+    [Fact]
+    public void HiddenTransformBuffer_RetainsOnlyLatestWithoutDispatching()
+    {
+        var buffer = new LatestRealtimeTransformBuffer();
+
+        for (var index = 0; index < 1000; index++)
+        {
+            buffer.Hold(new RealtimeTransformState(
+                1d, index, -index, index, 0.9d, 7));
+        }
+
+        Assert.True(buffer.TryTake(out var latest));
+        Assert.Equal(999d, latest.Tx);
+        Assert.Equal(-999d, latest.Ty);
+        Assert.False(buffer.TryTake(out _));
+    }
+
+    [Fact]
+    public void HiddenTransformBuffer_DoesNotDiscardNewerStateFromNextHideCycle()
+    {
+        var buffer = new LatestRealtimeTransformBuffer();
+        var previous = new RealtimeTransformState(1d, 10d, -10d, 10, 0.9d, 7);
+        var newer = new RealtimeTransformState(1d, 11d, -11d, 11, 0.9d, 7);
+
+        buffer.Hold(previous);
+        buffer.Hold(newer);
+        buffer.DiscardIfLatest(previous);
+
+        Assert.True(buffer.TryTake(out var latest));
+        Assert.Equal(newer, latest);
+    }
 }

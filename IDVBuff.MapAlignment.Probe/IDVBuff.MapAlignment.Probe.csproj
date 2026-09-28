@@ -151,6 +151,7 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureEvaluator.cs" Link="Production\MapStructureEvaluator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.cs" Link="Production\MapStructureCandidateCollector.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.Diagnostics.cs" Link="Production\MapStructureCandidateCollector.Diagnostics.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\MapStructureCandidateCollector.Ranking.cs" Link="Production\MapStructureCandidateCollector.Ranking.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureProjectionScorer.cs" Link="Production\MapStructureProjectionScorer.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureFeatureVoting.cs" Link="Production\MapStructureFeatureVoting.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePyramidSearch.cs" Link="Production\MapStructurePyramidSearch.cs" />
@@ -165,6 +166,7 @@
     <Compile Include="..\Features\Maps\StructureFilling\MapStructureFiller.cs" Link="Production\MapStructureFiller.cs" />
     <Compile Include="..\Features\Maps\MapLogModels.cs" Link="Production\MapLogModels.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.cs" Link="Production\MapLogCollector.cs" />
+    <Compile Include="..\Features\Maps\MapLogCollector.Cleanup.cs" Link="Production\MapLogCollector.Cleanup.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.Part*.cs" />
     <Compile Include="..\Features\Maps\MapLogCollector.Flush.cs" Link="Production\MapLogCollector.Flush.cs" />
     <Compile Include="..\Features\Maps\MapLogRepository.cs" Link="Production\MapLogRepository.cs" />

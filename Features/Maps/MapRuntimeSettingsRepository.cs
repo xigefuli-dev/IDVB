@@ -17,6 +17,39 @@ public sealed class MapRuntimeSettingsRepository
 
     private string SettingsPath => Path.Combine(_directory, "settings.json");
 
+    public static bool IsLogCollectionEnabled(string? directory = null)
+    {
+        try
+        {
+            var settingsPath = Path.Combine(
+                directory ?? Path.Combine(
+                    global::IDVBuff.AppDataPaths.RootDirectory,
+                    "MapRuntime"),
+                "settings.json");
+            if (!File.Exists(settingsPath))
+                return false;
+
+            using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return false;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(
+                        property.Name,
+                        nameof(MapRuntimeSettings.CollectLogs),
+                        StringComparison.OrdinalIgnoreCase)
+                    && (property.Value.ValueKind == JsonValueKind.True
+                        || property.Value.ValueKind == JsonValueKind.False))
+                    return property.Value.GetBoolean();
+            }
+        }
+        catch
+        {
+            // Missing or malformed settings must fail closed for local logging.
+        }
+        return false;
+    }
+
     public async Task<MapRuntimeSettings> LoadAsync()
     {
         await Gate.WaitAsync();

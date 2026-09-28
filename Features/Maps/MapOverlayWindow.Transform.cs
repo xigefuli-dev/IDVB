@@ -39,6 +39,8 @@ public sealed partial class MapOverlayWindow
             InvalidateMapLayer();
         if (!preservePlayer)
             _player = null;
+        if (!_showMapContent)
+            return;
         if (!IsVisible)
             return;
         if (requiresBitmapRebuild
@@ -130,7 +132,7 @@ public sealed partial class MapOverlayWindow
         };
         if (requiresBitmapRebuild)
             InvalidateMapLayer();
-        if (IsVisible)
+        if (IsVisible && _showMapContent)
         {
             if (requiresBitmapRebuild
                 || !_mapNativeWindow.HasRetainedLayer(

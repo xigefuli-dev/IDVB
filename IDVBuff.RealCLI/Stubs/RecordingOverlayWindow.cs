@@ -129,7 +129,8 @@ public sealed class RecordingOverlayWindow : IOverlayWindow
         double miniMapScale,
         object? anchors = null,
         object? annotations = null,
-        string? floorLabel = null)
+        string? floorLabel = null,
+        bool supportsVectorRoutes = false)
     {
         LastMiniMapImagePath = imagePath;
         LastMiniMapFloorLabel = floorLabel;

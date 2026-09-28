@@ -393,9 +393,6 @@ internal static partial class MapOverlayBitmapRenderer
                 scene.ShowGateMarkersOnMiniMap, scene.ShowAuxiliaryAnchorsOnMiniMap,
                 scene.ShowTextAnnotationsOnMiniMap, scene.ShowBoxAnnotationsOnMiniMap,
                 scene.ShowLineAnnotationsOnMiniMap,
-                scene.ShowGateMarkers, scene.ShowAuxiliaryAnchors,
-                scene.ShowTextAnnotations, scene.ShowBoxAnnotations,
-                scene.ShowLineAnnotations,
                 scene.ShowFloorOnMiniMap, scene.MiniMapRotationDegrees,
                 scene.MiniMapPlayers);
         if (scene.Player is not null)

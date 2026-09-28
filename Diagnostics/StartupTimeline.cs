@@ -98,6 +98,16 @@ internal static class StartupTimeline
 
     public static void StopSampling() => SamplingStopped.Set();
 
+    public static void Shutdown()
+    {
+        StopSampling();
+        lock (Gate)
+        {
+            writer?.Dispose();
+            writer = null;
+        }
+    }
+
     public static void Initialize(long mainEntered, DateTimeOffset mainUtc, long lifecycleCompleted)
     {
         lock (Gate)

@@ -90,18 +90,32 @@ public sealed class MapLogRepository
     }
 
     /// <summary>
-    /// Removes all persisted map-log files and temporary files from the log
-    /// directory. The directory itself is retained for the next session.
+    /// Removes all application-owned logs, diagnostic traces, and temporary
+    /// files from the log directory. Unrecognized files and the log directory
+    /// itself are retained.
     /// </summary>
-    public void ClearData()
+    public IReadOnlyList<string> ClearData()
     {
+        var failures = new List<string>();
         try
         {
             if (!Directory.Exists(_logDirectory))
-                return;
+                return failures;
 
-            var paths = Directory.EnumerateFiles(_logDirectory, "scan-log-*.json*")
-                .Concat(Directory.EnumerateFiles(_logDirectory, "flush-errors.log"));
+            var patterns = new[]
+            {
+                "scan-log-*.json*",
+                "output-log-*.log",
+                "startup-*.log",
+                "startup.log",
+                "updater-*.log",
+                "updater.log",
+                "flush-errors.log",
+                "*.tmp"
+            };
+            var paths = patterns
+                .SelectMany(pattern => Directory.EnumerateFiles(_logDirectory, pattern))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
             foreach (var path in paths)
             {
                 try
@@ -109,16 +123,34 @@ public sealed class MapLogRepository
                     if (File.Exists(path))
                         File.Delete(path);
                 }
-                catch
+                catch (Exception exception)
                 {
-                    // A log may still be open. Continue clearing the rest.
+                    failures.Add($"{path}: {exception.Message}");
+                }
+            }
+
+            var startupDiagnostics = Path.Combine(_logDirectory, "StartupDiagnostics");
+            if (Directory.Exists(startupDiagnostics))
+            {
+                try
+                {
+                    var info = new DirectoryInfo(startupDiagnostics);
+                    if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+                        failures.Add($"{startupDiagnostics}: refused to follow a reparse point");
+                    else
+                        info.Delete(recursive: true);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add($"{startupDiagnostics}: {exception.Message}");
                 }
             }
         }
-        catch
+        catch (Exception exception)
         {
-            // Cleanup is best effort and must not stop the runtime.
+            failures.Add($"{_logDirectory}: {exception.Message}");
         }
+        return failures;
     }
 
     public void CleanupOldSessions(int keepCount = 20)

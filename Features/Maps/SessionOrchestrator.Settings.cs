@@ -104,16 +104,6 @@ public sealed partial class SessionOrchestrator
     public async Task SetStatusScaleAsync(double v) { _settings!.StatusScale = v; await SaveSettingsAsync(); _overlay.SetStatusScale(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOffsetXAsync(double v) { _settings!.StatusOffsetX = v; await SaveSettingsAsync(); _overlay.SetStatusOffsetX(v); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetStatusOffsetYAsync(double v) { _settings!.StatusOffsetY = v; await SaveSettingsAsync(); _overlay.SetStatusOffsetY(v); await SaveOverlayConfigToPresetAsync(); }
-    public async Task SetCollectLogsAsync(bool v)
-    {
-        _settings!.CollectLogs = v;
-        if (v)
-            _logCollector.IsEnabled = true;
-        else
-            await _logCollector.ClearDataAsync();
-        await SaveSettingsAsync();
-    }
-
     /// <summary>
     /// Changes the remembered map Class for the current headless session only.
     /// Replay and diagnostic callers must not persist their per-case fixture.

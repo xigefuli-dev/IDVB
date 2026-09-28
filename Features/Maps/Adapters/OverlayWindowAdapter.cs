@@ -87,7 +87,8 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
 
     public void SetPersistentMiniMapState(string imagePath, object transform, object gameBounds,
         IntPtr gameWindowHandle, double miniMapScale, object? anchors = null,
-        object? annotations = null, string? floorLabel = null)
+        object? annotations = null, string? floorLabel = null,
+        bool supportsVectorRoutes = false)
         => _window.SetPersistentMiniMapState(
             imagePath,
             (MapOverlayTransform)transform,
@@ -96,7 +97,8 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
             miniMapScale,
             (IReadOnlyList<MapOverlayRenderAnchor>?)anchors,
             (IReadOnlyList<MapOverlayRenderAnnotation>?)annotations,
-            floorLabel);
+            floorLabel,
+            supportsVectorRoutes);
 
     public void ClearPersistentMiniMap() => _window.ClearPersistentMiniMap();
     public void UpdateMiniMapPlayers(object players)

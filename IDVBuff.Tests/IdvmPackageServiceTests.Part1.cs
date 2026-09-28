@@ -46,6 +46,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S0 厄运之女 · 困难（总裁）");
             await source.SaveAsync(CreateDraft(root, "routes.png", "S0 厄运之女 · 困难（总裁）", "Routes"));
             var package = Path.Combine(root, "routes.idvm");
             await new IdvmPackageService(source).ExportAsync(
@@ -60,7 +61,7 @@ public sealed partial class IdvmPackageServiceTests
             Assert.Equal(
                 ["windows", "android", "ios", "web"],
                 rootElement.GetProperty("supportedPlatforms").EnumerateArray()
-                    .Select(item => item.GetString()).ToArray());
+                    .Select(item => item.GetString()!).ToArray());
             Assert.True(rootElement.GetProperty("capabilities")
                 .GetProperty("containsVectorRoutes").GetBoolean());
             Assert.True(rootElement.GetProperty("classes")[0]
@@ -123,10 +124,11 @@ public sealed partial class IdvmPackageServiceTests
                 manifest["classes"]![0]!["properties"]!.AsObject().Remove("containsVectorRoutes");
             });
 
-            var target = new IdvmPackageService(
-                new MapRepository(Path.Combine(root, "target")));
+            var targetRepository = new MapRepository(Path.Combine(root, "target"));
+            var target = new IdvmPackageService(targetRepository);
             var result = await target.ImportAsync(await target.InspectAsync(package));
-            var imported = Assert.Single(result.ImportedMaps);
+            Assert.Single(result.ImportedMaps);
+            var imported = Assert.Single(await targetRepository.GetMapsAsync());
 
             Assert.False(imported.ClassProperties.ContainsVectorRoutes);
             Assert.False(MapRouteRules.SupportsVectorRoutes(imported));

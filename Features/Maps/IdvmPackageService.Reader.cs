@@ -82,7 +82,7 @@ public sealed partial class IdvmPackageService
         var minor = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2));
         if (!bytes.AsSpan(0, 4).SequenceEqual("IDVM"u8)
             || major != 1
-            || minor is not (0 or 1 or 2 or 3)
+            || minor is not (0 or 1 or 2 or 3 or 4)
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2)) != HeaderSize
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(10, 2)) != 0
             || bytes.AsSpan(68, 12).IndexOfAnyExcept((byte)0) >= 0)

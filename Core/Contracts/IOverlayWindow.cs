@@ -158,7 +158,8 @@ public interface IOverlayWindow : IDisposable
         double miniMapScale,
         object? /* IReadOnlyList<MapOverlayRenderAnchor>? */ anchors = null,
         object? /* IReadOnlyList<MapOverlayRenderAnnotation>? */ annotations = null,
-        string? floorLabel = null);
+        string? floorLabel = null,
+        bool supportsVectorRoutes = false);
 
     /// <summary>
     /// 清除持久小地图内容。

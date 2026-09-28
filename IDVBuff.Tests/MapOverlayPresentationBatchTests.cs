@@ -142,7 +142,8 @@ public sealed class MapOverlayPresentationBatchTests
         public void SetPersistentMiniMapState(string imagePath,
             object transform, object gameBounds, IntPtr gameWindowHandle,
             double miniMapScale, object? anchors = null,
-            object? annotations = null, string? floorLabel = null)
+            object? annotations = null, string? floorLabel = null,
+            bool supportsVectorRoutes = false)
         {
             CurrentMiniMapScale = miniMapScale;
             RequestPresent();

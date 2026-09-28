@@ -6,29 +6,6 @@ using IDVBuff.UpdateCore;
 
 namespace IDVBuff.Features.Maps;
 
-public enum IdvmExportScope
-{
-    CurrentClass,
-    AllClasses
-}
-
-public sealed record IdvmImportResult(
-    Guid PackageId,
-    IReadOnlyList<string> CreatedClasses,
-    IReadOnlyList<MapRecord> ImportedMaps,
-    IReadOnlyList<MapVariantGroup>? ImportedVariantGroups = null);
-
-public sealed class IdvmPlatformNotSupportedException : InvalidDataException
-{
-    public IdvmPlatformNotSupportedException(IReadOnlyList<string> supportedPlatforms)
-        : base($"该 IDVM 地图包不支持 Windows。声明的平台：{string.Join("、", supportedPlatforms)}。")
-    {
-        SupportedPlatforms = supportedPlatforms;
-    }
-
-    public IReadOnlyList<string> SupportedPlatforms { get; }
-}
-
 public sealed class IdvmImportPlan : IAsyncDisposable
 {
     private bool _disposed;

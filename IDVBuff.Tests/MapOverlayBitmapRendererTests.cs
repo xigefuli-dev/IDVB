@@ -391,7 +391,9 @@ public sealed partial class MapOverlayBitmapRendererTests
                 MiniMap: miniMap,
                 GameScreenBounds: common,
                 MonitorWorkingArea: new MapScreenRect(0, 0, 1000, 1000),
-                ShowLineAnnotations: true,
+                // The main map is absent before first alignment, so its route
+                // visibility must not gate the persistent mini-map route.
+                ShowLineAnnotations: false,
                 ShowLineAnnotationsOnMiniMap: true,
                 MiniMapOffsetY: 0));
             using var hidden = MapOverlayBitmapRenderer.Render(new MapOverlayRenderScene(

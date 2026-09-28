@@ -214,6 +214,7 @@ public sealed partial class MapStatusPage : UserControl
         DisplayMemberPath = nameof(AlignmentModeChoice.DisplayName)
     };
     private readonly TextBlock _gameMapBinding = CreateMutedText();
+    private readonly TextBlock _hideAlignmentResultBinding = CreateMutedText();
     private readonly TextBlock _controlPanelBinding = CreateMutedText();
     private readonly TextBlock _quickBinding = CreateMutedText();
     private readonly TextBlock _switchFloorBinding = CreateMutedText();

@@ -223,6 +223,8 @@ public sealed partial class SessionOrchestrator
         EndAdaptiveMapOpen("match transient state reset");
         InvalidateActiveMapOpenOperation("match transient state reset");
         _overlayStatus.Clear();
+        _alignmentResultHidden = false;
+        _overlay.SetMapContentVisible(true);
         _overlay.Clear();
         MapOverlayBitmapRenderer.InvalidateImageCache();
         _mapOpenSession.Close("match lifecycle reset");

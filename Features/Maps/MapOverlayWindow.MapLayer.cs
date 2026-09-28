@@ -16,6 +16,18 @@ public sealed partial class MapOverlayWindow
     internal long MapLayerBitmapBuildCount => Interlocked.Read(ref _mapLayerBitmapBuildCount);
     internal long MapLayerTransformMoveCount => Interlocked.Read(ref _mapLayerTransformMoveCount);
 
+    public void SetMapContentVisible(bool visible)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_showMapContent == visible)
+            return;
+        _showMapContent = visible;
+        if (!visible)
+            _mapNativeWindow.Hide();
+        if (IsVisible)
+            Present();
+    }
+
     public bool TrySetCaptureExclusion(bool enabled, out string failureReason)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -32,7 +44,7 @@ public sealed partial class MapOverlayWindow
 
     private void PresentMapLayerOnly()
     {
-        if (_map is not null && _showMainContent)
+        if (_map is not null && _showMainContent && _showMapContent)
             PresentMapLayer(_map, ResolveOverlayDpi());
         else
             _mapNativeWindow.Hide();
@@ -84,7 +96,7 @@ public sealed partial class MapOverlayWindow
 
     private void MoveMapLayerOnly()
     {
-        if (_map is null || !_showMainContent)
+        if (_map is null || !_showMainContent || !_showMapContent)
         {
             _mapNativeWindow.Hide();
             return;

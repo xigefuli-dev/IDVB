@@ -53,7 +53,8 @@ public enum MapRuntimeBindingTarget
     TraditionalWindowSwitchFloor,
     SaveMapCache,
     RestMapDisplay,
-    MatchStateToggle
+    MatchStateToggle,
+    HideAlignmentResult
 }
 /*
  * 文件职责：MapRuntimeSettings.Enums。

@@ -21,6 +21,7 @@ public sealed class NoopGlobalInput : IGlobalInput
     public event EventHandler<object>? SaveMapCacheInvoked;
     public event EventHandler<object>? RestMapDisplayInvoked;
     public event EventHandler<object>? MatchStateToggleInvoked;
+    public event EventHandler<object>? HideAlignmentResultInvoked;
     public event EventHandler<object>? AltInvoked;
     public event EventHandler<MouseWheelInputEventArgs>? MouseWheelScrolled;
     public event EventHandler<PluginInputInvokedEventArgs>? PluginInputInvoked;
@@ -35,7 +36,8 @@ public sealed class NoopGlobalInput : IGlobalInput
         object switchFloor,
         object saveMapCache,
         object restMapDisplay,
-        object? matchStateToggle = null)
+        object? matchStateToggle = null,
+        object? hideAlignmentResult = null)
     {
         // 空操作：CLI 不需要热键绑定
     }

@@ -247,6 +247,14 @@ public sealed partial class MapGlobalInputService : IDisposable
                         "match-state-toggle",
                         () => MatchStateToggleInvoked?.Invoke(this, invoked));
                 }
+                if (isDown
+                    && _hideAlignmentResult.Kind == MapInputBindingKind.Mouse
+                    && _hideAlignmentResult.MouseButton == button)
+                {
+                    DispatchInput(invoked, "mouse", _hideAlignmentResult.DisplayName,
+                        "hide-alignment-result",
+                        () => HideAlignmentResultInvoked?.Invoke(this, invoked));
+                }
 
                 DispatchPluginMouseInput(button, timestamp, isDown);
             }

@@ -9,7 +9,7 @@ public sealed class MapRuntimeDefaultSettingsTests
     {
         var settings = MapRuntimeSettings.CreateDefault();
 
-        Assert.Equal(19, settings.SchemaVersion);
+        Assert.Equal(20, settings.SchemaVersion);
         Assert.Equal(ScanPerformanceMode.Balanced, settings.ScanPerformanceMode);
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
@@ -42,6 +42,7 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.False(settings.SwitchFloorBinding.IsConfigured);
         Assert.False(settings.SaveMapCacheBinding.IsConfigured);
         Assert.False(settings.RestMapDisplayBinding.IsConfigured);
+        Assert.False(settings.HideAlignmentResultBinding.IsConfigured);
         Assert.False(settings.AllowAutomaticMapCache);
         Assert.Empty(settings.AlignmentCalibrations);
         Assert.Empty(settings.FloorScaleCalibrations);

@@ -10,7 +10,8 @@ public sealed partial class MapRuntimeSettings
         [
             QuickScanBinding, OverlayToggleBinding, ManualRecognitionBinding,
             GameMapToggleBinding, ControlPanelToggleBinding, SwitchFloorBinding,
-            SaveMapCacheBinding, RestMapDisplayBinding, MatchStateToggleBinding
+            SaveMapCacheBinding, RestMapDisplayBinding, MatchStateToggleBinding,
+            HideAlignmentResultBinding
         ];
         for (var i = 0; i < bindings.Length; i++)
         {
@@ -70,6 +71,7 @@ public sealed partial class MapRuntimeSettings
         SaveMapCacheBinding ??= new MapInputBinding();
         RestMapDisplayBinding ??= new MapInputBinding();
         MatchStateToggleBinding ??= new MapInputBinding();
+        HideAlignmentResultBinding ??= new MapInputBinding();
         RecognitionTuning ??= new MapRecognitionTuning();
         StructureRegistrationTuning ??= new MapStructureRegistrationTuning();
         SessionTuning ??= new MapSessionTuning();
@@ -85,6 +87,7 @@ public sealed partial class MapRuntimeSettings
         NormalizeBinding(SaveMapCacheBinding);
         NormalizeBinding(RestMapDisplayBinding);
         NormalizeBinding(MatchStateToggleBinding);
+        NormalizeBinding(HideAlignmentResultBinding);
         if (QuickScanBinding.IsConfigured
             && QuickScanBinding.Equals(OverlayToggleBinding))
         {
@@ -152,6 +155,19 @@ public sealed partial class MapRuntimeSettings
                 || MatchStateToggleBinding.Equals(RestMapDisplayBinding)))
         {
             MatchStateToggleBinding = new MapInputBinding();
+        }
+        if (HideAlignmentResultBinding.IsConfigured
+            && (HideAlignmentResultBinding.Equals(QuickScanBinding)
+                || HideAlignmentResultBinding.Equals(OverlayToggleBinding)
+                || HideAlignmentResultBinding.Equals(ManualRecognitionBinding)
+                || HideAlignmentResultBinding.Equals(GameMapToggleBinding)
+                || HideAlignmentResultBinding.Equals(ControlPanelToggleBinding)
+                || HideAlignmentResultBinding.Equals(SwitchFloorBinding)
+                || HideAlignmentResultBinding.Equals(SaveMapCacheBinding)
+                || HideAlignmentResultBinding.Equals(RestMapDisplayBinding)
+                || HideAlignmentResultBinding.Equals(MatchStateToggleBinding)))
+        {
+            HideAlignmentResultBinding = new MapInputBinding();
         }
         RecognitionTuning.Normalize();
         RecognitionTuning.ForceBestRecognitionResult = false;

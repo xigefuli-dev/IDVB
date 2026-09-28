@@ -292,6 +292,8 @@ public sealed partial class SessionOrchestrator
         MapRuntimeBindingTarget.SaveMapCache => _settings!.SaveMapCacheBinding,
         MapRuntimeBindingTarget.RestMapDisplay => _settings!.RestMapDisplayBinding,
         MapRuntimeBindingTarget.MatchStateToggle => _settings!.MatchStateToggleBinding,
+        MapRuntimeBindingTarget.HideAlignmentResult =>
+            _settings!.HideAlignmentResultBinding,
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)
     };
 
@@ -311,6 +313,9 @@ public sealed partial class SessionOrchestrator
             case MapRuntimeBindingTarget.SaveMapCache: _settings!.SaveMapCacheBinding = binding; break;
             case MapRuntimeBindingTarget.RestMapDisplay: _settings!.RestMapDisplayBinding = binding; break;
             case MapRuntimeBindingTarget.MatchStateToggle: _settings!.MatchStateToggleBinding = binding; break;
+            case MapRuntimeBindingTarget.HideAlignmentResult:
+                _settings!.HideAlignmentResultBinding = binding;
+                break;
             default: throw new ArgumentOutOfRangeException(nameof(target), target, null);
         }
     }
@@ -334,7 +339,8 @@ public sealed partial class SessionOrchestrator
                 _settings.SwitchFloorBinding,
                 _settings.SaveMapCacheBinding,
                 _settings.RestMapDisplayBinding,
-                _settings.MatchStateToggleBinding);
+                _settings.MatchStateToggleBinding,
+                _settings.HideAlignmentResultBinding);
     }
 
     /// <summary>将当前显示设置批量推送到叠加层窗口。</summary>

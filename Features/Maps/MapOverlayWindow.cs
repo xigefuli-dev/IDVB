@@ -57,6 +57,7 @@ public sealed partial class MapOverlayWindow : IDisposable
     private string? _miniMapImageKey;
     private readonly MiniMapFloorScaleState _miniMapFloorScales = new();
     private bool _showMainContent = true;
+    private bool _showMapContent = true;
     private int _presentDepth;
     private bool _presentDirty;
     private int _presentCount;
@@ -395,7 +396,7 @@ public sealed partial class MapOverlayWindow : IDisposable
                 : _map is null;
         }
 
-        var visibleMap = _showMainContent ? _map : null;
+        var visibleMap = _showMainContent && _showMapContent ? _map : null;
         var scene = new MapOverlayRenderScene(
             pixelWidth,
             pixelHeight,
@@ -403,7 +404,7 @@ public sealed partial class MapOverlayWindow : IDisposable
             null,
             _showMainContent ? _status : null,
             _showMainContent && showStatus,
-            _showMainContent ? _player : null,
+            _showMainContent && _showMapContent ? _player : null,
             MiniMap: _persistentMiniMap,
             AllowMapExtendBeyondBounds: _allowExtend,
             GameScreenBounds: _gameBounds,

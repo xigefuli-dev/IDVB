@@ -51,6 +51,7 @@ public sealed class HostEventBridge : IDisposable
         _input.SaveMapCacheInvoked += OnSaveMapCacheInvoked;
         _input.RestMapDisplayInvoked += OnRestMapDisplayInvoked;
         _input.MatchStateToggleInvoked += OnMatchStateToggleInvoked;
+        _input.HideAlignmentResultInvoked += OnHideAlignmentResultInvoked;
         _input.AltInvoked += OnAltInvoked;
 
         _survey.StatusChanged += OnSurveyStatusChanged;
@@ -72,6 +73,7 @@ public sealed class HostEventBridge : IDisposable
         _input.SaveMapCacheInvoked -= OnSaveMapCacheInvoked;
         _input.RestMapDisplayInvoked -= OnRestMapDisplayInvoked;
         _input.MatchStateToggleInvoked -= OnMatchStateToggleInvoked;
+        _input.HideAlignmentResultInvoked -= OnHideAlignmentResultInvoked;
         _input.AltInvoked -= OnAltInvoked;
 
         _survey.StatusChanged -= OnSurveyStatusChanged;
@@ -136,6 +138,9 @@ public sealed class HostEventBridge : IDisposable
 
     private void OnMatchStateToggleInvoked(object? sender, object e) =>
         PublishHotkey(PluginHotkeyKind.MatchStateToggle);
+
+    private void OnHideAlignmentResultInvoked(object? sender, object e) =>
+        PublishHotkey(PluginHotkeyKind.HideAlignmentResult);
 
     private void OnAltInvoked(object? sender, object e) =>
         PublishHotkey(PluginHotkeyKind.Alt);

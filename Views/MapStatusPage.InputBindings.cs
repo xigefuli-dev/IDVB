@@ -68,6 +68,8 @@ public sealed partial class MapStatusPage
         MapRuntimeBindingTarget.OverlayToggle => _runtime.Settings.OverlayToggleBinding,
         MapRuntimeBindingTarget.ManualRecognition => _runtime.Settings.ManualRecognitionBinding,
         MapRuntimeBindingTarget.GameMapToggle => _runtime.Settings.GameMapToggleBinding,
+        MapRuntimeBindingTarget.HideAlignmentResult =>
+            _runtime.Settings.HideAlignmentResultBinding,
         MapRuntimeBindingTarget.ControlPanelToggle => _runtime.Settings.ControlPanelToggleBinding,
         MapRuntimeBindingTarget.SwitchFloor => _runtime.Settings.SwitchFloorBinding,
         MapRuntimeBindingTarget.SaveMapCache => _runtime.Settings.SaveMapCacheBinding,

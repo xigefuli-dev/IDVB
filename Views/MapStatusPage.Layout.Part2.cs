@@ -161,6 +161,8 @@ public sealed partial class MapStatusPage : UserControl
         _status.Text = target switch
         {
             MapRuntimeBindingTarget.GameMapToggle => "请按下游戏中用于打开/关闭地图的键盘或鼠标按键。",
+            MapRuntimeBindingTarget.HideAlignmentResult =>
+                "请按下用于临时隐藏或恢复大地图贴合结果的键盘或鼠标按键。",
             MapRuntimeBindingTarget.ControlPanelToggle => "请按下用于开启/关闭外置控件层的键盘或鼠标按键。",
             MapRuntimeBindingTarget.QuickScan => "请按下用于快捷扫描的键盘或鼠标按键。",
             MapRuntimeBindingTarget.OverlayToggle => "请按下用于切换识别图层的键盘或鼠标按键。",

@@ -15,5 +15,6 @@ public enum PluginHotkeyKind
     SaveMapCache,
     RestMapDisplay,
     Alt,
-    MatchStateToggle
+    MatchStateToggle,
+    HideAlignmentResult
 }

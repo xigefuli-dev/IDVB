@@ -69,6 +69,7 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public IDisposable DeferPresent() => _window.DeferPresent();
     public int PresentCount => _window.PresentCount;
     public void SetMainContentVisible(bool visible) => _window.SetMainContentVisible(visible);
+    public void SetMapContentVisible(bool visible) => _window.SetMapContentVisible(visible);
     public void Toggle() => _window.Toggle();
     public void Clear() => _window.Clear();
     public void ClearMap() => _window.ClearMap();

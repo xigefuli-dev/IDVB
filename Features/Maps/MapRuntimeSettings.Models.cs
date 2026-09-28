@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 19;
+    public const int CurrentSchemaVersion = 20;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -100,6 +100,7 @@ public sealed partial class MapRuntimeSettings
     public MapInputBinding SaveMapCacheBinding { get; set; } = new();
     public MapInputBinding RestMapDisplayBinding { get; set; } = new();
     public MapInputBinding MatchStateToggleBinding { get; set; } = new();
+    public MapInputBinding HideAlignmentResultBinding { get; set; } = new();
     public MapRecognitionTuning RecognitionTuning { get; set; } = new();
     public MapStructureRegistrationTuning StructureRegistrationTuning { get; set; } = new();
     public MapSessionTuning SessionTuning { get; set; } = new();
@@ -185,6 +186,7 @@ public sealed partial class MapRuntimeSettings
         SaveMapCacheBinding = new MapInputBinding(),
         RestMapDisplayBinding = new MapInputBinding(),
         MatchStateToggleBinding = new MapInputBinding(),
+        HideAlignmentResultBinding = new MapInputBinding(),
         RecognitionTuning = new MapRecognitionTuning
         {
             GateTemplateThreshold = 0.72d,
@@ -349,6 +351,8 @@ public sealed partial class MapRuntimeSettings
         SaveMapCacheBinding = SaveMapCacheBinding?.Clone() ?? new MapInputBinding(),
         RestMapDisplayBinding = RestMapDisplayBinding?.Clone() ?? new MapInputBinding(),
         MatchStateToggleBinding = MatchStateToggleBinding?.Clone() ?? new MapInputBinding(),
+        HideAlignmentResultBinding =
+            HideAlignmentResultBinding?.Clone() ?? new MapInputBinding(),
         AllowAutomaticMapCache = AllowAutomaticMapCache,
         RecognitionTuning = RecognitionTuning?.Clone() ?? new MapRecognitionTuning(),
         StructureRegistrationTuning =

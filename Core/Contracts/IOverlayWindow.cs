@@ -108,6 +108,14 @@ public interface IOverlayWindow : IDisposable
     }
 
     /// <summary>
+    /// 临时控制大地图贴合图层的呈现。地图内容和最新变换仍继续更新，
+    /// 状态层和持久小地图不受影响。
+    /// </summary>
+    void SetMapContentVisible(bool visible)
+    {
+    }
+
+    /// <summary>
     /// 切换叠加层可见性。
     /// </summary>
     void Toggle();

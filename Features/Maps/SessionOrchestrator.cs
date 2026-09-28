@@ -65,6 +65,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private bool _elevationEventRaised;
     private bool _manualSelectionActive;
     private bool _matchPluginsActivated;
+    private bool _alignmentResultHidden;
     private int _activeScanOperations;
 
     // TODO: 扫描/对齐逻辑实现后填充以下字段
@@ -214,6 +215,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 StartInputOperation("rest-map-display", RestMapDisplayAsync);
             _input.MatchStateToggleInvoked += (_, _) =>
                 StartInputOperation("match-state-toggle", ToggleMatchStateAsync);
+            _input.HideAlignmentResultInvoked += (_, _) =>
+                RunInputAction(
+                    "hide-alignment-result",
+                    ToggleAlignmentResultVisibility);
         }
     }
 
@@ -430,6 +435,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             : null;
     public double? CurrentMiniMapScale => _overlay.CurrentMiniMapScale;
     public bool IsOverlayVisible => _overlay.IsVisible;
+    public bool IsAlignmentResultHidden => _alignmentResultHidden;
     public bool IsGameMapOpen => _gameMapToggleState.IsOpen;
     public int GameMapToggleVersion => _gameMapToggleState.Version;
     public bool IsControlPanelVisible => _controlPanel?.IsVisible ?? false;

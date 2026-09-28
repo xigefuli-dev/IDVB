@@ -124,6 +124,9 @@ public interface IGlobalInput : IDisposable
     /// <summary>对局状态开关热键被触发。</summary>
     event EventHandler</* MapInputInvokedEventArgs */ object>? MatchStateToggleInvoked;
 
+    /// <summary>临时隐藏或恢复大地图贴合结果热键被触发。</summary>
+    event EventHandler</* MapInputInvokedEventArgs */ object>? HideAlignmentResultInvoked;
+
     /// <summary>Alt 键按下事件，供需要全局快捷键的插件使用。</summary>
     event EventHandler</* MapInputInvokedEventArgs */ object>? AltInvoked;
 
@@ -145,7 +148,8 @@ public interface IGlobalInput : IDisposable
         object /* MapInputBinding */ switchFloor,
         object /* MapInputBinding */ saveMapCache,
         object /* MapInputBinding */ restMapDisplay,
-        object? /* MapInputBinding */ matchStateToggle = null);
+        object? /* MapInputBinding */ matchStateToggle = null,
+        object? /* MapInputBinding */ hideAlignmentResult = null);
 
     /// <summary>
     /// 清除所有按键绑定并释放钩子。

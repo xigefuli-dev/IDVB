@@ -198,6 +198,8 @@ public sealed class MapVariantRepositoryTests
         string root,
         params string[] titles)
     {
+        if (!(await repository.GetCatalogSnapshotAsync()).Classes.Contains("S1"))
+            await repository.CreateClassAsync("S1");
         var imagePath = Path.Combine(root, "map.png");
         if (!File.Exists(imagePath))
         {

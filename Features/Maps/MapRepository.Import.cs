@@ -178,7 +178,8 @@ public sealed partial class MapRepository
                     name,
                     className,
                     StringComparison.OrdinalIgnoreCase)))
-                    await DeleteClassAsync(className);
+                    // Rollback must restore an initially empty catalog, too.
+                    await RollBackImportedClassAsync(className);
             }
             catch { succeeded = false; }
         }

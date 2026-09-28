@@ -416,6 +416,7 @@ public sealed partial class MapMultiFloorAlignmentTests
                 new() { Key = "basement", DisplayName = "Basement", SortOrder = 3 }
             };
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             var map = await repository.SaveAsync(new MapDraft
             {
                 Floors = floors,

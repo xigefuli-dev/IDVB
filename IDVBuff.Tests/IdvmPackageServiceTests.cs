@@ -16,6 +16,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             var sourceDraft = CreateDraft(root, "source-map.png", "S1", "军工厂");
             sourceDraft.PortableGates.Add(new MapGateDefinition
             {
@@ -58,6 +59,7 @@ public sealed partial class IdvmPackageServiceTests
             }
 
             var target = new MapRepository(Path.Combine(root, "target"));
+            await target.CreateClassAsync("S1");
             var service = new IdvmPackageService(target);
             var plan = await service.InspectAsync(package);
             Assert.Equal(1, plan.ClassCount);
@@ -105,6 +107,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.CreateClassAsync("S2");
             await source.SaveAsync(CreateDraft(root, "s1.png", "S1", "地图 A"));
             await source.SaveAsync(CreateDraft(root, "s2.png", "S2", "地图 B"));
@@ -115,6 +118,7 @@ public sealed partial class IdvmPackageServiceTests
                 package);
 
             var target = new MapRepository(Path.Combine(root, "target"));
+            await target.CreateClassAsync("S1");
             await target.CreateClassAsync("S2");
             var service = new IdvmPackageService(target);
             var first = await service.ImportAsync(await service.InspectAsync(package));
@@ -158,10 +162,13 @@ public sealed partial class IdvmPackageServiceTests
             });
 
             var source = new MapRepository(Path.Combine(root, "source"));
+
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(draft);
             var package = Path.Combine(root, "floors.idvm");
             await new IdvmPackageService(source).ExportAsync(IdvmExportScope.AllClasses, null, package);
             var target = new MapRepository(Path.Combine(root, "target"));
+            await target.CreateClassAsync("S1");
             var imported = await new IdvmPackageService(target).ImportAsync(
                 await new IdvmPackageService(target).InspectAsync(package));
             var map = Assert.Single(imported.ImportedMaps);
@@ -189,6 +196,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "legacy.png", "S1", "旧版标注"));
             var package = Path.Combine(root, "legacy.idvm");
             await new IdvmPackageService(source).ExportAsync(IdvmExportScope.AllClasses, null, package);
@@ -214,6 +222,7 @@ public sealed partial class IdvmPackageServiceTests
             });
 
             var target = new MapRepository(Path.Combine(root, "target"));
+            await target.CreateClassAsync("S1");
             var service = new IdvmPackageService(target);
             var imported = await service.ImportAsync(await service.InspectAsync(package));
             var annotation = Assert.Single(Assert.Single(imported.ImportedMaps).Recognition.FirstFloor.Annotations);
@@ -235,6 +244,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "invalid-annotation.png", "S1", "非法标注"));
             var package = Path.Combine(root, "invalid-annotation.idvm");
             await new IdvmPackageService(source).ExportAsync(IdvmExportScope.AllClasses, null, package);
@@ -249,6 +259,7 @@ public sealed partial class IdvmPackageServiceTests
             });
 
             var target = new MapRepository(Path.Combine(root, "target"));
+            await target.CreateClassAsync("S1");
             await Assert.ThrowsAsync<InvalidDataException>(() =>
                 new IdvmPackageService(target).InspectAsync(package));
         }
@@ -265,6 +276,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "map.png", "S1", "地图"));
             var package = Path.Combine(root, "tampered.idvm");
             await new IdvmPackageService(source).ExportAsync(
@@ -280,6 +292,7 @@ public sealed partial class IdvmPackageServiceTests
             }
 
             var target = new MapRepository(Path.Combine(root, "target"));
+            await target.CreateClassAsync("S1");
             await Assert.ThrowsAsync<InvalidDataException>(() =>
                 new IdvmPackageService(target).InspectAsync(package));
             Assert.Empty((await target.GetCatalogSnapshotAsync()).Maps);
@@ -334,7 +347,7 @@ public sealed partial class IdvmPackageServiceTests
             ]));
 
             var snapshot = await repository.GetCatalogSnapshotAsync();
-            Assert.Equal(["S1"], snapshot.Classes);
+            Assert.Empty(snapshot.Classes);
             Assert.Empty(snapshot.Maps);
             Assert.Empty(Directory.EnumerateFiles(
                 Path.Combine(root, "maps"),
@@ -353,6 +366,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(CreateDraft(root, "versioned.png", "S1", "版本地图"));
             Assert.Equal(1, saved.ContentVersion);
             var edit = await repository.CreateDraftAsync(saved.Id);
@@ -453,6 +467,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "schema.png", "S1", "Schema"));
             var package = Path.Combine(root, "schema.idvm");
             await new IdvmPackageService(source).ExportAsync(

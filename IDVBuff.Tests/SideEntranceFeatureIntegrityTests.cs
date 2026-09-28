@@ -41,6 +41,7 @@ public sealed class SideEntranceFeatureIntegrityTests
                     Height = 0.08d
                 };
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             await repository.SaveAsync(new MapDraft
             {
                 FloorOnePath = sourcePath,

@@ -25,6 +25,8 @@ public sealed partial class MapRepositoryTests
             }
 
             var repository = new MapRepository(mapDirectory);
+
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorOnePath = firstSource,
@@ -118,6 +120,8 @@ public sealed partial class MapRepositoryTests
                 Assert.True(Cv2.ImWrite(source, image));
 
             var repository = new MapRepository(Path.Combine(root, "maps"));
+
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorOnePath = source,
@@ -164,6 +168,8 @@ public sealed partial class MapRepositoryTests
                 Assert.True(Cv2.ImWrite(source, image));
 
             var repository = new MapRepository(Path.Combine(root, "maps"));
+
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorOnePath = source,

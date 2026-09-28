@@ -171,6 +171,12 @@ public sealed partial class MapRepository
 
     /// <summary>Removes a class and all maps assigned to it as one catalog operation.</summary>
     public async Task<MapClassDeletionResult> DeleteClassAsync(string className)
+        => await DeleteClassCoreAsync(className, preserveOneClass: true);
+
+    internal Task<MapClassDeletionResult> RollBackImportedClassAsync(string className)
+        => DeleteClassCoreAsync(className, preserveOneClass: false);
+
+    private async Task<MapClassDeletionResult> DeleteClassCoreAsync(string className, bool preserveOneClass)
     {
         await Gate.WaitAsync();
         var stagedDirectories = new List<(string Original, string Staged)>();
@@ -181,7 +187,7 @@ public sealed partial class MapRepository
                 candidate, className, StringComparison.OrdinalIgnoreCase));
             if (canonicalName is null)
                 throw new InvalidOperationException("找不到要删除的 Class。");
-            if (catalog.Classes.Count <= 1)
+            if (preserveOneClass && catalog.Classes.Count <= 1)
                 throw new InvalidOperationException("至少需要保留一个 Class。");
 
             var mapsToDelete = catalog.Maps.Where(map => string.Equals(

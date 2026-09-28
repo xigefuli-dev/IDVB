@@ -268,7 +268,7 @@ public sealed partial class BackgroundScanTests
         Assert.True(backgroundCompletionIndex > verificationCallIndex);
         Assert.Contains("foreach (var candidate in candidates)", verificationSource);
         Assert.Contains("ScanIdentityVerifier.Verify(", verificationSource);
-        Assert.Contains("ScanIdentityVerifier.SelectIdentity(", mainSource);
+        Assert.Contains("ScanIdentityVerifier.SelectIdentity(", verificationSource);
         Assert.Contains("RunMandatoryCandidateStructureRegistration(", verificationSource);
         Assert.DoesNotContain("ScanVerificationMinimumCandidateBudgetMilliseconds", verificationSource);
         Assert.DoesNotContain("SelectVerificationCandidates", verificationSource);

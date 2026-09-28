@@ -302,7 +302,7 @@ public sealed class MapSubscriptionService
                     {
                         if ((await _repository.GetCatalogSnapshotAsync()).Classes.Contains(
                             className, StringComparer.OrdinalIgnoreCase))
-                            await _repository.DeleteClassAsync(className);
+                            await _repository.RollBackImportedClassAsync(className);
                     }
                     catch { }
                 }

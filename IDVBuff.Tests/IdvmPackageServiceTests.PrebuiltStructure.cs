@@ -15,6 +15,7 @@ public sealed partial class IdvmPackageServiceTests
         {
             var repositoryRoot = Path.Combine(root, "maps");
             var repository = new MapRepository(repositoryRoot);
+            await repository.CreateClassAsync("S1");
             var draft = CreateDraft(root, "migration.png", "S1", "Migration");
             await repository.SaveAsync(draft);
             var algorithm = Path.Combine(root, "migration.idva");
@@ -59,6 +60,7 @@ public sealed partial class IdvmPackageServiceTests
             var algorithmPath = Path.Combine(root, "normal.idva");
             await File.WriteAllTextAsync(algorithmPath, NormalIdva);
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(draft);
             var reports = new List<PrebuiltStructureBatchProgress>();
             var result = await source.GeneratePrebuiltStructureLinesAsync(

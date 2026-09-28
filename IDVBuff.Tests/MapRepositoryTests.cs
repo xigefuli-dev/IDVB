@@ -35,6 +35,7 @@ public sealed partial class MapRepositoryTests
                 ["ground"] = recognition.SecondFloor
             };
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => repository.SaveAsync(
                 new MapDraft
@@ -89,6 +90,8 @@ public sealed partial class MapRepositoryTests
             };
 
             var repository = new MapRepository(Path.Combine(root, "maps"));
+
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorPaths = new Dictionary<string, string>
@@ -171,6 +174,7 @@ public sealed partial class MapRepositoryTests
             recognition.FirstFloor.FindAnchor("side-entrance")!.Bounds =
                 new NormalizedRectangle { X = 0.7d, Y = 0.6d, Width = 0.1d, Height = 0.1d };
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
 
             var saved = await repository.SaveAsync(new MapDraft
             {
@@ -226,6 +230,7 @@ public sealed partial class MapRepositoryTests
             recognition.FirstFloor.FindAnchor("side-entrance")!.Bounds =
                 new NormalizedRectangle { X = 0.7d, Y = 0.6d, Width = 0.1d, Height = 0.1d };
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorOnePath = sourcePath,
@@ -403,13 +408,13 @@ public sealed partial class MapRepositoryTests
         {
             var repository = new MapRepository(root);
             var initial = await repository.GetCatalogSnapshotAsync();
-            Assert.Equal(["S1"], initial.Classes);
+            Assert.Empty(initial.Classes);
 
             Assert.Equal("ClassA", await repository.CreateClassAsync("  ClassA  "));
             await Assert.ThrowsAsync<InvalidOperationException>(() => repository.CreateClassAsync("classa"));
 
             var reloaded = await repository.GetCatalogSnapshotAsync();
-            Assert.Equal(["S1", "ClassA"], reloaded.Classes);
+            Assert.Equal(["ClassA"], reloaded.Classes);
             Assert.Empty(reloaded.Maps);
         }
         finally

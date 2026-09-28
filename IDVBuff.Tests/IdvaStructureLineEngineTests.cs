@@ -210,9 +210,35 @@ public sealed class IdvaStructureLineEngineTests
             algorithmPath = Path.Combine(repoRoot, "Assets", "Algorithms", "structure-doom-girl-hard-wangqingxin-v1.idva");
         }
 
-        var result = await repo.GeneratePrebuiltStructureLinesAsync(targetClass, algorithmPath);
-        Assert.Equal(29, result.MapCount);
-        Assert.Equal(58, result.FloorCount);
+        var selectedMaps = catalog.Maps.Where(map => map.Class == targetClass).ToArray();
+        var temporaryRoot = Path.Combine(Path.GetTempPath(), $"IDVB.StructureBatch.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            File.Copy(Path.Combine(mapsDirectory, "maps.json"), Path.Combine(temporaryRoot, "maps.json"));
+            foreach (var map in selectedMaps)
+            {
+                var sourceRoot = Path.Combine(mapsDirectory, map.Id.ToString("N"));
+                var destinationRoot = Path.Combine(temporaryRoot, map.Id.ToString("N"));
+                foreach (var file in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories))
+                {
+                    var destination = Path.Combine(destinationRoot, Path.GetRelativePath(sourceRoot, file));
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    File.Copy(file, destination);
+                }
+            }
+            var isolated = new MapRepository(temporaryRoot);
+            var result = await isolated.GeneratePrebuiltStructureLinesAsync(targetClass, algorithmPath);
+            Assert.Equal(selectedMaps.Length, result.MapCount);
+            Assert.Equal(selectedMaps.Sum(map => MapFloorRules.GetOrderedFloors(map).Count), result.FloorCount);
+            foreach (var map in await isolated.GetMapsAsync())
+                if (map.Class == targetClass)
+                    Assert.All(MapFloorRules.GetOrderedFloors(map), floor => Assert.NotNull(floor.PrebuiltStructureLine));
+        }
+        finally
+        {
+            Directory.Delete(temporaryRoot, recursive: true);
+        }
     }
 
     private static Mat CreateRoom()

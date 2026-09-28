@@ -112,6 +112,8 @@ public sealed class IdvmVariantGroupTests
         string root,
         params string[] titles)
     {
+        if (!(await repository.GetCatalogSnapshotAsync()).Classes.Contains("S1"))
+            await repository.CreateClassAsync("S1");
         var imagePath = Path.Combine(root, "idvm-map.png");
         using (var image = new Mat(new Size(160, 100), MatType.CV_8UC3, Scalar.All(220)))
             Assert.True(Cv2.ImWrite(imagePath, image));

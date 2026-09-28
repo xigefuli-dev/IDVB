@@ -42,6 +42,7 @@ public sealed class MapImageDownsamplingTests
                 }
             ];
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             await repository.SaveAsync(new MapDraft
             {
                 Title = "Downsample",
@@ -105,6 +106,7 @@ public sealed class MapImageDownsamplingTests
             using (var source = new Mat(new Size(80, 40), MatType.CV_8UC3, Scalar.White))
                 Assert.True(Cv2.ImWrite(sourcePath, source));
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             var recognition = new MapRecognitionProfile();
             recognition.EnsureStandardAnchors();
             recognition.FirstFloor.FindAnchor("main-entrance")!.Bounds =
@@ -145,6 +147,7 @@ public sealed class MapImageDownsamplingTests
             using (var sourceImage = new Mat(new Size(800, 400), MatType.CV_8UC3, Scalar.White))
                 Assert.True(Cv2.ImWrite(sourcePath, sourceImage));
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             var recognition = new MapRecognitionProfile();
             recognition.EnsureStandardAnchors();
             recognition.FirstFloor.FindAnchor("main-entrance")!.Bounds =
@@ -204,6 +207,7 @@ public sealed class MapImageDownsamplingTests
             using (var source = new Mat(new Size(800, 400), MatType.CV_8UC3, Scalar.White))
                 Assert.True(Cv2.ImWrite(sourcePath, source));
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             await repository.SaveAsync(new MapDraft
             {
                 Title = "No original",
@@ -241,6 +245,7 @@ public sealed class MapImageDownsamplingTests
             var unicodePath = Path.Combine(root, "展十🗺️地图.png");
             File.Copy(asciiPath, unicodePath);
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
 
             var saved = await repository.SaveAsync(new MapDraft
             {
@@ -272,6 +277,7 @@ public sealed class MapImageDownsamplingTests
             var sourcePath = Path.Combine(root, "展十🗺️原图.png");
             File.Copy(asciiPath, sourcePath);
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             await repository.CreateClassAsync("S2");
             await repository.SetClassImageDownsamplingAsync("S2", 2);
 

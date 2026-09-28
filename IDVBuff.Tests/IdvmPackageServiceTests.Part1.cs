@@ -16,6 +16,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             var draft = CreateDraft(root, "markers.png", "S1", "Markers");
             draft.Floors[0].MarkerKeys = [MapFloorMarkerRules.LowStructure];
             await source.SaveAsync(draft);
@@ -46,6 +47,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.CreateClassAsync("S0 厄运之女 · 困难（总裁）");
             await source.SaveAsync(CreateDraft(root, "routes.png", "S0 厄运之女 · 困难（总裁）", "Routes"));
             var package = Path.Combine(root, "routes.idvm");
@@ -81,6 +83,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "android-only.png", "S1", "Android only"));
             var package = Path.Combine(root, "android-only.idvm");
             await new IdvmPackageService(source).ExportAsync(
@@ -112,6 +115,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "undeclared-routes.png", "S1", "Undeclared"));
             var package = Path.Combine(root, "undeclared-routes.idvm");
             await new IdvmPackageService(source).ExportAsync(
@@ -147,6 +151,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "capability.png", "S1", "Capability"));
             var package = Path.Combine(root, "capability.idvm");
             await new IdvmPackageService(source).ExportAsync(
@@ -184,6 +189,7 @@ public sealed partial class IdvmPackageServiceTests
             var sourceTagStore = new MapTagStore(Path.Combine(root, "source-tags.json"));
             await sourceTagStore.SaveAsync([group]);
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             var draft = CreateDraft(root, "tagged.png", "S1", "Tagged");
             draft.Tags[group.Id] = "东";
             await source.SaveAsync(draft);
@@ -225,6 +231,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(root, "tags-capability.png", "S1", "Capability"));
             var package = Path.Combine(root, "tags-capability.idvm");
             await new IdvmPackageService(source).ExportAsync(IdvmExportScope.AllClasses, null, package);

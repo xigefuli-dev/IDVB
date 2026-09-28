@@ -149,6 +149,8 @@ internal sealed class CompleteAlignmentTestScenario : IAsyncDisposable
                 sideGate);
 
             var repository = new MapRepository(Path.Combine(root, "maps"));
+
+            await repository.CreateClassAsync("S1");
             var map = await repository.SaveAsync(
                 new MapDraft
                 {

@@ -24,6 +24,7 @@ public sealed class MapFloorCanonicalizationRepositoryTests
                 ["1f"] = recognition.FirstFloor
             };
             var repository = new MapRepository(Path.Combine(root, "maps"));
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorPaths = new Dictionary<string, string> { ["1f"] = source },

@@ -40,6 +40,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             var firstSource = await source.SaveAsync(CreateDraft(
                 root, "subscription-v1.png", "S1", "订阅地图 v1"));
             var algorithmPath = Path.Combine(root, "subscription-structure.idva");
@@ -126,6 +127,7 @@ public sealed partial class IdvmPackageServiceTests
         try
         {
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             await source.SaveAsync(CreateDraft(
                 root, "subscription-source.png", "S1", "可扫描地图"));
             var algorithmPath = Path.Combine(root, "subscription-structure.idva");

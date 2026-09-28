@@ -180,6 +180,8 @@ public sealed class MapSecondFloorAlignmentTests
                 new NormalizedRectangle { X = 0.7d, Y = 0.6d, Width = 0.1d, Height = 0.1d };
 
             var repository = new MapRepository(Path.Combine(root, "maps"));
+
+            await repository.CreateClassAsync("S1");
             var saved = await repository.SaveAsync(new MapDraft
             {
                 FloorOnePath = floorOne,

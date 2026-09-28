@@ -31,6 +31,7 @@ public sealed class SurveyFormalMapPublishingTests
             recognition.FirstFloor.FindAnchor("side-entrance")!.Bounds =
                 new NormalizedRectangle { X = 0.75, Y = 0.65, Width = 0.1, Height = 0.1 };
             var source = new MapRepository(Path.Combine(root, "source"));
+            await source.CreateClassAsync("S1");
             var saved = await source.SaveAsync(new MapDraft
             {
                 Title = "Survey map",

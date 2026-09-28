@@ -130,14 +130,15 @@ public sealed partial class MapRepository
         catalog.Classes ??= [];
         catalog.ClassProperties ??= new Dictionary<string, MapClassProperties>(StringComparer.OrdinalIgnoreCase);
         var canonical = new List<string>();
-        foreach (var name in catalog.Classes.Concat(catalog.Maps.Select(map => map.Class)))
+        foreach (var name in catalog.Classes.Concat(
+            catalog.Maps.Select(map => NormalizeClassName(map.Class) ?? "S1")))
         {
-            var normalized = NormalizeClassName(name) ?? "S1";
+            var normalized = NormalizeClassName(name);
+            if (normalized is null)
+                continue;
             if (!canonical.Any(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
                 canonical.Add(normalized);
         }
-        if (canonical.Count == 0)
-            canonical.Add("S1");
 
         var changed = !catalog.Classes.SequenceEqual(canonical, StringComparer.Ordinal);
         catalog.Classes = canonical;

@@ -229,8 +229,6 @@ public sealed partial class MapRepository
                     catalog.Classes.RemoveAll(name => journal.CreatedClasses.Contains(
                         name,
                         StringComparer.OrdinalIgnoreCase));
-                    if (catalog.Classes.Count == 0)
-                        catalog.Classes.Add("S1");
                     var temporaryPath = $"{CatalogPath}.recovery-{Guid.NewGuid():N}";
                     File.WriteAllBytes(
                         temporaryPath,

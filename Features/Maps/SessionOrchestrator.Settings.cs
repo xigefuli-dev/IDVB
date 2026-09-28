@@ -77,6 +77,13 @@ public sealed partial class SessionOrchestrator
     public async Task SetOverlayStatusVisibleAsync(bool v) { _settings!.ShowOverlayStatus = true; await SaveSettingsAsync(); _overlay.SetStatusVisible(true); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetReverseAlternateDisplayAsync(bool v) { _settings!.ReverseAlternateDisplay = false; await SaveSettingsAsync(); _overlay.SetReverseAlternateDisplay(false); await SaveOverlayConfigToPresetAsync(); }
     public async Task SetMapOpacityAsync(double v) { _settings!.MapOpacity = v; await SaveSettingsAsync(); _overlay.SetMapOpacity(v); await SaveOverlayConfigToPresetAsync(); }
+    public async Task SetRouteLineThicknessAsync(int level)
+    {
+        _settings!.RouteLineThickness = Math.Clamp(level, 0, 3);
+        _overlay.SetRouteLineThickness(_settings.RouteLineThickness);
+        await SaveSettingsAsync();
+        await SaveOverlayConfigToPresetAsync();
+    }
     public async Task SetShowRoutesAsync(bool v)
     {
         _settings!.ShowRoutes = v;
@@ -351,6 +358,8 @@ public sealed partial class SessionOrchestrator
         _overlay.SetReverseAlternateDisplay(s.ReverseAlternateDisplay);
         _overlay.SetAllowExtend(s.AllowMapExtendBeyondBounds);
         _overlay.SetMapOpacity(s.MapOpacity);
+        _overlay.SetRouteLineThickness(s.RouteLineThickness);
+        _overlay.SetHideMiniMap(s.HideMiniMap);
 
         ApplyRouteVisibilityToOverlay(s.ShowRoutes);
         _overlay.SetShowFloorOnMiniMap(s.ShowFloorOnMiniMap);

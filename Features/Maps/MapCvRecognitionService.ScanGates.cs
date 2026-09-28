@@ -23,6 +23,7 @@ public sealed partial class MapCvRecognitionService
         var calls = coarse.MatchTemplateCalls;
         var scales = coarse.ScalesEvaluated;
         var complete = !coarse.BudgetExceeded;
+        var confirmations = new List<object>();
         foreach (var gate in coarse.Gates)
         {
             var left = ScanExecutionContext.Current is { IsAutomatic: true } execution
@@ -40,7 +41,20 @@ public sealed partial class MapCvRecognitionService
             scales += exact.ScalesEvaluated;
             complete &= !exact.BudgetExceeded;
             confirmed.AddRange(exact.Gates);
+            confirmations.Add(new { gate.Score, gate.Scale, gate.ScreenBounds,
+                confirmedCount = exact.Gates.Count, exact.BudgetExceeded, exact.ElapsedMilliseconds,
+                stopReason = exact.StopReason.ToString() });
         }
+        MapLogCollector.Instance.Append(MapLogCategory.GateDetection,
+            confirmed.Count == 0 ? MapLogLevel.Warning : MapLogLevel.Info,
+            "扫描门复核汇总", details: new()
+            {
+                ["coarseCount"] = coarse.Gates.Count, ["confirmedCount"] = confirmed.Count,
+                ["complete"] = complete, ["confirmationThreshold"] = threshold,
+                ["coarseThreshold"] = Math.Min(threshold, .55), ["confirmations"] = confirmations,
+                ["sourceWidth"] = image.Width, ["sourceHeight"] = image.Height,
+                ["computeStopReason"] = ScanExecutionContext.Current?.ComputeStopReason
+            });
         return new GateDetectionResult
         {
             Gates = GateTemplateDetector.ClusterAcrossScales(confirmed)

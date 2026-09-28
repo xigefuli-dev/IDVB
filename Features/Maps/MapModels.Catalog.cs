@@ -9,7 +9,7 @@ internal sealed class MapCatalogDocument
     /// Persisted independently of maps so an empty class remains available in the
     /// management UI. Display names are canonicalized by <see cref="MapRepository"/>.
     /// </summary>
-    public List<string> Classes { get; set; } = ["S1"];
+    public List<string> Classes { get; set; } = [];
     public Dictionary<string, MapClassProperties> ClassProperties { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<MapRecord> Maps { get; set; } = [];
     public List<MapVariantGroup> VariantGroups { get; set; } = [];

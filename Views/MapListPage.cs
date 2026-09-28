@@ -96,10 +96,10 @@ public sealed partial class MapListPage : UserControl
     private Border? _mapCardsSurface;
     private IReadOnlyList<MapVariantGroup> _variantGroups = [];
     private IReadOnlyList<SurveyProjectSummary> _surveyProjects = [];
-    private IReadOnlyList<string> _classes = ["S1"];
+    private IReadOnlyList<string> _classes = [];
     private IReadOnlyDictionary<string, MapClassProperties> _classProperties =
         new Dictionary<string, MapClassProperties>(StringComparer.OrdinalIgnoreCase);
-    private string _selectedClass = "S1";
+    private string _selectedClass = string.Empty;
     private bool _hasInitializedClassSelection;
     private bool _surveyProjectsCollapsed = ShellLayoutMemory.Load().SurveyProjectsCollapsed;
     private bool _isPackageOperation;
@@ -354,7 +354,7 @@ public sealed partial class MapListPage : UserControl
             _selectedClass = MapRuntimeSettingsRules.ResolveMapClass(
                 _classes,
                 App.IsSafeMode ? null : App.Session.LastSelectedMapClass)
-                ?? _selectedClass;
+                ?? string.Empty;
             _hasInitializedClassSelection = true;
         }
         else if (!_classes.Any(name => string.Equals(
@@ -362,7 +362,7 @@ public sealed partial class MapListPage : UserControl
             _selectedClass,
             StringComparison.OrdinalIgnoreCase)))
         {
-            _selectedClass = _classes[0];
+            _selectedClass = _classes.FirstOrDefault() ?? string.Empty;
         }
         ShowListFromLoadedSnapshot();
     }

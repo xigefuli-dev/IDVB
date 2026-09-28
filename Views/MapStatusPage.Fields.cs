@@ -130,6 +130,7 @@ public sealed partial class MapStatusPage : UserControl
     private readonly TextBlock _statusOffsetXValue = CreateMutedText();
     private readonly Slider _statusOffsetYSlider = CreatePercentageSlider("状态栏 Y 位置比例");
     private readonly TextBlock _statusOffsetYValue = CreateMutedText();
+    private readonly ToggleSwitch _hideMiniMapToggle = new() { Header = "不显示小地图", OffContent = "关闭", OnContent = "开启" };
     private readonly Slider _miniMapOpacitySlider = CreatePercentageSlider("小地图不透明度");
     private readonly TextBlock _miniMapOpacityValue = CreateMutedText();
     private readonly Slider _miniMapOffsetXSlider = CreatePercentageSlider("小地图 X 位置比例");

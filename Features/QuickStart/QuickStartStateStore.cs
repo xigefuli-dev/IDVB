@@ -17,8 +17,8 @@ public sealed class QuickStartStateStore
     public string StatePath => Path.Combine(_rootDirectory, StateFileName);
 
     /// <summary>
-    /// New installations do not have either the completion marker or a persisted
-    /// map settings file. Existing installations are not interrupted by this flow.
+    /// Only completion of the prompt suppresses it. Runtime settings can be
+    /// persisted by safe-mode startup before the user ever sees quick-start.
     /// </summary>
     public bool ShouldShow
     {
@@ -26,8 +26,7 @@ public sealed class QuickStartStateStore
         {
             try
             {
-                return !File.Exists(StatePath)
-                    && !File.Exists(Path.Combine(_rootDirectory, "MapRuntime", "settings.json"));
+                return !File.Exists(StatePath);
             }
             catch (IOException)
             {

@@ -188,7 +188,13 @@ public sealed partial class MainPage
             new EmphasisGuideStep(
                 "进入游戏体验",
                 "准备完成。请进入游戏，使用刚才绑定的按键开始体验 Identity Vision Bridge。",
-                NextButtonDelay: TimeSpan.Zero)
+                NextButtonDelay: TimeSpan.Zero),
+            new EmphasisGuideStep(
+                "了解更多能力",
+                "如果需要了解其他能力的介绍和使用方法，可以前往左侧导航栏的“教程”查找。",
+                TargetProvider: () => TryGetNavigationRow(TutorialNavigationItem),
+                NextButtonDelay: TimeSpan.Zero,
+                AdvanceButtonText: "完成")
         ]);
     }
 

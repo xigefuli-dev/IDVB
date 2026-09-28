@@ -77,12 +77,21 @@ public sealed partial class SessionOrchestrator
             _lastScanPhaseTimings = sideTimings;
             if (sideScan.GateDetection.Gates.Count == 0)
             {
+                var missingGateContext = ScanExecutionContext.Current;
+                var rawEvidencePath = MapDiagnosticModeCapture.WriteUnresolvedScan(frame,
+                    missingGateContext?.Frame, candidates,
+                    missingGateContext?.Policy.Mode ?? ScanPerformanceMode.Balanced);
                 failureReason =
                     "识别失败：侧门扫描要求当前地图暴露一个门特征，但未检测到门";
                 _logCollector.Append(
                     MapLogCategory.ScanLifecycle,
                     MapLogLevel.Warning,
-                    failureReason);
+                    failureReason, details: new()
+                    {
+                        ["reason"] = sideScan.GateDetection.BudgetExceeded ? "gate-search-interrupted" : "no-confirmed-gate",
+                        ["computeStopReason"] = missingGateContext?.ComputeStopReason,
+                        ["rawEvidencePath"] = rawEvidencePath
+                    });
                 initialPostProcess.Complete();
                 initialPostProcess = null;
                 return;

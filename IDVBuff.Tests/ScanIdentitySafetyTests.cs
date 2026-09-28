@@ -6,6 +6,22 @@ namespace IDVBuff.Tests;
 public sealed class ScanIdentitySafetyTests
 {
     [Fact]
+    public void DecisionSeparatesExcludedUnverifiedCompetitionAndMissingAlignment()
+    {
+        var excluded = Candidate(ScanIdentityState.Excluded, 1);
+        Assert.Equal("all-identities-excluded", ScanIdentityVerifier.EvaluateSelection([excluded], true, true).Reason);
+        var pending = Candidate(ScanIdentityState.Unverified, 1);
+        Assert.Equal("unverified-identities", ScanIdentityVerifier.EvaluateSelection([pending], true, true).Reason);
+        var first = Candidate(ScanIdentityState.Supported, 1);
+        var second = Candidate(ScanIdentityState.Supported, 1);
+        Assert.Equal("competing-supported-identities", ScanIdentityVerifier.EvaluateSelection([first, second], true, true).Reason);
+        first.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Assert.Equal("supported-without-confirmed-alignment", ScanIdentityVerifier.EvaluateSelection([first], true, true).Reason);
+        Assert.Equal("retrieval-incomplete", ScanIdentityVerifier.EvaluateSelection([first], false, true).Reason);
+        Assert.Equal("execution-unavailable", ScanIdentityVerifier.EvaluateSelection([first], true, false).Reason);
+    }
+
+    [Fact]
     public async Task TrackingTaskDoesNotInheritScanDeadlineOrFrame()
     {
         using var scan = ScanExecutionContext.Enter(ScanPerformanceMode.Fast);
@@ -39,6 +55,14 @@ public sealed class ScanIdentitySafetyTests
         Assert.Equal(ScanIdentityState.Excluded, conflict.State);
         Assert.True(conflict.SupportedFraction > ScanIdentityVerifier.MinimumSupport);
         Assert.True(conflict.LongestConflictPixels >= ScanIdentityVerifier.MaximumContinuousConflictPixels);
+        Assert.NotNull(conflict.ConflictStart);
+        Assert.NotNull(conflict.ConflictEnd);
+        Assert.Equal(1, conflict.EvaluatedScale);
+        Assert.InRange(conflict.ConflictStart!.Value.X, 665, 740);
+        Assert.InRange(conflict.ConflictStart.Value.Y, 365, 440);
+        using var serialized = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(conflict));
+        Assert.Equal(conflict.ConflictStart.Value.X,
+            serialized.RootElement.GetProperty("ConflictStart").GetProperty("X").GetInt32());
         var moved = new MapOverlayTransform { ScaleX = 1, ScaleY = 1, OffsetX = 50 };
         Assert.NotEqual(ScanIdentityState.Supported,
             ScanIdentityVerifier.Verify(frame, ScanStructureIndex.Get(reference), moved, viewport, context).State);

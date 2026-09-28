@@ -6,6 +6,53 @@ namespace IDVBuff.Tests;
 public sealed class MapLogCollectorTests
 {
     [Fact]
+    public async Task MappedLogFileContinuesInRecoveryJournalWithoutLosingBatches()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var repository = new MapLogRepository(root);
+            var path = repository.CreateSessionPath();
+            await repository.FlushAsync(path, [new MapLogEntry { Sequence = 1, Message = "before-mapping" }]);
+            var original = await File.ReadAllBytesAsync(path);
+            using (var mapped = System.IO.MemoryMappedFiles.MemoryMappedFile.CreateFromFile(
+                path, FileMode.Open, null, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read))
+            using (var view = mapped.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read))
+            {
+                await repository.FlushAsync(path, [new MapLogEntry { Sequence = 2, Message = "during-mapping" }]);
+                Assert.True(File.Exists(path + ".recovery.jsonl"));
+                Assert.Equal(original, await File.ReadAllBytesAsync(path));
+            }
+            await repository.FinalizeAsync(path, [new MapLogEntry { Sequence = 3, Message = "after-mapping" }]);
+            var entries = await repository.ReadSessionAsync(path);
+            Assert.Equal([1, 2, 3], entries.Select(e => e.Sequence));
+            Assert.Contains("persistence-failover", await File.ReadAllTextAsync(path + ".recovery.jsonl"));
+            repository.DeleteSession(path);
+            Assert.False(File.Exists(path + ".recovery.jsonl"));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [Fact]
+    public async Task RecoveryReaderReportsPartialBatchAndReadsLaterBatches()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var repository = new MapLogRepository(root);
+            var path = repository.CreateSessionPath();
+            await repository.FlushAsync(path, [new MapLogEntry { Sequence = 1, Message = "first" }]);
+            await File.WriteAllTextAsync(path + ".recovery.jsonl", "\n[{\"Sequence\":2\n");
+            await repository.FlushAsync(path, [new MapLogEntry { Sequence = 3, Message = "survived" }]);
+            var entries = await repository.ReadSessionAsync(path);
+            Assert.Contains(entries, e => e.Level == MapLogLevel.Error && e.Message.Contains("Incomplete"));
+            Assert.Contains(entries, e => e.Sequence == 1);
+            Assert.Contains(entries, e => e.Sequence == 3);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [Fact]
     public void SessionPathsAreUniqueWithinTheSameMillisecond()
     {
         var root = CreateTempDirectory();

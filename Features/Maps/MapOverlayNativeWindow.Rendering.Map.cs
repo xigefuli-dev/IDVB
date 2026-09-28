@@ -9,6 +9,14 @@ namespace IDVBuff.Features.Maps;
 
 internal static partial class MapOverlayBitmapRenderer
 {
+    internal static float RouteLineThicknessMultiplier(int level) => Math.Clamp(level, 0, 3) switch
+    {
+        0 => 1f,
+        1 => 1.5f,
+        2 => 2f,
+        _ => 3f
+    };
+
     internal static Bitmap RenderMapLayer(
         MapOverlayRenderMap map,
         uint dpi,
@@ -120,7 +128,7 @@ internal static partial class MapOverlayBitmapRenderer
         bool showBoxAnnotations,
         bool showLineAnnotations)
     {
-        var key = $"{Path.GetFullPath(map.ImagePath)}|dpi={dpiScale:F2}|op={mapOpacity:F2}|gm={showGateMarkers}|aa={showAuxiliaryAnchors}|ta={showTextAnnotations}|ba={showBoxAnnotations}|la={showLineAnnotations}|anc={map.Anchors.Count}|ann={System.Text.Json.JsonSerializer.Serialize(map.Annotations)}";
+        var key = $"{Path.GetFullPath(map.ImagePath)}|dpi={dpiScale:F2}|op={mapOpacity:F2}|gm={showGateMarkers}|aa={showAuxiliaryAnchors}|ta={showTextAnnotations}|ba={showBoxAnnotations}|la={showLineAnnotations}|anc={map.Anchors.Count}|lw={map.RouteLineThickness}|ann={System.Text.Json.JsonSerializer.Serialize(map.Annotations)}";
         lock (ImageCacheLock)
         {
             if (MapLayerCache.TryGetValue(key, out var cached))
@@ -299,7 +307,7 @@ internal static partial class MapOverlayBitmapRenderer
                 {
                     continue;
                 }
-                using var linePen = new Pen(color, strokeWidth)
+                using var linePen = new Pen(color, strokeWidth * RouteLineThicknessMultiplier(map.RouteLineThickness))
                 {
                     StartCap = LineCap.Round,
                     EndCap = LineCap.Round
@@ -338,7 +346,7 @@ internal static partial class MapOverlayBitmapRenderer
             {
                 if (!showBoxAnnotations)
                     continue;
-                using var pen = new Pen(color, strokeWidth);
+                using var pen = new Pen(color, strokeWidth * RouteLineThicknessMultiplier(map.RouteLineThickness));
                 graphics.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
             }
         }

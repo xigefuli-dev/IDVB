@@ -156,9 +156,18 @@ public sealed partial class SessionOrchestrator
                     Math.Max(0, scanExecution.RemainingMilliseconds - 60), cancellationToken);
             }
             catch (TimeoutException) { acquired = false; }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                    "扫描等待已取消", details: new() { ["superseded"] = scanExecution.IsSuperseded,
+                        ["matchCurrent"] = IsCurrentMatchOperation(operationMatch) });
+                return;
+            }
             if (!acquired)
             {
+                _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Warning,
+                    "扫描未取得执行锁", details: new() { ["computeStopReason"] = scanExecution.ComputeStopReason,
+                        ["gateAvailable"] = _scanGate.CurrentCount, ["activeScans"] = _activeScanOperations });
                 if (_silentScanActive)
                     return;
                 _statusMessage = "已有扫描正在进行，请稍候。";
@@ -197,9 +206,15 @@ public sealed partial class SessionOrchestrator
                 _logCollector.Append(
                     MapLogCategory.Session,
                     MapLogLevel.Info,
-                    $"快捷扫描已取消 · matchVersion={operationMatch.Version}");
+                    $"快捷扫描已取消 · matchVersion={operationMatch.Version}", details: new()
+                    {
+                        ["superseded"] = scanExecution.IsSuperseded,
+                        ["matchCurrent"] = IsCurrentMatchOperation(operationMatch),
+                        ["computeStopReason"] = scanExecution.ComputeStopReason
+                    });
                 outcome = "cancelled";
-                terminalReason = "match-cancellation";
+                terminalReason = scanExecution.IsSuperseded ? "superseded-by-new-scan"
+                    : !IsCurrentMatchOperation(operationMatch) ? "match-cancellation" : "scan-cancellation";
             }
             catch (Exception ex)
             {

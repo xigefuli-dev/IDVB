@@ -37,6 +37,13 @@ public sealed partial class SessionOrchestrator
         var scanCancellation = scanScope.Token;
         using var scanExecution = ScanExecutionContext.Enter(_settings.ScanPerformanceMode, scanCancellation,
             () => scanGeneration == Volatile.Read(ref _scanRequestGeneration), scanStartedAt);
+        _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+            "扫描请求已创建", details: new()
+            {
+                ["generation"] = scanGeneration, ["matchVersion"] = _matchSession.Snapshot.Version,
+                ["activeScans"] = _activeScanOperations,
+                ["gateAvailable"] = _scanGate.CurrentCount, ["mapOpen"] = _gameMapToggleState.IsOpen
+            });
         try
         {
             // A not-yet-started match intentionally has a cancelled match token. Report

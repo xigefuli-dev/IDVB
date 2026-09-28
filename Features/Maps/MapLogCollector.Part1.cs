@@ -42,6 +42,45 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
         }
     }
 
+    private static void WritePlainTextOutput(
+        MapLogCategory category,
+        MapLogLevel level,
+        string message,
+        double? elapsedMs,
+        Dictionary<string, object?>? details)
+    {
+        try
+        {
+            var outputMessage = message;
+            if (elapsedMs is not null)
+            {
+                outputMessage += $" | elapsedMs="
+                    + elapsedMs.Value.ToString("0.###", CultureInfo.InvariantCulture);
+            }
+            if (details is not null)
+            {
+                foreach (var detail in details)
+                {
+                    outputMessage += $" | {detail.Key}="
+                        + FormatDetail(detail.Value);
+                }
+            }
+            OutputLog.Write(level.ToString(), $"MAP/{category}", outputMessage);
+        }
+        catch
+        {
+            // The plain-text logging side channel must never affect map recognition.
+        }
+    }
+
+    private static string FormatDetail(object? value)
+    {
+        if (value is null) return "null";
+        if (value is string or ValueType) return Convert.ToString(value, CultureInfo.InvariantCulture) ?? "null";
+        try { return System.Text.Json.JsonSerializer.Serialize(value, DetailJsonOptions); }
+        catch { return $"<unserializable:{value.GetType().FullName}>"; }
+    }
+
     private void WriteErrorToFile(string context, Exception exception)
     {
         try

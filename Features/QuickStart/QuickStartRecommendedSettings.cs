@@ -32,6 +32,8 @@ public static class QuickStartRecommendedSettings
         settings.ShowOverlayStatus = true;
         settings.AllowMapExtendBeyondBounds = true;
         settings.PersistentMiniMapEnabled = true;
+        settings.StatusOffsetY = 1d;
+        settings.MiniMapOffsetY = 1d;
 
         // Route overlays. The runtime derives the compatibility flags and
         // deliberately keeps auxiliary anchors and mini-map gates hidden.

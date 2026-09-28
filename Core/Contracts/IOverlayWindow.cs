@@ -175,6 +175,8 @@ public interface IOverlayWindow : IDisposable
     void SetReverseAlternateDisplay(bool enabled);
     void SetAllowExtend(bool allow);
     void SetMapOpacity(double opacity);
+    void SetRouteLineThickness(int level) { }
+    void SetHideMiniMap(bool hide) { }
     void SetShowGateMarkers(bool show);
     void SetShowAuxiliaryAnchors(bool show);
     void SetShowTextAnnotations(bool show);

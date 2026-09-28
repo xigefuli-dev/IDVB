@@ -89,6 +89,20 @@ public sealed partial class MapOverlayWindow : IDisposable
             PresentMapLayerOnly();
     }
 
+    public void SetHideMiniMap(bool hide)
+    {
+        _hideMiniMap = hide;
+        if (IsVisible) Present();
+    }
+
+    public void SetRouteLineThickness(int level)
+    {
+        _routeLineThickness = Math.Clamp(level, 0, 3);
+        InvalidateMapLayer();
+        if (IsVisible)
+            Present();
+    }
+
     public void SetShowGateMarkers(bool show)
     {
         _showGateMarkers = show;

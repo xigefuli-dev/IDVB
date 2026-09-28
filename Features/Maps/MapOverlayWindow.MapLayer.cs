@@ -72,7 +72,7 @@ public sealed partial class MapOverlayWindow
             || _mapLayerPixelHeight != height)
         {
             using var bitmap = MapOverlayBitmapRenderer.RenderMapLayer(
-                map,
+                map with { RouteLineThickness = _routeLineThickness },
                 dpi,
                 _showGateMarkers && map.SupportsVectorRoutes,
                 false,

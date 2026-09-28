@@ -60,10 +60,7 @@ public sealed partial class EmphasisGuide : IDisposable
         _markerLayer.Children.Add(_marker);
         _overlay.Children.Add(_markerLayer);
         _overlay.Children.Add(_informationLayer);
-        _previewLayer.Background = new SolidColorBrush(Color.FromArgb(235, 0, 0, 0));
-        _previewLayer.Children.Add(_previewImage);
-        _previewImage.PointerPressed += (_, e) => e.Handled = true;
-        _previewLayer.PointerPressed += (_, _) => HidePreview();
+        InitializePreview();
         _overlay.Children.Add(_previewLayer);
     }
 

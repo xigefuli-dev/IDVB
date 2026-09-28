@@ -93,6 +93,12 @@ public sealed partial class MapListPage : UserControl
         createMap.Click += async (_, _) =>
         {
             tip.IsOpen = false;
+            if (string.IsNullOrWhiteSpace(_selectedClass))
+            {
+                await ShowCreateClassDialogAsync();
+                if (string.IsNullOrWhiteSpace(_selectedClass))
+                    return;
+            }
             _activeFloorKey = "1f";
             _activeAnchorId = null;
             await ShowImportAsync(new MapDraft { Class = _selectedClass });

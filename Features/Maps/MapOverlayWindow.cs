@@ -38,6 +38,8 @@ public sealed partial class MapOverlayWindow : IDisposable
     private bool _showTextAnnotations = true;
     private bool _showBoxAnnotations = true;
     private bool _showLineAnnotations = true;
+    private int _routeLineThickness = 1;
+    private bool _hideMiniMap;
     private bool _showGateMarkersOnMiniMap = true;
     private bool _showAuxiliaryAnchorsOnMiniMap = true;
     private bool _showTextAnnotationsOnMiniMap = true;
@@ -406,7 +408,8 @@ public sealed partial class MapOverlayWindow : IDisposable
             _showMainContent ? _status : null,
             _showMainContent && showStatus,
             _showMainContent && _showMapContent ? _player : null,
-            MiniMap: _persistentMiniMap,
+            MiniMap: !_hideMiniMap && _persistentMiniMap is { } miniMap
+                ? miniMap with { RouteLineThickness = _routeLineThickness } : null,
             AllowMapExtendBeyondBounds: _allowExtend,
             GameScreenBounds: _gameBounds,
             MonitorWorkingArea: monitorWorkingArea,

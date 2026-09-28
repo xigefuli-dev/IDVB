@@ -62,6 +62,7 @@ public sealed partial class MapRuntimeSettings
     public bool SkipFloorRecognition { get; set; }
     public bool AllowMapExtendBeyondBounds { get; set; } = true;
     public bool PersistentMiniMapEnabled { get; set; } = true;
+    public bool HideMiniMap { get; set; }
     public double MiniMapScale { get; set; } = 0.25d;
     public bool PlayerTrackingEnabled { get; set; } = false;
     public bool AllowAutomaticMapCache { get; set; }
@@ -69,6 +70,8 @@ public sealed partial class MapRuntimeSettings
     public double MapOpacity { get; set; } = 0.46d;
     /// <summary>显示受当前地图类能力声明保护的矢量路线。</summary>
     public bool ShowRoutes { get; set; } = true;
+    /// <summary>线路粗细：0 细（原始宽度）、1 中、2 粗、3 更粗。</summary>
+    public int RouteLineThickness { get; set; } = 1;
     // Compatibility fields retained for older settings files. ShowRoutes is
     // the only product-facing source of truth; Normalize derives these values.
     public bool ShowGateMarkers { get; set; } = true;
@@ -411,10 +414,12 @@ public sealed partial class MapRuntimeSettings
         FloorCalibrationVersion = FloorCalibrationVersion,
         AllowMapExtendBeyondBounds = AllowMapExtendBeyondBounds,
         PersistentMiniMapEnabled = PersistentMiniMapEnabled,
+        HideMiniMap = HideMiniMap,
         PlayerTrackingEnabled = PlayerTrackingEnabled,
         ReverseAlternateDisplay = ReverseAlternateDisplay,
         MiniMapScale = MiniMapScale,
         MapOpacity = MapOpacity,
+        RouteLineThickness = RouteLineThickness,
         ShowRoutes = ShowRoutes,
         ShowGateMarkers = ShowGateMarkers,
         ShowAuxiliaryAnchors = ShowAuxiliaryAnchors,

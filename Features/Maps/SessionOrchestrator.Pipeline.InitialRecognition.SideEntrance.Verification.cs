@@ -169,6 +169,16 @@ public sealed partial class SessionOrchestrator
                     ["support"] = candidate.IdentityEvidence.SupportedFraction,
                     ["forwardMeanPixels"] = double.IsFinite(candidate.IdentityEvidence.ForwardMeanPixels) ? candidate.IdentityEvidence.ForwardMeanPixels : null,
                     ["longestConflictPixels"] = candidate.IdentityEvidence.LongestConflictPixels,
+                    ["evidence"] = candidate.IdentityEvidence,
+                    ["supportTolerancePixels"] = ScanIdentityVerifier.SupportTolerancePixels,
+                    ["continuousConflictLimitPixels"] = ScanIdentityVerifier.MaximumContinuousConflictPixels,
+                    ["coordinateSpace"] = "viewport-pixels",
+                    ["hypothesisCount"] = candidate.SearchHypotheses.Count,
+                    ["hypotheses"] = candidate.SearchHypotheses
+                        .Where(h => h.IdentityEvidence.SupportedFraction >= .80).Take(8).Select(h => new
+                    {
+                        h.MatchScale, h.MatchLocation, h.IdentityEvidence, h.VerifiedTransform
+                    }).ToArray(),
                     ["reason"] = candidate.IdentityEvidence.Reason
                 });
             _scanProgressOverlay.Report(.76 + .12 * completed / candidates.Count, "正在比较地图结构...");

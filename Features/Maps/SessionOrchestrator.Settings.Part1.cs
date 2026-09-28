@@ -6,6 +6,15 @@ using System.Text;
 namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
+    public async Task SetHideMiniMapAsync(bool hide)
+    {
+        _settings!.HideMiniMap = hide;
+        _overlay.SetHideMiniMap(hide);
+        await SaveSettingsAsync();
+        await SaveOverlayConfigToPresetAsync();
+    }
+
+
     public async Task SetDisableAutoFloorAsync(bool disabled)
     {
         if (_settings is null || _settings.DisableAutoFloor == disabled)
@@ -112,12 +121,14 @@ public sealed partial class SessionOrchestrator
         sb.AppendLine($"status_offset_x = {s.StatusOffsetX:F3}");
         sb.AppendLine($"status_offset_y = {s.StatusOffsetY:F3}");
         sb.AppendLine($"persistent_minimap_enabled = {Bool(s.PersistentMiniMapEnabled)}");
+        sb.AppendLine($"hide_minimap = {Bool(s.HideMiniMap)}");
         sb.AppendLine($"minimap_opacity = {s.MiniMapOpacity:F2}");
         sb.AppendLine($"minimap_offset_x = {s.MiniMapOffsetX:F3}");
         sb.AppendLine($"minimap_offset_y = {s.MiniMapOffsetY:F3}");
         sb.AppendLine($"minimap_scale = {s.MiniMapScale:F3}");
         sb.AppendLine($"map_opacity = {s.MapOpacity:F2}");
         sb.AppendLine($"show_routes = {Bool(s.ShowRoutes)}");
+        sb.AppendLine($"route_line_thickness = {s.RouteLineThickness}");
         sb.AppendLine($"show_gate_markers = {Bool(s.ShowGateMarkers)}");
         sb.AppendLine($"show_auxiliary_anchors = {Bool(s.ShowAuxiliaryAnchors)}");
         sb.AppendLine($"show_text_annotations = {Bool(s.ShowTextAnnotations)}");

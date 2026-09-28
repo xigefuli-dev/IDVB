@@ -28,7 +28,7 @@ public sealed class QuickStartTests
     }
 
     [Fact]
-    public void ExistingRuntimeSettingsSuppressFirstRunQuickStart()
+    public void RuntimeSettingsDoNotSuppressUncompletedQuickStart()
     {
         var root = CreateTemporaryDirectory();
         try
@@ -37,7 +37,10 @@ public sealed class QuickStartTests
             Directory.CreateDirectory(settingsDirectory);
             File.WriteAllText(Path.Combine(settingsDirectory, "settings.json"), "{}");
 
-            Assert.False(new QuickStartStateStore(root).ShouldShow);
+            var store = new QuickStartStateStore(root);
+            Assert.True(store.ShouldShow);
+            store.MarkCompleted();
+            Assert.False(store.ShouldShow);
         }
         finally
         {
@@ -63,6 +66,9 @@ public sealed class QuickStartTests
         Assert.True(recommended.ShowOverlayStatus);
         Assert.True(recommended.AllowMapExtendBeyondBounds);
         Assert.True(recommended.PersistentMiniMapEnabled);
+        recommended.Normalize();
+        Assert.Equal(1d, recommended.StatusOffsetY);
+        Assert.Equal(1d, recommended.MiniMapOffsetY);
 
         Assert.True(recommended.ShowRoutes);
         Assert.True(recommended.ShowGateMarkers);

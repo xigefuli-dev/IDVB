@@ -114,6 +114,8 @@ public sealed class OverlayWindowAdapter : IOverlayWindow
     public void SetReverseAlternateDisplay(bool enabled) => _window.SetReverseAlternateDisplay(enabled);
     public void SetAllowExtend(bool allow) => _window.SetAllowExtend(allow);
     public void SetMapOpacity(double opacity) => _window.SetMapOpacity(opacity);
+    public void SetRouteLineThickness(int level) => _window.SetRouteLineThickness(level);
+    public void SetHideMiniMap(bool hide) => _window.SetHideMiniMap(hide);
     public void SetShowGateMarkers(bool show) => _window.SetShowGateMarkers(show);
     public void SetShowAuxiliaryAnchors(bool show) => _window.SetShowAuxiliaryAnchors(show);
     public void SetShowTextAnnotations(bool show) => _window.SetShowTextAnnotations(show);

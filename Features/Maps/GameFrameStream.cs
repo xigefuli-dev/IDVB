@@ -20,6 +20,10 @@ internal sealed partial class GameFrameStream : IDisposable
     private bool _disposed;
     private int _resourcesDisposed;
     private int _droppedFrames;
+    private readonly long _createdAt = Stopwatch.GetTimestamp();
+    private long _arrivedCount;
+    private long _readbackCount;
+    private double _readbackTotalMs;
 
     public GameFrameStream(IntPtr window)
     {
@@ -44,6 +48,13 @@ internal sealed partial class GameFrameStream : IDisposable
                     TryDisableBorder(_session);
                     _pool.FrameArrived += OnFrameArrived;
                     _session.StartCapture();
+                    Interlocked.Increment(ref CaptureStreamDiagnostics.ActiveSessions);
+                    MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture, MapLogLevel.Info,
+                        "WGC session started", details: new()
+                        {
+                            ["window"] = window.ToInt64(), ["width"] = item.Size.Width,
+                            ["height"] = item.Size.Height, ["streamId"] = _createdAt
+                        });
                 }
                 catch { _session.Dispose(); throw; }
             }
@@ -66,6 +77,8 @@ internal sealed partial class GameFrameStream : IDisposable
             {
                 var frame = sender.TryGetNextFrame();
                 if (frame is null) return;
+                Interlocked.Increment(ref _arrivedCount);
+                Interlocked.Increment(ref CaptureStreamDiagnostics.FrameCallbacks);
                 var newer = sender.TryGetNextFrame();
                 if (newer is not null)
                 {
@@ -132,11 +145,14 @@ internal sealed partial class GameFrameStream : IDisposable
             var readbackStarted = Stopwatch.GetTimestamp();
             var pixels = ReadViewport(frame.Surface, roi);
             var readbackMs = Stopwatch.GetElapsedTime(readbackStarted).TotalMilliseconds;
+            Interlocked.Increment(ref CaptureStreamDiagnostics.Readbacks);
             int dropped;
             lock (_gate)
             {
                 dropped = _droppedFrames;
                 _droppedFrames = 0;
+                _readbackCount++;
+                _readbackTotalMs += readbackMs;
             }
             return new CapturedGameFrame(pixels, client, viewport, Window)
             {
@@ -151,6 +167,7 @@ internal sealed partial class GameFrameStream : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _resourcesDisposed, 1) != 0) return;
+        Interlocked.Decrement(ref CaptureStreamDiagnostics.ActiveSessions);
         lock (_gate)
         {
             _disposed = true;
@@ -168,6 +185,14 @@ internal sealed partial class GameFrameStream : IDisposable
             _readback = null;
             _device.Dispose();
         }
+        MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture, MapLogLevel.Info,
+            "WGC session disposed", details: new()
+            {
+                ["streamId"] = _createdAt, ["window"] = Window.ToInt64(),
+                ["lifetimeMs"] = Stopwatch.GetElapsedTime(_createdAt).TotalMilliseconds,
+                ["frameCallbacks"] = _arrivedCount, ["readbacks"] = _readbackCount,
+                ["readbackTotalMs"] = _readbackTotalMs
+            });
     }
 
     private static IDirect3DDevice CreateDevice()

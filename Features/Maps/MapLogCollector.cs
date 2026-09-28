@@ -14,6 +14,10 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
     private const int MaxBufferedEntries = 500;
     private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan FinalFlushTimeout = TimeSpan.FromSeconds(5);
+    private static readonly System.Text.Json.JsonSerializerOptions DetailJsonOptions = new()
+    {
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
 
     private readonly object _stateGate = new();
     private readonly MapLogRepository _repository;
@@ -268,43 +272,6 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
 
         if (shouldFlush)
             RequestFlush(session);
-    }
-
-    private static void WritePlainTextOutput(
-        MapLogCategory category,
-        MapLogLevel level,
-        string message,
-        double? elapsedMs,
-        Dictionary<string, object?>? details)
-    {
-        try
-        {
-            var outputMessage = message;
-            if (elapsedMs is not null)
-            {
-                outputMessage += $" | elapsedMs="
-                    + elapsedMs.Value.ToString("0.###", CultureInfo.InvariantCulture);
-            }
-            if (details is not null)
-            {
-                foreach (var detail in details)
-                {
-                    outputMessage += $" | {detail.Key}="
-                        + (detail.Value is null ? "null" : detail.Value is string or ValueType
-                            ? Convert.ToString(detail.Value, CultureInfo.InvariantCulture)
-                            : System.Text.Json.JsonSerializer.Serialize(detail.Value,
-                                new System.Text.Json.JsonSerializerOptions
-                                {
-                                    NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
-                                }));
-                }
-            }
-            OutputLog.Write(level.ToString(), $"MAP/{category}", outputMessage);
-        }
-        catch
-        {
-            // The plain-text logging side channel must never affect map recognition.
-        }
     }
 
     private void OnFlushTimer(Session session)

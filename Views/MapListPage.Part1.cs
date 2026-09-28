@@ -252,7 +252,7 @@ public sealed partial class MapListPage : UserControl
         foreach (var className in _classes)
             picker.Items.Add(CreateClassItem(className));
         picker.SelectedItem = picker.Items.OfType<ComboBoxItem>()
-            .First(item => string.Equals(item.Tag as string, _selectedClass, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(item => string.Equals(item.Tag as string, _selectedClass, StringComparison.OrdinalIgnoreCase));
         picker.SelectionChanged += (_, _) =>
         {
             if (picker.SelectedItem is not ComboBoxItem item || item.Tag is not string className)
@@ -279,6 +279,7 @@ public sealed partial class MapListPage : UserControl
         remove.Click += async (_, _) => await ConfirmDeleteClassAsync(_selectedClass);
 
         var rename = CreateRenameClassButton();
+        rename.IsEnabled = _classes.Count > 0;
         rename.Width = 48;
         rename.Height = 45;
         rename.Click += async (_, _) => await ShowRenameClassDialogAsync();
@@ -296,6 +297,7 @@ public sealed partial class MapListPage : UserControl
         controls.Children.Add(remove);
 
         var reorder = CreateSecondaryButton("重新排序");
+        reorder.IsEnabled = _classes.Count > 0;
         reorder.MinWidth = 0;
         reorder.MinHeight = 45;
         reorder.Padding = new Thickness(12, 0, 12, 0);
@@ -306,7 +308,7 @@ public sealed partial class MapListPage : UserControl
         _classEditButton.MinWidth = 0;
         _classEditButton.MinHeight = 45;
         _classEditButton.Padding = new Thickness(12, 0, 12, 0);
-        _classEditButton.IsEnabled = !_isPackageOperation;
+        _classEditButton.IsEnabled = !_isPackageOperation && _classes.Count > 0;
         AttachClassEditMenu(_classEditButton);
         controls.Children.Add(_classEditButton);
 

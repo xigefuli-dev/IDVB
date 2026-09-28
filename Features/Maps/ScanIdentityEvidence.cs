@@ -5,6 +5,7 @@ using OpenCvSharp;
 namespace IDVBuff.Features.Maps;
 
 public enum ScanIdentityState { Unverified, Excluded, Supported }
+public readonly record struct ScanConflictPoint(int X, int Y);
 internal enum ScanIdentitySelectionPolicy
 {
     RequireUniqueSupport,
@@ -15,6 +16,14 @@ public sealed record ScanIdentityEvidence(ScanIdentityState State, int TestedPoi
     int TotalPoints, double ForwardMeanPixels, double SupportedFraction,
     double LongestConflictPixels, string Reason)
 {
+    public int ConflictCell { get; init; } = -1;
+    public int ConflictCellPoints { get; init; }
+    public int ConflictCellHits { get; init; }
+    public ScanConflictPoint? ConflictStart { get; init; }
+    public ScanConflictPoint? ConflictEnd { get; init; }
+    public double EvaluatedScale { get; init; }
+    public double ViewportOffsetX { get; init; }
+    public double ViewportOffsetY { get; init; }
     public static ScanIdentityEvidence Unverified(string reason) =>
         new(ScanIdentityState.Unverified, 0, 0, double.NaN, 0, 0, reason);
 }
@@ -95,7 +104,7 @@ internal sealed class ScanStructureIndex
 
 internal static class ScanIdentityVerifier
 {
-    internal sealed record SelectionDecision(Guid? MapId, string Reason);
+    internal readonly record struct SelectionDecision(Guid? MapId, string Reason);
     public static Guid? SelectIdentity(IReadOnlyList<SideEntranceScanCandidate> candidates,
         bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null,
         ScanIdentitySelectionPolicy selectionPolicy = ScanIdentitySelectionPolicy.RequireUniqueSupport)
@@ -177,24 +186,41 @@ internal static class ScanIdentityVerifier
                     hits / (double)tested, 0, "unexplained-visible-structure");
         }
         var longest = 0d;
+        Point? conflictStart = null, conflictEnd = null;
         foreach (var contour in frame.Contours)
         {
             if (context is { CanCompute: false }) return ScanIdentityEvidence.Unverified("deadline");
-            longest = Math.Max(longest, MeasureStraightConflict(contour, Distance));
+            var measured = MeasureStraightConflict(contour, Distance, out var start, out var end);
+            if (measured > longest) { longest = measured; conflictStart = start; conflictEnd = end; }
             if (longest >= MaximumContinuousConflictPixels) break;
         }
         var support = hits / (double)points.Length;
         var spatialConflict = false;
+        var conflictCell = -1;
         for (var cell = 0; cell < cellTotals.Length; cell++)
-            if (cellTotals[cell] >= 30 && cellHits[cell] < cellTotals[cell] * .70) spatialConflict = true;
+            if (cellTotals[cell] >= 30 && cellHits[cell] < cellTotals[cell] * .70)
+            { spatialConflict = true; if (conflictCell < 0) conflictCell = cell; }
         var accepted = support >= MinimumSupport && !spatialConflict && longest < MaximumContinuousConflictPixels;
         return new(accepted ? ScanIdentityState.Supported : ScanIdentityState.Excluded,
             tested, points.Length, distance / tested, support, longest,
-            accepted ? "visible-structure-supported" : spatialConflict ? "spatial-support-conflict" : "visible-contour-conflict");
+            accepted ? "visible-structure-supported" : spatialConflict ? "spatial-support-conflict" : "visible-contour-conflict")
+        {
+            ConflictCell = conflictCell,
+            ConflictCellPoints = conflictCell < 0 ? 0 : cellTotals[conflictCell],
+            ConflictCellHits = conflictCell < 0 ? 0 : cellHits[conflictCell],
+            ConflictStart = conflictStart is { } startPoint ? new(startPoint.X, startPoint.Y) : null,
+            ConflictEnd = conflictEnd is { } endPoint ? new(endPoint.X, endPoint.Y) : null,
+            EvaluatedScale = scale, ViewportOffsetX = tx, ViewportOffsetY = ty
+        };
     }
 
     internal static double MeasureStraightConflict(Point[] contour, Func<Point, double> distance)
+        => MeasureStraightConflict(contour, distance, out _, out _);
+
+    internal static double MeasureStraightConflict(Point[] contour, Func<Point, double> distance,
+        out Point? conflictStart, out Point? conflictEnd)
     {
+        conflictStart = null; conflictEnd = null;
         // A small badge's perimeter (or a contour visited twice) is not the length
         // of an unexplained wall. Split at genuine turns, tolerating raster stair
         // steps, and measure supported/unsupported runs on each straight segment.
@@ -209,14 +235,20 @@ internal static class ScanIdentityVerifier
             var steps = Math.Max(Math.Abs(dx), Math.Abs(dy));
             if (steps == 0) continue;
             var run = 0d;
+            var runStart = a;
             for (var step = 0; step <= steps; step++)
             {
                 var p = new Point((int)Math.Round(a.X + dx * (step / (double)steps)),
                     (int)Math.Round(a.Y + dy * (step / (double)steps)));
                 if (distance(p) > SupportTolerancePixels)
+                {
+                    if (run == 0) runStart = step == 0 ? a : new Point(
+                        (int)Math.Round(a.X + dx * ((step - 1d) / steps)),
+                        (int)Math.Round(a.Y + dy * ((step - 1d) / steps)));
                     run += step == 0 ? 0 : length / steps;
+                }
                 else run = 0;
-                longest = Math.Max(longest, run);
+                if (run > longest) { longest = run; conflictStart = runStart; conflictEnd = p; }
                 if (longest >= MaximumContinuousConflictPixels) return longest;
             }
         }

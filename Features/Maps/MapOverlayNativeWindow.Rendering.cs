@@ -81,7 +81,8 @@ internal sealed record MapOverlayRenderMap(
     MapScreenRect? ClipBounds = null,
     IReadOnlyList<MapOverlayRenderAnnotation>? Annotations = null,
     string? FloorLabel = null,
-    bool SupportsVectorRoutes = true);
+    bool SupportsVectorRoutes = true,
+    int RouteLineThickness = 1);
 
 internal sealed record MapOverlayRenderPlayer(
     PlayerSlot PlayerSlot,

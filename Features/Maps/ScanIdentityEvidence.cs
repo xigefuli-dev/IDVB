@@ -5,6 +5,12 @@ using OpenCvSharp;
 namespace IDVBuff.Features.Maps;
 
 public enum ScanIdentityState { Unverified, Excluded, Supported }
+internal enum ScanIdentitySelectionPolicy
+{
+    RequireUniqueSupport,
+    AllowDominantSupport
+}
+
 public sealed record ScanIdentityEvidence(ScanIdentityState State, int TestedPoints,
     int TotalPoints, double ForwardMeanPixels, double SupportedFraction,
     double LongestConflictPixels, string Reason)
@@ -90,16 +96,22 @@ internal sealed class ScanStructureIndex
 internal static class ScanIdentityVerifier
 {
     public static Guid? SelectIdentity(IReadOnlyList<SideEntranceScanCandidate> candidates,
-        bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null)
+        bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null,
+        ScanIdentitySelectionPolicy selectionPolicy = ScanIdentitySelectionPolicy.RequireUniqueSupport)
     {
         if (!retrievalComplete || !withinBudget || candidates.Any(c => c.IdentityEvidence.State == ScanIdentityState.Unverified))
             return null;
         var supported = candidates.Where(c => c.IdentityEvidence.State == ScanIdentityState.Supported
                 && c.Disposition == SideEntranceCandidateDisposition.Reliable)
             .OrderBy(c => FitCost(c.IdentityEvidence)).ToArray();
-        // A better fit can choose a provisional resource, but cannot disprove another
-        // identity which also explains the visible fragment. Keep observing it.
-        if (supported.Length != 1) return null;
+        if (supported.Length == 0) return null;
+        // Continuous observation can keep collecting evidence, so it must not turn a
+        // provisional ranking into an identity lock while another map remains supported.
+        // A user-triggered closed-set scan has already compared the whole active class;
+        // preserve the pre-observation behavior there and accept a clearly dominant fit.
+        if (selectionPolicy == ScanIdentitySelectionPolicy.RequireUniqueSupport
+            && supported.Length != 1)
+            return null;
         // A local contour veto is not evidence that a near-identical sibling is absent.
         // Icons and reference omissions can trigger that veto even at >97% full-frame
         // support. Keep the declared variant group unresolved instead of letting the
@@ -126,6 +138,10 @@ internal static class ScanIdentityVerifier
                     return null;
             }
         }
+        if (selectionPolicy == ScanIdentitySelectionPolicy.AllowDominantSupport
+            && supported.Length > 1
+            && FitCost(supported[1].IdentityEvidence) - FitCost(supported[0].IdentityEvidence) < .35)
+            return null;
         return winnerId;
     }
     private static double FitCost(ScanIdentityEvidence evidence) =>

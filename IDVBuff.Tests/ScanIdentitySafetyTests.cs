@@ -92,6 +92,20 @@ public sealed class ScanIdentitySafetyTests
     }
 
     [Fact]
+    public void ManualClosedSetScanCanSelectClearlyDominantSupportedIdentity()
+    {
+        var weaker = Candidate(ScanIdentityState.Supported, 1.2);
+        var winner = Candidate(ScanIdentityState.Supported, .4);
+
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity(
+            [weaker, winner], true, true, selectionPolicy: ScanIdentitySelectionPolicy.AllowDominantSupport));
+
+        weaker.IdentityEvidence = weaker.IdentityEvidence with { ForwardMeanPixels = .7 };
+        Assert.Null(ScanIdentityVerifier.SelectIdentity(
+            [weaker, winner], true, true, selectionPolicy: ScanIdentitySelectionPolicy.AllowDominantSupport));
+    }
+
+    [Fact]
     public void FailedAlternativePoseDoesNotInvalidateConfirmedIdentity()
     {
         var confirmed = Candidate(ScanIdentityState.Supported, .2);
@@ -142,8 +156,12 @@ public sealed class ScanIdentitySafetyTests
         sibling.IdentityEvidence = sibling.IdentityEvidence with { SupportedFraction = .9896524 };
         Guid[][] groups = [[winner.Map.Id, sibling.Map.Id]];
         Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
         winner.IdentityEvidence = winner.IdentityEvidence with { SupportedFraction = .995 };
         Assert.Null(ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups));
+        Assert.Equal(winner.Map.Id, ScanIdentityVerifier.SelectIdentity([winner, sibling], true, true, groups,
+            ScanIdentitySelectionPolicy.AllowDominantSupport));
     }
 
     [Fact]

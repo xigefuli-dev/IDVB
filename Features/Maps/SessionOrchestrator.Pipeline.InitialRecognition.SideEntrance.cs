@@ -124,7 +124,10 @@ public sealed partial class SessionOrchestrator
             var context = ScanExecutionContext.Current;
             var selectedId = ScanIdentityVerifier.SelectIdentity(candidates,
                 context?.RetrievalCompleted == true && candidates.Count == sideScan.EligibleMapCount,
-                context?.CanCompute == true, context?.VariantGroups);
+                context?.CanCompute == true, context?.VariantGroups,
+                result.ObserveUntilConfirmed
+                    ? ScanIdentitySelectionPolicy.RequireUniqueSupport
+                    : ScanIdentitySelectionPolicy.AllowDominantSupport);
             var preview = ScanObservationRules.SelectPreview(candidates,
                 result.PreviousPreviewMapId, result.PreviousPreviewFloor);
             result.ProvisionalRecognition = reliable.FirstOrDefault(item =>

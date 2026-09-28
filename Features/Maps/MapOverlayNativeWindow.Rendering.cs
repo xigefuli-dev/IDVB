@@ -80,7 +80,8 @@ internal sealed record MapOverlayRenderMap(
     IReadOnlyList<MapOverlayRenderAnchor> Anchors,
     MapScreenRect? ClipBounds = null,
     IReadOnlyList<MapOverlayRenderAnnotation>? Annotations = null,
-    string? FloorLabel = null);
+    string? FloorLabel = null,
+    bool SupportsVectorRoutes = true);
 
 internal sealed record MapOverlayRenderPlayer(
     PlayerSlot PlayerSlot,

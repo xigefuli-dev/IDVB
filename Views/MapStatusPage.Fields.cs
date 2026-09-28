@@ -96,68 +96,26 @@ public sealed partial class MapStatusPage : UserControl
         OffContent = "已关闭",
         OnContent = "正在追踪"
     };
-    private readonly ToggleSwitch _showGateMarkersToggle = new()
+    private readonly ToggleSwitch _showRoutesToggle = new()
     {
-        Header = "大门与侧门标记",
-        OffContent = "隐藏",
-        OnContent = "显示"
+        Header = "显示路线（仅对支持的地图类生效）",
+        OffContent = "已关闭",
+        OnContent = "已开启"
     };
-    private readonly ToggleSwitch _showAuxiliaryAnchorsToggle = new()
-    {
-        Header = "辅助锚点",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showTextAnnotationsToggle = new()
-    {
-        Header = "注释文字",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showBoxAnnotationsToggle = new()
-    {
-        Header = "标注框线",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showLineAnnotationsToggle = new()
-    {
-        Header = "直线标注",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
+    // Retained as collapsed compatibility controls because older page logic
+    // still refreshes their values. They are never added as visible choices.
+    private readonly ToggleSwitch _showGateMarkersToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showAuxiliaryAnchorsToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showTextAnnotationsToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showBoxAnnotationsToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showLineAnnotationsToggle = new() { Visibility = Visibility.Collapsed };
     private readonly Slider _mapOpacitySlider = CreatePercentageSlider("大地图不透明度");
     private readonly TextBlock _mapOpacityValue = CreateMutedText();
-    private readonly ToggleSwitch _showGateMarkersOnMiniMapToggle = new()
-    {
-        Header = "大门与侧门标记",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showAuxiliaryAnchorsOnMiniMapToggle = new()
-    {
-        Header = "辅助锚点",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showTextAnnotationsOnMiniMapToggle = new()
-    {
-        Header = "注释文字",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showBoxAnnotationsOnMiniMapToggle = new()
-    {
-        Header = "标注框线",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
-    private readonly ToggleSwitch _showLineAnnotationsOnMiniMapToggle = new()
-    {
-        Header = "直线标注",
-        OffContent = "隐藏",
-        OnContent = "显示"
-    };
+    private readonly ToggleSwitch _showGateMarkersOnMiniMapToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showAuxiliaryAnchorsOnMiniMapToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showTextAnnotationsOnMiniMapToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showBoxAnnotationsOnMiniMapToggle = new() { Visibility = Visibility.Collapsed };
+    private readonly ToggleSwitch _showLineAnnotationsOnMiniMapToggle = new() { Visibility = Visibility.Collapsed };
     private readonly ToggleSwitch _showFloorOnMiniMapToggle = new()
     {
         Header = "显示所在楼层",
@@ -383,9 +341,9 @@ public sealed partial class MapStatusPage : UserControl
     };
     private readonly ToggleSwitch _forceCandidateToggle = new()
     {
-        Header = "强制进入候选界面",
-        OffContent = "算法确定时自动用最高分地图",
-        OnContent = "无论如何都弹出候选供玩家选择"
+        Visibility = Visibility.Collapsed,
+        IsOn = false,
+        IsEnabled = false
     };
     // Kept as a collapsed compatibility anchor for the generated layout. The
     // user-facing control is merged into the developer learning panel.

@@ -25,6 +25,7 @@ public sealed class OverlayDisplayConfig
 
     // ── 大地图 ──
     public double MapOpacity { get; set; } = 0.46;
+    public bool ShowRoutes { get; set; } = true;
 
     // ── 大地图标记可见性 ──
     public bool ShowGateMarkers { get; set; } = true;

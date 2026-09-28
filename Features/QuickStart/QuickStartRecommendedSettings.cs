@@ -33,19 +33,9 @@ public static class QuickStartRecommendedSettings
         settings.AllowMapExtendBeyondBounds = true;
         settings.PersistentMiniMapEnabled = true;
 
-        // Large map
-        settings.ShowGateMarkers = true;
-        settings.ShowAuxiliaryAnchors = false;
-        settings.ShowTextAnnotations = true;
-        settings.ShowBoxAnnotations = true;
-        settings.ShowLineAnnotations = true;
-
-        // Mini map
-        settings.ShowGateMarkersOnMiniMap = false;
-        settings.ShowAuxiliaryAnchorsOnMiniMap = false;
-        settings.ShowTextAnnotationsOnMiniMap = true;
-        settings.ShowBoxAnnotationsOnMiniMap = true;
-        settings.ShowLineAnnotationsOnMiniMap = true;
+        // Route overlays. The runtime derives the compatibility flags and
+        // deliberately keeps auxiliary anchors and mini-map gates hidden.
+        settings.ShowRoutes = true;
         settings.ShowFloorOnMiniMap = true;
 
         return settings;

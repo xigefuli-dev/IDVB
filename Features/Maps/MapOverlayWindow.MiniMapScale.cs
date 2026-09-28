@@ -37,7 +37,8 @@ public sealed partial class MapOverlayWindow
         double miniMapScale,
         IReadOnlyList<MapOverlayRenderAnchor>? anchors = null,
         IReadOnlyList<MapOverlayRenderAnnotation>? annotations = null,
-        string? floorLabel = null)
+        string? floorLabel = null,
+        bool supportsVectorRoutes = false)
     {
         _gameBounds = gameBounds;
         _miniMapHeadingTransform = transform;
@@ -53,7 +54,7 @@ public sealed partial class MapOverlayWindow
             _persistentMiniMap = new MapOverlayRenderMap(
                 imagePath, 0, 0, 0, 0,
                 anchors ?? (IReadOnlyList<MapOverlayRenderAnchor>)Array.Empty<MapOverlayRenderAnchor>(),
-                null, annotations, floorLabel);
+                null, annotations, floorLabel, supportsVectorRoutes);
             _miniMapScale = 0d;
             _miniMapBaseScale = miniMapScale;
             _miniMapImageKey = imageKey;
@@ -85,7 +86,7 @@ public sealed partial class MapOverlayWindow
         _persistentMiniMap = new MapOverlayRenderMap(
             imagePath, 0, 0, scaledWidth, scaledHeight,
             anchors ?? (IReadOnlyList<MapOverlayRenderAnchor>)Array.Empty<MapOverlayRenderAnchor>(),
-            null, annotations, floorLabel);
+            null, annotations, floorLabel, supportsVectorRoutes);
         _miniMapScale = effectiveScale;
         _miniMapBaseScale = miniMapScale;
         _miniMapImageKey = imageKey;

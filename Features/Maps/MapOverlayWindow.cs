@@ -185,7 +185,8 @@ public sealed partial class MapOverlayWindow : IDisposable
                     gameBounds.Width,
                     gameBounds.Height))
         {
-            Annotations = annotations
+            Annotations = annotations,
+            SupportsVectorRoutes = MapRouteRules.SupportsVectorRoutes(recognition.Map)
         };
         _mapId = recognition.Map.Id;
         _mapFloorKey = recognition.Result.Floor;
@@ -409,16 +410,19 @@ public sealed partial class MapOverlayWindow : IDisposable
             AllowMapExtendBeyondBounds: _allowExtend,
             GameScreenBounds: _gameBounds,
             MonitorWorkingArea: monitorWorkingArea,
-            ShowGateMarkers: _showGateMarkers,
+            ShowGateMarkers: _showGateMarkers && (visibleMap?.SupportsVectorRoutes ?? false),
             ShowAuxiliaryAnchors: _showAuxiliaryAnchors,
-            ShowTextAnnotations: _showTextAnnotations,
-            ShowBoxAnnotations: _showBoxAnnotations,
-            ShowLineAnnotations: _showLineAnnotations,
+            ShowTextAnnotations: _showTextAnnotations && (visibleMap?.SupportsVectorRoutes ?? false),
+            ShowBoxAnnotations: _showBoxAnnotations && (visibleMap?.SupportsVectorRoutes ?? false),
+            ShowLineAnnotations: _showLineAnnotations && (visibleMap?.SupportsVectorRoutes ?? false),
             ShowGateMarkersOnMiniMap: _showGateMarkersOnMiniMap,
             ShowAuxiliaryAnchorsOnMiniMap: _showAuxiliaryAnchorsOnMiniMap,
-            ShowTextAnnotationsOnMiniMap: _showTextAnnotationsOnMiniMap,
-            ShowBoxAnnotationsOnMiniMap: _showBoxAnnotationsOnMiniMap,
-            ShowLineAnnotationsOnMiniMap: _showLineAnnotationsOnMiniMap,
+            ShowTextAnnotationsOnMiniMap: _showTextAnnotationsOnMiniMap
+                && (_persistentMiniMap?.SupportsVectorRoutes ?? false),
+            ShowBoxAnnotationsOnMiniMap: _showBoxAnnotationsOnMiniMap
+                && (_persistentMiniMap?.SupportsVectorRoutes ?? false),
+            ShowLineAnnotationsOnMiniMap: _showLineAnnotationsOnMiniMap
+                && (_persistentMiniMap?.SupportsVectorRoutes ?? false),
             MapOpacity: _mapOpacity,
             StatusOpacity: _statusOpacity,
             StatusScale: _statusScale,

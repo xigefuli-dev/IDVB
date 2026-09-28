@@ -40,6 +40,105 @@ public sealed partial class IdvmPackageServiceTests
     }
 
     [Fact]
+    public async Task Version14DeclaresAllPlatformsAndDetectedVectorRoutes()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "routes.png", "S0 厄运之女 · 困难（总裁）", "Routes"));
+            var package = Path.Combine(root, "routes.idvm");
+            await new IdvmPackageService(source).ExportAsync(
+                IdvmExportScope.CurrentClass,
+                "S0 厄运之女 · 困难（总裁）",
+                package);
+
+            using var archive = ZipFile.OpenRead(package);
+            using var manifest = JsonDocument.Parse(archive.GetEntry("manifest.json")!.Open());
+            var rootElement = manifest.RootElement;
+            Assert.Equal("1.4", rootElement.GetProperty("formatVersion").GetString());
+            Assert.Equal(
+                ["windows", "android", "ios", "web"],
+                rootElement.GetProperty("supportedPlatforms").EnumerateArray()
+                    .Select(item => item.GetString()).ToArray());
+            Assert.True(rootElement.GetProperty("capabilities")
+                .GetProperty("containsVectorRoutes").GetBoolean());
+            Assert.True(rootElement.GetProperty("classes")[0]
+                .GetProperty("properties")
+                .GetProperty("containsVectorRoutes").GetBoolean());
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task Version14PackageWithoutWindowsIsRejectedBeforeImport()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "android-only.png", "S1", "Android only"));
+            var package = Path.Combine(root, "android-only.idvm");
+            await new IdvmPackageService(source).ExportAsync(
+                IdvmExportScope.AllClasses,
+                null,
+                package);
+            RewriteManifestDocument(
+                package,
+                manifest => manifest["supportedPlatforms"] = new JsonArray("android", "ios", "web"));
+
+            var targetRepository = new MapRepository(Path.Combine(root, "target"));
+            var service = new IdvmPackageService(targetRepository);
+            var error = await Assert.ThrowsAsync<IdvmPlatformNotSupportedException>(
+                () => service.InspectAsync(package));
+
+            Assert.Equal(["android", "ios", "web"], error.SupportedPlatforms);
+            Assert.Empty(await targetRepository.GetMapsAsync());
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
+    public async Task MissingOptionalVectorRouteDeclarationDisablesRoutesAfterImport()
+    {
+        var root = CreateRoot();
+        try
+        {
+            var source = new MapRepository(Path.Combine(root, "source"));
+            await source.SaveAsync(CreateDraft(root, "undeclared-routes.png", "S1", "Undeclared"));
+            var package = Path.Combine(root, "undeclared-routes.idvm");
+            await new IdvmPackageService(source).ExportAsync(
+                IdvmExportScope.AllClasses,
+                null,
+                package);
+            RewriteManifestDocument(package, manifest =>
+            {
+                manifest["capabilities"]!.AsObject().Remove("containsVectorRoutes");
+                manifest["classes"]![0]!["properties"]!.AsObject().Remove("containsVectorRoutes");
+            });
+
+            var target = new IdvmPackageService(
+                new MapRepository(Path.Combine(root, "target")));
+            var result = await target.ImportAsync(await target.InspectAsync(package));
+            var imported = Assert.Single(result.ImportedMaps);
+
+            Assert.False(imported.ClassProperties.ContainsVectorRoutes);
+            Assert.False(MapRouteRules.SupportsVectorRoutes(imported));
+            Assert.NotEmpty(imported.Recognition.FirstFloor.Annotations);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task Version12RequiresExplicitFloorMarkerCapability()
     {
         var root = CreateRoot();

@@ -150,6 +150,13 @@ public static class MapSubscriptionCrypto
             || payload.PlaintextSha256.Length != 64
             || !string.Equals(payload.PublisherKeyId, suppliedKeyId, StringComparison.Ordinal))
             throw new CryptographicException("地图订阅 feed 字段无效。");
+        if (payload.SupportedPlatforms is { } platforms
+            && (platforms.Count == 0
+                || platforms.Count != platforms.Distinct(StringComparer.Ordinal).Count()
+                || platforms.Any(platform => !IdvmPlatformCompatibility.IsKnown(platform))))
+        {
+            throw new CryptographicException("地图订阅 feed 的平台声明无效。");
+        }
         var handle = MapSubscriptionProtocol.NormalizePublisherHandle(payload.PublisherHandle);
         if (!string.Equals(handle, payload.PublisherHandle, StringComparison.Ordinal))
             throw new CryptographicException("发布者账号不是规范格式。");

@@ -9,7 +9,7 @@ public sealed class MapRuntimeDefaultSettingsTests
     {
         var settings = MapRuntimeSettings.CreateDefault();
 
-        Assert.Equal(20, settings.SchemaVersion);
+        Assert.Equal(21, settings.SchemaVersion);
         Assert.Equal(ScanPerformanceMode.Balanced, settings.ScanPerformanceMode);
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);
@@ -25,6 +25,11 @@ public sealed class MapRuntimeDefaultSettingsTests
         Assert.True(settings.AllowMapExtendBeyondBounds);
         Assert.True(settings.PersistentMiniMapEnabled);
         Assert.False(settings.PlayerTrackingEnabled);
+        Assert.True(settings.ShowRoutes);
+        Assert.True(settings.ShowGateMarkers);
+        Assert.False(settings.ShowAuxiliaryAnchors);
+        Assert.False(settings.ShowGateMarkersOnMiniMap);
+        Assert.False(settings.ShowAuxiliaryAnchorsOnMiniMap);
         Assert.True(settings.ShowLineAnnotations);
         Assert.True(settings.ShowLineAnnotationsOnMiniMap);
         Assert.Equal(0.25d, settings.MiniMapScale);

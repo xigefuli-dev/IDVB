@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 20;
+    public const int CurrentSchemaVersion = 21;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -67,6 +67,10 @@ public sealed partial class MapRuntimeSettings
     public bool AllowAutomaticMapCache { get; set; }
     public bool ReverseAlternateDisplay { get; set; }
     public double MapOpacity { get; set; } = 0.46d;
+    /// <summary>显示受当前地图类能力声明保护的矢量路线。</summary>
+    public bool ShowRoutes { get; set; } = true;
+    // Compatibility fields retained for older settings files. ShowRoutes is
+    // the only product-facing source of truth; Normalize derives these values.
     public bool ShowGateMarkers { get; set; } = true;
     public bool ShowAuxiliaryAnchors { get; set; } = true;
     public bool ShowTextAnnotations { get; set; } = true;
@@ -153,13 +157,14 @@ public sealed partial class MapRuntimeSettings
         AllowAutomaticMapCache = false,
         ReverseAlternateDisplay = false,
         MapOpacity = 0.46d,
+        ShowRoutes = true,
         ShowGateMarkers = true,
-        ShowAuxiliaryAnchors = true,
+        ShowAuxiliaryAnchors = false,
         ShowTextAnnotations = true,
         ShowBoxAnnotations = true,
         ShowLineAnnotations = true,
-        ShowGateMarkersOnMiniMap = true,
-        ShowAuxiliaryAnchorsOnMiniMap = true,
+        ShowGateMarkersOnMiniMap = false,
+        ShowAuxiliaryAnchorsOnMiniMap = false,
         ShowTextAnnotationsOnMiniMap = true,
         ShowBoxAnnotationsOnMiniMap = true,
         ShowLineAnnotationsOnMiniMap = true,
@@ -410,6 +415,7 @@ public sealed partial class MapRuntimeSettings
         ReverseAlternateDisplay = ReverseAlternateDisplay,
         MiniMapScale = MiniMapScale,
         MapOpacity = MapOpacity,
+        ShowRoutes = ShowRoutes,
         ShowGateMarkers = ShowGateMarkers,
         ShowAuxiliaryAnchors = ShowAuxiliaryAnchors,
         ShowTextAnnotations = ShowTextAnnotations,

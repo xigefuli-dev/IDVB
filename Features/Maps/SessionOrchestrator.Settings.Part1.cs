@@ -117,6 +117,7 @@ public sealed partial class SessionOrchestrator
         sb.AppendLine($"minimap_offset_y = {s.MiniMapOffsetY:F3}");
         sb.AppendLine($"minimap_scale = {s.MiniMapScale:F3}");
         sb.AppendLine($"map_opacity = {s.MapOpacity:F2}");
+        sb.AppendLine($"show_routes = {Bool(s.ShowRoutes)}");
         sb.AppendLine($"show_gate_markers = {Bool(s.ShowGateMarkers)}");
         sb.AppendLine($"show_auxiliary_anchors = {Bool(s.ShowAuxiliaryAnchors)}");
         sb.AppendLine($"show_text_annotations = {Bool(s.ShowTextAnnotations)}");

@@ -31,6 +31,22 @@ public static class MapSubscriptionProtocol
     }
 }
 
+public static class IdvmPlatformCompatibility
+{
+    public const string Windows = "windows";
+    public const string Android = "android";
+    public const string Ios = "ios";
+    public const string Web = "web";
+
+    public static IReadOnlyList<string> All { get; } =
+        [Windows, Android, Ios, Web];
+
+    public static bool IsKnown(string value) => All.Contains(value, StringComparer.Ordinal);
+
+    public static bool SupportsWindows(IReadOnlyCollection<string>? platforms) =>
+        platforms is null || platforms.Contains(Windows, StringComparer.Ordinal);
+}
+
 public sealed record MapSubscriptionLink(
     Uri FeedUri,
     byte[] ContentKey,
@@ -118,7 +134,8 @@ public sealed record MapPublicationPayload(
     string? PublisherDisplayName = null,
     bool IsOfficialPublisher = false,
     bool IsBuilderPublisher = false,
-    string? PackageName = null);
+    string? PackageName = null,
+    IReadOnlyList<string>? SupportedPlatforms = null);
 
 public sealed record SignedMapPublicationEnvelope(
     int SchemaVersion,

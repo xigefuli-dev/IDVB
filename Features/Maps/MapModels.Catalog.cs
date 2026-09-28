@@ -46,6 +46,11 @@ public sealed record MapVariantGroupChangeResult(
 public sealed class MapClassProperties
 {
     public bool RemoveBackground { get; set; }
+    /// <summary>
+    /// Portable IDVM declaration. Null is reserved for legacy/local classes
+    /// whose support is inferred from their current vector annotations.
+    /// </summary>
+    public bool? ContainsVectorRoutes { get; set; }
     /// <summary>Local-only whole-image downsampling divisor. Zero keeps the original.</summary>
     public int ImageDownsampleFactor { get; set; }
     /// <summary>
@@ -63,6 +68,7 @@ public sealed class MapClassProperties
     public MapClassProperties Clone() => new()
     {
         RemoveBackground = RemoveBackground,
+        ContainsVectorRoutes = ContainsVectorRoutes,
         ImageDownsampleFactor = MapRepository.ClampImageDownsampleFactor(ImageDownsampleFactor),
         BackgroundRemovalIntensity = MapBackgroundProcessor.ClampBackgroundRemovalIntensity(
             BackgroundRemovalIntensity),
@@ -71,6 +77,7 @@ public sealed class MapClassProperties
 
     public override bool Equals(object? obj) => obj is MapClassProperties other
         && other.RemoveBackground == RemoveBackground
+        && other.ContainsVectorRoutes == ContainsVectorRoutes
         && MapRepository.ClampImageDownsampleFactor(other.ImageDownsampleFactor)
             == MapRepository.ClampImageDownsampleFactor(ImageDownsampleFactor)
         && MapBackgroundProcessor.ClampBackgroundRemovalIntensity(other.BackgroundRemovalIntensity)
@@ -82,6 +89,7 @@ public sealed class MapClassProperties
 
     public override int GetHashCode() => HashCode.Combine(
         RemoveBackground,
+        ContainsVectorRoutes,
         MapRepository.ClampImageDownsampleFactor(ImageDownsampleFactor),
         MapBackgroundProcessor.ClampBackgroundRemovalIntensity(BackgroundRemovalIntensity),
         MapScanFloorRules.NormalizeFloorIdentity(ScanFloorKey));

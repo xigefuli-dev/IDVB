@@ -184,6 +184,51 @@ public sealed class MapSubscriptionSecurityTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    [Fact]
+    public async Task FeedWithoutWindowsSupportIsRejectedBeforePackageDownload()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var official = MapSubscriptionCrypto.CreatePublisherKey();
+            var publisher = MapSubscriptionCrypto.CreatePublisherKey();
+            var payload = CreatePayload("@mapper", publisher.KeyId) with
+            {
+                PackageUri = "missing-package.idvm.secure",
+                SupportedPlatforms = ["android", "ios", "web"]
+            };
+            var feedPath = Path.Combine(root, "feed.json");
+            await File.WriteAllTextAsync(feedPath, JsonSerializer.Serialize(
+                MapSubscriptionCrypto.Sign(payload, publisher.PrivateKeyPem),
+                MapSubscriptionProtocol.JsonOptions));
+            var subscriptionRoot = Path.Combine(root, "subscriptions");
+            var link = new MapSubscriptionLink(
+                new Uri(feedPath),
+                RandomNumberGenerator.GetBytes(32),
+                publisher.KeyId);
+            new MapSubscriptionStore(subscriptionRoot).Save([new MapSubscriptionRecord
+            {
+                Link = link.ToUriString(),
+                FeedUri = link.FeedUri.AbsoluteUri,
+                PublisherKeyId = publisher.KeyId
+            }]);
+
+            var result = await new MapSubscriptionUpdateEngine().UpdateAllAsync(
+                subscriptionRoot,
+                official.PublicKeyPem);
+            var record = Assert.Single(new MapSubscriptionStore(subscriptionRoot).Load());
+
+            Assert.Equal(1, result.Failed);
+            Assert.Equal(0, result.Prepared);
+            Assert.Contains("不支持 Windows", record.LastError);
+            Assert.False(Directory.Exists(Path.Combine(subscriptionRoot, "pending")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static MapPublicationPayload CreatePayload(string handle, string keyId) => new(
         MapSubscriptionProtocol.SchemaVersion,
         Guid.NewGuid(),

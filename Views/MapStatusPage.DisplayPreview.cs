@@ -71,11 +71,11 @@ public sealed partial class MapStatusPage
             Math.Clamp(_miniMapOffsetYSlider.Value / 100d, 0d, 1d),
             miniMapPixelSize.Width,
             miniMapPixelSize.Height,
-            _showGateMarkersOnMiniMapToggle.IsOn && _showGateMarkersToggle.IsOn,
-            _showAuxiliaryAnchorsOnMiniMapToggle.IsOn && _showAuxiliaryAnchorsToggle.IsOn,
-            _showTextAnnotationsOnMiniMapToggle.IsOn && _showTextAnnotationsToggle.IsOn,
-            _showBoxAnnotationsOnMiniMapToggle.IsOn && _showBoxAnnotationsToggle.IsOn,
-            _showLineAnnotationsOnMiniMapToggle.IsOn && _showLineAnnotationsToggle.IsOn,
+            false,
+            false,
+            _showRoutesToggle.IsOn,
+            _showRoutesToggle.IsOn,
+            _showRoutesToggle.IsOn,
             _showFloorOnMiniMapToggle.IsOn));
     }
 }

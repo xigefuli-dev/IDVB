@@ -64,6 +64,8 @@ public sealed class MapSubscriptionUpdateEngine
             ?? throw new InvalidDataException("地图订阅 feed 为空。");
         var publication = MapSubscriptionCrypto.Verify(
             envelope, link.PublisherKeyId, officialPublicKeyPem);
+        if (!IdvmPlatformCompatibility.SupportsWindows(publication.SupportedPlatforms))
+            throw new InvalidDataException("该地图订阅不支持 Windows，已拒绝订阅请求。");
         record.PublisherHandle = publication.PublisherHandle;
         record.PublisherDisplayName = publication.PublisherDisplayName;
         record.IsOfficialPublisher = publication.IsOfficialPublisher;

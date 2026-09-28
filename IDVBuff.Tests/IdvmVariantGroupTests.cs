@@ -10,7 +10,7 @@ namespace IDVBuff.Tests;
 public sealed class IdvmVariantGroupTests
 {
     [Fact]
-    public async Task Version13RoundTripRemapsMapAndGroupIdsButPreservesOrderAndPalette()
+    public async Task Version14RoundTripRemapsMapAndGroupIdsButPreservesOrderAndPalette()
     {
         var root = CreateRoot();
         try
@@ -27,8 +27,8 @@ public sealed class IdvmVariantGroupTests
             using (var manifest = JsonDocument.Parse(
                        archive.GetEntry("manifest.json")!.Open()))
             {
-                Assert.Equal("1.3", manifest.RootElement.GetProperty("formatVersion").GetString());
-                Assert.Equal("1.3", manifest.RootElement.GetProperty("minimumReader").GetString());
+                Assert.Equal("1.4", manifest.RootElement.GetProperty("formatVersion").GetString());
+                Assert.Equal("1.4", manifest.RootElement.GetProperty("minimumReader").GetString());
                 Assert.Single(manifest.RootElement.GetProperty("variantGroups").EnumerateArray());
             }
 

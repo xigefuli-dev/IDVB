@@ -211,6 +211,14 @@ public sealed partial class MapStatusPage : UserControl
         catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
     }
 
+    private async void ShowRoutes_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing) return;
+        PublishDisplayPreview(OverlayPreviewPart.MiniMap);
+        try { await _runtime.SetShowRoutesAsync(_showRoutesToggle.IsOn); }
+        catch (Exception exception) { _status.Text = exception.Message; Refresh(); }
+    }
+
     private void MapOpacity_Changed(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_refreshing || double.IsNaN(args.NewValue)) return;

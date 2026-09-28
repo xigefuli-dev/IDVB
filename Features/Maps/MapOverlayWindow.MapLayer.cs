@@ -69,11 +69,11 @@ public sealed partial class MapOverlayWindow
             using var bitmap = MapOverlayBitmapRenderer.RenderMapLayer(
                 map,
                 dpi,
-                _showGateMarkers,
+                _showGateMarkers && map.SupportsVectorRoutes,
                 _showAuxiliaryAnchors,
-                _showTextAnnotations,
-                _showBoxAnnotations,
-                _showLineAnnotations,
+                _showTextAnnotations && map.SupportsVectorRoutes,
+                _showBoxAnnotations && map.SupportsVectorRoutes,
+                _showLineAnnotations && map.SupportsVectorRoutes,
                 _mapOpacity);
             _mapNativeWindow.Present(
                 bitmap,

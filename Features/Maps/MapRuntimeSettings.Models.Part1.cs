@@ -171,7 +171,20 @@ public sealed partial class MapRuntimeSettings
         }
         RecognitionTuning.Normalize();
         RecognitionTuning.ForceBestRecognitionResult = false;
+        RecognitionTuning.ForceCandidateSelection = false;
         RecognitionTuning.PlayerDecidesScale = false;
+        // The retired per-overlay switches remain serialized only so older
+        // files can be read. Route visibility is now one product-owned group.
+        ShowGateMarkers = ShowRoutes;
+        ShowAuxiliaryAnchors = false;
+        ShowTextAnnotations = ShowRoutes;
+        ShowBoxAnnotations = ShowRoutes;
+        ShowLineAnnotations = ShowRoutes;
+        ShowGateMarkersOnMiniMap = false;
+        ShowAuxiliaryAnchorsOnMiniMap = false;
+        ShowTextAnnotationsOnMiniMap = ShowRoutes;
+        ShowBoxAnnotationsOnMiniMap = ShowRoutes;
+        ShowLineAnnotationsOnMiniMap = ShowRoutes;
         StructureRegistrationTuning.Normalize();
         SessionTuning.Normalize();
         FloorRecognitionTuning ??= new MapFloorRecognitionTuning();

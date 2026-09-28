@@ -163,6 +163,12 @@ public sealed partial class MapListPage : UserControl
                 $"数据包导入完成：已创建 {result.CreatedClasses.Count} 个地图类，导入 {result.ImportedMaps.Count} 张地图。"
                 + string.Join("、", result.CreatedClasses));
         }
+        catch (IdvmPlatformNotSupportedException exception)
+        {
+            if (plan is not null)
+                await plan.DisposeAsync();
+            await ShowMessageAsync("地图包不支持 Windows", exception.Message);
+        }
         catch (Exception exception)
         {
             if (plan is not null)

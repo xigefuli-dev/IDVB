@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using IDVBuff.UpdateCore;
 
 namespace IDVBuff.Features.Maps;
 
@@ -48,8 +49,12 @@ public sealed partial class IdvmPackageService
             && parsedHeader.MinorVersion == 3
             && manifest.FormatVersion == "1.3"
             && manifest.MinimumReader == "1.3";
+        var isVersion14 = parsedHeader.MajorVersion == 1
+            && parsedHeader.MinorVersion == 4
+            && manifest.FormatVersion == "1.4"
+            && manifest.MinimumReader == "1.4";
         if (manifest.Format != "idvm"
-            || (!isVersion10 && !isVersion11 && !isVersion12 && !isVersion13)
+            || (!isVersion10 && !isVersion11 && !isVersion12 && !isVersion13 && !isVersion14)
             || manifest.PackageType != "class-set")
         {
             throw new InvalidDataException("不支持的 IDVM 格式或读取器版本。");
@@ -62,6 +67,17 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException("IDVM 1.2 包必须声明 floorMarkerKeys 能力。");
         if (isVersion13 && (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags))
             throw new InvalidDataException("IDVM 1.3 包必须声明 floorMarkerKeys 和 mapTags 能力。");
+        if (isVersion14)
+        {
+            if (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags)
+                throw new InvalidDataException("IDVM 1.4 包必须声明 floorMarkerKeys 和 mapTags 能力。");
+            ValidateSupportedPlatforms(manifest.SupportedPlatforms);
+            if (!IdvmPlatformCompatibility.SupportsWindows(manifest.SupportedPlatforms))
+                throw new IdvmPlatformNotSupportedException(manifest.SupportedPlatforms!);
+            var routeClasses = manifest.Classes.Count(item => item.Properties?.ContainsVectorRoutes is true);
+            if ((manifest.Capabilities.ContainsVectorRoutes is true) != (routeClasses > 0))
+                throw new InvalidDataException("IDVM 1.4 包的矢量路线能力与地图类声明不一致。");
+        }
         if (manifest.PackageId == Guid.Empty || manifest.PackageId != parsedHeader.PackageId)
             throw new InvalidDataException("header 与 manifest 的 packageId 不一致。");
         if (manifest.CreatedAt.ToUnixTimeMilliseconds() != parsedHeader.CreatedAtUnixMilliseconds)
@@ -91,8 +107,19 @@ public sealed partial class IdvmPackageService
         if (!actualFiles.SetEquals(declaredPaths))
             throw new InvalidDataException("manifest 文件清单与包内容不一致。");
 
-        ValidateManifestRelationships(manifest, isVersion12 || isVersion13);
+        ValidateManifestRelationships(manifest, isVersion12 || isVersion13 || isVersion14);
         return manifest;
+    }
+
+    private static void ValidateSupportedPlatforms(IReadOnlyList<string>? platforms)
+    {
+        if (platforms is null || platforms.Count == 0
+            || platforms.Count != platforms.Distinct(StringComparer.Ordinal).Count()
+            || platforms.Any(platform => !IdvmPlatformCompatibility.IsKnown(platform)))
+        {
+            throw new InvalidDataException(
+                "IDVM 1.4 supportedPlatforms 必须从 windows、android、ios、web 中声明至少一个平台，且不得重复。");
+        }
     }
 
     private static void ValidateManifestRelationships(

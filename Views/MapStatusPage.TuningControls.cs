@@ -173,7 +173,7 @@ public sealed partial class MapStatusPage : UserControl
             tuning.AmbiguityMargin = _ambiguityMargin.Value;
             tuning.ConfirmationAdvantage = _confirmationAdvantage.Value;
             tuning.ForceBestRecognitionResult = _forceBestResultToggle.IsOn;
-            tuning.ForceCandidateSelection = _forceCandidateToggle.IsOn;
+            tuning.ForceCandidateSelection = false;
             tuning.PlayerDecidesScale = _playerDecidesScaleToggle.IsOn;
             tuning.WarmGateSearchBudgetMs = (int)Math.Round(_warmGateSearchBudget.Value);
             tuning.ConfirmationGateSearchBudgetMs =

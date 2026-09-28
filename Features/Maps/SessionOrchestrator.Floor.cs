@@ -395,7 +395,8 @@ public sealed partial class SessionOrchestrator
             Settings.MiniMapScale,
             anchors,
             annotations,
-            floorLabel);
+            floorLabel,
+            MapRouteRules.SupportsVectorRoutes(map));
     }
 
     private void ReportFloorProposalTransient(

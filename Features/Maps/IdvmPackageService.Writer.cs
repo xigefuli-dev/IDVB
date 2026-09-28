@@ -37,7 +37,7 @@ public sealed partial class IdvmPackageService
         var bytes = new byte[HeaderSize];
         Encoding.ASCII.GetBytes("IDVM").CopyTo(bytes, 0);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4, 2), 1);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 3);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 4);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(8, 2), HeaderSize);
         WriteRfc4122Guid(packageId, bytes.AsSpan(12, 16));
         BinaryPrimitives.WriteInt64LittleEndian(

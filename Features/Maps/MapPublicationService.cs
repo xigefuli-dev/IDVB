@@ -106,7 +106,8 @@ public sealed class MapPublicationService
                 publisherDisplayName.Trim(),
                 isOfficialPublisher,
                 isBuilderPublisher,
-                packageName.Trim());
+                packageName.Trim(),
+                IdvmPlatformCompatibility.All);
             var envelope = MapSubscriptionCrypto.Sign(payload, credential.PrivateKeyPem);
             var feedPath = Path.Combine(output, "feed.json");
             var feedTemporary = feedPath + ".tmp";

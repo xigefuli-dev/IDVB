@@ -179,6 +179,9 @@ public sealed partial class IdvmPackageService
             item => new MapClassProperties
             {
                 RemoveBackground = item.Properties?.RemoveBackground is true,
+                ContainsVectorRoutes = manifest.FormatVersion == "1.4"
+                    ? item.Properties?.ContainsVectorRoutes is true
+                    : null,
                 ScanFloorKey = MapScanFloorRules.NormalizeFloorIdentity(
                     item.Properties?.ScanFloorKey)
             });
@@ -197,8 +200,8 @@ public sealed partial class IdvmPackageService
                 metadata,
                 gatesDocument,
                 anchorsDocument,
-                manifest.FormatVersion is "1.2" or "1.3",
-                manifest.FormatVersion == "1.3");
+                manifest.FormatVersion is "1.2" or "1.3" or "1.4",
+                manifest.FormatVersion is "1.3" or "1.4");
 
             var floorDefinitions = new List<FloorDefinition>();
             var floorPaths = new Dictionary<string, string>(StringComparer.Ordinal);

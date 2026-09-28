@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using IDVBuff.UpdateCore;
 
 namespace IDVBuff.Features.Maps;
 
@@ -16,6 +17,17 @@ public sealed record IdvmImportResult(
     IReadOnlyList<string> CreatedClasses,
     IReadOnlyList<MapRecord> ImportedMaps,
     IReadOnlyList<MapVariantGroup>? ImportedVariantGroups = null);
+
+public sealed class IdvmPlatformNotSupportedException : InvalidDataException
+{
+    public IdvmPlatformNotSupportedException(IReadOnlyList<string> supportedPlatforms)
+        : base($"该 IDVM 地图包不支持 Windows。声明的平台：{string.Join("、", supportedPlatforms)}。")
+    {
+        SupportedPlatforms = supportedPlatforms;
+    }
+
+    public IReadOnlyList<string> SupportedPlatforms { get; }
+}
 
 public sealed class IdvmImportPlan : IAsyncDisposable
 {
@@ -121,18 +133,24 @@ public sealed partial class IdvmPackageService
             var manifest = new ManifestDto
             {
                 Format = "idvm",
-                FormatVersion = "1.3",
+                FormatVersion = "1.4",
                 PackageType = "class-set",
                 PackageId = packageId,
                 CreatedAt = createdAt,
-                MinimumReader = "1.3",
+                MinimumReader = "1.4",
+                SupportedPlatforms = IdvmPlatformCompatibility.All.ToList(),
                 Capabilities = new CapabilitiesDto
                 {
                     FloorMarkerKeys = true,
                     MapTags = true,
                     PrebuiltStructureLines = selectedMaps.Any(map =>
                         MapFloorRules.GetOrderedFloors(map).Any(floor =>
-                            floor.PrebuiltStructureLine?.IsComplete is true))
+                            floor.PrebuiltStructureLine?.IsComplete is true)),
+                    ContainsVectorRoutes = selectedClasses.Any(classLabel =>
+                        MapRouteRules.ClassContainsVectorRoutes(selectedMaps.Where(map =>
+                            string.Equals(map.Class, classLabel, StringComparison.OrdinalIgnoreCase))))
+                        ? true
+                        : null
                 }
             };
 
@@ -154,6 +172,9 @@ public sealed partial class IdvmPackageService
                             && properties.RemoveBackground,
                         ScanFloorKey = snapshot.ClassProperties.TryGetValue(classLabel, out properties)
                             ? MapScanFloorRules.NormalizeFloorIdentity(properties.ScanFloorKey)
+                            : null,
+                        ContainsVectorRoutes = MapRouteRules.ClassContainsVectorRoutes(maps)
+                            ? true
                             : null
                     }
                 });
@@ -282,6 +303,7 @@ public sealed partial class IdvmPackageService
         public Guid PackageId { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public string MinimumReader { get; set; } = string.Empty;
+        public List<string>? SupportedPlatforms { get; set; }
         public List<ManifestClassDto> Classes { get; set; } = [];
         public List<ManifestMapDto> Maps { get; set; } = [];
         public List<ManifestVariantGroupDto> VariantGroups { get; set; } = [];
@@ -301,6 +323,7 @@ public sealed partial class IdvmPackageService
     {
         public bool RemoveBackground { get; set; }
         public string? ScanFloorKey { get; set; }
+        public bool? ContainsVectorRoutes { get; set; }
     }
 
     private sealed class ManifestVariantGroupDto
@@ -351,6 +374,7 @@ public sealed partial class IdvmPackageService
         public bool FloorMarkerKeys { get; set; }
         public bool MapTags { get; set; }
         public bool PrebuiltStructureLines { get; set; }
+        public bool? ContainsVectorRoutes { get; set; }
     }
 
     private sealed class MetadataDto

@@ -64,6 +64,7 @@ public sealed class QuickStartTests
         Assert.True(recommended.AllowMapExtendBeyondBounds);
         Assert.True(recommended.PersistentMiniMapEnabled);
 
+        Assert.True(recommended.ShowRoutes);
         Assert.True(recommended.ShowGateMarkers);
         Assert.False(recommended.ShowAuxiliaryAnchors);
         Assert.True(recommended.ShowTextAnnotations);

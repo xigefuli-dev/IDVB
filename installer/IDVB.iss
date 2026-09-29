@@ -11,7 +11,7 @@
   #define PublicVersion "b01.6-00.00.00.0000"
 #endif
 #ifndef NumericVersion
-  #define NumericVersion "1.6.5.0"
+  #define NumericVersion "1.6.6.0"
 #endif
 
 #define AppName "Identity Vision Bridge"

@@ -76,7 +76,7 @@ public sealed partial class SideEntranceScanPipeline
         var profile = MapFloorRules.GetFloorProfile(map, floorKey);
         var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey);
         if (profile is null || anchor?.Bounds?.IsValid != true || line.Empty()) return [];
-        var index = ScanStructureIndex.Get(line);
+        var index = ScanStructureIndex.Get(line).WithScanAnchor(map, floorKey);
         var ax = (anchor.Bounds.X + anchor.Bounds.Width / 2) * profile.RecognitionPixelWidth;
         var ay = (anchor.Bounds.Y + anchor.Bounds.Height / 2) * profile.RecognitionPixelHeight;
         var gx = gate.ScreenBounds.CenterX - viewport.X;

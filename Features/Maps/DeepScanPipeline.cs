@@ -36,18 +36,7 @@ internal static class DeepScanPipeline
             { context.RetrievalCompleted = false; break; }
             if (!DeepScanStructureIndex.TryGet(line, out var index) || index is null || !index.HasGeometry)
             { context.RetrievalCompleted = false; found.Add(Missing(map, floor, "deepscan-index-unavailable")); continue; }
-            var distances = index.Distances;
-            var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floor);
-            if (anchor?.Bounds?.IsValid is true)
-            {
-                // Exactly the rectangle erased by BuildSideEntranceFeatureCache.
-                // Its missing reference pixels are unknown only for this pose,
-                // not a reason to erase other maps' observed corridors.
-                var bounds = anchor.Bounds;
-                distances = distances.WithUnknownBounds(new(
-                    (int)Math.Floor(bounds.X * line.Width), (int)Math.Floor(bounds.Y * line.Height),
-                    (int)Math.Ceiling(bounds.Width * line.Width), (int)Math.Ceiling(bounds.Height * line.Height)));
-            }
+            var distances = index.Distances.WithScanAnchor(map, floor);
             var peaks = new List<Pose>();
             var visited = new HashSet<(int, int, int)>();
             var complete = true;

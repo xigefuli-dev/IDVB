@@ -144,7 +144,7 @@ public sealed class FeedbackFeatureTests
             {
                 Assert.Null(request.Headers.Authorization);
                 var form = Assert.IsType<MultipartFormDataContent>(request.Content);
-                var contact = Assert.Single(form.Where(part => part.Headers.ContentDisposition?.Name?.Trim('"') == "contactQq"));
+                var contact = Assert.Single(form, part => part.Headers.ContentDisposition?.Name?.Trim('"') == "contactQq");
                 Assert.Equal("12345678", contact.ReadAsStringAsync().GetAwaiter().GetResult());
                 return new HttpResponseMessage(System.Net.HttpStatusCode.Created);
             }
@@ -202,6 +202,92 @@ public sealed class FeedbackFeatureTests
 
         Assert.True(result.Success);
         Assert.Contains("成功", result.Message);
+    }
+
+    [Theory]
+    [InlineData(System.Net.HttpStatusCode.Unauthorized, true)]
+    [InlineData(System.Net.HttpStatusCode.Forbidden, false)]
+    [InlineData(System.Net.HttpStatusCode.ServiceUnavailable, false)]
+    public async Task OfficialFeedbackService_ReportsOnlyTheRejectedRequestCredential(
+        System.Net.HttpStatusCode status, bool rejectsCredential)
+    {
+        var currentToken = "old-session";
+        var requests = 0;
+        using var client = new HttpClient(new TestHttpMessageHandler
+        {
+            Handler = request =>
+            {
+                requests++;
+                Assert.Equal("old-session", request.Headers.Authorization?.Parameter);
+                // The user signs in again while the previous submission is in flight.
+                currentToken = "new-session";
+                return new HttpResponseMessage(status);
+            }
+        }) { BaseAddress = new Uri("https://community.idvb.test/") };
+        OfficialFeedbackService.TokenProvider = () => currentToken;
+        OfficialFeedbackService.CustomHttpClient = client;
+        try
+        {
+            var result = await OfficialFeedbackService.Instance.SubmitFeedbackAsync(new FeedbackSubmissionPayload
+            {
+                Description = "这是凭证失效处理测试",
+                ContactQq = "12345678",
+            });
+            Assert.False(result.Success);
+            Assert.Equal(rejectsCredential ? "old-session" : null, result.RejectedToken);
+            Assert.Equal("new-session", currentToken);
+            Assert.Equal(1, requests); // Never silently retry authenticated feedback as a guest.
+        }
+        finally
+        {
+            OfficialFeedbackService.TokenProvider = null;
+            OfficialFeedbackService.CustomHttpClient = null;
+        }
+    }
+
+    [Theory]
+    [InlineData(false, 9, true)]
+    [InlineData(false, 10, false)]
+    [InlineData(true, 10, true)]
+    public async Task OfficialFeedbackService_BoundsGuestMultipartUsingActualFileSizes(
+        bool loggedIn, int logsMegabytes, bool expectedSuccess)
+    {
+        var logsPath = Path.GetTempFileName();
+        var diagnosticsPath = Path.GetTempFileName();
+        var requests = 0;
+        using var client = new HttpClient(new TestHttpMessageHandler
+        {
+            Handler = _ =>
+            {
+                requests++;
+                return new HttpResponseMessage(System.Net.HttpStatusCode.Created);
+            }
+        }) { BaseAddress = new Uri("https://community.idvb.test/") };
+        OfficialFeedbackService.TokenProvider = () => loggedIn ? "valid-session" : null;
+        OfficialFeedbackService.CustomHttpClient = client;
+        try
+        {
+            using (var logs = File.OpenWrite(logsPath)) logs.SetLength(logsMegabytes * 1024L * 1024);
+            using (var diagnostics = File.OpenWrite(diagnosticsPath)) diagnostics.SetLength(10L * 1024 * 1024);
+            var result = await OfficialFeedbackService.Instance.SubmitFeedbackAsync(new FeedbackSubmissionPayload
+            {
+                Description = "这是反馈附件大小测试",
+                ContactQq = "12345678",
+                LogsZipPath = logsPath,
+                DiagnosticsZipPath = diagnosticsPath,
+                // Deliberately leave the reported sizes at zero: trust opened streams instead.
+            });
+            Assert.Equal(expectedSuccess, result.Success);
+            Assert.Equal(expectedSuccess ? 1 : 0, requests);
+            if (!expectedSuccess) Assert.Contains("20 MB", result.Message);
+        }
+        finally
+        {
+            OfficialFeedbackService.TokenProvider = null;
+            OfficialFeedbackService.CustomHttpClient = null;
+            File.Delete(logsPath);
+            File.Delete(diagnosticsPath);
+        }
     }
 
     private sealed class TestHttpMessageHandler : HttpMessageHandler

@@ -174,7 +174,7 @@ internal sealed class ScanFrameEvidence : IDisposable
     public IReadOnlyList<Point[]> Contours { get; }
     internal IReadOnlyList<Point[]>? PreparedConflictContours { get; }
     public ScanFrameEvidence(Mat frame, MapScreenRect? viewport, IReadOnlyList<GateDetection> gates,
-        ScanExecutionPolicy policy, double doorMaskWidth = 0, double doorMaskHeight = 0)
+        ScanExecutionPolicy policy)
     {
         Source = frame;
         Observation = Vpsg3FastLiveExtractor.Extract(frame, viewport, policy.SparsePoints);
@@ -185,8 +185,8 @@ internal sealed class ScanFrameEvidence : IDisposable
         var bounds = new Rect(0, 0, frame.Width, frame.Height);
         foreach (var gate in gates)
         {
-            var width = Math.Max(gate.ScreenBounds.Width, doorMaskWidth) + 18;
-            var height = Math.Max(gate.ScreenBounds.Height, doorMaskHeight) + 18;
+            var width = gate.ScreenBounds.Width + 18;
+            var height = gate.ScreenBounds.Height + 18;
             var rect = new Rect((int)Math.Floor(gate.ScreenBounds.CenterX - (viewport?.X ?? 0) - width / 2),
                 (int)Math.Floor(gate.ScreenBounds.CenterY - (viewport?.Y ?? 0) - height / 2),
                 (int)Math.Ceiling(width), (int)Math.Ceiling(height)).Intersect(bounds);
@@ -244,6 +244,7 @@ internal sealed class ScanFrameEvidence : IDisposable
         using var hsv = new Mat();
         using var markers = new Mat();
         Cv2.CvtColor(bgr, hsv, ColorConversionCodes.BGR2HSV);
+        DeepScanLiveEvidence.MaskChests(hsv, observation);
         // Saturated yellow/green player markers lie outside both floor color classes.
         // Remove only compact annotations, in evidence space, on the same frame for
         // every candidate. Their white rims must not become negative wall evidence.

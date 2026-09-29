@@ -50,8 +50,8 @@ internal sealed class ScanStructureIndex
     internal int RetainedDistanceBytes => _distances.Length;
     private readonly byte[] _distances;
     private readonly Rect _unknownBounds;
-    // DeepScan views share immutable distance storage, never mutate the ordinary
-    // scan cache, and retain only this floor's explicitly erased anchor rectangle.
+    // Candidate views share immutable distance storage and retain only this
+    // floor's explicitly erased anchor rectangle, evaluated at each candidate pose.
     private ScanStructureIndex(ScanStructureIndex source, Rect unknownBounds)
     {
         Width = source.Width; Height = source.Height;
@@ -59,6 +59,14 @@ internal sealed class ScanStructureIndex
         _unknownBounds = unknownBounds.Intersect(new(0, 0, Width, Height));
     }
     internal ScanStructureIndex WithUnknownBounds(Rect bounds) => new(this, bounds);
+    internal ScanStructureIndex WithScanAnchor(MapRecord map, string floor)
+    {
+        var bounds = MapScanFloorRules.GetScanFeatureAnchor(map, floor)?.Bounds;
+        // Exactly the rectangle erased by BuildSideEntranceFeatureCache.
+        return bounds?.IsValid == true ? WithUnknownBounds(new(
+            (int)Math.Floor(bounds.X * Width), (int)Math.Floor(bounds.Y * Height),
+            (int)Math.Ceiling(bounds.Width * Width), (int)Math.Ceiling(bounds.Height * Height))) : this;
+    }
     internal bool IsUnknown(double x, double y) => _unknownBounds.Width > 0 && _unknownBounds.Height > 0
         && x >= _unknownBounds.X && y >= _unknownBounds.Y
         && x < _unknownBounds.Right && y < _unknownBounds.Bottom;
@@ -131,12 +139,18 @@ internal sealed class ScanStructureIndex
     public double Score(IReadOnlyList<Point> points, double scale, double x, double y)
     {
         var sum = 0d;
+        var known = 0;
         foreach (var p in points)
         {
-            var d = Distance((p.X - x) / scale, (p.Y - y) / scale, scale);
+            var rx = (p.X - x) / scale;
+            var ry = (p.Y - y) / scale;
+            if (IsUnknown(rx, ry)) continue;
+            var d = Distance(rx, ry, scale);
+            known++;
             sum += d <= .8 ? 1 : d <= 2.5 ? .7 : d <= 5.5 ? .4 : 0;
         }
-        return points.Count == 0 ? 0 : sum / points.Count;
+        return known > 0 && HasEnoughKnownPoints(known, points.Count, Math.Min(80, points.Count))
+            ? sum / known : 0;
     }
 }
 
@@ -187,6 +201,14 @@ internal static class ScanIdentityVerifier
     internal const double SupportTolerancePixels = 5.5;
     internal const double MinimumSupport = .88;
     internal const double MaximumContinuousConflictPixels = 30;
+    internal static bool HasRefinablePose(ScanIdentityEvidence evidence) =>
+        evidence.State == ScanIdentityState.Excluded && evidence.TestedPoints >= 80
+        && evidence.SupportedFraction >= .80 && double.IsFinite(evidence.ForwardMeanPixels);
+
+    internal static bool ShouldAttemptStructureRegistration(ScanIdentityEvidence evidence, ScanPerformanceMode mode) =>
+        evidence.State == ScanIdentityState.Supported
+        || (mode != ScanPerformanceMode.DeepScan && HasRefinablePose(evidence));
+
     public static ScanIdentityEvidence Verify(ScanFrameEvidence frame, ScanStructureIndex index,
         MapOverlayTransform transform, MapScreenRect viewport, ScanExecutionContext? context)
     {
@@ -226,9 +248,13 @@ internal static class ScanIdentityVerifier
             tested++;
             // Conservative upper bound: even if every remaining pixel matches this transform cannot pass.
             if (context?.Policy.Mode is not (ScanPerformanceMode.Quality or ScanPerformanceMode.DeepScan)
-                && hits + points.Length - tested < MinimumSupport * points.Length)
+                // Do not exclude an identity before enough known reference is
+                // established: remaining points may all lie in its erased anchor.
+                && ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80)
+                && hits + points.Length - tested - unknown < MinimumSupport * (points.Length - unknown))
                 return new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
-                    hits / (double)tested, 0, "unexplained-visible-structure");
+                    hits / (double)tested, 0, "unexplained-visible-structure")
+                    { UnknownReferencePoints = unknown };
         }
         if (!ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80))
             return ScanIdentityEvidence.Unverified("insufficient-unmasked-reference-structure")
@@ -236,11 +262,11 @@ internal static class ScanIdentityVerifier
         var longest = 0d;
         Point? conflictStart = null, conflictEnd = null;
         var prepared = deep ? frame.PreparedConflictContours : null;
-        foreach (var contour in prepared ?? frame.Contours)
+        for (var i = 0; i < frame.Contours.Count; i++)
         {
             if (context is { CanCompute: false }) return ScanIdentityEvidence.Unverified("deadline");
-            var measured = MeasureStraightConflict(contour, Distance, out var measuredStart, out var measuredEnd,
-                alreadyApproximated: prepared is not null);
+            var measured = MeasureStraightConflict(frame.Contours[i], Distance, out var measuredStart, out var measuredEnd,
+                preparedVertices: prepared?[i]);
             if (measured > longest) { longest = measured; conflictStart = measuredStart; conflictEnd = measuredEnd; }
             if (longest >= MaximumContinuousConflictPixels) break;
         }
@@ -269,38 +295,41 @@ internal static class ScanIdentityVerifier
         => MeasureStraightConflict(contour, distance, out _, out _);
 
     internal static double MeasureStraightConflict(Point[] contour, Func<Point, double> distance,
-        out Point? conflictStart, out Point? conflictEnd, bool alreadyApproximated = false)
+        out Point? conflictStart, out Point? conflictEnd, Point[]? preparedVertices = null)
     {
         conflictStart = null; conflictEnd = null;
         // A small badge's perimeter (or a contour visited twice) is not the length
         // of an unexplained wall. Split at genuine turns, tolerating raster stair
         // steps, and measure supported/unsupported runs on each straight segment.
-        var vertices = alreadyApproximated ? contour : Cv2.ApproxPolyDP(contour, 1.5, true);
+        if (contour.Length == 0) return 0;
+        var vertices = preparedVertices ?? Cv2.ApproxPolyDP(contour, 1.5, true);
+        if (vertices.Length < 2) return 0;
+        // Approximation identifies turns only. Rasterizing its chords invents
+        // pixels outside the observed contour and can turn a fully supported
+        // wall into a long conflict near the distance tolerance boundary.
+        var cursor = Array.IndexOf(contour, vertices[0]);
+        if (cursor < 0) throw new ArgumentException("Conflict vertices must belong to the observed contour.", nameof(preparedVertices));
         var longest = 0d;
         for (var i = 0; i < vertices.Length; i++)
         {
-            var a = vertices[i];
-            var b = vertices[(i + 1) % vertices.Length];
-            var dx = b.X - a.X; var dy = b.Y - a.Y;
-            var length = Math.Sqrt((double)dx * dx + (double)dy * dy);
-            var steps = Math.Max(Math.Abs(dx), Math.Abs(dy));
-            if (steps == 0) continue;
-            var run = 0d;
-            var runStart = a;
-            for (var step = 0; step <= steps; step++)
+            var end = vertices[(i + 1) % vertices.Length];
+            Point? runStart = null;
+            var previous = contour[cursor];
+            for (var visited = 0; visited <= contour.Length; visited++)
             {
-                var p = new Point((int)Math.Round(a.X + dx * (step / (double)steps)),
-                    (int)Math.Round(a.Y + dy * (step / (double)steps)));
+                var p = contour[cursor];
                 if (distance(p) > SupportTolerancePixels)
                 {
-                    if (run == 0) runStart = step == 0 ? a : new Point(
-                        (int)Math.Round(a.X + dx * ((step - 1d) / steps)),
-                        (int)Math.Round(a.Y + dy * ((step - 1d) / steps)));
-                    run += step == 0 ? 0 : length / steps;
+                    runStart ??= previous;
+                    var dx = p.X - runStart.Value.X; var dy = p.Y - runStart.Value.Y;
+                    var run = Math.Sqrt((double)dx * dx + (double)dy * dy);
+                    if (run > longest) { longest = run; conflictStart = runStart; conflictEnd = p; }
+                    if (longest >= MaximumContinuousConflictPixels) return longest;
                 }
-                else run = 0;
-                if (run > longest) { longest = run; conflictStart = runStart; conflictEnd = p; }
-                if (longest >= MaximumContinuousConflictPixels) return longest;
+                else runStart = null;
+                if (p == end) break;
+                previous = p;
+                cursor = (cursor + 1) % contour.Length;
             }
         }
         return longest;

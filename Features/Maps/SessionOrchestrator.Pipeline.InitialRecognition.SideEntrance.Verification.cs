@@ -73,7 +73,7 @@ public sealed partial class SessionOrchestrator
                     ? reliable.Min(item => ScanIdentityVerifier.FitCost(item.Candidate.IdentityEvidence))
                         + ScanIdentityVerifier.DominantFitMargin
                     : double.PositiveInfinity;
-                if (evidence.State == ScanIdentityState.Excluded && evidence.SupportedFraction >= .80
+                if (ScanIdentityVerifier.HasRefinablePose(evidence)
                     && SideEntranceScanPipeline.RefineIdentityPose(hypothesis, evidenceFrame, frame.ViewportBounds,
                         context, competitiveCost) is { } refined
                     && _recognition.TryCreateSideEntranceAlignmentSeed(refined, frame.ViewportBounds, out var refinedSeed, out _))
@@ -90,7 +90,12 @@ public sealed partial class SessionOrchestrator
                         || ScanIdentityVerifier.FitCost(evidence) < ScanIdentityVerifier.FitCost(candidate.IdentityEvidence)))
                     candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
-                if (evidence.State != ScanIdentityState.Supported) continue;
+                // A gate-anchored retrieval pose is not a confirmed alignment.
+                // Its bounded residual search can leave a near fit a few pixels
+                // off an authored anchor. Let the existing formal registration
+                // and VPSG confirmation correct it before excluding the identity.
+                // Only their final transform may pass the unchanged verifier below.
+                if (!ScanIdentityVerifier.ShouldAttemptStructureRegistration(evidence, context.Policy.Mode)) continue;
                 // Refinement can recover a weak outside identity. Keep that
                 // evidence in the final comparison, but do not spend a full
                 // registration/rescue on it if a verified family already wins.

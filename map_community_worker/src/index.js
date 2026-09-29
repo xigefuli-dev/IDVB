@@ -117,18 +117,13 @@ async function apiResponse(request, env, url) {
       await enforceRateLimit(env.PUBLISH_TOKEN_RATE_LIMITER, request);
       return await oauthTokenResponse(request, env);
     }
-    if (route === "POST /api/feedback") {
-      rejectCrossSite(request, url);
-      await enforceRateLimit(env.FEEDBACK_RATE_LIMITER, request);
-      return await submitFeedbackResponse(request, env);
-    }
-    if (route === "POST /api/android/feedback") {
+    if (route === "POST /api/feedback" || route === "POST /api/android/feedback") {
       rejectCrossSite(request, url);
       if (!env.FEEDBACK_RATE_LIMITER) {
         throw new ApiError(503, "service_unavailable", "反馈服务暂不可用，请稍后重试。");
       }
       await enforceRateLimit(env.FEEDBACK_RATE_LIMITER, request);
-      return await submitFeedbackResponse(await boundedFeedbackRequest(request), env, true);
+      return await submitFeedbackResponse(request, env, route === "POST /api/android/feedback");
     }
     if (route === "GET /api/builder/users") {
       return await builderUsersResponse(request, env);
@@ -930,10 +925,9 @@ function calculateWeightedLength(text) {
   return len;
 }
 
-// This is a public anonymous intake, not proof that a caller is an Android app.
+// Shared by both public anonymous intake routes.
 // Limit the actual streamed body before multipart parsing, including chunked uploads.
-async function boundedFeedbackRequest(request) {
-  const maximum = 20 * 1024 * 1024;
+async function boundedFeedbackRequest(request, maximum = 20 * 1024 * 1024) {
   if (Number(request.headers.get("content-length")) > maximum) {
     throw new ApiError(413, "feedback_too_large", "反馈附件总大小超出限制。");
   }
@@ -961,6 +955,8 @@ async function boundedFeedbackRequest(request) {
 async function submitFeedbackResponse(request, env, anonymousAndroid = false) {
   const hasCredentials = request.headers.has("authorization") || Boolean(getCookie(request, SESSION_COOKIE));
   const user = anonymousAndroid || !hasCredentials ? { id: null } : await requireAuthUser(request, env);
+  // Resolve credentials before parsing; an invalid token must not select the authenticated limits.
+  if (!user.id) request = await boundedFeedbackRequest(request);
   const form = await publicationFormData(request);
   const contactQq = anonymousAndroid ? "" : String(form.get("contactQq") || "").trim();
   if (!anonymousAndroid && (!user.id || contactQq) && !/^[1-9][0-9]{4,11}$/.test(contactQq)) {
@@ -1469,4 +1465,4 @@ async function deleteAnnouncementResponse(request, env, id) {
   return json({ success: true });
 }
 
-export { publicationFormData as publicationFormDataForTest };
+export { publicationFormData as publicationFormDataForTest, boundedFeedbackRequest as boundedFeedbackRequestForTest };

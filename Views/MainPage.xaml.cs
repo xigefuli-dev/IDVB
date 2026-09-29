@@ -82,8 +82,10 @@ public sealed partial class MainPage : Page
         try
         {
             NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
-            // The application access gate validates the session. A separate refresh
-            // would invalidate the intentionally offline privileged login.
+            // With the access gate disabled, persisted credentials still need validation.
+            // When enabled, the gate owns validation, including its offline policy.
+            if (!VersionAccessClient.Enabled)
+                _ = AccountSession.RefreshAsync();
             if (ModuleContentHost.Content is HomePage homePage)
                 await homePage.InitialReady;
         }

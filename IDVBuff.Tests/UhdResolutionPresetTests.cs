@@ -57,8 +57,12 @@ public sealed class UhdResolutionPresetTests
         Assert.Equal(2.55, provider.Get<LowStructureConfig>("low_structure").MaximumScale, 8);
     }
 
-    [Fact]
-    public void UhdSidePolicyConsumesBoundsWithoutExpandingDeadline()
+    [Theory]
+    [InlineData(ScanPerformanceMode.Fast, 500)]
+    [InlineData(ScanPerformanceMode.Balanced, 1000)]
+    [InlineData(ScanPerformanceMode.Quality, 1000)]
+    [InlineData(ScanPerformanceMode.DeepScan, 2000)]
+    public void UhdSidePolicyConsumesBoundsWithoutExpandingDeadline(ScanPerformanceMode mode, int expectedBudget)
     {
         using var provider = new TomlConfigProvider(
             Path.Combine(Path.GetTempPath(), "IDVB-UHD-" + Guid.NewGuid().ToString("N")));
@@ -66,13 +70,10 @@ public sealed class UhdResolutionPresetTests
         try
         {
             SideEntranceScanRules.ApplyConfig(provider);
-            foreach (var mode in Enum.GetValues<ScanPerformanceMode>())
-            {
-                var policy = ScanExecutionPolicy.For(mode);
-                Assert.Equal(0.675, policy.MinimumScale, 8);
-                Assert.Equal(5.0, policy.MaximumScale);
-                Assert.InRange(policy.BudgetMilliseconds, 1, 1000);
-            }
+            var policy = ScanExecutionPolicy.For(mode);
+            Assert.Equal(0.675, policy.MinimumScale, 8);
+            Assert.Equal(5.0, policy.MaximumScale);
+            Assert.Equal(expectedBudget, policy.BudgetMilliseconds);
         }
         finally
         {

@@ -18,13 +18,13 @@ public sealed partial class SideEntranceScanPipeline
         var ay = (anchor.Bounds.Y + anchor.Bounds.Height / 2) * profile.RecognitionPixelHeight;
         var gx = gate.ScreenBounds.CenterX - viewport.X;
         var gy = gate.ScreenBounds.CenterY - viewport.Y;
-        var proposals = new List<(double scale, double x, double y, int hits, double distance)>();
+        var proposals = new List<(double scale, double x, double y, double support, double distance)>();
         for (var step = -15; step <= 15; step++)
         {
             if (!context.CanCompute || context.RemainingMilliseconds <= 150) return null;
             var scale = seed.MatchScale * (1 + step * .001);
             if (scale < context.Policy.MinimumScale || scale > context.Policy.MaximumScale) continue;
-            var bestHits = -1;
+            var bestSupport = -1d;
             var bestDistance = double.PositiveInfinity;
             var bestX = 0d;
             var bestY = 0d;
@@ -39,7 +39,10 @@ public sealed partial class SideEntranceScanPipeline
                 var dominated = false;
                 foreach (var p in points)
                 {
-                    var d = index.Distance((p.X - x) / scale, (p.Y - y) / scale, scale);
+                    var rx = (p.X - x) / scale;
+                    var ry = (p.Y - y) / scale;
+                    if (index.IsUnknown(rx, ry)) continue;
+                    var d = index.Distance(rx, ry, scale);
                     if (d <= ScanIdentityVerifier.SupportTolerancePixels) hits++;
                     distance += d;
                     tested++;
@@ -55,13 +58,15 @@ public sealed partial class SideEntranceScanPipeline
                     }
                 }
                 context.TestedHypotheses++;
-                if (dominated) continue;
-                if (hits > bestHits || (hits == bestHits && distance < bestDistance))
-                { bestHits = hits; bestDistance = distance; bestX = x; bestY = y; }
+                if (dominated || !ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80)) continue;
+                var support = hits / (double)tested;
+                var mean = distance / tested;
+                if (support > bestSupport || (support == bestSupport && mean < bestDistance))
+                { bestSupport = support; bestDistance = mean; bestX = x; bestY = y; }
             }
-            if (bestHits >= 0) proposals.Add((scale, bestX, bestY, bestHits, bestDistance));
+            if (bestSupport >= 0) proposals.Add((scale, bestX, bestY, bestSupport, bestDistance));
         }
-        foreach (var p in proposals.OrderByDescending(p => p.hits).ThenBy(p => p.distance))
+        foreach (var p in proposals.OrderByDescending(p => p.support).ThenBy(p => p.distance))
         {
             if (!context.CanCompute) return null;
             var transform = new MapOverlayTransform { ScaleX = p.scale, ScaleY = p.scale,

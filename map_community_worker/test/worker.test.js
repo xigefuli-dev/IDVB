@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import worker, { publicationFormDataForTest } from "../src/index.js";
+import worker, { publicationFormDataForTest, boundedFeedbackRequestForTest } from "../src/index.js";
 
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => String(input) === "https://challenges.cloudflare.com/turnstile/v0/siteverify"
@@ -594,6 +594,47 @@ test("Android feedback validates content and requires an active rate limiter", a
   assert.equal((await submit("a".repeat(4001))).status, 400);
   assert.equal((await submit("安卓识别问题反馈", { "content-length": String(132 * 1024 * 1024) })).status, 413);
   assert.equal(env.feedbacks.size, 0);
+});
+
+test("desktop feedback requires a limiter and bounds anonymous bodies before parsing", async () => {
+  const env = createEnvironment();
+  const submit = (headers = {}) => {
+    const form = new FormData();
+    form.set("description", "桌面客户端反馈测试");
+    form.set("contactQq", "12345678");
+    return worker.fetch(new Request("https://community.idvb.test/api/feedback", {
+      method: "POST", body: form, headers,
+    }), env);
+  };
+  delete env.FEEDBACK_RATE_LIMITER;
+  assert.equal((await submit()).status, 503);
+  env.FEEDBACK_RATE_LIMITER = { limit: async () => ({ success: false }) };
+  assert.equal((await submit()).status, 429);
+  env.FEEDBACK_RATE_LIMITER = { limit: async () => ({ success: true }) };
+  assert.equal((await submit({ "content-length": String(20 * 1024 * 1024 + 1) })).status, 413);
+  // Invalid credentials cannot opt into authenticated attachment limits.
+  assert.equal((await submit({ authorization: "Bearer expired-test-token" })).status, 401);
+  assert.equal(env.feedbacks.size, 0);
+  assert.equal(env.bucketObjects.size, 0);
+});
+
+test("feedback stream guard measures actual bytes and cancels at its boundary", async () => {
+  // Small local fixture exercises the streaming guard without allocating large uploads.
+  for (const declaredLength of [undefined, "1"]) {
+    let cancelled = false;
+    const body = new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array(5)); },
+      cancel() { cancelled = true; },
+    });
+    const headers = declaredLength ? { "content-length": declaredLength } : {};
+    const request = new Request("https://community.idvb.test/api/feedback", {
+      method: "POST", headers, body, duplex: "half",
+    });
+    await assert.rejects(boundedFeedbackRequestForTest(request, 8), { status: 413 });
+    assert.equal(cancelled, true);
+  }
+  const exact = new Request("https://community.idvb.test/api/feedback", { method: "POST", body: "12345678" });
+  assert.equal(await (await boundedFeedbackRequestForTest(exact, 8)).text(), "12345678");
 });
 
 test("feedback submission requires guest contact and validates weighted length", async () => {

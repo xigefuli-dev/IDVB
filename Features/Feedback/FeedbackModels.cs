@@ -44,6 +44,9 @@ public sealed class FeedbackSubmissionResult
 
     public Exception? Error { get; set; }
 
+    // The UI invalidates only the credential used by this request, never a newer login.
+    internal string? RejectedToken { get; init; }
+
     public static FeedbackSubmissionResult Ok(string message = "反馈提交成功") =>
         new() { Success = true, Message = message };
 

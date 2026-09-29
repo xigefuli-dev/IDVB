@@ -167,9 +167,56 @@ public sealed class ScanIdentitySafetyTests
             [new(0,0), new(60,0), new(60,40), new(0,40)], _ => 20)
             >= ScanIdentityVerifier.MaximumContinuousConflictPixels);
         // A real matching stretch splits the conflict instead of summing both sides.
+        var line = Enumerable.Range(0, 61).Concat(Enumerable.Range(0, 61).Reverse())
+            .Select(x => new Point(x, 0)).ToArray();
         Assert.True(ScanIdentityVerifier.MeasureStraightConflict(
-            [new(0,0), new(60,0)], p => p.X is > 20 and < 40 ? 0 : 20)
+            line, p => p.X is > 20 and < 40 ? 0 : 20)
             < ScanIdentityVerifier.MaximumContinuousConflictPixels);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SimplificationCannotInventUnobservedConflictPixels(bool prepared)
+    {
+        var forward = Enumerable.Range(0, 101)
+            .Select(y => new Point(y is >= 20 and <= 80 ? 1 : 0, y)).ToArray();
+        var contour = forward.Concat(forward.Reverse()).ToArray();
+        var observed = contour.ToHashSet();
+        var vertices = prepared ? Cv2.ApproxPolyDP(contour, 1.5, true) : null;
+        var queried = new List<Point>();
+        Assert.Equal(0, ScanIdentityVerifier.MeasureStraightConflict(contour, p =>
+        {
+            queried.Add(p);
+            return observed.Contains(p) ? 0 : 20;
+        }, out _, out _, vertices));
+        Assert.All(queried, p => Assert.Contains(p, observed));
+        Assert.True(ScanIdentityVerifier.MeasureStraightConflict(contour, _ => 20,
+            out _, out _, vertices) >= ScanIdentityVerifier.MaximumContinuousConflictPixels);
+    }
+
+    [Theory]
+    [InlineData(ScanPerformanceMode.Fast)]
+    [InlineData(ScanPerformanceMode.Balanced)]
+    [InlineData(ScanPerformanceMode.Quality)]
+    public void NearFitSeedCanReachAlignmentButCannotSelectIdentity(ScanPerformanceMode mode)
+    {
+        var candidate = Candidate(ScanIdentityState.Excluded, 1.673430811834092);
+        candidate.IdentityEvidence = new(ScanIdentityState.Excluded, 1969, 1969,
+            1.673430811834092, .9476891823260538, 30.002465381932925, "visible-contour-conflict");
+        Assert.True(ScanIdentityVerifier.ShouldAttemptStructureRegistration(candidate.IdentityEvidence, mode));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([candidate], true, true));
+        Assert.False(ScanIdentityVerifier.ShouldAttemptStructureRegistration(candidate.IdentityEvidence, ScanPerformanceMode.DeepScan));
+        Assert.False(ScanIdentityVerifier.ShouldAttemptStructureRegistration(
+            candidate.IdentityEvidence with { SupportedFraction = .79 }, mode));
+        Assert.False(ScanIdentityVerifier.ShouldAttemptStructureRegistration(
+            candidate.IdentityEvidence with { TestedPoints = 79 }, mode));
+        Assert.False(ScanIdentityVerifier.ShouldAttemptStructureRegistration(ScanIdentityEvidence.Unverified("deadline"), mode));
+        candidate.IdentityEvidence = candidate.IdentityEvidence with { State = ScanIdentityState.Supported, LongestConflictPixels = 0 };
+        candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([candidate], true, true));
+        candidate.Disposition = SideEntranceCandidateDisposition.Reliable;
+        Assert.Equal(candidate.Map.Id, ScanIdentityVerifier.SelectIdentity([candidate], true, true));
     }
 
     [Fact]

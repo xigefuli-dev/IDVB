@@ -18,20 +18,9 @@ public sealed partial class SideEntranceScanPipeline
         }
         var policy = context?.Policy ?? ScanExecutionPolicy.For(ScanPerformanceMode.Balanced);
         var viewport = viewportBounds ?? new MapScreenRect(0, 0, capturedFrame.Width, capturedFrame.Height);
-        // Authored anchor boxes can be larger than the detected icon. Freeze the union envelope
-        // over the legal scale range for ALL candidates before scoring any candidate. Masked
-        // reference pixels are neutral only inside this shared observation exclusion.
-        var maskWidth = 0d;
-        var maskHeight = 0d;
-        foreach (var (map, floorKey, _) in candidates)
-        {
-            var profile = MapFloorRules.GetFloorProfile(map, floorKey);
-            var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey);
-            if (profile is null || anchor?.Bounds?.IsValid != true) continue;
-            maskWidth = Math.Max(maskWidth, anchor.Bounds.Width * profile.RecognitionPixelWidth * policy.MaximumScale);
-            maskHeight = Math.Max(maskHeight, anchor.Bounds.Height * profile.RecognitionPixelHeight * policy.MaximumScale);
-        }
-        var frame = new ScanFrameEvidence(capturedFrame, viewport, detectedGates, policy, maskWidth, maskHeight);
+        // Shared evidence depends only on this capture. An unrelated candidate's
+        // authored anchor or maximum search scale must never erase visible walls.
+        var frame = new ScanFrameEvidence(capturedFrame, viewport, detectedGates, policy);
         if (context is not null)
         {
             context.SetFrame(frame);

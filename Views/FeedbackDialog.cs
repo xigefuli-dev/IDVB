@@ -49,7 +49,7 @@ public sealed class FeedbackDialog : ContentDialog
             IsOpen = false,
             Severity = InfoBarSeverity.Informational,
             IsClosable = false,
-            Message = "无需登录也可反馈；未登录时请填写联系 QQ 号，方便我们跟进问题。"
+            Message = "无需登录也可反馈；未登录时请填写联系 QQ 号，反馈数据总大小不得超过 20 MB。"
         };
         var loginButton = new Button
         {
@@ -177,6 +177,12 @@ public sealed class FeedbackDialog : ContentDialog
         // 绑定主按钮与取消按钮点击事件
         PrimaryButtonClick += FeedbackDialog_PrimaryButtonClick;
         CloseButtonClick += (_, _) => _submissionCts?.Cancel();
+        Opened += (_, _) =>
+        {
+            AccountSession.Changed += AccountSession_Changed;
+            UpdateLoginState();
+        };
+        Closed += (_, _) => AccountSession.Changed -= AccountSession_Changed;
 
         // 初始化登录校验状态
         UpdateLoginState();
@@ -190,6 +196,9 @@ public sealed class FeedbackDialog : ContentDialog
         IsPrimaryButtonEnabled = !_isBusy && FeedbackTextValidator.IsDescriptionValid(_descriptionBox.Text)
             && (isLoggedIn || FeedbackTextValidator.IsContactQqValid(_contactQqBox.Text));
     }
+
+    private void AccountSession_Changed(object? sender, EventArgs e)
+        => DispatcherQueue.TryEnqueue(UpdateLoginState);
 
     private void DescriptionBox_TextChanged(object sender, TextChangedEventArgs e)
     {
@@ -272,6 +281,7 @@ public sealed class FeedbackDialog : ContentDialog
 
             // 3. 调用预留的官方后台接口
             var submissionResult = await _feedbackService.SubmitFeedbackAsync(payload, ct);
+            AccountSession.ClearIfCurrent(submissionResult.RejectedToken);
 
             if (submissionResult.Success)
             {

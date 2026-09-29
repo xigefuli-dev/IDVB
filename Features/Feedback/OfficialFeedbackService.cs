@@ -77,6 +77,10 @@ public sealed class OfficialFeedbackService : IFeedbackService
                 formData.Add(diagsContent, "diagnostics", "diagnostics.zip");
             }
 
+            // Match the anonymous endpoint's total multipart body limit, including metadata.
+            if (string.IsNullOrWhiteSpace(token) && formData.Headers.ContentLength is > 20L * 1024 * 1024)
+                return FeedbackSubmissionResult.Fail("未登录时反馈数据总大小不能超过 20 MB，请减少附加信息或登录后重试。");
+
             using var request = new HttpRequestMessage(HttpMethod.Post, "api/feedback")
             {
                 Content = formData,
@@ -94,7 +98,11 @@ public sealed class OfficialFeedbackService : IFeedbackService
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                return FeedbackSubmissionResult.Fail("登录凭证已失效，请在社区登录后重试。");
+                return new FeedbackSubmissionResult
+                {
+                    Message = "登录凭证已失效，请重新登录，或填写联系 QQ 号后重试。",
+                    RejectedToken = token,
+                };
             }
 
             if ((int)response.StatusCode == 429)

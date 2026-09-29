@@ -11,6 +11,12 @@ public sealed partial class SessionOrchestrator
         bool continuous = true)
     {
         continuous &= _settings?.EnableContinuousAlignment == true;
+        // The Python backend owns its continuous loop after the first commit.
+        // Re-entering the absolute-alignment loop would cancel that tracker
+        // and repeatedly discard its same-floor prior.
+        if ((_lastRecognition ?? _pendingAlignmentIdentity) is { } selected
+            && _recognition.UsesReferencePython(selected.Map))
+            continuous = false;
         var generation = Interlocked.Increment(
             ref _continuousAlignmentGeneration);
         do

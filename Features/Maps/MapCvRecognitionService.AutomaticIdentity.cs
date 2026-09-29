@@ -48,12 +48,14 @@ public sealed partial class MapCvRecognitionService
     }
 
     internal Task PrepareAutomaticIdentityAsync(string mapClass, string floorKey) =>
-        HasEntryIdentityResources(mapClass) ? _entryIdentityIndex!.PrepareAsync(mapClass, floorKey)
+        UsesReferencePython(mapClass) ? PrepareReferencePythonAsync()
+            : HasEntryIdentityResources(mapClass) ? _entryIdentityIndex!.PrepareAsync(mapClass, floorKey)
             : _localFeatureIdentityIndex?.PrepareAsync(mapClass, floorKey) ?? Task.CompletedTask;
 
     internal bool AutomaticIdentityPreparationPending(string? mapClass) =>
         !string.IsNullOrWhiteSpace(mapClass) && ResolveAutomaticIdentityFloor(mapClass) is { } floor
-        && (HasEntryIdentityResources(mapClass) ? !_entryIdentityIndex!.IsPreparationFinished(mapClass, floor)
+        && (UsesReferencePython(mapClass) ? !_referencePythonEngine.IsReady
+            : HasEntryIdentityResources(mapClass) ? !_entryIdentityIndex!.IsPreparationFinished(mapClass, floor)
             : _localFeatureIdentityIndex?.IsPreparationFinished(mapClass, floor) == false);
 
     internal MapEntryIdentityDecision IdentifyEntryMap(CapturedGameFrame frame, string mapClass,

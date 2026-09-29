@@ -16,7 +16,8 @@ public sealed partial class SessionOrchestrator
         IReadOnlyList<MapSimilarityTransform> CandidateHistory,
         MapAlignmentContextKey ContextKey,
         double Confidence,
-        double CandidateMargin);
+        double CandidateMargin,
+        MapScreenRect SourceClientBounds);
 
     private void EnsureReliableFloorAlignmentScope(MapMatchSnapshot match)
     {
@@ -194,7 +195,8 @@ public sealed partial class SessionOrchestrator
                 state.RecentTransforms.ToArray(),
                 state.ContextKey,
                 state.Confidence,
-                state.CandidateMargin);
+                state.CandidateMargin,
+                state.SourceClientBounds);
         }
     }
 
@@ -210,10 +212,14 @@ public sealed partial class SessionOrchestrator
             || session is null
             || recognition.Result.ReusedLastTransform
             || recognition.Result.OverlayTransform is not { } transform
-            || !MapFeatureCacheRules.IsReliableLocalizationSample(
-                recognition.Result,
-                _settings!.SessionTuning.HighConfidence,
-                _settings.StructureRegistrationTuning.MinimumCandidateMargin)
+            || !(recognition.ReferencePythonValidated
+                ? double.IsFinite(recognition.Result.LocalizationConfidence)
+                    && recognition.Result.LocalizationConfidence >= Math.Clamp(
+                        _settings!.SessionTuning.HighConfidence, 0d, 1d)
+                : MapFeatureCacheRules.IsReliableLocalizationSample(
+                    recognition.Result,
+                    _settings!.SessionTuning.HighConfidence,
+                    _settings.StructureRegistrationTuning.MinimumCandidateMargin))
             || !MapOpenAlignmentRouteRules.IsCompatibleReliableFloorSession(
                 session,
                 recognition.Map.Id,
@@ -244,6 +250,7 @@ public sealed partial class SessionOrchestrator
                     ContextKey = key,
                     Session = reliableSession,
                     LastTransform = similarity,
+                    SourceClientBounds = frame.ClientBounds,
                     Confidence = recognition.Result.LocalizationConfidence,
                     CandidateMargin = MapFeatureCacheRules.GetCandidateMargin(
                         recognition.Result),
@@ -257,6 +264,7 @@ public sealed partial class SessionOrchestrator
             {
                 state.Session = reliableSession;
                 state.LastTransform = similarity;
+                state.SourceClientBounds = frame.ClientBounds;
                 state.Confidence = recognition.Result.LocalizationConfidence;
                 state.CandidateMargin = MapFeatureCacheRules.GetCandidateMargin(
                     recognition.Result);

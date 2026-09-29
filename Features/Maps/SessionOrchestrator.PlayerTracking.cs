@@ -99,6 +99,18 @@ public sealed partial class SessionOrchestrator
                     if (!_gameMapToggleState.IsOpen || cancellationToken.IsCancellationRequested)
                         break;
 
+                    var poseOwner = recognition.ReferencePythonValidated ? _lastRecognition : recognition;
+                    if (recognition.ReferencePythonValidated)
+                    {
+                        if (poseOwner is not { ReferencePythonValidated: true }
+                            || poseOwner.Map.Id != recognition.Map.Id
+                            || poseOwner.Map.UpdatedAt != recognition.Map.UpdatedAt
+                            || poseOwner.Result.Floor != recognition.Result.Floor
+                            || poseOwner.Result.OverlayTransform is not { } latestTransform)
+                            break;
+                        transform = latestTransform;
+                    }
+
                     var candidates = new List<(MiniMapTrackedPlayer Player, MapViewportPoint Pt, double Conf)>();
                     foreach (var (slot, (det, path)) in activeSlots)
                     {
@@ -144,7 +156,12 @@ public sealed partial class SessionOrchestrator
 
                     if (filtered.Count > 0)
                     {
-                        _dispatcher.TryEnqueue(() => _overlay.UpdateMiniMapPlayers(filtered));
+                        _dispatcher.TryEnqueue(() =>
+                        {
+                            if (!cancellationToken.IsCancellationRequested && _gameMapToggleState.IsOpen
+                                && (!recognition.ReferencePythonValidated || ReferenceEquals(_lastRecognition, poseOwner)))
+                                _overlay.UpdateMiniMapPlayers(filtered);
+                        });
                     }
                 }
             }

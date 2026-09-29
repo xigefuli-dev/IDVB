@@ -481,6 +481,7 @@ public sealed partial class MapCvRecognitionService
         _localFeatureIdentityIndex?.Dispose();
         _localFeatureIdentityIndex = null;
         _entryIdentityIndex?.Dispose();
+        _referencePythonEngine.Dispose();
         _entryIdentityIndex = null;
     }
 }

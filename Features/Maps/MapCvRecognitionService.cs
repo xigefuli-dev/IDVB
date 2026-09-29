@@ -226,6 +226,15 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var previousEntryIndex = _entryIdentityIndex;
             _entryIdentityIndex = new MapEntryIdentityIndex(_repository, cache.Maps);
             previousEntryIndex?.Dispose();
+            if (ReferencePythonEngineClient.IsConfigured)
+            {
+                try { await PrepareReferencePythonAsync(); }
+                catch (Exception exception)
+                {
+                    MapLogCollector.Instance.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Error,
+                        "Python 验证引擎预热失败", details: new() { ["error"] = exception.Message });
+                }
+            }
         }
         finally
         {

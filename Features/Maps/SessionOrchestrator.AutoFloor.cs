@@ -72,7 +72,9 @@ public sealed partial class SessionOrchestrator
         public Rect CapturedImageExtent { get; private set; }
 
         public NormalizedRectangle Expand(NormalizedRectangle viewport) =>
-            FloorIndicatorCaptureRegion.IncludeMap(viewport, Group);
+            ReferencePythonEngineClient.IsConfigured && Map.Floors.Any(f => f.EntryIdentityAsset is not null)
+                ? new NormalizedRectangle { X = 0, Y = 0, Width = 1, Height = 1 }
+                : FloorIndicatorCaptureRegion.IncludeMap(viewport, Group);
 
         public void LogMonitoringStarted(NormalizedRectangle viewport, string sourceOperation)
         {
@@ -230,6 +232,9 @@ public sealed partial class SessionOrchestrator
                 {
                     CaptureBackend = captured.CaptureBackend,
                     CaptureSystemRelativeTicks = captured.CaptureSystemRelativeTicks,
+                    FullClientImage = captured.ViewportBounds == captured.ClientBounds
+                        && ReferencePythonEngineClient.IsConfigured
+                        ? new Mat(captured.Image, extent) : null,
                     DetectedFloorKey = FloorKey
                 };
             }

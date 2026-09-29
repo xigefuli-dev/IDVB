@@ -35,6 +35,9 @@ public sealed partial class CapturedGameFrame : IDisposable
 
     public string? DetectedFloorKey { get; init; }
     public Mat Image { get; }
+    // Optional owner of the original client pixels. The Python reference engine
+    // applies its own client-relative preprocessing; a viewport cannot substitute.
+    internal Mat? FullClientImage { get; init; }
     public MapScreenRect ClientBounds { get; }
     public MapScreenRect ViewportBounds { get; }
     public IntPtr WindowHandle { get; }
@@ -166,6 +169,7 @@ public sealed partial class CapturedGameFrame : IDisposable
             _defaultLiveStructureGenerationFingerprint = string.Empty;
             _ownedComputationImage?.Dispose();
             _ownedComputationImage = null;
+            FullClientImage?.Dispose();
             Image.Dispose();
         }
     }

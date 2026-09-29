@@ -6,6 +6,7 @@ public sealed class RuntimeMapRecognition
     public MapRecognitionResult Result { get; init; } = new();
     public string FloorImagePath { get; init; } = string.Empty;
     internal MapCatalogRevision? EntryCatalogRevision { get; set; }
+    internal bool ReferencePythonValidated { get; set; }
 }
 
 public sealed class MapRecognitionChoice

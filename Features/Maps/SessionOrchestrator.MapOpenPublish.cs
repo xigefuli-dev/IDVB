@@ -23,7 +23,8 @@ public sealed partial class SessionOrchestrator
         string? failureReason,
         MapFeatureCacheKey? repairCacheKey,
         bool resetRecoveredScaleState,
-        MapOpenOperationContext? context = null)
+        MapOpenOperationContext? context = null,
+        bool trackingUpdate = false)
     {
         var trace = ActiveOperationTrace;
         var entryRevision = aligned?.EntryCatalogRevision;
@@ -79,10 +80,9 @@ public sealed partial class SessionOrchestrator
             // 就绪帧上找出的真实对齐，locked 是上次成功对齐。二者位移差就是
             // 「重开图漂移」——决定投影边界掩膜能否复用上次位移的关键证据。
             LogMapOpenOffsetDrift(locked, aligned, targetFloorKey);
-            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
-                aligned,
-                frame,
-                _lastDiagnostics);
+            var adaptiveDecision = aligned.ReferencePythonValidated
+                ? ReferencePythonAlignmentDecision(aligned)
+                : await EvaluateAdaptiveInitialAsync(aligned, frame, _lastDiagnostics);
             if (_lastDiagnostics is { } adaptiveDiagnostics
                 && MapAlignmentChannelRegistry.Resolve(
                     aligned.Map,
@@ -278,11 +278,12 @@ public sealed partial class SessionOrchestrator
             }
 
             PublishMiniMapAfterMainPresent(aligned, aligned.Result.Floor, false);
-            StartLivePlayerTracking(aligned, frame);
+            if (!trackingUpdate)
+                StartLivePlayerTracking(aligned, frame);
 
             // Rendering is the latency boundary visible to the user. Tracking
             // startup and cache I/O must not delay the final Present call.
-            if (adaptiveDecision.StartOrbTracking && !independentAlignment)
+            if (adaptiveDecision.StartOrbTracking && !independentAlignment && !trackingUpdate)
             {
                 var trackingStart = trace?.StartTopLevel(
                     "tracking_start",
@@ -318,7 +319,7 @@ public sealed partial class SessionOrchestrator
                     persistence?.Complete();
                 }
             }
-            if (MapAlignmentChannelRegistry.Resolve(
+            if (!aligned.ReferencePythonValidated && MapAlignmentChannelRegistry.Resolve(
                     aligned.Map,
                     aligned.Result.Floor).Channel
                 == MapAlignmentChannel.LowStructure

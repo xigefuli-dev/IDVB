@@ -301,6 +301,8 @@ internal static partial class MapCvRecognitionBuilders
         {
             Map = recognition.Map,
             FloorImagePath = recognition.FloorImagePath,
+            EntryCatalogRevision = recognition.EntryCatalogRevision,
+            ReferencePythonValidated = recognition.ReferencePythonValidated,
             Result = new MapRecognitionResult
             {
                 MapId = recognition.Result.MapId,

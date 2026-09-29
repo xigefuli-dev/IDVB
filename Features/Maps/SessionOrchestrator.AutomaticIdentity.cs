@@ -49,6 +49,21 @@ public sealed partial class SessionOrchestrator
         }
         var floor = _recognition.ResolveAutomaticIdentityFloor(match.MapClass, frame.DetectedFloorKey);
         if (floor is null) return null;
+        if (_recognition.UsesReferencePython(match.MapClass))
+        {
+            var response = await _recognition.IdentifyReferencePythonAsync(frame, match.MapClass,
+                floor, Math.Max(1, execution.RemainingMilliseconds - 30), token);
+            _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                $"Python 原引擎身份识别 · {response.Reason}",
+                details: new() { ["response"] = response });
+            if (!response.IdentityVerified || response.MapId is not { } id
+                || MapScanFloorRules.NormalizeFloorIdentity(response.Floor) != floor
+                || _recognition.TryGetMap(id) is not { } map)
+                return null;
+            var confidence = response.Confidence is { } measured && double.IsFinite(measured)
+                ? Math.Clamp(measured, 0, 1) : 0;
+            return CommitObservedIdentity(map, floor, confidence, frame, match, toggle, generation, execution, token);
+        }
         try
         {
             await _recognition.PrepareAutomaticIdentityAsync(match.MapClass, floor).WaitAsync(

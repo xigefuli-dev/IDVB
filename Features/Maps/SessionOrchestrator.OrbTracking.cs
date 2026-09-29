@@ -18,16 +18,6 @@ public sealed partial class SessionOrchestrator
     private int _orbCaptureExclusionWarningLogged;
     private RuntimeMapRecognition? _pendingOrbTrackingRecognition;
 
-    private sealed record OrbTrackingContext(
-        long Generation,
-        MapMatchSnapshot Match,
-        MapGameToggleTransition Toggle,
-        Guid MapId,
-        DateTimeOffset MapUpdatedAt,
-        string FloorKey,
-        AdaptiveScaleKey AdaptiveKey,
-        double BaselineScale);
-
     private async Task StartOrbTrackingAsync(
         RuntimeMapRecognition recognition,
         CapturedGameFrame seedFrame)
@@ -38,6 +28,11 @@ public sealed partial class SessionOrchestrator
         if (scan is not null && (scan.IsSuperseded || scan.CancellationToken.IsCancellationRequested
             || scan.Expired || !ReferenceEquals(_lastRecognition, recognition)))
             return;
+        if (recognition.ReferencePythonValidated)
+        {
+            StartReferencePythonTracking(recognition, seedFrame);
+            return;
+        }
         var floorKey = recognition.Result.Floor;
         var useVpsgTracking = _recognition.IsVpsg3Ready(recognition.Map, floorKey);
         if (!useVpsgTracking && _settings?.EnableContinuousAlignment != true)

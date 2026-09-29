@@ -44,6 +44,7 @@ internal sealed class WarmAlignmentState
     public required MapAlignmentContextKey ContextKey { get; init; }
     public required MapAlignmentSession Session { get; set; }
     public required MapSimilarityTransform LastTransform { get; set; }
+    public MapScreenRect SourceClientBounds { get; set; }
     public double Confidence { get; set; }
     public double CandidateMargin { get; set; }
     public bool IsScaleReliable { get; set; }

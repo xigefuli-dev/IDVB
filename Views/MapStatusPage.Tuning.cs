@@ -326,7 +326,8 @@ public sealed partial class MapStatusPage : UserControl
                     + $" · 端到端 {floorResult.EndToEndMilliseconds:F1}ms"
             : "尚无楼层识别结果";
         _mapReadiness.Text =
-            $"主识别 {_runtime.ReadyMapCount}/{_runtime.TotalMapCount} · "
+            $"入口资源已登记 {_runtime.RegisteredEntryMapCount}/{_runtime.TotalMapCount} · "
+            + $"双门识别 {_runtime.ReadyMapCount}/{_runtime.TotalMapCount} · "
             + $"门特征扫描 {_runtime.SideEntranceReadyMapCount}/{_runtime.TotalMapCount} 就绪";
         _selectedMapState.Text = _runtime.SelectedMap is { } selectedMap
             ? selectedMap.DisplayName

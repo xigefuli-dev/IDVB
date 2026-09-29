@@ -147,7 +147,8 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         string floor = "1f",
         MapStructureGenerationTuning? generationTuning = null,
         MapStructurePreprocessingProfile profile =
-            MapStructurePreprocessingProfile.EdgesAndFeatures)
+            MapStructurePreprocessingProfile.EdgesAndFeatures,
+        Mat? referenceUnknownMask = null)
     {
         using var cacheRoute = MapOperationTraceAmbient.StartChild(
             "reference_cache_route",
@@ -187,7 +188,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         memoryLookup.Complete();
 
         if (profile == MapStructurePreprocessingProfile.PrebuiltStructureLine)
-            return Remember(key, MapStructurePreprocessor.UsePrebuiltStructureLine(referenceImage), generationSnapshot);
+            return Remember(key, MapStructurePreprocessor.UsePrebuiltStructureLine(referenceImage, referenceUnknownMask), generationSnapshot);
 
         var directory = Path.Combine(
             _rootDirectory,

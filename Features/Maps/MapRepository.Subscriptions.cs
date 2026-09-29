@@ -246,6 +246,12 @@ public sealed partial class MapRepository
         {
             try
             {
+                if (File.Exists(CatalogPath))
+                {
+                    using var catalog = JsonDocument.Parse(File.ReadAllBytes(CatalogPath));
+                    if (catalog.RootElement.TryGetProperty("StorageSchemaVersion", out var version))
+                        EnsureSupportedCatalogSchema(version.GetInt32());
+                }
                 var journal = JsonSerializer.Deserialize<SubscriptionRetirementJournal>(
                     File.ReadAllBytes(path), SerializerOptions);
                 if (journal is null || journal.ProcessInstanceId == ProcessInstanceId) continue;

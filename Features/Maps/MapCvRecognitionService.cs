@@ -39,6 +39,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
     // 侧门特征缓存：(mapId, floorKey) → 门区置零的预制二值轮廓 Mat
     private Dictionary<(Guid, string), Mat> _sideEntranceFeatureCache = [];
     private MapLocalFeatureIdentityIndex? _localFeatureIdentityIndex;
+    private MapEntryIdentityIndex? _entryIdentityIndex;
     private MapCatalogRevision _catalogRevision = MapCatalogRevision.Empty;
     private IReadOnlyList<MapRecord> _maps = [];
     private IReadOnlyList<MapGeometryFingerprint> _fingerprints = [];
@@ -222,6 +223,9 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var previousIdentityIndex = _localFeatureIdentityIndex;
             _localFeatureIdentityIndex = new MapLocalFeatureIdentityIndex(_repository, cache.Maps);
             previousIdentityIndex?.Dispose();
+            var previousEntryIndex = _entryIdentityIndex;
+            _entryIdentityIndex = new MapEntryIdentityIndex(_repository, cache.Maps);
+            previousEntryIndex?.Dispose();
         }
         finally
         {

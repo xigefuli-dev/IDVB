@@ -6,9 +6,7 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapCvRecognitionService
 {
-    /// <summary>
-    /// 尝试使用 VPSG 3.0 进行极速结构对齐（向后兼容重载）。
-    /// </summary>
+    /// <summary>尝试使用 VPSG 3.0 进行极速结构对齐（向后兼容重载）。</summary>
     public bool TryAlignWithVpsg3(
         CapturedGameFrame frame,
         MapRecord map,
@@ -214,7 +212,7 @@ public sealed partial class MapCvRecognitionService
             {
                 try
                 {
-                    var refPath = _repository.GetPrebuiltStructureLinePath(map, floorKey);
+                    var refPath = _repository.ResolveStructureLineReference(map, floorKey)!.Path;
                     Vpsg3DiagnosticCapture.CaptureIfActive(
                         MapDiagnosticModeCapture.CurrentMapOpenId,
                         observation,

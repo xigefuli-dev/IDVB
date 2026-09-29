@@ -5,6 +5,7 @@ public sealed class RuntimeMapRecognition
     public MapRecord Map { get; init; } = new();
     public MapRecognitionResult Result { get; init; } = new();
     public string FloorImagePath { get; init; } = string.Empty;
+    internal MapCatalogRevision? EntryCatalogRevision { get; set; }
 }
 
 public sealed class MapRecognitionChoice

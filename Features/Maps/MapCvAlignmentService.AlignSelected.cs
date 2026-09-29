@@ -39,7 +39,6 @@ internal static partial class MapCvAlignmentService
             MapOperationWaitKind.Compute,
             mapId: selectedMapId.ToString("D"));
         var searchCtx = alignmentSearchContext;
-
         diagnostics.SearchStage =
             searchCtx?.GateSearch.Mode switch
             {
@@ -50,7 +49,14 @@ internal static partial class MapCvAlignmentService
                     AlignmentSearchStage.LocalGateConfirmation,
                 _ => AlignmentSearchStage.None,
             };
-
+        var entryMap = service.TryGetMap(selectedMapId);
+        var entryFloor = session is not null && session.MapId == selectedMapId && session.MapUpdatedAt == entryMap?.UpdatedAt
+            ? session.FloorKey : entryMap is not null ? MapScanFloorRules.ResolveScanFloorKey(entryMap) : null;
+        if (entryMap is not null && entryFloor is not null
+            && (string.IsNullOrWhiteSpace(mapClass) || string.Equals(entryMap.Class, mapClass, StringComparison.OrdinalIgnoreCase))
+            && entryMap.Floors.Any(floor => floor.Key == entryFloor && floor.EntryIdentityAsset is not null))
+            return AlignEntrySelectedFloor(service, frame, entryMap, entryFloor, session, alignmentMode,
+                tuning, structureTuning, playerPrior, predictedViewportOrigin, liveIgnoreRegions, candidateHistory);
         var fingerprint = service.FilterFingerprints(mapClass).FirstOrDefault(
             candidate => candidate.Map.Id == selectedMapId);
         if (fingerprint is null)
@@ -119,7 +125,7 @@ internal static partial class MapCvAlignmentService
                 identityPriorConfidence: compatibleSession?.SideEntranceScanPriorConfidence ?? 0d,
                 restrictTranslationToSeed: false);
 
-        if (structureTuning.UsePrebuiltStructureLine && service.HasPrebuiltStructureLine(fingerprint.Map, fingerprint.FloorKey))
+        if (service.UsesStructureLineReference(fingerprint.Map, fingerprint.FloorKey, structureTuning))
             return AlignPrebuiltStructureLine(
                 service, frame, selectedMapId, fingerprint, compatibleSession,
                 alignmentMode, tuning, structureTuning, playerPrior,

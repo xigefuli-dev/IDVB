@@ -29,11 +29,15 @@ public sealed partial class MapRepository
             cancellationToken.ThrowIfCancellationRequested();
             var maps = snapshot.Maps.Where(map => string.Equals(
                 map.Class, mapClass, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (onlyOutdated && !maps.SelectMany(MapFloorRules.GetOrderedFloors)
+            var generatedFloors = maps.SelectMany(map => MapFloorRules.GetOrderedFloors(map)
+                .Where(floor => !HasValidatedEntryStructure(map, floor))).ToArray();
+            if (onlyOutdated && !generatedFloors
                 .Any(floor => floor.PrebuiltStructureLine is { IsComplete: true, IsCurrent: false }))
                 continue;
-            if (maps.Length == 0 || maps.All(map => HasCompletePrebuiltStructureLines(map)
-                && MapFloorRules.GetOrderedFloors(map).All(floor => floor.PrebuiltStructureLine!.IsCurrent)))
+            if (generatedFloors.Length == 0 || maps.All(map => MapFloorRules.GetOrderedFloors(map)
+                .All(floor => floor.EntryIdentityAsset is not null
+                    || HasPrebuiltStructureLine(map, floor.Key) && floor.PrebuiltStructureLine!.IsCurrent
+                        && File.Exists(GetPrebuiltStructureAlgorithmPath(map, floor.Key)))))
                 continue;
 
             string? algorithmPath = null;
@@ -92,6 +96,7 @@ public sealed partial class MapRepository
                 foreach (var floor in MapFloorRules.GetOrderedFloors(map))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (HasValidatedEntryStructure(map, floor)) continue;
                     var sourcePath = GetFloorRecognitionPath(map, floor.Key);
                     if (!File.Exists(sourcePath))
                         throw new FileNotFoundException($"{map.DisplayName} 的楼层“{floor.DisplayName}”缺少裁剪后图像。", sourcePath);

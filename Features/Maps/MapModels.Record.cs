@@ -89,7 +89,7 @@ public enum MapFloor
 }
 
 /// <summary>V10: user-defined floor identifier and explicit local image bindings.</summary>
-public sealed class FloorDefinition
+public sealed partial class FloorDefinition
 {
     public string Key { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -402,6 +402,8 @@ public sealed partial class MapRecord
             SubscriptionPublisherKeyId = SubscriptionPublisherKeyId,
             SubscriptionVersion = SubscriptionVersion,
             SourceProjectId = SourceProjectId,
+            SourcePackageMapId = SourcePackageMapId,
+            LayoutIdentity = LayoutIdentity?.Clone(),
             SourceProjectRevision = SourceProjectRevision,
             SourceVisualSha256 = SourceVisualSha256,
             SourceStructureSha256 = SourceStructureSha256,
@@ -445,7 +447,8 @@ public sealed partial class MapRecord
                 ThumbnailHeight = f.ThumbnailHeight,
                 ThumbnailFileLength = f.ThumbnailFileLength,
                 ThumbnailLastWriteUtcTicks = f.ThumbnailLastWriteUtcTicks,
-                PrebuiltStructureLine = f.PrebuiltStructureLine?.Clone()
+                PrebuiltStructureLine = f.PrebuiltStructureLine?.Clone(),
+                EntryIdentityAsset = f.EntryIdentityAsset?.Clone()
             }).ToList(),
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt
@@ -458,14 +461,11 @@ public sealed partial class MapDraft
     public Guid? Id { get; set; }
     public string? FloorOnePath { get; set; }
     public string? FloorTwoPath { get; set; }
-    /// <summary>V6: floor image source paths keyed by <see cref="FloorDefinition.Key"/>.</summary>
     public Dictionary<string, string> FloorPaths { get; set; } = [];
     /// <summary>Preview paths keyed by floor. Existing maps use the selected recognition region when available.</summary>
     public Dictionary<string, string> FloorPreviewPaths { get; set; } = [];
     public Dictionary<string, string> FloorRecognitionSourcePaths { get; set; } = [];
-    /// <summary>V6: ordered floor definitions carrying key, display name, and sort order.</summary>
     public List<FloorDefinition> Floors { get; set; } = [];
-    /// <summary>V6: map classification label.</summary>
     public string Class { get; set; } = "S1";
     /// <summary>Read-only-at-save-time snapshot used by the editor UI.</summary>
     public MapClassProperties ClassProperties { get; internal set; } = new();

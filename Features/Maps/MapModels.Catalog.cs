@@ -2,7 +2,7 @@ namespace IDVBuff.Features.Maps;
 
 internal sealed class MapCatalogDocument
 {
-    /// <summary>Local catalog storage schema. Version 16 adds map variant groups.</summary>
+    /// <summary>Local storage schema. Version 19 persists package provenance and layout declarations.</summary>
     public int StorageSchemaVersion { get; set; }
     public int NextSequenceNumber { get; set; } = 1;
     /// <summary>

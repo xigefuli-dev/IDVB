@@ -25,7 +25,8 @@ public sealed class MapStructureFeatures : IDisposable
         Mat? descriptors = null,
         Mat? repeatedRegionMask = null,
         PreprocessTiming? diagnosticTiming = null,
-        Mat? rawVisibleMask = null)
+        Mat? rawVisibleMask = null,
+        Mat? referenceUnknownMask = null)
     {
         NuisanceMask = nuisanceMask;
         StructureMask = structureMask;
@@ -42,6 +43,7 @@ public sealed class MapStructureFeatures : IDisposable
             MatType.CV_8UC1).ToMat();
         DiagnosticTiming = diagnosticTiming;
         RawVisibleMask = rawVisibleMask;
+        ReferenceUnknownMask = referenceUnknownMask;
     }
 
     public Mat NuisanceMask { get; }
@@ -57,6 +59,7 @@ public sealed class MapStructureFeatures : IDisposable
     public Mat RepeatedRegionMask { get; }
     public PreprocessTiming? DiagnosticTiming { get; }
     public Mat? RawVisibleMask { get; }
+    public Mat? ReferenceUnknownMask { get; }
 
     internal Mat GetOrCreateUnitStructureMask(int factor)
     {
@@ -139,7 +142,8 @@ public sealed class MapStructureFeatures : IDisposable
         KeyPoints.ToArray(),
         Descriptors.Clone(),
         RepeatedRegionMask.Clone(),
-        rawVisibleMask: RawVisibleMask?.Clone());
+        rawVisibleMask: RawVisibleMask?.Clone(),
+        referenceUnknownMask: ReferenceUnknownMask?.Clone());
 
     public void Dispose()
     {
@@ -159,6 +163,7 @@ public sealed class MapStructureFeatures : IDisposable
         Descriptors.Dispose();
         RepeatedRegionMask.Dispose();
         RawVisibleMask?.Dispose();
+        ReferenceUnknownMask?.Dispose();
     }
 }
 /*

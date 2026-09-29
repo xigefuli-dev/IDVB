@@ -92,7 +92,7 @@ public sealed partial class IdvmPackageService
         };
         var metadata = new MetadataDto
         {
-            SchemaVersion = 3,
+            SchemaVersion = map.LayoutIdentity is null ? 3 : 4,
             Map = new MetadataMapDto
             {
                 Id = map.Id,
@@ -103,6 +103,7 @@ public sealed partial class IdvmPackageService
                 SourceProjectRevision = map.SourceProjectRevision,
                 SourceVisualSha256 = map.SourceVisualSha256,
                 SourceStructureSha256 = map.SourceStructureSha256,
+                LayoutIdentity = map.LayoutIdentity?.Clone(),
                 CoordinateSystem = "normalized-top-left-y-down"
             },
             Recognition = new RecognitionSettingsDto
@@ -193,7 +194,8 @@ public sealed partial class IdvmPackageService
                 SideEntranceFeature = isDownsampled ? null : await TryExportSideEntranceFeatureAsync(
                     staging, root, index + 1, map, floor.Key, exportProfile, cancellationToken),
                 PrebuiltStructureLine = isDownsampled ? null : await TryExportPrebuiltStructureLineAsync(
-                    staging, root, index + 1, map, floor, cancellationToken)
+                    staging, root, index + 1, map, floor, cancellationToken),
+                EntryIdentityAsset = await ExportEntryIdentityAsync(staging, root, map, floor, isDownsampled, cancellationToken)
             });
         }
 
@@ -254,6 +256,8 @@ public sealed partial class IdvmPackageService
             };
             foreach (var anchor in profile.Anchors)
             {
+                if (floor.EntryIdentityAsset is not null && anchor.IsBuiltIn && IsGateAnchor(anchor.Key)
+                    && anchor.Bounds is null) continue;
                 var gate = IsGateAnchor(anchor.Key)
                     ? gates.FirstOrDefault(item => string.Equals(item.FloorKey, floor.Key, StringComparison.Ordinal)
                         && string.Equals(item.Role, GateRoleForAnchor(anchor.Key), StringComparison.Ordinal))

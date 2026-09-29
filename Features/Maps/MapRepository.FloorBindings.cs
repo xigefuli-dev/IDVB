@@ -6,6 +6,9 @@ public sealed partial class MapRepository
 {
     private void ValidateFloorDefinitions(MapRecord record)
     {
+        if (record.SourcePackageMapId == Guid.Empty)
+            throw new InvalidDataException("来源包地图 ID 不能为空。");
+        record.LayoutIdentity?.Validate(record.Floors.Select(floor => floor.Key));
         var floors = MapFloorRules.GetOrderedFloors(record);
         if (floors.Count == 0)
             throw new InvalidOperationException($"Map {record.Id} has no floor definitions.");

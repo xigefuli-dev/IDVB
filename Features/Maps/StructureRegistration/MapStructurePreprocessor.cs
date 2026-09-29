@@ -176,11 +176,11 @@ public sealed partial class MapStructurePreprocessor
             generationTuning: generationTuning);
     }
 
-    public static MapStructureFeatures UsePrebuiltStructureLine(Mat line) =>
+    public static MapStructureFeatures UsePrebuiltStructureLine(Mat line, Mat? referenceUnknownMask = null) =>
         UseStructureLine(
             line,
             null,
-            MapStructurePreprocessingProfile.PrebuiltStructureLine);
+            MapStructurePreprocessingProfile.PrebuiltStructureLine, referenceUnknownMask);
 
     public static MapStructureFeatures UseNativeObservedStructureLine(
         Mat line,
@@ -202,11 +202,21 @@ public sealed partial class MapStructurePreprocessor
     private static MapStructureFeatures UseStructureLine(
         Mat line,
         Mat? rawVisibleMask,
-        MapStructurePreprocessingProfile profile)
+        MapStructurePreprocessingProfile profile,
+        Mat? referenceUnknownMask = null)
     {
         if (line.Empty() || line.Type() != MatType.CV_8UC1)
             throw new InvalidDataException("预制线图必须是非空的 8 位灰度图。");
         var edges = line.Clone();
+        if (referenceUnknownMask is not null)
+        {
+            if (referenceUnknownMask.Type() != MatType.CV_8UC1 || referenceUnknownMask.Size() != line.Size())
+            {
+                edges.Dispose();
+                throw new InvalidDataException("作者未知区域必须与本层结构线尺寸相同。");
+            }
+            edges.SetTo(Scalar.Black, referenceUnknownMask);
+        }
         var half = new Mat();
         var quarter = new Mat();
         Cv2.Resize(edges, half, new Size(Math.Max(1, edges.Width / 2), Math.Max(1, edges.Height / 2)), 0d, 0d, InterpolationFlags.Nearest);
@@ -223,7 +233,8 @@ public sealed partial class MapStructurePreprocessor
                 Profile = profile,
                 DescriptorExtractionSkipped = true
             },
-            rawVisibleMask: rawVisibleMask?.Clone());
+            rawVisibleMask: rawVisibleMask?.Clone(),
+            referenceUnknownMask: referenceUnknownMask?.Clone());
     }
 
     /// <summary>

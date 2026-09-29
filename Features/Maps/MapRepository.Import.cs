@@ -221,6 +221,7 @@ public sealed partial class MapRepository
                     var catalog = JsonSerializer.Deserialize<MapCatalogDocument>(
                         File.ReadAllBytes(CatalogPath),
                         SerializerOptions) ?? new MapCatalogDocument();
+                    EnsureSupportedCatalogSchema(catalog.StorageSchemaVersion);
                     var importedIds = journal.ImportedMapIds.ToHashSet();
                     catalog.Maps.RemoveAll(map => importedIds.Contains(map.Id));
                     catalog.VariantGroups ??= [];

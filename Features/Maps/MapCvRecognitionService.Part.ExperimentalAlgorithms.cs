@@ -6,14 +6,18 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class MapCvRecognitionService
 {
     internal bool HasPrebuiltStructureLine(MapRecord map, string floorKey) =>
-        Repository.HasPrebuiltStructureLine(map, floorKey);
+        Repository.ResolveStructureLineReference(map, floorKey) is not null;
+
+    internal bool UsesStructureLineReference(MapRecord map, string floorKey, MapStructureRegistrationTuning tuning) =>
+        map.Floors.Any(floor => floor.Key == floorKey && floor.EntryIdentityAsset is not null)
+        || tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey);
 
     internal string GetAlignmentReferencePath(
         MapRecord map,
         string floorKey,
         MapStructureRegistrationTuning tuning) =>
-        tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey)
-            ? Repository.GetPrebuiltStructureLinePath(map, floorKey)
+        UsesStructureLineReference(map, floorKey, tuning)
+            ? Repository.ResolveStructureLineReference(map, floorKey)!.Path
             : Repository.GetFloorRecognitionPath(map, floorKey);
 
     internal bool TryGetAlignmentReferencePath(
@@ -22,9 +26,9 @@ public sealed partial class MapCvRecognitionService
         MapStructureRegistrationTuning tuning,
         out string path)
     {
-        if (tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey))
+        if (UsesStructureLineReference(map, floorKey, tuning))
         {
-            path = Repository.GetPrebuiltStructureLinePath(map, floorKey);
+            path = Repository.ResolveStructureLineReference(map, floorKey)!.Path;
             return true;
         }
         path = Repository.GetFloorRecognitionPath(map, floorKey);
@@ -43,9 +47,18 @@ public sealed partial class MapCvRecognitionService
         string floorKey,
         MapStructureRegistrationTuning tuning,
         MapStructurePreprocessingProfile regularProfile) =>
-        tuning.UsePrebuiltStructureLine && HasPrebuiltStructureLine(map, floorKey)
+        UsesStructureLineReference(map, floorKey, tuning)
             ? MapStructurePreprocessingProfile.PrebuiltStructureLine
             : regularProfile;
+
+    internal MapStructureFeatures PrepareAlignmentReference(MapRecord map, string floorKey,
+        Mat image, IReadOnlyList<NormalizedRectangle>? ignoreRegions,
+        MapStructureGenerationTuning generation, MapStructurePreprocessingProfile profile)
+    {
+        using var unknown = Repository.LoadStructureReferenceUnknown(map, floorKey);
+        return StructureCache.GetOrCreate(map.Id, map.UpdatedAt, image, ignoreRegions,
+            floorKey, generation, profile, unknown);
+    }
 
     internal static VpsgScaleMode GetVpsgMode(
         MapStructureRegistrationTuning tuning) =>

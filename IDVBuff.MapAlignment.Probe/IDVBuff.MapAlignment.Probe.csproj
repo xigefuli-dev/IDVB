@@ -45,6 +45,12 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapModels.LayoutIdentity.cs" Link="Production\MapModels.LayoutIdentity.cs" />
+    <Compile Include="..\Features\Maps\MapModels.EntryIdentity.cs" Link="Production\MapModels.EntryIdentity.cs" />
+    <Compile Include="..\Features\Maps\MapEntryIdentityGeometry.Models.cs" Link="Production\MapEntryIdentityGeometry.Models.cs" />
+    <Compile Include="..\Features\Maps\MapEntryCornerIdentity.Models.cs" Link="Production\MapEntryCornerIdentity.Models.cs" />
+    <Compile Include="..\Features\Maps\MapEntryIdentityResources.cs" Link="Production\MapEntryIdentityResources.cs" />
+    <Compile Include="..\Features\Maps\MapEntryIdentityResources.Geometry.cs" Link="Production\MapEntryIdentityResources.Geometry.cs" />
     <Compile Include="..\Features\Maps\MapModels.PrebuiltStructure.cs" Link="Production\MapModels.PrebuiltStructure.cs" />
     <Compile Include="..\Features\Maps\MapModels.Provenance.cs" Link="Production\MapModels.Provenance.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
@@ -85,9 +91,12 @@
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3LiveObservation.cs" Link="Production\Vpsg3LiveObservation.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3FastLiveExtractor.cs" Link="Production\Vpsg3FastLiveExtractor.cs" />
     <Compile Include="..\Features\Maps\Vpsg3\Vpsg3LiveExtractorScratch.cs" Link="Production\Vpsg3LiveExtractorScratch.cs" />
+    <Compile Include="..\Features\Maps\Vpsg3\Vpsg3PreparedIndexModels.cs" Link="Production\Vpsg3PreparedIndexModels.cs" />
     <Compile Include="..\Features\Maps\MapRepository.cs" Link="Production\MapRepository.cs" />
     <Compile Include="..\Features\Maps\MapRepository.Part*.cs" />
     <Compile Include="..\Features\Maps\MapRepository.PrebuiltStructure.cs" Link="Production\MapRepository.PrebuiltStructure.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.EntryIdentity.cs" Link="Production\MapRepository.EntryIdentity.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.StructureReference.cs" Link="Production\MapRepository.StructureReference.cs" />
     <Compile Include="..\Features\Maps\IdvaStructureLineEngine.cs" Link="Production\IdvaStructureLineEngine.cs" />
     <Compile Include="..\Features\Maps\IdvaStructureLineEngine.Operations.cs" Link="Production\IdvaStructureLineEngine.Operations.cs" />
     <Compile Include="..\Features\Maps\IdvaStructureLineEngine.Preprocessing.cs" Link="Production\IdvaStructureLineEngine.Preprocessing.cs" />

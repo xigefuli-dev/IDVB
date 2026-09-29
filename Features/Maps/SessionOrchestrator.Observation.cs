@@ -219,6 +219,7 @@ public sealed partial class SessionOrchestrator
 
             using var frame = await CaptureStableViewportAsync("持续观察", pass.Token,
                 shouldContinue: () => IsMapObservationCurrent(match, toggle, generation), allowPartialMap: true,
+                autoFloor: CreateAutomaticIdentityFloorCapture(match.MapClass),
                 suspendOverlayForCapture: viewport => SuspendMapObservationCapture(viewport,
                     () => IsMapObservationCurrent(match, toggle, generation)));
             if (!IsMapObservationCurrent(match, toggle, generation)) return null;
@@ -236,7 +237,7 @@ public sealed partial class SessionOrchestrator
 
             // Each independent route owns a complete bounded pass. Running two
             // full searches in one deadline would starve the second route.
-            if (useLocalFeatures)
+            if (useLocalFeatures || _recognition.HasEntryIdentityResources(match.MapClass))
             {
                 var identity = await TryIdentifyObservationAsync(frame, match, toggle, generation, execution, pass.Token);
                 if (identity is not null) return identity;

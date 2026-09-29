@@ -445,9 +445,9 @@ public sealed partial class MapCvRecognitionService
                 var path = GetAlignmentReferencePath(map, floorKey, tuning);
                 using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
                 if (image.Empty() || ct.IsCancellationRequested) return;
-                using var prepared = _structureCache.GetOrCreate(
-                    map.Id, map.UpdatedAt, image, floorProfile.WholeImageIgnoreRegions,
-                    floorKey, tuning.Generation, profile);
+                using var prepared = PrepareAlignmentReference(
+                    map, floorKey, image, floorProfile.WholeImageIgnoreRegions,
+                    tuning.Generation, profile);
             }, ct);
             _floorPrewarmTasks[key] = task;
             _ = task.ContinueWith(_ =>
@@ -480,6 +480,8 @@ public sealed partial class MapCvRecognitionService
         _sideEntranceFeatureCache = [];
         _localFeatureIdentityIndex?.Dispose();
         _localFeatureIdentityIndex = null;
+        _entryIdentityIndex?.Dispose();
+        _entryIdentityIndex = null;
     }
 }
 /*

@@ -22,15 +22,14 @@ public sealed partial class MapRepository
                     SerializerOptions)
                 ?? new MapCatalogDocument();
         }
-        if (catalog.StorageSchemaVersion > CurrentStorageSchemaVersion)
-            throw new InvalidDataException("地图目录由更高版本的 Identity Vision Bridge 创建，当前版本不能安全写入。");
+        EnsureSupportedCatalogSchema(catalog.StorageSchemaVersion);
         var originalStorageSchemaVersion = catalog.StorageSchemaVersion;
         if (originalStorageSchemaVersion < 16)
             await EnsureVariantMigrationBackupAsync();
         var migrated = false;
         var repairedFloorProfileIds = new List<Guid>();
         var requiresLegacyBindingMigration = catalog.StorageSchemaVersion < 10;
-        var requiresFloorProfileMigration = catalog.StorageSchemaVersion < CurrentStorageSchemaVersion
+        var requiresFloorProfileMigration = catalog.StorageSchemaVersion < 18
             || catalog.Maps.Any(record => record.NeedsCanonicalFloorNormalization());
         if (requiresFloorProfileMigration)
         {
@@ -111,12 +110,19 @@ public sealed partial class MapRepository
 
     private async Task WriteCatalogAsync(MapCatalogDocument catalog)
     {
+        EnsureSupportedCatalogSchema(catalog.StorageSchemaVersion);
         ValidateVariantGroups(catalog, normalizeClassCasing: false);
         catalog.StorageSchemaVersion = CurrentStorageSchemaVersion;
         var temporaryPath = $"{CatalogPath}.tmp";
         await using (var stream = File.Create(temporaryPath))
             await JsonSerializer.SerializeAsync(stream, catalog, SerializerOptions);
         File.Move(temporaryPath, CatalogPath, overwrite: true);
+    }
+
+    private static void EnsureSupportedCatalogSchema(int version)
+    {
+        if (version > CurrentStorageSchemaVersion)
+            throw new InvalidDataException("地图目录由更高版本的 Identity Vision Bridge 创建，当前版本不能安全写入。");
     }
 
     private static string? NormalizeClassName(string? name)

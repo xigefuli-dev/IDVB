@@ -12,7 +12,7 @@ public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Le
 /// </summary>
 public sealed partial class MapRepository
 {
-    private const int CurrentStorageSchemaVersion = 18;
+    private const int CurrentStorageSchemaVersion = 19;
     private const string FloorOneRecognitionFileName = "floor-1-recognition.png";
     private const string FloorTwoRecognitionFileName = "floor-2-recognition.png";
     private const string FloorOneOverlayFileName = "floor-1-overlay.png";
@@ -91,7 +91,8 @@ public sealed partial class MapRepository
                     DisplayName = f.DisplayName,
                     SortOrder = f.SortOrder,
                     MarkerKeys = MapFloorMarkerRules.Normalize(f.MarkerKeys).ToList(),
-                    PrebuiltStructureLine = f.PrebuiltStructureLine?.Clone()
+                    PrebuiltStructureLine = f.PrebuiltStructureLine?.Clone(),
+                    EntryIdentityAsset = f.EntryIdentityAsset?.Clone()
                 }).ToList(),
                 Class = record.Class,
                 ClassProperties = GetClassProperties(catalog, record.Class),
@@ -106,6 +107,9 @@ public sealed partial class MapRepository
                 SubscriptionPublisherKeyId = record.SubscriptionPublisherKeyId,
                 SubscriptionVersion = record.SubscriptionVersion,
                 SourceProjectId = record.SourceProjectId,
+                SourcePackageMapId = record.SourcePackageMapId,
+                LayoutIdentity = record.LayoutIdentity?.Clone(),
+                EntryIdentitySourceDirectory = GetMapDirectory(record.Id),
                 SourceProjectRevision = record.SourceProjectRevision,
                 SourceVisualSha256 = record.SourceVisualSha256,
                 SourceStructureSha256 = record.SourceStructureSha256,
@@ -173,6 +177,8 @@ public sealed partial class MapRepository
             record.SubscriptionPublisherKeyId = draft.SubscriptionPublisherKeyId;
             record.SubscriptionVersion = draft.SubscriptionVersion;
             record.SourceProjectId = draft.SourceProjectId;
+            record.SourcePackageMapId = draft.SourcePackageMapId ?? record.SourcePackageMapId;
+            record.LayoutIdentity = draft.LayoutIdentity?.Clone() ?? record.LayoutIdentity;
             record.SourceProjectRevision = draft.SourceProjectRevision;
             record.SourceVisualSha256 = draft.SourceVisualSha256;
             record.SourceStructureSha256 = draft.SourceStructureSha256;
@@ -220,7 +226,8 @@ public sealed partial class MapRepository
                         DisplayName = floor.DisplayName,
                         SortOrder = index + 1,
                         MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList(),
-                        PrebuiltStructureLine = floor.PrebuiltStructureLine?.Clone()
+                        PrebuiltStructureLine = floor.PrebuiltStructureLine?.Clone(),
+                        EntryIdentityAsset = floor.EntryIdentityAsset?.Clone()
                     })
                     .ToList();
             record.Recognition = draft.Recognition.Clone();
@@ -281,9 +288,7 @@ public sealed partial class MapRepository
                 if (IsSupportedImage(legacyPath) && File.Exists(legacyPath!))
                     floorImageFileNames[key] = await CopyFloorInputAsync(key, legacyPath!);
             }
-            // Legacy readers still resolve the first two floors through these
-            // fields, so keep them aligned with the reordered floor list even
-            // when the current IDs are custom names.
+            // Keep legacy asset names aligned with the reordered floor list.
             if (orderedFloorKeys.Length > 0
                 && floorImageFileNames.TryGetValue(orderedFloorKeys[0], out var firstFloorFileName))
             {
@@ -444,6 +449,7 @@ public sealed partial class MapRepository
                     }
                 }
             }
+            CopyEntryIdentityAssets(draft, record, stagingDirectory);
             targetDirectory = GetMapDirectory(record.Id);
             if (Directory.Exists(targetDirectory))
             {

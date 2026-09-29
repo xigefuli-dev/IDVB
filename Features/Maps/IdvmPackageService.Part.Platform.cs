@@ -27,6 +27,20 @@ public sealed class IdvmPlatformNotSupportedException : IOException
 
 public sealed partial class IdvmPackageService
 {
+    private static void ValidatePlatformCompatibility(ManifestDto manifest, byte[] manifestBytes)
+    {
+        // The original layout-identity 1.4 exporter predates platform declarations.
+        // Only an absent field in that format retains its portable interpretation;
+        // explicit empty, null or non-Windows declarations remain authoritative.
+        using var document = System.Text.Json.JsonDocument.Parse(manifestBytes);
+        if (manifest.Capabilities.LayoutIdentities
+            && !document.RootElement.TryGetProperty("supportedPlatforms", out _))
+            manifest.SupportedPlatforms = IdvmPlatformCompatibility.All.ToList();
+        ValidateSupportedPlatforms(manifest.SupportedPlatforms);
+        if (!IdvmPlatformCompatibility.SupportsWindows(manifest.SupportedPlatforms))
+            throw new IdvmPlatformNotSupportedException(manifest.SupportedPlatforms!);
+    }
+
     private static void ValidateSupportedPlatforms(IReadOnlyList<string>? platforms)
     {
         if (platforms is null || platforms.Count == 0

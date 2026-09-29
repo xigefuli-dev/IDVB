@@ -219,6 +219,7 @@ public static class Vpsg3LocalRefiner
         var hitsK5 = 0;
         var hitsK3 = 0;
         var invScale = 1d / scale;
+        var pointCount = sparsePoints.Count;
         var k5 = preparedFloor.DilatedBitsetK5Span;
         var k3 = preparedFloor.DilatedBitsetK3Span;
         for (var i = 0; i < sparsePoints.Count; i++)
@@ -226,6 +227,7 @@ public static class Vpsg3LocalRefiner
             var point = sparsePoints[i];
             var rx = (int)Math.Round((viewportBounds.X + point.X - offsetX) * invScale);
             var ry = (int)Math.Round((viewportBounds.Y + point.Y - offsetY) * invScale);
+            if (preparedFloor.IsReferenceUnknown(rx, ry)) { pointCount--; continue; }
             if ((uint)rx >= (uint)preparedFloor.ReferenceWidth || (uint)ry >= (uint)preparedFloor.ReferenceHeight)
                 continue;
             var index = ry * preparedFloor.WordsPerRow + (rx >> 6);
@@ -234,7 +236,7 @@ public static class Vpsg3LocalRefiner
             hitsK5 += (int)((word5 >> shift) & 1UL);
             hitsK3 += (int)(((k3[index] & word5) >> shift) & 1UL);
         }
-        return (hitsK5, hitsK3, sparsePoints.Count);
+        return (hitsK5, hitsK3, pointCount);
     }
 
     private static double EvaluateScore(
@@ -252,6 +254,7 @@ public static class Vpsg3LocalRefiner
         var width = preparedFloor.ReferenceWidth;
         var height = preparedFloor.ReferenceHeight;
         var wordsPerRow = preparedFloor.WordsPerRow;
+        var evaluatedCount = count;
 
         for (var i = 0; i < count; i++)
         {
@@ -260,6 +263,7 @@ public static class Vpsg3LocalRefiner
             var screenY = viewportBounds.Y + q.Y;
             var rx = (int)Math.Round((screenX - offsetX) * invScale);
             var ry = (int)Math.Round((screenY - offsetY) * invScale);
+            if (preparedFloor.IsReferenceUnknown(rx, ry)) { evaluatedCount--; continue; }
 
             if ((uint)rx < (uint)width && (uint)ry < (uint)height)
             {
@@ -271,11 +275,11 @@ public static class Vpsg3LocalRefiner
             }
             // An unvisited point can contribute at most 3. Prune only when even that
             // exact upper bound cannot beat the incumbent; ties retain the first probe.
-            if ((i & 15) == 15 &&
+            if (!preparedFloor.HasUnknownReference && (i & 15) == 15 &&
                 (hitsK5 + 2d * hitsK3 + 3d * (count - i - 1)) / (3d * count) <= bestScore)
                 return -1d;
         }
 
-        return (hitsK5 + 2.0d * hitsK3) / (3.0d * Math.Max(1, count));
+        return (hitsK5 + 2.0d * hitsK3) / (3.0d * Math.Max(1, evaluatedCount));
     }
 }

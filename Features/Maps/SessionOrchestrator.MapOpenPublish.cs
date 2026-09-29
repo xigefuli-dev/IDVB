@@ -26,6 +26,7 @@ public sealed partial class SessionOrchestrator
         MapOpenOperationContext? context = null)
     {
         var trace = ActiveOperationTrace;
+        var entryRevision = aligned?.EntryCatalogRevision;
         var independentAlignment = string.Equals(
             _lastDiagnostics?.WarmStateMissReason,
             "independent-alignment",
@@ -46,7 +47,8 @@ public sealed partial class SessionOrchestrator
         // A background result must never overwrite a newer close/open action.
         if ((context is not null && !IsMapOpenOperationCurrent(context))
             || !IsCurrentMatchOperation(operationMatch)
-            || !_gameMapToggleState.IsCurrent(toggle))
+            || !_gameMapToggleState.IsCurrent(toggle)
+            || !CanPublishEntryAlignment(aligned, frame, entryRevision))
         {
             resultPublish?.Complete(
                 MapOperationSpanStatus.Superseded,
@@ -104,7 +106,8 @@ public sealed partial class SessionOrchestrator
             resultPublish?.Complete();
             if ((context is not null && !IsMapOpenOperationCurrent(context))
                 || !IsCurrentMatchOperation(operationMatch)
-                || !_gameMapToggleState.IsCurrent(toggle))
+                || !_gameMapToggleState.IsCurrent(toggle)
+                || !CanPublishEntryAlignment(aligned, frame, entryRevision))
             {
                 trace?.SetTerminal("superseded", "match-operation-version-changed");
                 return MapOpenAlignmentPublishOutcome.Superseded;

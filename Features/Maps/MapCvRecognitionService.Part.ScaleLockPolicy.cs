@@ -103,12 +103,12 @@ public sealed partial class MapCvRecognitionService
                 // Coverage is an advisory post-alignment measurement.  A resident VPSG3 index
                 // may still be valid while its on-disk source is being repaired or has changed;
                 // that condition must not turn an already accepted alignment into an exception.
-                if (!_repository.HasPrebuiltStructureLine(recognition.Map, recognition.Result.Floor))
-                    return null;
                 string path;
                 try
                 {
-                    path = _repository.GetPrebuiltStructureLinePath(recognition.Map, recognition.Result.Floor);
+                    var reference = _repository.ResolveStructureLineReference(recognition.Map, recognition.Result.Floor);
+                    if (reference is null) return null;
+                    path = reference.Path;
                 }
                 catch (InvalidDataException)
                 {
@@ -119,6 +119,8 @@ public sealed partial class MapCvRecognitionService
                 using var lines = Cv2.ImRead(path, ImreadModes.Grayscale);
                 if (lines.Empty())
                     return null;
+                using var unknown = _repository.LoadStructureReferenceUnknown(recognition.Map, recognition.Result.Floor);
+                if (unknown is not null) lines.SetTo(Scalar.Black, unknown);
                 using var nonzero = new Mat();
                 Cv2.FindNonZero(lines, nonzero);
                 points = new Point[nonzero.Rows];

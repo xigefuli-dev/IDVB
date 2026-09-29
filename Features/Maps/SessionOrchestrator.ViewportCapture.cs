@@ -101,6 +101,7 @@ public sealed partial class SessionOrchestrator
             return readyFrame;
         }
 
+        var captureViewport = autoFloor?.Expand(viewport) ?? viewport;
         var requiredFrames = Math.Max(2, sessionTuning.StableFrameCount);
         // Fast mode uses two consecutive stable observations; the same full-frame identity
         // validator remains mandatory. Other modes retain the configured stability sequence.
@@ -142,7 +143,7 @@ public sealed partial class SessionOrchestrator
                 try
                 {
                     // Restore before stability analysis or the next inter-frame wait.
-                    using var captureVisibility = suspendOverlayForCapture?.Invoke(viewport);
+                    using var captureVisibility = suspendOverlayForCapture?.Invoke(captureViewport);
                     if (suspendOverlayForCapture is not null)
                     {
                         // Observation must not block input dispatch on desktop capture.
@@ -150,7 +151,7 @@ public sealed partial class SessionOrchestrator
                         // surface outlives this capture lease.
                         var capture = await Task.Run(() =>
                         {
-                            var ok = _captureSvc.TryCaptureViewport(viewport,
+                            var ok = _captureSvc.TryCaptureViewport(captureViewport,
                                 out var image, out var error);
                             return (ok, image, error);
                         }, cancellationToken);
@@ -160,7 +161,7 @@ public sealed partial class SessionOrchestrator
                     }
                     else
                         captured = _captureSvc.TryCaptureViewport(
-                            viewport, out frameObj, out failureReason);
+                            captureViewport, out frameObj, out failureReason);
                 }
                 finally
                 {
@@ -176,6 +177,8 @@ public sealed partial class SessionOrchestrator
                         return null;
                     }
                     successfulCaptures++;
+                    if (autoFloor is not null)
+                        current = autoFloor.Extract(current, viewport);
                     var stable = tracker.Observe(
                         current.Image,
                         maximumDifference,

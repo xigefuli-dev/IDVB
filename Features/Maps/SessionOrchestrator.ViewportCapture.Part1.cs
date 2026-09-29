@@ -114,8 +114,7 @@ public sealed partial class SessionOrchestrator
                         var tuning = CreateStructureTuningForFloor(autoFloor.Map, floor,
                             CreateInitialAlignmentStructureTuning());
                         structureFallbackFrameCount = tuning.LowStructureReadinessFrameCount;
-                        prepareNativeStructure = tuning.UsePrebuiltStructureLine
-                            && _recognition.HasPrebuiltStructureLine(autoFloor.Map, floor);
+                        prepareNativeStructure = _recognition.UsesStructureLineReference(autoFloor.Map, floor, tuning);
                         prepareVpsg3Structure = _recognition.IsVpsg3Ready(autoFloor.Map, floor);
                     }
                     DisposeViewportFrame(lastFrame, attempts);

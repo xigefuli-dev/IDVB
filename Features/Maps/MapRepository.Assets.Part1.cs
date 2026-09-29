@@ -206,7 +206,7 @@ public sealed partial class MapRepository
         }
     }
 
-    private static void ValidateDraft(MapDraft draft)
+    private void ValidateDraft(MapDraft draft)
     {
         // V6: validate at least one floor has a valid image
         var validFloorPaths = draft.FloorPaths
@@ -274,7 +274,8 @@ public sealed partial class MapRepository
             .ThenBy(floor => floor.Key, StringComparer.Ordinal)
             .FirstOrDefault()?.Key
             ?? draft.Recognition.FirstFloor.FloorKey;
-        if (!draft.Recognition.HasGateMarkers(primaryFloorKey)
+        if (!HasValidatedDraftEntryIdentity(draft, primaryFloorKey)
+            && !draft.Recognition.HasGateMarkers(primaryFloorKey)
             && !(string.Equals(
                     primaryFloorKey,
                     draft.Recognition.FirstFloor.FloorKey,

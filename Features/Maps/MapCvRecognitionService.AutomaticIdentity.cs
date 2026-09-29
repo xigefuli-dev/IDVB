@@ -16,11 +16,28 @@ internal sealed record AutomaticIdentityStructureEvidence(Guid MapId, double Sup
 
 public sealed partial class MapCvRecognitionService
 {
+    public int RegisteredEntryMapCount => _maps.Count(map => map.Floors.Any(floor => floor.EntryIdentityAsset is not null));
+
+    internal bool HasEntryIdentityResources(string? mapClass) => _entryIdentityIndex?.HasResources(mapClass) == true;
+
+    internal MapRecord? GetAutomaticIdentityFloorTemplate(string mapClass)
+    {
+        var maps = _maps.Where(m => string.Equals(m.Class, mapClass, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (maps.Length == 0) return null;
+        var floors = MapFloorRules.GetOrderedFloors(maps[0]).Select(f => f.Key).ToHashSet(StringComparer.Ordinal);
+        return maps.All(m => floors.SetEquals(MapFloorRules.GetOrderedFloors(m).Select(f => f.Key)))
+            ? maps[0] : null;
+    }
+
     internal string? ResolveAutomaticIdentityFloor(string mapClass, string? detectedFloor = null)
     {
         var maps = _maps.Where(map => string.Equals(map.Class, mapClass,
             StringComparison.OrdinalIgnoreCase)).ToArray();
         if (maps.Length == 0) return null;
+        var currentFloor = MapScanFloorRules.NormalizeFloorIdentity(detectedFloor);
+        if (HasEntryIdentityResources(mapClass) && currentFloor is not null)
+            return maps.All(m => MapFloorRules.GetOrderedFloors(m).Any(f =>
+                MapScanFloorRules.NormalizeFloorIdentity(f.Key) == currentFloor)) ? currentFloor : null;
         var floors = maps.Select(MapScanFloorRules.ResolveScanFloorKey)
             .Select(MapScanFloorRules.NormalizeFloorIdentity).Distinct().ToArray();
         if (floors.Length != 1) return null;
@@ -31,11 +48,24 @@ public sealed partial class MapCvRecognitionService
     }
 
     internal Task PrepareAutomaticIdentityAsync(string mapClass, string floorKey) =>
-        _localFeatureIdentityIndex?.PrepareAsync(mapClass, floorKey) ?? Task.CompletedTask;
+        HasEntryIdentityResources(mapClass) ? _entryIdentityIndex!.PrepareAsync(mapClass, floorKey)
+            : _localFeatureIdentityIndex?.PrepareAsync(mapClass, floorKey) ?? Task.CompletedTask;
 
     internal bool AutomaticIdentityPreparationPending(string? mapClass) =>
         !string.IsNullOrWhiteSpace(mapClass) && ResolveAutomaticIdentityFloor(mapClass) is { } floor
-        && _localFeatureIdentityIndex?.IsPreparationFinished(mapClass, floor) == false;
+        && (HasEntryIdentityResources(mapClass) ? !_entryIdentityIndex!.IsPreparationFinished(mapClass, floor)
+            : _localFeatureIdentityIndex?.IsPreparationFinished(mapClass, floor) == false);
+
+    internal MapEntryIdentityDecision IdentifyEntryMap(CapturedGameFrame frame, string mapClass,
+        string floorKey, CancellationToken token, Func<bool> canCompute, Guid? selectedMapId = null) =>
+        _entryIdentityIndex!.Identify(frame, mapClass, floorKey, token, canCompute, () =>
+        {
+            using var match = GateTemplateDetector.CreateMatchImage(frame.Image);
+            var result = DetectScanGates(match, frame.ViewportBounds, frame.ClientBounds.Width, .58,
+                new GateSearchContext { Mode = GateSearchMode.FullSearch, AllowDualGateEarlyExit = false,
+                    TimeBudgetMilliseconds = Math.Max(1, (ScanExecutionContext.Current?.RemainingMilliseconds ?? 1000) - 60) });
+            return result.Gates;
+        }, selectedMapId);
 
     internal AutomaticMapIdentityDecision IdentifyAutomaticMap(CapturedGameFrame frame,
         string mapClass, string floorKey, CancellationToken token, Func<bool> canCompute)

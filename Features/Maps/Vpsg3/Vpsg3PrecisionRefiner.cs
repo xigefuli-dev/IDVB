@@ -30,15 +30,18 @@ internal static class Vpsg3PrecisionRefiner
         if (floor.PrecisionDistance.IsEmpty) return null;
         using var points = observation.ObservedEdges.FindNonZero();
         var sum = 0d;
+        var count = 0;
         for (var i = 0; i < points.Total(); i++)
         {
             var p = points.At<Point>(i);
             var x = (p.X + observation.ViewportBounds.X - offsetX) / scale;
             var y = (p.Y + observation.ViewportBounds.Y - offsetY) / scale;
+            if (floor.IsReferenceUnknown((int)Math.Round(x), (int)Math.Round(y))) continue;
+            count++;
             sum += x < 0 || y < 0 || x >= floor.ReferenceWidth - 1 || y >= floor.ReferenceHeight - 1
                 ? 50d : Sample(floor.PrecisionDistance, floor.ReferenceWidth, floor.ReferenceHeight, x, y) * scale;
         }
-        return points.Total() > 0 ? sum / points.Total() : null;
+        return count > 0 ? sum / count : null;
     }
     internal static Vpsg3PrecisionResult Refine(Vpsg3LiveObservation observation,
         Vpsg3PreparedFloor floor, double seedScale, double seedX, double seedY,
@@ -164,6 +167,7 @@ internal static class Vpsg3PrecisionRefiner
         {
             var rx = rcx + (p.X - cx - x) / s;
             var ry = rcy + (p.Y - cy - y) / s;
+            if (floor.IsReferenceUnknown((int)Math.Round(rx), (int)Math.Round(ry))) return double.NaN;
             return Math.Min(6d, Sample(floor.PrecisionDistance, floor.ReferenceWidth,
                 floor.ReferenceHeight, rx, ry) * s);
         }
@@ -172,10 +176,14 @@ internal static class Vpsg3PrecisionRefiner
         {
             Span<double> sums = stackalloc double[4];
             sums.Clear();
+            Span<int> evaluated = stackalloc int[4];
+            evaluated.Clear();
             var totalSum = 0d;
             for (var i = 0; i < points.Length; i++)
             {
                 var d = Distance(points[i], s, x, y);
+                if (double.IsNaN(d)) continue;
+                evaluated[partitions[i]]++;
                 var huber = d <= 1.5d ? 0.5d * d * d : 1.5d * (d - 0.75d);
                 sums[partitions[i]] += huber;
                 totalSum += huber;
@@ -183,8 +191,10 @@ internal static class Vpsg3PrecisionRefiner
             var loss = 0d;
             var active = 0;
             for (var i = 0; i < 4; i++)
-                if (counts[i] >= 15) { loss += sums[i] / counts[i]; active++; }
-            return active > 0 ? loss / active : totalSum / points.Length;
+                if (evaluated[i] >= 15) { loss += sums[i] / evaluated[i]; active++; }
+            var count = evaluated[0] + evaluated[1] + evaluated[2] + evaluated[3];
+            if (floor.HasUnknownReference && (count < 35 || active < 2)) return double.PositiveInfinity;
+            return active > 0 ? loss / active : totalSum / Math.Max(1, count);
         }
 
         Vpsg3PrecisionResiduals Residuals(double s, double x, double y)
@@ -196,6 +206,7 @@ internal static class Vpsg3PrecisionRefiner
             {
                 var p = points[i];
                 var d = Distance(p, s, x, y);
+                if (double.IsNaN(d)) continue;
                 quadrants[partitions[i]].Add(d);
                 var r = double.Hypot(p.X - cx, p.Y - cy);
                 if (r <= radius * 0.35d) near.Add(d);

@@ -18,7 +18,20 @@ public sealed partial class MapCvRecognitionService : IDisposable
     public IVpsg3PreparedIndexRegistry Vpsg3Registry => _vpsg3Registry;
 
 
-    private static bool TryGetVpsg3IndexKey(MapRecord map, string floorKey, out Vpsg3IndexCacheKey key) { key = default; var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase)); if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase)) return false; key = new Vpsg3IndexCacheKey(map.Id, floor.Key, MapFeatureCacheRules.ComputeContentFingerprint(map), map.UpdatedAt, Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt, schemaVersion: 1), SchemaVersion: 1); return true; }
+    private bool TryGetVpsg3IndexKey(MapRecord map, string floorKey, out Vpsg3IndexCacheKey key)
+    {
+        key = default;
+        try
+        {
+            var reference = _repository.ResolveStructureLineReference(map, floorKey);
+            if (reference is null) return false;
+            key = new(map.Id, floorKey, MapFeatureCacheRules.ComputeContentFingerprint(map),
+                map.UpdatedAt, reference.GenerationIdentity, SchemaVersion: 1);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
+        { return false; }
+    }
 
     // ponytail: one in-flight shadow, no queue; add a bounded queue only if dropped
     // observations prevent certification. Cloned pixels and a lease outlive the caller.
@@ -38,18 +51,14 @@ public sealed partial class MapCvRecognitionService : IDisposable
         Mat? pixels = null;
         try
         {
-            var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase));
-            if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt
-                || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase))
+            if (!TryGetVpsg3IndexKey(map, floorKey, out var key))
             {
                 Interlocked.Exchange(ref _vpsg3ShadowRunning, 0);
                 log.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
                     "VPSG3 shadow skipped: prebuilt unavailable", details: new() { ["mapId"] = map.Id, ["floorKey"] = floorKey });
                 return Task.CompletedTask;
             }
-            var key = new Vpsg3IndexCacheKey(map.Id, floor.Key,
-                MapFeatureCacheRules.ComputeContentFingerprint(map), map.UpdatedAt,
-                Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt));
+            var reference = _repository.ResolveStructureLineReference(map, floorKey)!;
             if (!_vpsg3Registry.TryGet(key, out lease))
             {
                 Interlocked.Exchange(ref _vpsg3ShadowRunning, 0);
@@ -72,7 +81,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var ownedLease = lease;
             var bounds = frame.ViewportBounds;
             var capturedAt = DateTimeOffset.UtcNow;
-            var referenceSha256 = prebuilt.Sha256;
+            var referenceSha256 = map.Floors.First(f => f.Key == floorKey).PrebuiltStructureLine?.Sha256 ?? string.Empty;
             return Task.Run(() =>
             {
                 using (ownedPixels)
@@ -87,7 +96,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                         {
                             try
                             {
-                                var refPath = _repository.GetPrebuiltStructureLinePath(map, floorKey);
+                                var refPath = reference.Path;
                                 Vpsg3DiagnosticCapture.CaptureIfActive(
                                     diagnosticAttemptId,
                                     observation,
@@ -108,7 +117,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                             try
                             {
                                 evidencePath = Vpsg3CertificationCapture.Save(log.LogDirectory, ownedPixels,
-                                    _repository.GetPrebuiltStructureLinePath(map, floorKey), referenceSha256,
+                                    reference.Path, referenceSha256,
                                     key, bounds, capturedAt, result, baseline);
                             }
                             catch (Exception ex)
@@ -193,7 +202,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
             foreach (var floor in map.Floors)
             {
                 // Strict PrebuiltStructureLine contract: ineligible floors never get a VPSG3 index
-                if (!TryGetEligiblePrebuiltPath(map, floor, out var linePath) || linePath is null)
+                if (!TryGetVpsg3IndexKey(map, floor.Key, out var cacheKey)
+                    || !TryGetEligiblePrebuiltPath(map, floor, out var linePath) || linePath is null)
                 {
                     MapLogCollector.Instance.Append(
                         MapLogCategory.StructureRegistration,
@@ -209,18 +219,6 @@ public sealed partial class MapCvRecognitionService : IDisposable
                         });
                     continue;
                 }
-
-                var structureGen = Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(
-                    floor.PrebuiltStructureLine!,
-                    schemaVersion: 1);
-
-                var cacheKey = new Vpsg3IndexCacheKey(
-                    map.Id,
-                    floor.Key,
-                    fingerprint,
-                    map.UpdatedAt,
-                    structureGen,
-                    SchemaVersion: 1);
 
                 buildTasks.Add((map, floor, linePath, cacheKey));
             }
@@ -310,7 +308,9 @@ public sealed partial class MapCvRecognitionService : IDisposable
                             return ValueTask.CompletedTask;
                         }
 
-                        var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, taskItem.CacheKey, preparePrecision: false);
+                        using var unknown = _repository.LoadStructureReferenceUnknown(taskItem.Map, taskItem.Floor.Key);
+                        var preparedFloor = Vpsg3PreparedIndexBuilder.BuildFromMat(image, taskItem.CacheKey,
+                            preparePrecision: false, referenceUnknownMask: unknown);
                         var published = _vpsg3Registry.TryPublishFloor(taskItem.CacheKey, preparedFloor);
                         swBuild.Stop();
                         if (published)
@@ -384,19 +384,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
         out string? prebuiltPath)
     {
         prebuiltPath = null;
-        if (floor.PrebuiltStructureLine?.IsComplete is not true)
-            return false;
-
-        if (!string.Equals(
-                floor.PrebuiltStructureLine.SourceSha256,
-                floor.RecognitionSha256,
-                StringComparison.OrdinalIgnoreCase))
-            return false;
-
         try
         {
-            var path = _repository.GetPrebuiltStructureLinePath(map, floor.Key);
-            if (File.Exists(path))
+            var path = _repository.ResolveStructureLineReference(map, floor.Key)?.Path;
+            if (path is not null && File.Exists(path))
             {
                 prebuiltPath = path;
                 return true;

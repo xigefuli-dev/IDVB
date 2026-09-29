@@ -87,15 +87,19 @@ internal sealed partial class AdaptiveScaleCoordinator
             if (streakResult.Changed)
                 QueueInitialStreakWrite(streakResult.Snapshot);
 
-            var trusted = _options.CanLockScale
-                && streak.IsReliable;
+            var freshEntry = recognition.EntryCatalogRevision is not null;
+            var trusted = !freshEntry && _options.CanLockScale && streak.IsReliable;
             var controller = GetController(key);
+            // An independently fitted entrance pose replaces this floor's
+            // runtime seed even when "align now" keeps the same open ID.
+            // It does not inherit calibration trust or fabricate a map margin.
+            if (freshEntry) controller.EndOpen(controller.OpenId);
             _activeKey = key;
             _activeOpenId = effectiveOpenId;
             var resumed = controller.BeginOrResumeOpen(
                 _activeOpenId,
                 trusted ? streak.MedianScale : scale,
-                entry?.CalibrationScale,
+                freshEntry ? null : entry?.CalibrationScale,
                 trusted,
                 requiresRecovery: !strongInitial);
             AddInitialObservations(controller, recognition, transform, evidence);
@@ -105,6 +109,7 @@ internal sealed partial class AdaptiveScaleCoordinator
                 && controller.IsReliable;
             var render = controller.HasReliableBaseline
                 && (resumed || strongVpsg)
+                && !freshEntry
                 ? MapCvRecognitionBuilders.ReplaceTransformAndSource(
                     recognition,
                     AdaptiveScaleTransformArbitrator.KeepScale(

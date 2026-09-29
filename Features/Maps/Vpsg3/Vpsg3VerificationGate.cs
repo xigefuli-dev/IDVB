@@ -72,14 +72,14 @@ public static class Vpsg3VerificationGate
                 }
             }
 
-            var partIdx = (q.X < halfW ? 0 : 1) + (q.Y < halfH ? 0 : 2);
-            partTotal[partIdx]++;
-            totalValidPoints++;
-
             var screenX = viewportBounds.X + q.X;
             var screenY = viewportBounds.Y + q.Y;
             var rx = (int)Math.Round((screenX - offsetX) * invScale);
             var ry = (int)Math.Round((screenY - offsetY) * invScale);
+            if (preparedFloor.IsReferenceUnknown(rx, ry)) continue;
+            var partIdx = (q.X < halfW ? 0 : 1) + (q.Y < halfH ? 0 : 2);
+            partTotal[partIdx]++;
+            totalValidPoints++;
 
             if (preparedFloor.IsHitK5(rx, ry))
             {

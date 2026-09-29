@@ -40,6 +40,9 @@ public sealed partial class SessionOrchestrator
         bool isHypothesis = false)
     {
         repairCacheKey = null;
+        if (locked.Map.Floors.Any(floor => floor.Key == floorKey && floor.EntryIdentityAsset is not null))
+            return _recognition.AlignEntryFloor(frame, locked.Map.Id, floorKey, identityPriorConfidence,
+                NoDoorAlignmentDeadline.Current?.Token ?? CurrentMatchCancellationToken);
         structureTuning = CreateStructureTuningForFloor(
             locked.Map,
             floorKey,

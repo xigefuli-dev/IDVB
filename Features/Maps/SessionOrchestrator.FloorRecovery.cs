@@ -306,8 +306,13 @@ public sealed partial class SessionOrchestrator
     {
         var isManualFloor = context.ManualFloorKey is not null;
         var isSingleFloorMap = orderedFloors.Count <= 1;
+        // Entry geometry is authored separately for every floor. A confirmed
+        // current-frame floor is not overturned because alignment lacks walls.
+        var hasConfirmedEntryFloor = frame.DetectedFloorKey == initialAttemptResult.FloorKey
+            && locked.Map.Floors.Any(floor => floor.Key == initialAttemptResult.FloorKey
+                && floor.EntryIdentityAsset is not null);
 
-        var shouldRecover = FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(
+        var shouldRecover = !hasConfirmedEntryFloor && FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(
             isManualFloor: isManualFloor,
             isSingleFloorMap: isSingleFloorMap,
             initialAttempt: initialAttemptResult);

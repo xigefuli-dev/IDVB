@@ -21,7 +21,8 @@ public sealed partial class SessionOrchestrator
         // guard at the route boundary as well as in the normal caller branch,
         // so a future route-selection change cannot send it through VPSG or a
         // side/double-gate fallback.
-        if (MapAlignmentChannelRegistry.Resolve(
+        if (locked.Map.Floors.Any(floor => floor.Key == targetFloorKey && floor.EntryIdentityAsset is not null)
+            || MapAlignmentChannelRegistry.Resolve(
                 locked.Map,
                 targetFloorKey).Channel == MapAlignmentChannel.LowStructure)
         {

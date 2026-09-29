@@ -67,13 +67,13 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException("IDVM 1.2 包必须声明 floorMarkerKeys 能力。");
         if (isVersion13 && (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags))
             throw new InvalidDataException("IDVM 1.3 包必须声明 floorMarkerKeys 和 mapTags 能力。");
+        if (!isVersion14 && (manifest.Capabilities.LayoutIdentities || manifest.Capabilities.EntryIdentityAssets))
+            throw new InvalidDataException("布局和入口身份声明要求 IDVM 1.4。");
         if (isVersion14)
         {
             if (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags)
                 throw new InvalidDataException("IDVM 1.4 包必须声明 floorMarkerKeys 和 mapTags 能力。");
-            ValidateSupportedPlatforms(manifest.SupportedPlatforms);
-            if (!IdvmPlatformCompatibility.SupportsWindows(manifest.SupportedPlatforms))
-                throw new IdvmPlatformNotSupportedException(manifest.SupportedPlatforms!);
+            ValidatePlatformCompatibility(manifest, manifestBytes);
             var routeClasses = manifest.Classes.Count(item => item.Properties?.ContainsVectorRoutes is true);
             if ((manifest.Capabilities.ContainsVectorRoutes is true) != (routeClasses > 0))
                 throw new InvalidDataException("IDVM 1.4 包的矢量路线能力与地图类声明不一致。");
@@ -220,15 +220,17 @@ public sealed partial class IdvmPackageService
         GatesDto gates,
         AnchorsDto anchors,
         bool requireFloorMarkerSchema,
-        bool requireTagSchema)
+        bool requireTagSchema,
+        bool allowLayoutIdentities, Func<MetadataFloorDto, bool> hasValidatedEntryIdentity)
     {
         if (metadata.Map is null || metadata.Floors is null || metadata.Tags is null || metadata.Recognition?.WholeImage is null
             || gates.Gates is null || anchors.Floors is null)
             throw new InvalidDataException("地图数据文件缺少必需对象或数组。");
-        if (metadata.SchemaVersion is not (1 or 2 or 3) || gates.SchemaVersion != 1
+        if (metadata.SchemaVersion is not (1 or 2 or 3 or 4) || gates.SchemaVersion != 1
             || anchors.SchemaVersion is not (1 or 2 or 3 or 4))
             throw new InvalidDataException("不支持的数据 schemaVersion。");
-        if (requireTagSchema && metadata.SchemaVersion != 3)
+        ValidateLayoutIdentity(metadata, allowLayoutIdentities);
+        if (requireTagSchema && metadata.SchemaVersion is not (3 or 4))
             throw new InvalidDataException("IDVM 1.3 地图 metadata 必须使用 schemaVersion 3。");
         if (requireFloorMarkerSchema && !requireTagSchema && metadata.SchemaVersion != 2)
         {
@@ -355,6 +357,7 @@ public sealed partial class IdvmPackageService
                 throw new InvalidDataException($"锚点 {anchor.Key} 引用了不存在的门。");
 
         var primaryFloorKey = metadata.Floors[0].Key;
+        var entryPrimary = hasValidatedEntryIdentity(metadata.Floors[0]);
         var primaryAnchors = anchors.Floors[primaryFloorKey].Anchors;
         foreach (var (anchorKey, gateRole) in new[]
         {
@@ -364,6 +367,7 @@ public sealed partial class IdvmPackageService
         {
             var gate = gates.Gates.SingleOrDefault(item =>
                 item.FloorKey == primaryFloorKey && item.Role == gateRole);
+            if (entryPrimary && gate is null && !primaryAnchors.Any(anchor => anchor.Key == anchorKey)) continue;
             if (gate is null || !primaryAnchors.Any(anchor =>
                     anchor.Key == anchorKey && anchor.GateId == gate.Id))
             {

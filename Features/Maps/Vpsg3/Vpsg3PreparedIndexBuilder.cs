@@ -20,13 +20,29 @@ public static class Vpsg3PreparedIndexBuilder
         Mat edgeImage,
         Vpsg3IndexCacheKey cacheKey,
         Vpsg3TuningConfig? tuning = null,
-        bool preparePrecision = false)
+        bool preparePrecision = false,
+        Mat? referenceUnknownMask = null)
     {
         ArgumentNullException.ThrowIfNull(edgeImage);
         if (edgeImage.Empty())
             throw new ArgumentException("Edge image cannot be empty.", nameof(edgeImage));
         if (edgeImage.Type() != MatType.CV_8UC1)
             throw new ArgumentException("Edge image must be single-channel 8-bit.", nameof(edgeImage));
+
+        using var authoredEdges = referenceUnknownMask is null ? null : edgeImage.Clone();
+        byte[]? unknownPixels = null;
+        if (referenceUnknownMask is not null)
+        {
+            if (referenceUnknownMask.Type() != MatType.CV_8UC1 || referenceUnknownMask.Size() != edgeImage.Size())
+                throw new InvalidDataException("Reference unknown mask must match the structure canvas.");
+            authoredEdges!.SetTo(Scalar.Black, referenceUnknownMask);
+            edgeImage = authoredEdges;
+            var sourceWidth = edgeImage.Width;
+            var sourceHeight = edgeImage.Height;
+            unknownPixels = new byte[checked(sourceWidth * sourceHeight)];
+            for (var y = 0; y < sourceHeight; y++)
+                Marshal.Copy(referenceUnknownMask.Ptr(y), unknownPixels, y * sourceWidth, sourceWidth);
+        }
 
         var cfg = tuning ?? Vpsg3TuningConfig.Default;
         var width = edgeImage.Width;
@@ -45,6 +61,11 @@ public static class Vpsg3PreparedIndexBuilder
         using var kernel3 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
         Cv2.Dilate(edgeImage, dilatedK5, kernel5);
         Cv2.Dilate(edgeImage, dilatedK3, kernel3);
+        if (referenceUnknownMask is not null)
+        {
+            dilatedK5.SetTo(Scalar.Black, referenceUnknownMask);
+            dilatedK3.SetTo(Scalar.Black, referenceUnknownMask);
+        }
 
         // 4. Pack into 64-bit row-major bitsets
         var wordsPerRow = (width + 63) / 64;
@@ -83,6 +104,7 @@ public static class Vpsg3PreparedIndexBuilder
             Marshal.Copy(distance.Data, precisionDistance, 0, precisionDistance.Length);
         }
         var totalBytes = objectOverhead + bitsetBytes
+            + (unknownPixels?.LongLength ?? 0L)
             + (precisionDistance is null ? 0L : precisionDistance.LongLength * sizeof(float) + 24L);
 
         return new Vpsg3PreparedFloor(
@@ -95,7 +117,7 @@ public static class Vpsg3PreparedIndexBuilder
             bitsetK5,
             bitsetK3,
             totalBytes,
-            precisionDistance);
+            precisionDistance, unknownPixels);
     }
 
     /// <summary>

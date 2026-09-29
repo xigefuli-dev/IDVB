@@ -40,8 +40,15 @@ internal static class MapStructureEvaluator
         var originalRefX = logicalReferenceX / referenceScale;
         var originalRefY = logicalReferenceY / referenceScale;
 
-        using var queryEdges = new Mat(query.Edges, query.Bounds);
-        using var queryStructure = new Mat(query.Structure, query.Bounds);
+        using var queryEdgesView = new Mat(query.Edges, query.Bounds);
+        using var queryStructureView = new Mat(query.Structure, query.Bounds);
+        using var maskedEdges = reference.ReferenceUnknownMask is null ? null : queryEdgesView.Clone();
+        using var maskedStructure = reference.ReferenceUnknownMask is null ? null : queryStructureView.Clone();
+        var queryEdges = maskedEdges ?? queryEdgesView;
+        var queryStructure = maskedStructure ?? queryStructureView;
+        if (reference.ReferenceUnknownMask is { } unknown)
+            ExcludeUnknown(queryEdges, queryStructure, unknown, logicalReferenceX, logicalReferenceY, referenceScale);
+        var evaluatedEdgeCount = reference.ReferenceUnknownMask is null ? query.EdgeCount : Cv2.CountNonZero(queryEdges);
         using var distancePatch = new Mat(
             matchingDistance ?? referenceDistance,
             new Rect(
@@ -65,7 +72,8 @@ internal static class MapStructureEvaluator
         // Low-structure hypotheses span a much wider scale range, so their
         // reference-coordinate Chamfer values must be compared in screen
         // pixels. Keep the standard channel's established calibration intact.
-        var chamfer = ResolveChamferPixels(
+        var chamfer = reference.ReferenceUnknownMask is not null && evaluatedEdgeCount < tuning.MinimumEdgePixels
+            ? double.PositiveInfinity : ResolveChamferPixels(
             Cv2.Mean(distancePatch, queryEdges).Val0,
             scale,
             request.Channel);
@@ -126,7 +134,7 @@ internal static class MapStructureEvaluator
             CmpTypes.LE);
         Cv2.BitwiseAnd(withinTolerance, queryEdges, coveredEdges);
         var covered = Cv2.CountNonZero(coveredEdges);
-        var edgeCoverage = covered / (double)Math.Max(1, query.EdgeCount);
+        var edgeCoverage = covered / (double)Math.Max(1, evaluatedEdgeCount);
 
         using var occupancyOverlap = new Mat();
         Cv2.BitwiseAnd(
@@ -345,6 +353,27 @@ internal static class MapStructureEvaluator
                 ? request.TwoStagePhysicalRatio
                 : 1.0d
         };
+    }
+
+    private static void ExcludeUnknown(Mat edges, Mat structure, Mat unknown,
+        int referenceX, int referenceY, double referenceScale)
+    {
+        var height = edges.Rows;
+        var width = edges.Cols;
+        var referenceWidth = unknown.Width;
+        var referenceHeight = unknown.Height;
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+        {
+            var rx = (int)Math.Round((referenceX + x) / referenceScale);
+            var ry = (int)Math.Round((referenceY + y) / referenceScale);
+            if ((uint)rx < (uint)referenceWidth && (uint)ry < (uint)referenceHeight
+                && unknown.At<byte>(ry, rx) != 0)
+            {
+                edges.Set(y, x, (byte)0);
+                structure.Set(y, x, (byte)0);
+            }
+        }
     }
 
     internal static double NormalizeChamferToScreenPixels(

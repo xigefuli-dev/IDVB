@@ -120,6 +120,8 @@ public sealed partial class IdvmPackageService
                 {
                     FloorMarkerKeys = true,
                     MapTags = true,
+                    LayoutIdentities = selectedMaps.Any(map => map.LayoutIdentity is not null),
+                    EntryIdentityAssets = selectedMaps.Any(map => map.Floors.Any(floor => floor.EntryIdentityAsset is not null)),
                     PrebuiltStructureLines = selectedMaps.Any(map =>
                         MapFloorRules.GetOrderedFloors(map).Any(floor =>
                             floor.PrebuiltStructureLine?.IsComplete is true)),
@@ -339,7 +341,7 @@ public sealed partial class IdvmPackageService
         public string Sha256 { get; set; } = string.Empty;
     }
 
-    private sealed class CapabilitiesDto
+    private sealed partial class CapabilitiesDto
     {
         public bool MultiClass { get; set; } = true;
         public bool MultiFloor { get; set; } = true;
@@ -351,6 +353,8 @@ public sealed partial class IdvmPackageService
         public bool FloorMarkerKeys { get; set; }
         public bool MapTags { get; set; }
         public bool PrebuiltStructureLines { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool LayoutIdentities { get; set; }
         public bool? ContainsVectorRoutes { get; set; }
     }
 
@@ -380,10 +384,11 @@ public sealed partial class IdvmPackageService
         public long? SourceProjectRevision { get; set; }
         public string? SourceVisualSha256 { get; set; }
         public string? SourceStructureSha256 { get; set; }
+        public MapLayoutIdentity? LayoutIdentity { get; set; }
         public string CoordinateSystem { get; set; } = string.Empty;
     }
 
-    private sealed class MetadataFloorDto
+    private sealed partial class MetadataFloorDto
     {
         public string Key { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;

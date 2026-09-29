@@ -50,8 +50,7 @@ public sealed partial class SessionOrchestrator
         }
 
         var cacheTimer = Stopwatch.StartNew();
-        var usePrebuiltLine = structureTuning.UsePrebuiltStructureLine
-            && _recognition.HasPrebuiltStructureLine(locked.Map, floorKey);
+        var usePrebuiltLine = _recognition.UsesStructureLineReference(locked.Map, floorKey, structureTuning);
         var referenceProfile = _recognition.GetReferenceProfile(
             locked.Map,
             floorKey,
@@ -87,12 +86,11 @@ public sealed partial class SessionOrchestrator
             }
 
             cacheTimer.Restart();
-            ownedPreparedReference = _recognition.StructureCache.GetOrCreate(
-                locked.Map.Id,
-                locked.Map.UpdatedAt,
+            ownedPreparedReference = _recognition.PrepareAlignmentReference(
+                locked.Map,
+                floorKey,
                 decodedReference,
                 profile.WholeImageIgnoreRegions,
-                floorKey,
                 structureTuning.Generation,
                 referenceProfile);
             cacheTimer.Stop();

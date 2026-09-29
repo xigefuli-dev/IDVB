@@ -45,8 +45,16 @@ public sealed class MapClassDiagnosticCoordinator
     {
         try
         {
-            await repository.HealMissingPrebuiltStructureLinesAsync(cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await repository.HealMissingPrebuiltStructureLinesAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // A rejected repair must remain visible in the resource diagnostics.
+                System.Diagnostics.Debug.WriteLine($"[MapDiagnostics] 自动修复未完成：{exception}");
+            }
             var diagnostics = await repository.DiagnoseMapClassesAsync(cancellationToken)
                 .ConfigureAwait(false);
             var next = diagnostics.ToDictionary(
@@ -116,12 +124,26 @@ public sealed partial class MapRepository
                 CheckImageAsset(problems, prefix, "叠加图", () => GetFloorOverlayPath(map, floor.Key),
                     floor.OverlayFileLength, floor.OverlaySha256);
 
-                if (!HasPrebuiltStructureLine(map, floor.Key))
+                if (floor.EntryIdentityAsset is not null)
+                {
+                    try
+                    {
+                        // Entry-backed floors use their authored channels, not legacy scan assets.
+                        HasValidatedEntryStructure(map, floor);
+                        MapEntryIdentityResources.ValidateFiles(GetMapDirectory(map.Id), floor.EntryIdentityAsset,
+                            map.SourcePackageMapId ?? map.Id, floor.Key);
+                    }
+                    catch (Exception exception)
+                    {
+                        problems.Add($"{prefix}：入口身份资源不可用（{exception.Message}）");
+                    }
+                }
+                else if (!HasPrebuiltStructureLine(map, floor.Key))
                     problems.Add($"{prefix}：预生成二值轮廓线图缺失、过期或损坏。");
                 else
                     ValidatePrebuiltFiles(problems, map, floor, prefix);
 
-                if (RequiresScanAssets(scanFloorKey, floor.Key))
+                if (floor.EntryIdentityAsset is null && RequiresScanAssets(scanFloorKey, floor.Key))
                 {
                     if (!MapScanFloorRules.HasRequiredScanMarkers(map, floor.Key))
                         problems.Add($"{prefix}：缺少完整的扫描门锚点区域。");

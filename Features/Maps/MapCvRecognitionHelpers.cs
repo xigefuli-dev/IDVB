@@ -277,6 +277,7 @@ internal static class MapCvRecognitionHelpers
             if (!string.Equals(aProfile?.SideEntranceFeatureSha256, bProfile?.SideEntranceFeatureSha256, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(aProfile?.SideEntranceFeatureAlgorithmVersion, bProfile?.SideEntranceFeatureAlgorithmVersion, StringComparison.Ordinal)
                 || !string.Equals(a.PrebuiltStructureLine?.Sha256, b.PrebuiltStructureLine?.Sha256, StringComparison.OrdinalIgnoreCase)
+                || MapRepository.EntryStructureGeneration(a.EntryIdentityAsset) != MapRepository.EntryStructureGeneration(b.EntryIdentityAsset)
                 || !string.Equals(a.PrebuiltStructureLine?.AlgorithmSha256, b.PrebuiltStructureLine?.AlgorithmSha256, StringComparison.OrdinalIgnoreCase))
                 return false;
         }

@@ -191,11 +191,18 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     private ulong[]? _dilatedBitsetK5;
     private ulong[]? _dilatedBitsetK3;
     private float[]? _precisionDistance;
+    private byte[]? _referenceUnknown;
     private readonly object _precisionGate = new();
     private readonly long _baseMemoryBytes;
 
     internal ReadOnlySpan<float> PrecisionDistance => _precisionDistance;
     public bool HasPrecisionDistance => _precisionDistance is not null;
+    public bool HasUnknownReference => _referenceUnknown is not null;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsReferenceUnknown(int x, int y) => _referenceUnknown is { } unknown
+        && (uint)x < (uint)ReferenceWidth && (uint)y < (uint)ReferenceHeight
+        && unknown[y * ReferenceWidth + x] != 0;
 
     public Vpsg3IndexCacheKey CacheKey { get; }
     public int ReferenceWidth { get; }
@@ -280,7 +287,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         ulong[] dilatedBitsetK5,
         ulong[] dilatedBitsetK3,
         long memoryBytes,
-        float[]? precisionDistance = null)
+        float[]? precisionDistance = null,
+        byte[]? referenceUnknown = null)
     {
         CacheKey = cacheKey;
         ReferenceWidth = referenceWidth;
@@ -294,6 +302,9 @@ public sealed class Vpsg3PreparedFloor : IDisposable
             throw new ArgumentException("Precision distance field must match the reference dimensions.", nameof(precisionDistance));
         _baseMemoryBytes = memoryBytes - (precisionDistance is null ? 0L : precisionDistance.LongLength * sizeof(float) + 24L);
         _precisionDistance = precisionDistance;
+        if (referenceUnknown is not null && referenceUnknown.LongLength != (long)referenceWidth * referenceHeight)
+            throw new ArgumentException("Unknown mask must match the reference dimensions.", nameof(referenceUnknown));
+        _referenceUnknown = referenceUnknown;
     }
 
     public Vpsg3PreparedFloor(
@@ -352,6 +363,10 @@ public sealed class Vpsg3PreparedFloor : IDisposable
             using var inverse = new Mat();
             using var distance = new Mat();
             Cv2.Threshold(edgeImage, binary, 128, 255, ThresholdTypes.Binary);
+            if (_referenceUnknown is not null)
+                for (var y = 0; y < ReferenceHeight; y++)
+                for (var x = 0; x < ReferenceWidth; x++)
+                    if (IsReferenceUnknown(x, y)) binary.Set(y, x, (byte)0);
             Cv2.BitwiseNot(binary, inverse);
             Cv2.DistanceTransform(inverse, distance, DistanceTypes.L2, DistanceTransformMasks.Precise);
             var buffer = new float[checked(ReferenceWidth * ReferenceHeight)];
@@ -409,6 +424,7 @@ public sealed class Vpsg3PreparedFloor : IDisposable
             _dilatedBitsetK5 = null;
             _dilatedBitsetK3 = null;
             _precisionDistance = null;
+            _referenceUnknown = null;
         }
     }
 

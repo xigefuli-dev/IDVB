@@ -150,12 +150,11 @@ public sealed partial class MapCvRecognitionService
                         "The locked floor recognition image could not be read.");
                 }
 
-                ownedPreparedReference = _structureCache.GetOrCreate(
-                    map.Id,
-                    map.UpdatedAt,
+                ownedPreparedReference = PrepareAlignmentReference(
+                    map,
+                    floorKey,
                     decodedReference,
                     profile.WholeImageIgnoreRegions,
-                    floorKey,
                     structureTuning.Generation,
                     referenceProfile);
             }

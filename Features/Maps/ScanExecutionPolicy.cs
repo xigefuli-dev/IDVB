@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 namespace IDVBuff.Features.Maps;
 
 [JsonConverter(typeof(ScanPerformanceModeJsonConverter))]
-public enum ScanPerformanceMode { Fast, Balanced, Quality }
+public enum ScanPerformanceMode { Fast = 0, Balanced = 1, Quality = 2, DeepScan = 3 }
 public enum ScanUncertainAction { ShowCandidates, ReportUnrecognized }
 
 public sealed class ScanPerformanceModeJsonConverter : JsonConverter<ScanPerformanceMode>
@@ -46,6 +46,9 @@ public sealed record ScanExecutionPolicy(
     {
         ScanPerformanceMode.Fast => new(mode, 500, 256, .08, .02, 1, 3),
         ScanPerformanceMode.Quality => new(mode, 1000, 256, .02, .005, 3, 1),
+        // Reserved entry for the future scanner. Keep its persisted identity while
+        // inheriting Quality unchanged, including its end-to-end deadline.
+        ScanPerformanceMode.DeepScan => For(ScanPerformanceMode.Quality) with { Mode = mode },
         _ => new(ScanPerformanceMode.Balanced, 1000, 256, .04, .01, 2, 3)
     };
 }

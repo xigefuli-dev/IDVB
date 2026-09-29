@@ -1,0 +1,10 @@
+# UHD initial search domain: QHD minimum 0.45 * 2160/1440.
+# Keep the existing 5.0 safety ceiling and ScanExecutionPolicy deadline.
+# This is a search bound, never a cached scale or a cross-floor seed.
+# IDVB side entrance: scan density and deadline are owned by ScanExecutionPolicy.
+[side_entrance]
+clamp_feature_to_bounds = true
+feature_region_ratio = 0.40
+scan_parallelism = 4
+minimum_scale = 0.675
+maximum_scale = 5.0

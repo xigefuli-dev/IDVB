@@ -377,8 +377,8 @@ public sealed class FloorOperationContextTests
     [Fact]
     public void DecideFromAttempts_AllRejected_WhenBudgetNotExhausted_ReturnsAllRejected()
     {
-        var attempt1 = CreateAttemptResult("2f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.WeakAbsoluteScore);
-        var attempt2 = CreateAttemptResult("1f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.InconsistentStructure);
+        var attempt1 = CreateAttemptResult("2f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.OutsideValidBounds);
+        var attempt2 = CreateAttemptResult("1f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.AnchorTransformConflict);
 
         var decision = FloorAlignmentRecoveryRules.DecideFromAttempts([attempt1, attempt2], budgetExhausted: false);
         Assert.Equal(FloorRecoveryResolution.AllRejected, decision.Resolution);

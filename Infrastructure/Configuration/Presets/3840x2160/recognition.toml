@@ -1,0 +1,24 @@
+# IDVB Recognition Parameters — 3840x2160 @ 120 DPI
+
+[geometry]
+# Inherit dimensionless QHD gates; no native UHD measurement is claimed.
+vector_error_tolerance = 0.45
+ambiguity_margin = 0.020
+confirmation_margin = 0.08
+minimum_confidence = 0.50
+vector_score_weight = 0.65
+distance_score_weight = 0.25
+angle_score_weight = 0.10
+geometry_score_weight = 0.85
+template_score_weight = 0.15
+
+[candidate]
+force_candidate_selection = true
+force_best_result = false
+top_candidates = 4
+warm_gate_search_budget_ms = 120
+confirmation_gate_search_budget_ms = 0
+confirmation_roi_template_padding_factor = 1.0
+confirmation_roi_minimum_padding_pixels = 48
+confirmation_maximum_map_drag_pixels_per_second = 1350
+confirmation_scheduling_slack_ms = 100

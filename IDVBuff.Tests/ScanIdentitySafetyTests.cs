@@ -36,6 +36,7 @@ public sealed class ScanIdentitySafetyTests
     [InlineData(ScanPerformanceMode.Fast)]
     [InlineData(ScanPerformanceMode.Balanced)]
     [InlineData(ScanPerformanceMode.Quality)]
+    [InlineData(ScanPerformanceMode.DeepScan)]
     public void OneWrongRoomCannotHideBehindGlobalSupport(ScanPerformanceMode mode)
     {
         using var image = new Mat(600, 800, MatType.CV_8UC3, new Scalar(30, 25, 22));

@@ -5,7 +5,7 @@ using Xunit;
 
 namespace IDVBuff.Tests;
 
-public sealed class FloorRecoveryDecisionTests
+public sealed partial class FloorRecoveryDecisionTests
 {
     private static FloorAlignmentAttemptResult CreateAttemptResult(
         string floorKey,
@@ -73,7 +73,7 @@ public sealed class FloorRecoveryDecisionTests
         Assert.False(FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(isManualFloor: false, isSingleFloorMap: true, eligibleAttempt));
         // 已接受成功绝不触发
         Assert.False(FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(isManualFloor: false, isSingleFloorMap: false, acceptedAttempt));
-        // 非 Rejected（如超时）绝不触发
+        // 无可试探的结构原因（如超时）绝不触发
         Assert.False(FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(isManualFloor: false, isSingleFloorMap: false, timeoutAttempt));
         // 非白名单拒绝理由绝不触发
         Assert.False(FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(isManualFloor: false, isSingleFloorMap: false, scaleLargeAttempt));
@@ -119,7 +119,7 @@ public sealed class FloorRecoveryDecisionTests
     [Fact]
     public void DecideFromAttempts_SingleAccepted_ReturnsWinner()
     {
-        var attempt2f = CreateAttemptResult("2f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.WeakAbsoluteScore);
+        var attempt2f = CreateAttemptResult("2f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.OutsideValidBounds);
         var attempt1f = CreateAttemptResult("1f", FloorAlignmentAttemptOutcome.Accepted, confidence: 0.88d);
 
         var decision = FloorAlignmentRecoveryRules.DecideFromAttempts([attempt2f, attempt1f], budgetExhausted: false);
@@ -169,8 +169,8 @@ public sealed class FloorRecoveryDecisionTests
     [Fact]
     public void DecideFromAttempts_AllRejected_ReturnsAllRejected()
     {
-        var attempt2f = CreateAttemptResult("2f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.WeakAbsoluteScore);
-        var attempt1f = CreateAttemptResult("1f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.InconsistentStructure);
+        var attempt2f = CreateAttemptResult("2f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.OutsideValidBounds);
+        var attempt1f = CreateAttemptResult("1f", FloorAlignmentAttemptOutcome.Rejected, MapStructureRejectionReason.AnchorTransformConflict);
 
         var decision = FloorAlignmentRecoveryRules.DecideFromAttempts([attempt2f, attempt1f], budgetExhausted: false);
 

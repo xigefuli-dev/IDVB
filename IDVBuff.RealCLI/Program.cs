@@ -24,6 +24,12 @@ using System.Text;
 Console.OutputEncoding = Encoding.UTF8;
 Console.InputEncoding = Encoding.UTF8;
 
+if (!IDVBuff.Lifecycle.UsageNotice.IsAccepted())
+{
+    Console.Error.WriteLine("请先正常启动 Identity Vision Bridge，阅读并确认软件性质及使用责任声明。");
+    return 1;
+}
+
 // ── DispatcherQueue 初始化 ──
 // 控制台应用没有 WinUI 消息泵，使用 DispatcherQueueController 创建同步调度器。
 // SessionOrchestrator 仅通过 _dispatcher.TryEnqueue() 派发 IGlobalInput 事件回调；

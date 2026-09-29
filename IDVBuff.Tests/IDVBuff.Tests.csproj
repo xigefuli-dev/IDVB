@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\Infrastructure\IDVBuff.Infrastructure.csproj" />
     <ProjectReference Include="..\Pipeline\IDVBuff.Pipeline.csproj" />
     <ProjectReference Include="..\Survey\Domain\IDVBuff.Survey.Domain.csproj" />
     <ProjectReference Include="..\Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
@@ -30,6 +31,7 @@
 
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Lifecycle\UsageNotice.cs" Link="Production\Lifecycle\UsageNotice.cs" />
     <Compile Include="..\Features\Feedback\FeedbackTextValidator.cs" Link="Production\Feedback\FeedbackTextValidator.cs" />
     <Compile Include="..\Features\Feedback\FeedbackModels.cs" Link="Production\Feedback\FeedbackModels.cs" />
     <Compile Include="..\Features\Feedback\IFeedbackService.cs" Link="Production\Feedback\IFeedbackService.cs" />
@@ -41,6 +43,7 @@
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\QuickStart\QuickStartRecommendedSettings.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartStateStore.cs" Link="Production\QuickStart\QuickStartStateStore.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Diagnostics\OutputLog.Context.cs" Link="Production\Diagnostics\OutputLog.Context.cs" />
     <Compile Include="..\Diagnostics\SavedDiagnosticDataRetention.cs" Link="Production\Diagnostics\SavedDiagnosticDataRetention.cs" />
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
@@ -331,6 +334,7 @@
     <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
     <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
+    <Compile Include="..\Views\ScanModeVisualRules.cs" Link="Production\ScanModeVisualRules.cs" />
     <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
     <Compile Include="..\Features\Maps\ScanObservationRules.cs" Link="Production\ScanObservationRules.cs" />
     <Compile Include="..\Features\Maps\ScanObservationFrameCache.cs" Link="Production\ScanObservationFrameCache.cs" />

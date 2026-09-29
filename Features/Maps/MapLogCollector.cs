@@ -58,6 +58,7 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
                     };
                     _session = session;
                     _isEnabled = true;
+                    OutputLog.BindScanLog(session.Path);
                     if (!DisablePersistence)
                     {
                         _flushTimer = new Timer(
@@ -71,12 +72,14 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
                             FlushInterval);
                         _repository.CleanupOldSessions();
                     }
+                    var sessionDetails = OutputLog.GetContextDetails();
+                    sessionDetails["sessionPath"] = session.Path;
                     AppendInternal(
                         session,
                         MapLogCategory.System,
                         MapLogLevel.Info,
                         "Log collection started",
-                        details: new() { ["sessionPath"] = session.Path });
+                        details: sessionDetails);
                 }
                 else
                 {
@@ -355,6 +358,7 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
         DisposeTimerLocked();
         var session = _session;
         AppendInternal(session, MapLogCategory.System, MapLogLevel.Info, message);
+        OutputLog.UnbindScanLog(session.Path);
         _session = null;
         var finalizationTask = FinalizeSessionAsync(session);
         _finalizationTasks.Add(finalizationTask);

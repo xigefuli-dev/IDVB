@@ -47,10 +47,12 @@
   <!-- 链接主项目源码：Features 全部（纯 Win32 窗口，无 XAML）+ 根目录必要文件 -->
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Lifecycle\UsageNotice.cs" Link="Production\Lifecycle\UsageNotice.cs" />
     <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
     <Compile Include="..\ServiceCollectionExtensions.cs" Link="Production\ServiceCollectionExtensions.cs" />
     <Compile Include="..\Cli\RealCliCandidateSelector.cs" Link="Production\Cli\RealCliCandidateSelector.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Diagnostics\OutputLog.Context.cs" Link="Production\Diagnostics\OutputLog.Context.cs" />
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Diagnostics\StartupTimeline.cs" Link="Production\Diagnostics\StartupTimeline.cs" />
     <Compile Include="..\Features\QuickStart\QuickStartRecommendedSettings.cs" Link="Production\Features\QuickStart\QuickStartRecommendedSettings.cs" />

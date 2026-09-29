@@ -1,0 +1,107 @@
+# IDVB Alignment Parameters — 3840x2160 @ 120 DPI
+
+[structure]
+# Initial UHD preset, derived from QHD; not certified on a native 4K capture.
+# Reference-space quality gates and bounded coarse workload remain unchanged.
+maximum_chamfer_pixels = 3.0
+minimum_edge_coverage = 0.35
+minimum_occupancy_coverage = 0.40
+minimum_candidate_margin = 0.04
+edge_distance_tolerance_pixels = 3.0
+distance_clip_pixels = 12
+restricted_search_maximum_chamfer_pixels = 3.0
+
+[coarse]
+fast_coarse_max_dimension = 160
+fast_coarse_downsample_factor = 2
+fast_coarse_top_k = 5
+fast_coarse_nms_radius = 12
+enable_fast_alignment = true
+fast_fallback_to_legacy = true
+
+[scale]
+# Relative +/-2% band; 0.5% steps reduce live-pixel jumps at 1.5x QHD size.
+search_radius = 0.02
+search_step = 0.005
+tracking_scale_search_radius = 0.005
+minimum_scale = 0.05
+maximum_scale = 8.0
+scale_change_rejection_ratio = 0.03
+
+[ecc]
+enable_ecc_refinement = false
+skip_ecc_score_threshold = 8
+max_iterations = 30
+epsilon = 0.0001
+min_correlation = 0.60
+max_translation_shift = 2.5
+
+[refine]
+steps = [8, 4, 2, 1]
+skip_refinement_threshold = 0.001
+skip_refinement_margin = 0.10
+
+[feature_voting]
+enable = true
+ratio_threshold = 0.64
+inlier_tolerance_pixels = 6
+min_inlier_tolerance = 2
+min_votes = 3
+consensus_cost_reduction = 0.5
+
+[partitions]
+min_edges_per_partition = 12
+min_coverage = 0.45
+
+[early_termination]
+score_threshold = 0.55
+prior_agreement_min = 0.20
+chamfer_factor = 0.85
+edge_occupancy_bonus = 0.10
+margin_factor = 1.5
+
+[visible_aware]
+enable_mask = true
+enable_shadow = false
+enable_injection = true
+enable_early_exit = false
+search_budget_ms = 150
+coarse_downsample = 4
+top_k = 5
+min_visible_fraction = 0.05
+min_visible_structure_pixels = 75
+safe_erode_pixels = 1
+v_min = 42
+s_min = 14
+highlight_v_min = 80
+early_termination_max_composite_cost = 0.55
+
+[composite_cost]
+chamfer_weight = 1.0
+edge_coverage_weight = 4.0
+occupancy_weight = 2.0
+partition_weight = 0.75
+bounds_penalty = 100.0
+prior_disagreement_weight = 0.75
+
+[orb_tracking]
+enabled = false
+active_interval_ms = 100
+stable_interval_ms = 250
+stable_observation_count = 5
+feature_count = 1200
+ratio_threshold = 0.64
+minimum_matches = 12
+minimum_ransac_inliers = 8
+minimum_inlier_ratio = 0.50
+maximum_median_reprojection_error_pixels = 2.5
+maximum_rotation_degrees = 0.5
+maximum_step_scale_change_ratio = 0.01
+maximum_baseline_scale_change_ratio = 0.03
+minimum_translation_limit_pixels = 24
+maximum_translation_pixels_per_second = 600
+translation_deadband_pixels = 0.5
+scale_deadband_ratio = 0.0005
+structure_correction_interval_ms = 1000
+weak_frame_threshold = 3
+recovery_interval_ms = 500

@@ -10,11 +10,11 @@ public enum FloorAlignmentAttemptOutcome
 {
     /// <summary>完整通过该通道所有结构验收规则，且存在有效变换。</summary>
     Accepted,
-    /// <summary>完成计算，但结构证据明确不通过（如 WeakAbsoluteScore、NoCandidate 等）。</summary>
+    /// <summary>存在明确的结构矛盾；弱贴合、无候选或位置歧义不属于此状态。</summary>
     Rejected,
     /// <summary>低结构楼层结构可用但跨帧证据等待中，不可作为结构失败判定。</summary>
     PendingEvidence,
-    /// <summary>预算耗尽、早期终止或资源不足以判定。</summary>
+    /// <summary>预算耗尽、结构不足、弱贴合或位置歧义，无法排除该楼层。</summary>
     Inconclusive,
     /// <summary>操作已过期或被新操作取代。</summary>
     Superseded,

@@ -180,7 +180,7 @@ internal static class ScanIdentityVerifier
             if (d <= SupportTolerancePixels) hits++;
             tested++;
             // Conservative upper bound: even if every remaining pixel matches this transform cannot pass.
-            if (context?.Policy.Mode != ScanPerformanceMode.Quality
+            if (context?.Policy.Mode is not (ScanPerformanceMode.Quality or ScanPerformanceMode.DeepScan)
                 && hits + points.Length - tested < MinimumSupport * points.Length)
                 return new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
                     hits / (double)tested, 0, "unexplained-visible-structure");

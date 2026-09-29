@@ -14,23 +14,25 @@ using Windows.UI.ViewManagement;
 namespace IDVBuff.Views;
 
 /// <summary>
-/// Three independent scan-budget choices. The native slider owns input and accessibility;
+/// Quality reveals the fourth choice. The native slider owns keyboard input and accessibility;
 /// the surrounding layers provide the segmented visual treatment and mode-specific motion.
 /// </summary>
 public sealed partial class ScanModeSelector : UserControl
 {
-    private static readonly string[] ModeNames = ["极速", "均衡", "质量"];
+    private static readonly string[] ModeNames = ["极速", "均衡", "质量", "DeepScan"];
     private static readonly string[] ModeDescriptions =
     [
         "更快的响应速度",
         "兼顾响应速度与扫描质量",
-        "更细致的扫描结果"
+        "更细致的扫描结果",
+        "DeepScan 已开启"
     ];
     private static readonly Color[] ModeColors =
     [
         Color.FromArgb(255, 50, 218, 137),
         Color.FromArgb(255, 48, 151, 255),
-        Color.FromArgb(255, 182, 91, 242)
+        Color.FromArgb(255, 182, 91, 242),
+        Color.FromArgb(255, 208, 153, 255)
     ];
 
     private readonly Slider _input = new()
@@ -41,6 +43,7 @@ public sealed partial class ScanModeSelector : UserControl
         TickFrequency = 1,
         Value = 1,
         Opacity = 0,
+        IsHitTestVisible = false,
         IsThumbToolTipEnabled = false,
         HorizontalAlignment = HorizontalAlignment.Stretch,
         VerticalAlignment = VerticalAlignment.Stretch
@@ -88,7 +91,9 @@ public sealed partial class ScanModeSelector : UserControl
         Visibility = Visibility.Collapsed
     };
     private readonly List<Border> _speedLines = [];
-    private readonly TextBlock[] _labels = new TextBlock[3];
+    private readonly TextBlock[] _labels = new TextBlock[4];
+    private readonly Grid _segmentLabels = new() { IsHitTestVisible = false };
+    private readonly Border[] _dividers = new Border[3];
     private readonly UISettings _ui = new();
     private readonly List<(UIElement Element, long Token)> _ancestors = [];
     private readonly Border _card;
@@ -96,7 +101,6 @@ public sealed partial class ScanModeSelector : UserControl
     private bool _updating;
     private bool _tagOnly;
     private double _selectedPosition;
-    private double _lastPosition;
     private double _segmentWidth;
 
     public event Action<ScanPerformanceMode>? ModeChanged;
@@ -121,6 +125,7 @@ public sealed partial class ScanModeSelector : UserControl
         _track.Children.Add(_glowInner);
         _track.Children.Add(_fastGlow);
         _track.Children.Add(_trackSurface);
+        _track.Children.Add(_deepTrack);
         _track.Children.Add(_qualityHaloOuter);
         _track.Children.Add(_qualityHaloInner);
         _track.Children.Add(_selection);
@@ -168,7 +173,9 @@ public sealed partial class ScanModeSelector : UserControl
             Background = CreateGlassBrush()
         };
         var root = new Grid();
+        root.Children.Add(BuildDeepLightHost());
         root.Children.Add(_card);
+        root.Children.Add(_deepCardSurface);
         root.Children.Add(new Border
         {
             Width = 354,
@@ -198,15 +205,19 @@ public sealed partial class ScanModeSelector : UserControl
 
         _input.ValueChanged += (_, _) =>
         {
+            if (_updating) return;
             UpdateAppearance(true);
-            if (!_updating)
-                ModeChanged?.Invoke(Mode);
+            ModeChanged?.Invoke(Mode);
         };
         _track.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler(TrackPointerPressed), true);
+        _track.PointerMoved += TrackPointerMoved;
+        _track.PointerReleased += TrackPointerReleased;
+        _track.PointerCaptureLost += TrackPointerCaptureLost;
         _track.SizeChanged += (_, _) => UpdateAppearance(false);
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+        ActualThemeChanged += (_, _) => { if (_appearanceReady) RenderAppearanceFrame(); };
         RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => UpdateMotion());
     }
 
@@ -227,6 +238,17 @@ public sealed partial class ScanModeSelector : UserControl
 
         _updating = true;
         _tagOnly = tagOnly;
+        if (mode != Mode)
+        {
+            // A settings rollback supersedes the current pointer gesture.
+            _dragPointer = null;
+            _dragTrackX = null;
+            _isPointerDragging = false;
+            _pointerNeedsSettle = false;
+            _expandedForGesture = false;
+            _track.ReleasePointerCaptures();
+        }
+        if (mode == ScanPerformanceMode.DeepScan) _input.Maximum = 3;
         _input.Value = (int)mode;
         _updating = false;
         UpdateAppearance(false);
@@ -270,21 +292,22 @@ public sealed partial class ScanModeSelector : UserControl
 
     private Grid BuildSegmentLabels()
     {
-        var labels = new Grid { IsHitTestVisible = false };
-        for (var index = 0; index < 3; index++)
+        var labels = _segmentLabels;
+        for (var index = 0; index < ModeNames.Length; index++)
         {
             labels.ColumnDefinitions.Add(new ColumnDefinition
                 { Width = new GridLength(1, GridUnitType.Star) });
             var label = new TextBlock
             {
                 Text = ModeNames[index],
-                FontSize = 15,
+                FontSize = index == 3 ? 12 : 15,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 IsHitTestVisible = false
             };
             _labels[index] = label;
+            ElementCompositionPreview.SetIsTranslationEnabled(label, true);
             Grid.SetColumn(label, index);
             labels.Children.Add(label);
 
@@ -300,8 +323,12 @@ public sealed partial class ScanModeSelector : UserControl
                 IsHitTestVisible = false
             };
             Grid.SetColumn(divider, index);
+            _dividers[index - 1] = divider;
             labels.Children.Add(divider);
         }
+        _segmentLabels.ColumnDefinitions[3].Width = new GridLength(0);
+        _labels[3].Visibility = Visibility.Collapsed;
+        _dividers[2].Visibility = Visibility.Collapsed;
         return labels;
     }
 
@@ -318,116 +345,40 @@ public sealed partial class ScanModeSelector : UserControl
 
     private void TrackPointerPressed(object sender, PointerRoutedEventArgs args)
     {
-        if (_track.ActualWidth <= 0)
+        if (_track.ActualWidth <= 0 || !args.GetCurrentPoint(_track).Properties.IsLeftButtonPressed)
             return;
-        var x = args.GetCurrentPoint(_track).Position.X;
-        var index = Math.Clamp((int)(x / _track.ActualWidth * 3), 0, 2);
-        _input.Value = index;
+        _dragPointer = args.Pointer.PointerId;
+        var pointerX = args.GetCurrentPoint(_track).Position.X;
+        _pointerPressX = pointerX;
+        _isPointerDragging = false;
+        _dragGrabOffset = pointerX >= _selectedPosition && pointerX <= _selectedPosition + _selection.Width
+            ? pointerX - (_selectedPosition + _selection.Width / 2) : 0;
+        _expandedForGesture = _visibleSegments == 4;
+        _track.CapturePointer(args.Pointer);
+        SelectAtPointer(args);
         _input.Focus(FocusState.Pointer);
+        args.Handled = true;
     }
 
     private void UpdateAppearance(bool animate)
     {
-        var index = Math.Clamp((int)Mode, 0, 2);
-        var color = ModeColors[index];
+        var index = Math.Clamp((int)Mode, 0, 3);
+        var enterDeepScan = animate && index == 3 && _lastAppearanceMode != ScanPerformanceMode.DeepScan;
+        _lastAppearanceMode = Mode;
+        UpdateSegmentCount();
         _hint.Text = ModeDescriptions[index];
         AutomationProperties.SetName(_input,
             $"扫描模式，{ModeNames[index]}，{ModeDescriptions[index]}");
         AutomationProperties.SetHelpText(_input,
-            "这是三段式选择器。点击一档，或使用左右方向键选择极速、均衡或质量；切换在下一次扫描生效。");
+            _visibleSegments == 4
+                ? "四段式选择器：极速、均衡、质量、DeepScan。使用左右方向键选择；切换在下一次扫描生效。"
+                : "使用左右方向键选择极速、均衡或质量；选择质量后展开 DeepScan。切换在下一次扫描生效。");
         AutomationProperties.SetItemStatus(_input, $"已选择{ModeNames[index]}");
 
-        for (var labelIndex = 0; labelIndex < _labels.Length; labelIndex++)
-        {
-            var selected = labelIndex == index;
-            _labels[labelIndex].Opacity = selected ? 1 : .58;
-            if (selected)
-                _labels[labelIndex].Foreground = new SolidColorBrush(Microsoft.UI.Colors.White);
-            else
-                _labels[labelIndex].ClearValue(TextBlock.ForegroundProperty);
-        }
-
-        _selection.Background = CreateSelectionBrush(color);
-        _selection.BorderBrush = new SolidColorBrush(WithAlpha(color, 205));
-        _glowOuter.Background = new SolidColorBrush(WithAlpha(color, 255));
-        _glowInner.Background = new SolidColorBrush(WithAlpha(color, 255));
-        _fastGlow.Background = new SolidColorBrush(WithAlpha(color, 255));
-        var haloBackground = new SolidColorBrush(WithAlpha(color, 40));
-        var haloBorder = new SolidColorBrush(WithAlpha(color, 130));
-        foreach (var halo in new[] { _qualityHaloOuter, _qualityHaloInner })
-        {
-            halo.Background = haloBackground;
-            halo.BorderBrush = haloBorder;
-            halo.BorderThickness = new Thickness(1);
-        }
-
-        _segmentWidth = _track.ActualWidth / 3;
-        if (_segmentWidth <= 0)
-        {
-            UpdateMotion();
-            return;
-        }
-
-        var selectionWidth = Math.Max(1, _segmentWidth - 8);
-        _selectedPosition = index * _segmentWidth + 4;
-        _selection.Width = selectionWidth;
-        _fastGlow.Width = selectionWidth;
-        _qualityHaloInner.Width = selectionWidth + 10;
-        _qualityHaloOuter.Width = selectionWidth + 26;
-        _glowInner.Width = selectionWidth + 44;
-        _glowOuter.Width = selectionWidth + 72;
-        _speedField.Width = _segmentWidth;
-        _speedField.Clip = new RectangleGeometry
-        {
-            Rect = new Windows.Foundation.Rect(0, 0, _segmentWidth, _speedField.Height)
-        };
-
-        SetCenterPoint(_selection);
-        SetCenterPoint(_fastGlow);
-        SetCenterPoint(_glowOuter);
-        SetCenterPoint(_glowInner);
-        SetCenterPoint(_qualityHaloOuter);
-        SetCenterPoint(_qualityHaloInner);
-
-        SetTranslation(_fastGlow, _selectedPosition);
-        SetTranslation(_glowOuter, _selectedPosition - 36);
-        SetTranslation(_glowInner, _selectedPosition - 22);
-        SetTranslation(_qualityHaloOuter, _selectedPosition - 13);
-        SetTranslation(_qualityHaloInner, _selectedPosition - 5);
-        SetTranslation(_speedField, index * _segmentWidth);
-
-        var selectionVisual = ElementCompositionPreview.GetElementVisual(_selection);
-        selectionVisual.StopAnimation("Translation.X");
-        selectionVisual.Properties.InsertVector3("Translation",
-            new Vector3((float)_selectedPosition, 0, 0));
-        if (animate && CanAnimate())
-        {
-            var slide = selectionVisual.Compositor.CreateScalarKeyFrameAnimation();
-            slide.InsertKeyFrame(0, (float)_lastPosition);
-            slide.InsertKeyFrame(1, (float)_selectedPosition);
-            slide.Duration = TimeSpan.FromMilliseconds(index == 0 ? 150 : 230);
-            selectionVisual.StartAnimation("Translation.X", slide);
-        }
-        _lastPosition = _selectedPosition;
+        BeginAppearanceTransition(animate);
         UpdateMotion();
+        if (enterDeepScan && CanAnimate()) PlayDeepEntry();
     }
-
-    private static Brush CreateSelectionBrush(Color color)
-    {
-        var start = Shade(color, .66, 226);
-        var end = Shade(color, 1.03, 242);
-        return new LinearGradientBrush
-        {
-            StartPoint = new Windows.Foundation.Point(0, .5),
-            EndPoint = new Windows.Foundation.Point(1, .5),
-            GradientStops =
-            {
-                new GradientStop { Color = start, Offset = 0 },
-                new GradientStop { Color = end, Offset = 1 }
-            }
-        };
-    }
-
     private static Color Shade(Color color, double amount, byte alpha) =>
         Color.FromArgb(
             alpha,

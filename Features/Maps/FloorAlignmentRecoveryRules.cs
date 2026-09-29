@@ -25,17 +25,96 @@ public static class FloorAlignmentRecoveryRules
     public static bool ShouldAttemptFloorRecovery(
         bool isManualFloor,
         bool isSingleFloorMap,
-        FloorAlignmentAttemptResult initialAttempt)
+        FloorAlignmentAttemptResult initialAttempt,
+        string? detectedFloorKey = null)
     {
-        // 手动明确指定楼层或单楼层地图，绝不触发跨楼层恢复
-        if (isManualFloor || isSingleFloorMap)
+        // A resolved indicator identifies the floor of this frame. Failure to
+        // align it does not authorize geometry to substitute another floor.
+        if (isManualFloor || isSingleFloorMap || !string.IsNullOrEmpty(detectedFloorKey))
             return false;
 
-        // 仅在明确的结构性拒绝下进入恢复，捕获失败、预算耗尽、已成功等均不触发
-        if (initialAttempt.Outcome != FloorAlignmentAttemptOutcome.Rejected)
+        // Probing and proving floor identity are separate decisions. An
+        // inconclusive initial floor remains unresolved in the final verdict.
+        if (initialAttempt.Outcome is not (FloorAlignmentAttemptOutcome.Rejected
+            or FloorAlignmentAttemptOutcome.Inconclusive))
             return false;
 
         return IsStructureRejectionEligibleForRecovery(initialAttempt.RejectionReason);
+    }
+
+    public static bool IsFloorCommitAllowed(string candidateFloorKey, string? requiredFloorKey) =>
+        string.IsNullOrEmpty(requiredFloorKey)
+        || string.Equals(candidateFloorKey, requiredFloorKey, StringComparison.Ordinal);
+
+    /// <summary>Preserves the structure layer's evidence semantics through floor adjudication.</summary>
+    public static FloorAlignmentAttemptResult ClassifyAttemptResult(
+        Guid expectedMapId,
+        string candidateFloorKey,
+        MapAlignmentChannel channel,
+        MapRecognitionAttempt attempt,
+        MapFeatureCacheKey? repairKey,
+        double minimumStandardConfidence,
+        bool lowStructureEvidenceAccepted,
+        bool lowStructurePending)
+    {
+        var rejectionReason = attempt.StructureResult?.RejectionReason
+            ?? MapStructureRejectionReason.None;
+        var result = new FloorAlignmentAttemptResult
+        {
+            FloorKey = candidateFloorKey,
+            Outcome = FloorAlignmentAttemptOutcome.Inconclusive,
+            Attempt = attempt,
+            RejectionReason = rejectionReason,
+            Diagnostics = attempt.Diagnostics,
+            Confidence = attempt.StructureResult?.Confidence
+                ?? attempt.Recognition?.Result.Confidence ?? 0d,
+            FailureReason = !string.IsNullOrWhiteSpace(attempt.FailureReason)
+                ? attempt.FailureReason
+                : !string.IsNullOrWhiteSpace(attempt.StructureFailureReason)
+                    ? attempt.StructureFailureReason : rejectionReason.ToDisplayText()
+        };
+
+        if (rejectionReason == MapStructureRejectionReason.TimeBudgetExceeded
+            || attempt.Diagnostics.StructureRejectionReason == MapStructureRejectionReason.TimeBudgetExceeded
+            || attempt.FailureReason?.Contains("预算") == true
+            || attempt.FailureReason?.Contains("budget", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return result;
+        }
+
+        if (IsAttemptFullyAccepted(attempt, channel, expectedMapId, candidateFloorKey,
+                minimumStandardConfidence, lowStructureEvidenceAccepted && !lowStructurePending))
+        {
+            return result with
+            {
+                Outcome = FloorAlignmentAttemptOutcome.Accepted,
+                AlignedRecognition = attempt.Recognition,
+                PendingRepairCacheKey = repairKey,
+                FailureReason = null
+            };
+        }
+
+        if (channel == MapAlignmentChannel.LowStructure && lowStructurePending)
+        {
+            return result with
+            {
+                Outcome = FloorAlignmentAttemptOutcome.PendingEvidence,
+                LowStructurePending = true,
+                FailureReason = "低结构楼层跨帧样本等待中。"
+            };
+        }
+
+        // Resource/configuration failures also return normally, with no
+        // StructureResult. They are missing evidence, never floor rejection.
+        var outcome = attempt.StructureResult is null
+            ? FloorAlignmentAttemptOutcome.Error
+            : rejectionReason.ToDisposition() switch
+            {
+                MapStructureEvidenceDisposition.Contradictory => FloorAlignmentAttemptOutcome.Rejected,
+                MapStructureEvidenceDisposition.SystemError => FloorAlignmentAttemptOutcome.Error,
+                _ => FloorAlignmentAttemptOutcome.Inconclusive
+            };
+        return result with { Outcome = outcome };
     }
 
     /// <summary>
@@ -127,8 +206,19 @@ public static class FloorAlignmentRecoveryRules
     /// </summary>
     public static FloorRecoveryDecision DecideFromAttempts(
         IReadOnlyList<FloorAlignmentAttemptResult> attempts,
-        bool budgetExhausted)
+        bool budgetExhausted,
+        string? requiredFloorKey = null)
     {
+        if (attempts.Count == 0)
+        {
+            return new FloorRecoveryDecision
+            {
+                Resolution = FloorRecoveryResolution.Inconclusive,
+                Attempts = attempts,
+                Reason = "没有可用的楼层对齐证据。"
+            };
+        }
+
         if (attempts.Any(attempt => attempt.Outcome == FloorAlignmentAttemptOutcome.Superseded))
         {
             return new FloorRecoveryDecision
@@ -140,11 +230,22 @@ public static class FloorAlignmentRecoveryRules
         }
 
         var accepted = attempts.Where(attempt => attempt.Outcome == FloorAlignmentAttemptOutcome.Accepted).ToList();
+        if (accepted.Any(attempt => !IsFloorCommitAllowed(attempt.FloorKey, requiredFloorKey)))
+        {
+            return new FloorRecoveryDecision
+            {
+                Resolution = FloorRecoveryResolution.Inconclusive,
+                Attempts = attempts,
+                Reason = $"对齐候选与本帧指示器或手动指定楼层 {requiredFloorKey} 冲突，暂不提交。"
+            };
+        }
         var pending = attempts.Where(attempt => attempt.Outcome == FloorAlignmentAttemptOutcome.PendingEvidence).ToList();
         // A failed calculation is missing evidence, not evidence against that
         // floor. It cannot make another candidate the unique winner.
         var inconclusive = attempts.Where(attempt => attempt.Outcome is
-            FloorAlignmentAttemptOutcome.Inconclusive or FloorAlignmentAttemptOutcome.Error).ToList();
+            FloorAlignmentAttemptOutcome.Inconclusive or FloorAlignmentAttemptOutcome.Error
+            || (attempt.Outcome == FloorAlignmentAttemptOutcome.Rejected
+                && attempt.RejectionReason.ToDisposition() != MapStructureEvidenceDisposition.Contradictory)).ToList();
 
         if (accepted.Count == 1)
         {
@@ -165,7 +266,7 @@ public static class FloorAlignmentRecoveryRules
                 {
                     Resolution = FloorRecoveryResolution.Inconclusive,
                     Attempts = attempts,
-                    Reason = "已有一层通过结构初验，但部分楼层因预算或资源未完成试探，不能断言唯一胜者。"
+                    Reason = "已有一层通过结构初验，但其他楼层证据不足或试探未完成，不能断言唯一胜者。"
                 };
             }
 

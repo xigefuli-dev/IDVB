@@ -306,7 +306,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             await Task.Run(FloorIndicatorTemplateRegistry.Prepare);
             var settingsObj = await _settingsRepo.LoadAsync();
             _settings = settingsObj is MapRuntimeSettings s ? s : new MapRuntimeSettings();
-            _logCollector.IsEnabled = _settings.CollectLogs;
+            InitializeLogCollection();
             try
             {
                 await _researchCollector.SetEnabledAsync(

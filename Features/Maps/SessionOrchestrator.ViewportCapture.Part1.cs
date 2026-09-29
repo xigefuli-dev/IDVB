@@ -450,15 +450,24 @@ public sealed partial class SessionOrchestrator
     {
         if (_captureSvc.TryGetForegroundClientBounds(
                 out var clientBounds,
-                out _,
+                out var windowHandle,
                 out _)
             && clientBounds is MapScreenRect physicalBounds)
         {
-            return ResolveViewportRegion(
+            var region = ResolveViewportRegion(
                 (int)Math.Round(physicalBounds.Width),
                 (int)Math.Round(physicalBounds.Height));
+            if (physicalBounds.IsValid && IDVBuff.Diagnostics.OutputLog.CurrentLogPath is not null)
+            {
+                var pixels = DwrGameWindowCaptureService.GetViewportBounds(physicalBounds, region);
+                IDVBuff.Diagnostics.OutputLog.UpdateCaptureContext(
+                    (int)Math.Round(physicalBounds.Width), (int)Math.Round(physicalBounds.Height),
+                    (int)pixels.Width, (int)pixels.Height, windowHandle);
+            }
+            return region;
         }
 
+        IDVBuff.Diagnostics.OutputLog.ClearCaptureContext();
         return ResolveViewportRegion(0, 0);
     }
 

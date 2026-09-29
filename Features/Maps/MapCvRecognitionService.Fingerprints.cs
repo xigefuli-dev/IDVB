@@ -478,6 +478,8 @@ public sealed partial class MapCvRecognitionService
         foreach (var mat in _sideEntranceFeatureCache.Values)
             mat.Dispose();
         _sideEntranceFeatureCache = [];
+        _localFeatureIdentityIndex?.Dispose();
+        _localFeatureIdentityIndex = null;
     }
 }
 /*

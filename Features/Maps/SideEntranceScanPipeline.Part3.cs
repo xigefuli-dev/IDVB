@@ -10,7 +10,8 @@ public sealed partial class SideEntranceScanPipeline
         double maximumCompetitiveFitCost = double.PositiveInfinity)
     {
         var profile = MapFloorRules.GetFloorProfile(seed.Map, seed.FloorKey);
-        var anchor = MapScanFloorRules.GetScanFeatureAnchor(seed.Map, seed.FloorKey);
+        var anchor = MapScanFloorRules.ResolveScanGateAnchor(
+            seed.Map, seed.FloorKey, seed.ReferenceGateAnchorId);
         if (seed.StructureIndex is not { } index || seed.AssociatedGate is not { } gate
             || profile is null || anchor?.Bounds?.IsValid != true) return null;
         var points = ScanFrameEvidence.SampleUniform(frame.DensePoints, frame.Source.Width, frame.Source.Height, 1024);
@@ -73,6 +74,7 @@ public sealed partial class SideEntranceScanPipeline
                 Map = seed.Map, FloorKey = seed.FloorKey, MatchScale = p.scale, MatchScore = seed.MatchScore,
                 MatchLocation = new(p.x, p.y, index.Width * p.scale, index.Height * p.scale),
                 ReferenceCenterX = index.Width / 2d, ReferenceCenterY = index.Height / 2d,
+                ReferenceGateAnchorId = anchor.Id,
                 StructureIndex = index, AssociatedGate = gate, AssociatedGateIndex = seed.AssociatedGateIndex,
                 GateSpatialResidualPixels = Math.Sqrt(Math.Pow(p.x + ax * p.scale - gx, 2)
                     + Math.Pow(p.y + ay * p.scale - gy, 2)),

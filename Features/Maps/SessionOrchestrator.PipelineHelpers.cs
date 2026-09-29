@@ -18,8 +18,8 @@ public sealed partial class SessionOrchestrator
 
     private async Task HandleGameMapToggleAsync()
     {
-        if (_disposed || !_settings!.IsEnabled
-            || !_matchSession.Snapshot.IsStarted)
+        if (_disposed || _settings is not { IsEnabled: true }
+            || !_matchSession.Snapshot.IsStarted || IsMatchEnding)
             return;
 
         // 如果地图当前处于打开状态，用户按下切换键必然是希望立即关图。
@@ -32,18 +32,20 @@ public sealed partial class SessionOrchestrator
         }
 
         if (!_captureSvc.TryGetForegroundClientBounds(
-                out var clientBoundsObj, out var windowHandleObj, out _)
+                out var clientBoundsObj, out _, out _)
             || clientBoundsObj is not MapScreenRect clientBounds)
             return;
 
-        var windowHandle = windowHandleObj is IntPtr hwnd ? hwnd : IntPtr.Zero;
-        await ApplySelectedResolutionPresetAsync(clientBounds);
+        // Own the opening edge before preset loading yields. A second key must
+        // close this opening immediately, and a finished match must not be
+        // reopened by the continuation of an old preset load.
+        var operationMatch = _matchSession.Snapshot;
         var toggle = _gameMapToggleState.Toggle();
-        if (!toggle.IsOpen)
-        {
-            await EndMapDisplayAsync("game map closed");
+        await ApplySelectedResolutionPresetAsync(clientBounds);
+        if (_disposed || _settings is not { IsEnabled: true }
+            || !IsCurrentMatchOperation(operationMatch)
+            || !_gameMapToggleState.IsCurrent(toggle))
             return;
-        }
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
         else if (CanObserveMap)

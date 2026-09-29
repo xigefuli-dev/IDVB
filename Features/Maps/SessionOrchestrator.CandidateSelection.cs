@@ -390,7 +390,7 @@ public sealed partial class SessionOrchestrator
                 MapId = selected.Map.Id,
                 Floor = floorKey,
                 Confidence = selected.Result.Confidence,
-                IdentityConfidence = 1d,
+                IdentityConfidence = userConfirmed ? 1d : selected.Result.IdentityConfidence,
                 LocalizationConfidence = 0d,
                 Source = userConfirmed
                     ? MapRecognitionSource.UserConfirmed
@@ -409,7 +409,7 @@ public sealed partial class SessionOrchestrator
         _lastGameBounds = frame.ClientBounds;
         _lastGameWindowHandle = frame.WindowHandle;
         _statusMessage =
-            $"已锁定所选地图：{identityLock.Map.DisplayName} · "
+            $"已锁定{(userConfirmed ? "所选" : "识别")}地图：{identityLock.Map.DisplayName} · "
             + $"{floorKey.ToUpperInvariant()}；正在首次对齐……";
         RefreshMiniMapForCurrentFloor();
         StateChanged?.Invoke(this, EventArgs.Empty);
@@ -417,7 +417,7 @@ public sealed partial class SessionOrchestrator
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
-            $"{(userConfirmed ? "用户选择" : "合格模型建议")}后已立即锁定地图身份 · map={identityLock.Map.DisplayName} "
+            $"{(userConfirmed ? "用户选择" : "自动识别")}后已立即锁定地图身份 · map={identityLock.Map.DisplayName} "
             + $"· floor={floorKey}",
             details: new()
             {

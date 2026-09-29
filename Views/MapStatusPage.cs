@@ -16,9 +16,17 @@ public sealed partial class MapStatusPage : UserControl
 
     private readonly ToggleSwitch _continuousObservationToggle = new()
     {
-        Header = "持续观察扫描",
+        Header = "开图自动识别地图",
         OffContent = "已关闭",
         OnContent = "已开启"
+    };
+
+    private readonly TextBlock _continuousObservationDescription = new()
+    {
+        Text = "未锁定地图时，开图后自动识别可见地图特征；确认身份后锁定，再次开图只对齐该地图。",
+        FontSize = 13,
+        Foreground = SecondaryTextBrush,
+        TextWrapping = TextWrapping.Wrap
     };
 
     private sealed record AlignmentModeChoice(
@@ -57,7 +65,10 @@ public sealed partial class MapStatusPage : UserControl
             || _root.Children[1] is not StackPanel content)
             return;
         var index = content.Children.IndexOf(_enabledToggle);
-        content.Children.Insert(index >= 0 ? index + 1 : 0, _continuousObservationToggle);
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(_continuousObservationToggle);
+        section.Children.Add(_continuousObservationDescription);
+        content.Children.Insert(index >= 0 ? index + 1 : 0, section);
         _continuousObservationToggle.Toggled += ContinuousObservation_Toggled;
     }
 

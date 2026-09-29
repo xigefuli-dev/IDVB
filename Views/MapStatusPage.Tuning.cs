@@ -62,9 +62,10 @@ public sealed partial class MapStatusPage : UserControl
         }
         _enabledToggle.IsOn = _runtime.Settings.IsEnabled;
         _continuousObservationToggle.IsOn = _runtime.Settings.ContinuousObservationEnabled;
-        _continuousObservationToggle.Visibility =
-            IDVBuff.Lifecycle.MainProgramPreferences.Load().DeveloperMode
-                ? Visibility.Visible : Visibility.Collapsed;
+        _continuousObservationToggle.IsEnabled = !_runtime.Settings.SelectMapByTagsEnabled;
+        _continuousObservationDescription.Text = _runtime.Settings.SelectMapByTagsEnabled
+            ? "当前使用标签筛选地图，自动识别暂停；关闭标签筛选后恢复此设置。"
+            : "未锁定地图时，开图后自动识别可见地图特征；确认身份后锁定，再次开图只对齐该地图。";
         _allowAutomaticMapCacheToggle.IsOn =
             _runtime.Settings.AllowAutomaticMapCache;
         _overlayStatusToggle.IsOn = _runtime.Settings.ShowOverlayStatus;

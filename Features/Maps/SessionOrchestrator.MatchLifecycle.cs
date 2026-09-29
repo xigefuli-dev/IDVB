@@ -298,6 +298,8 @@ public sealed partial class SessionOrchestrator
             _matchPluginsActivated = false;
             StartMatchCancellationScope();
             var match = _matchSession.Begin(mapClass);
+            if (_settings?.ContinuousObservationEnabled == true)
+                _ = PrepareAutomaticIdentityAsync(mapClass);
             if (_settings?.DiagnosticModeEnabled is true)
                 MapDiagnosticModeCapture.BeginMatch();
             await SetMatchPluginsActivatedCoreAsync(true);

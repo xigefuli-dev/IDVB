@@ -49,9 +49,10 @@ public sealed partial class SideEntranceScanPipeline
             return false;
         }
 
-        var scanAnchor = MapScanFloorRules.GetScanFeatureAnchor(
+        var scanAnchor = MapScanFloorRules.ResolveScanGateAnchor(
             candidate.Map,
-            candidate.FloorKey);
+            candidate.FloorKey,
+            candidate.ReferenceGateAnchorId);
         if (scanAnchor?.Bounds?.IsValid is not true)
         {
             failureReason = "the selected map has no marked scan gate feature.";
@@ -81,8 +82,10 @@ public sealed partial class SideEntranceScanPipeline
         // image edge; recomputing it from the anchor rectangle would shift the
         // provisional transform before structure alignment gets a chance to
         // refine it.
-        var referenceCenterX = candidate.ReferenceCenterX ?? profile.SideEntranceFeatureCenterX;
-        var referenceCenterY = candidate.ReferenceCenterY ?? profile.SideEntranceFeatureCenterY;
+        var referenceCenterX = candidate.ReferenceCenterX
+            ?? (candidate.ReferenceGateAnchorId is null ? profile.SideEntranceFeatureCenterX : referenceBounds.CenterX);
+        var referenceCenterY = candidate.ReferenceCenterY
+            ?? (candidate.ReferenceGateAnchorId is null ? profile.SideEntranceFeatureCenterY : referenceBounds.CenterY);
         if (!double.IsFinite(referenceCenterX)
             || referenceCenterX <= 0d
             || !double.IsFinite(referenceCenterY)
@@ -183,16 +186,24 @@ public sealed partial class SideEntranceScanPipeline
             return false;
         }
 
-        var referenceCenterX = candidate.ReferenceCenterX ?? profile.SideEntranceFeatureCenterX;
-        var referenceCenterY = candidate.ReferenceCenterY ?? profile.SideEntranceFeatureCenterY;
+        var anchor = MapScanFloorRules.ResolveScanGateAnchor(
+            candidate.Map, candidate.FloorKey, candidate.ReferenceGateAnchorId);
+        if (candidate.ReferenceGateAnchorId is not null && anchor?.Bounds?.IsValid is not true)
+        {
+            failureReason = "扫描门特征对应的楼层门锚点已失效。";
+            return false;
+        }
+        var referenceCenterX = candidate.ReferenceCenterX
+            ?? (candidate.ReferenceGateAnchorId is null ? profile.SideEntranceFeatureCenterX
+                : (anchor!.Bounds!.X + anchor.Bounds.Width / 2d) * profile.RecognitionPixelWidth);
+        var referenceCenterY = candidate.ReferenceCenterY
+            ?? (candidate.ReferenceGateAnchorId is null ? profile.SideEntranceFeatureCenterY
+                : (anchor!.Bounds!.Y + anchor.Bounds.Height / 2d) * profile.RecognitionPixelHeight);
         if (!double.IsFinite(referenceCenterX)
             || !double.IsFinite(referenceCenterY)
             || referenceCenterX <= 0d
             || referenceCenterY <= 0d)
         {
-            var anchor = MapScanFloorRules.GetScanFeatureAnchor(
-                candidate.Map,
-                candidate.FloorKey);
             if (anchor?.Bounds?.IsValid is not true)
             {
                 failureReason = "扫描门特征缺少可用的参考中心点。";

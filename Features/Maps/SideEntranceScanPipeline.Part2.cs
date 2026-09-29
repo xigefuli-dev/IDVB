@@ -12,8 +12,7 @@ public sealed partial class SideEntranceScanPipeline
     {
         var index = candidate.StructureIndex;
         var profile = MapFloorRules.GetFloorProfile(candidate.Map, candidate.FloorKey);
-        var anchor = MapScanFloorRules.GetScanFeatureAnchor(candidate.Map, candidate.FloorKey);
-        if (index is null || profile is null || anchor?.Bounds?.IsValid != true) return [];
+        if (index is null || profile is null) return [];
         var points = ScanFrameEvidence.SampleUniform(frame.DensePoints,
             frame.Observation.ObservedEdges.Width, frame.Observation.ObservedEdges.Height, 1024);
         var refined = new List<SideEntranceScanCandidate>();
@@ -23,6 +22,9 @@ public sealed partial class SideEntranceScanPipeline
         foreach (var seed in candidate.SearchHypotheses)
         {
             if (seed.AssociatedGate is not { } gate) continue;
+            var anchor = MapScanFloorRules.ResolveScanGateAnchor(
+                seed.Map, seed.FloorKey, seed.ReferenceGateAnchorId);
+            if (anchor?.Bounds?.IsValid != true) continue;
             var ax = (anchor.Bounds.X + anchor.Bounds.Width / 2) * profile.RecognitionPixelWidth;
             var ay = (anchor.Bounds.Y + anchor.Bounds.Height / 2) * profile.RecognitionPixelHeight;
             var gx = gate.ScreenBounds.CenterX - viewport.X;
@@ -50,6 +52,7 @@ public sealed partial class SideEntranceScanPipeline
                 Map = seed.Map, FloorKey = seed.FloorKey, MatchScale = best.Scale, MatchScore = best.Score,
                 MatchLocation = new(best.X, best.Y, index.Width * best.Scale, index.Height * best.Scale),
                 ReferenceCenterX = index.Width / 2d, ReferenceCenterY = index.Height / 2d,
+                ReferenceGateAnchorId = anchor.Id,
                 StructureIndex = index, AssociatedGate = gate, AssociatedGateIndex = seed.AssociatedGateIndex,
                 GateAssociationKind = SideEntranceGateAssociationKind.DetectedGate
             });
@@ -63,18 +66,18 @@ public sealed partial class SideEntranceScanPipeline
             // that the original search already found. Its different sampling objective
             // can improve its own score while worsening the full-frame verifier.
             return candidate.SearchHypotheses.Concat(refined)
-                .DistinctBy(c => (c.MatchScale, c.MatchLocation.X, c.MatchLocation.Y, c.AssociatedGateIndex))
+                .DistinctBy(c => (c.MatchScale, c.MatchLocation.X, c.MatchLocation.Y,
+                    c.AssociatedGateIndex, c.ReferenceGateAnchorId))
                 .ToArray();
         }
     }
 
     private static IReadOnlyList<SideEntranceScanCandidate> SearchFloor(
-        MapRecord map, string floorKey, Mat line, ScanFrameEvidence frame,
+        MapRecord map, string floorKey, RecognitionAnchor anchor, Mat line, ScanFrameEvidence frame,
         GateDetection gate, int gateIndex, MapScreenRect viewport, ScanExecutionPolicy policy,
         ScanExecutionContext? context)
     {
         var profile = MapFloorRules.GetFloorProfile(map, floorKey);
-        var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey);
         if (profile is null || anchor?.Bounds?.IsValid != true || line.Empty()) return [];
         var index = ScanStructureIndex.Get(line);
         var ax = (anchor.Bounds.X + anchor.Bounds.Width / 2) * profile.RecognitionPixelWidth;
@@ -106,6 +109,7 @@ public sealed partial class SideEntranceScanPipeline
                 Map = map, FloorKey = floorKey, MatchScale = p.Scale, MatchScore = p.Score,
                 MatchLocation = new MapScreenRect(p.X, p.Y, line.Width * p.Scale, line.Height * p.Scale),
                 ReferenceCenterX = line.Width / 2d, ReferenceCenterY = line.Height / 2d,
+                ReferenceGateAnchorId = anchor.Id,
                 StructureIndex = index, AssociatedGate = gate, AssociatedGateIndex = gateIndex,
                 GateAssociationKind = SideEntranceGateAssociationKind.DetectedGate,
                 Disposition = SideEntranceCandidateDisposition.NeedsVerification

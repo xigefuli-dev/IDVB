@@ -5,13 +5,13 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 21;
+    public const int CurrentSchemaVersion = 22;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public bool IsEnabled { get; set; }
-    /// <summary>Repeatedly observe an open map until its identity is confirmed; opt-in only.</summary>
-    public bool ContinuousObservationEnabled { get; set; }
+    /// <summary>Automatically observe visible gate and structure evidence on map open until its identity is confirmed.</summary>
+    public bool ContinuousObservationEnabled { get; set; } = true;
     public ScanPerformanceMode ScanPerformanceMode { get; set; } = ScanPerformanceMode.Balanced;
     public ScanUncertainAction ScanUncertainAction { get; set; } = ScanUncertainAction.ShowCandidates;
     /// <summary>首次扫描策略：默认双门对齐，可切换为侧门扫描。</summary>
@@ -138,7 +138,7 @@ public sealed partial class MapRuntimeSettings
     public static MapRuntimeSettings CreateDefault() => new()
     {
         IsEnabled = false,
-        ContinuousObservationEnabled = false,
+        ContinuousObservationEnabled = true,
         FirstScanStrategy = FirstScanStrategy.SideEntrance,
         BackgroundScanEnabled = false,
         SilentScanEnabled = false,

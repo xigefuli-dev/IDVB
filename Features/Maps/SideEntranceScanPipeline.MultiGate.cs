@@ -26,10 +26,13 @@ public sealed partial class SideEntranceScanPipeline
         foreach (var (map, floorKey, _) in candidates)
         {
             var profile = MapFloorRules.GetFloorProfile(map, floorKey);
-            var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey);
-            if (profile is null || anchor?.Bounds?.IsValid != true) continue;
-            maskWidth = Math.Max(maskWidth, anchor.Bounds.Width * profile.RecognitionPixelWidth * policy.MaximumScale);
-            maskHeight = Math.Max(maskHeight, anchor.Bounds.Height * profile.RecognitionPixelHeight * policy.MaximumScale);
+            if (profile is null) continue;
+            foreach (var anchor in MapScanFloorRules.GetScanGateAnchors(map, floorKey))
+            {
+                var bounds = anchor.Bounds!;
+                maskWidth = Math.Max(maskWidth, bounds.Width * profile.RecognitionPixelWidth * policy.MaximumScale);
+                maskHeight = Math.Max(maskHeight, bounds.Height * profile.RecognitionPixelHeight * policy.MaximumScale);
+            }
         }
         var frame = new ScanFrameEvidence(capturedFrame, viewport, detectedGates, policy, maskWidth, maskHeight);
         if (context is not null)
@@ -47,11 +50,14 @@ public sealed partial class SideEntranceScanPipeline
             {
                 if (context is { CanCompute: false }) { context.RetrievalCompleted = false; return; }
                 var (map, floor, line) = candidates[i];
+                var anchors = MapScanFloorRules.GetScanGateAnchors(map, floor);
                 var alternatives = new List<SideEntranceScanCandidate>();
                 for (var g = 0; g < detectedGates.Count; g++)
                 {
                     if (!detectedGates[g].ScreenBounds.IsValid) continue;
-                    alternatives.AddRange(SearchFloor(map, floor, line, frame, detectedGates[g], g, viewport, policy, context));
+                    foreach (var anchor in anchors)
+                        alternatives.AddRange(SearchFloor(map, floor, anchor, line, frame,
+                            detectedGates[g], g, viewport, policy, context));
                 }
                 var best = alternatives.OrderByDescending(c => c.MatchScore).FirstOrDefault();
                 if (best is not null)

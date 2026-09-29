@@ -8,9 +8,10 @@ public sealed partial class SideEntranceScanPipeline
         MapScreenRect viewport)
     {
         var profile = MapFloorRules.GetFloorProfile(candidate.Map, candidate.FloorKey);
-        var anchor = MapScanFloorRules.GetScanFeatureAnchor(
+        var anchor = MapScanFloorRules.ResolveScanGateAnchor(
             candidate.Map,
-            candidate.FloorKey);
+            candidate.FloorKey,
+            candidate.ReferenceGateAnchorId);
         if (profile is null || anchor?.Bounds?.IsValid is not true)
             return double.PositiveInfinity;
 

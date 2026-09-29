@@ -364,13 +364,13 @@ internal static class MapCvRecognitionHelpers
                         continue;
                     }
                     Cv2.Threshold(mat, mat, 128, 255, ThresholdTypes.Binary);
-                    var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorDef.Key);
-                    if (anchor?.Bounds?.IsValid is true)
+                    foreach (var anchor in MapScanFloorRules.GetScanGateAnchors(map, floorDef.Key))
                     {
-                        var rect = new Rect((int)Math.Floor(anchor.Bounds.X * mat.Width),
-                            (int)Math.Floor(anchor.Bounds.Y * mat.Height),
-                            (int)Math.Ceiling(anchor.Bounds.Width * mat.Width),
-                            (int)Math.Ceiling(anchor.Bounds.Height * mat.Height))
+                        var bounds = anchor.Bounds!;
+                        var rect = new Rect((int)Math.Floor(bounds.X * mat.Width),
+                            (int)Math.Floor(bounds.Y * mat.Height),
+                            (int)Math.Ceiling(bounds.Width * mat.Width),
+                            (int)Math.Ceiling(bounds.Height * mat.Height))
                             .Intersect(new Rect(0, 0, mat.Width, mat.Height));
                         if (rect.Width > 0 && rect.Height > 0) Cv2.Rectangle(mat, rect, Scalar.Black, -1);
                     }

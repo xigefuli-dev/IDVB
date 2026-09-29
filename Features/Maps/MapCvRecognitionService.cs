@@ -36,8 +36,9 @@ public sealed partial class MapCvRecognitionService : IDisposable
     private readonly Dictionary<string, Task> _floorPrewarmTasks = new(StringComparer.Ordinal);
     private CancellationTokenSource _matchCts = new();
     private readonly SideEntranceScanPipeline _sideEntrancePipeline = new();
-    // 侧门特征缓存：(mapId, floorKey) → 预加载的灰度模板 Mat
+    // 侧门特征缓存：(mapId, floorKey) → 门区置零的预制二值轮廓 Mat
     private Dictionary<(Guid, string), Mat> _sideEntranceFeatureCache = [];
+    private MapLocalFeatureIdentityIndex? _localFeatureIdentityIndex;
     private MapCatalogRevision _catalogRevision = MapCatalogRevision.Empty;
     private IReadOnlyList<MapRecord> _maps = [];
     private IReadOnlyList<MapGeometryFingerprint> _fingerprints = [];
@@ -131,6 +132,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
             // Migrate before loading Mats/fingerprints. Background diagnostics alone
             // could repair files after the first scan had already cached stale lines.
             await _repository.HealMissingPrebuiltStructureLinesAsync(onlyOutdated: true);
+            var sourceRevision = _repository.GetCatalogRevision();
             var catalog = await _repository.GetCatalogSnapshotAsync();
             var maps = catalog.Maps;
             await _repository.EnsureDerivedAssetsAsync(maps);
@@ -202,7 +204,10 @@ public sealed partial class MapCvRecognitionService : IDisposable
             _maps = cache.Maps;
             ScanVariantGroups = catalog.VariantGroups.Select(g => g.MapIds.ToArray()).ToArray();
             _fingerprints = cache.Fingerprints;
-            _catalogRevision = _repository.GetCatalogRevision();
+            // Never label an older snapshot with a revision written while its
+            // native caches were being built. A changed catalog is rebuilt on
+            // the next synchronization and cannot pass automatic publication.
+            _catalogRevision = sourceRevision;
             _cacheInitialized = true;
             _structureCache.InvalidateMaps(cache.ChangedMapIds);
             InvalidateAndTriggerVpsg3Rebuild(cache.Maps, cache.ChangedMapIds);
@@ -214,6 +219,9 @@ public sealed partial class MapCvRecognitionService : IDisposable
             _sideEntranceFeatureCache = sideEntranceCache;
             foreach (var mat in oldFeatureCache.Values)
                 mat.Dispose();
+            var previousIdentityIndex = _localFeatureIdentityIndex;
+            _localFeatureIdentityIndex = new MapLocalFeatureIdentityIndex(_repository, cache.Maps);
+            previousIdentityIndex?.Dispose();
         }
         finally
         {

@@ -54,6 +54,31 @@ public static class MapScanFloorRules
             : profile?.FindAnchor(SecondaryGateAnchorKey);
     }
 
+    /// <summary>Gate hypotheses belong to the target floor; a visible main gate
+    /// must not be forced onto that floor's side-gate reference.</summary>
+    public static IReadOnlyList<RecognitionAnchor> GetScanGateAnchors(
+        MapRecord map,
+        string floorKey)
+    {
+        var profile = MapFloorRules.GetFloorProfile(map, floorKey);
+        if (profile is null)
+            return [];
+        var keys = IsPrimaryFloor(map, floorKey)
+            ? new[] { "side-entrance", "main-entrance" }
+            : new[] { SecondaryGateAnchorKey };
+        return keys.Select(profile.FindAnchor)
+            .Where(anchor => anchor?.Bounds?.IsValid is true)
+            .Select(anchor => anchor!)
+            .ToArray();
+    }
+
+    public static RecognitionAnchor? ResolveScanGateAnchor(
+        MapRecord map,
+        string floorKey,
+        Guid? anchorId) => anchorId is { } id
+            ? GetScanGateAnchors(map, floorKey).FirstOrDefault(anchor => anchor.Id == id)
+            : GetScanFeatureAnchor(map, floorKey);
+
     public static (RecognitionAnchor Main, RecognitionAnchor Side)?
         GetGeometryAnchors(MapRecord map, string floorKey)
     {

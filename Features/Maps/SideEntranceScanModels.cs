@@ -31,6 +31,7 @@ public sealed class SideEntranceScanCandidate
 {
     public double? ReferenceCenterX { get; init; }
     public double? ReferenceCenterY { get; init; }
+    public Guid? ReferenceGateAnchorId { get; init; }
     internal ScanStructureIndex? StructureIndex { get; init; }
     internal IReadOnlyList<SideEntranceScanCandidate> SearchHypotheses { get; set; } = [];
     internal SideEntranceScanCandidate WithHypotheses(IReadOnlyList<SideEntranceScanCandidate> hypotheses)

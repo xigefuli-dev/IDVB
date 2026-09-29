@@ -29,6 +29,10 @@ public sealed partial class MapRuntimeSettings
         if (!Enum.IsDefined(ScanUncertainAction)) ScanUncertainAction = ScanUncertainAction.ShowCandidates;
         var previousSchema = SchemaVersion;
         SchemaVersion = CurrentSchemaVersion;
+        // Enable automatic recognition once when upgrading from the opt-in
+        // observation setting. Later saves retain an explicit user opt-out.
+        if (previousSchema < 22)
+            ContinuousObservationEnabled = true;
         // These are deliberately product-owned choices, rather than user
         // preferences. Normalize after every deserialization/save so imported,
         // migrated, and quick-start settings cannot re-enable retired paths.

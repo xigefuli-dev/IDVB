@@ -460,16 +460,6 @@ public sealed partial class SessionOrchestrator
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>通过标签选择地图开关：开启后快捷扫描直接给出当前地图类的全部结果。</summary>
-    public async Task SetSelectMapByTagsEnabledAsync(bool enabled)
-    {
-        if (_settings is null)
-            return;
-        _settings.SelectMapByTagsEnabled = enabled;
-        await SaveSettingsAsync();
-        StateChanged?.Invoke(this, EventArgs.Empty);
-    }
-
     /// <summary>后台扫描已移除；兼容调用不能在会话内重新启用它。</summary>
     public void SetBackgroundScanEnabledForSession(bool enabled)
     {

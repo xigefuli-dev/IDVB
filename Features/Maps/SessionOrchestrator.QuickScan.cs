@@ -6,23 +6,28 @@ public sealed partial class SessionOrchestrator
 {
     public Task RunQuickScanAsync() => RunQuickScanAsync(candidateSelector: null);
 
-    public async Task RunQuickScanAsync(
+    private async Task RunQuickScanCoreAsync(
         IMapCandidateSelector? candidateSelector)
     {
-        var scanStartedAt = Stopwatch.GetTimestamp();
+        var scanStartedAt = ScanRequestDiagnostics.Current?.StartedTimestamp ?? Stopwatch.GetTimestamp();
         _lastCandidateChoices = [];
         if (_disposed)
+        {
+            LogScanCheckpoint("guard", "rejected", "disposed");
             return;
+        }
         _lastScanPhaseTimings = null;
         _lastScanOperationTrace = null;
         if (!_initialized || _settings is null)
         {
             ReportCliGuardFailure("地图运行时尚未初始化。", MapLogCategory.Session);
+            LogScanCheckpoint("guard", "rejected", "runtime-not-initialized");
             return;
         }
         if (!_settings.IsEnabled)
         {
             ReportCliGuardFailure("地图识别功能已禁用。", MapLogCategory.Session);
+            LogScanCheckpoint("guard", "rejected", "runtime-disabled");
             return;
         }
 
@@ -51,26 +56,41 @@ public sealed partial class SessionOrchestrator
             if (!_matchSession.Snapshot.IsStarted)
             {
                 _statusMessage = "请先在对局控件中点击“进入对局”，再执行扫描。";
+                LogScanCheckpoint("guard", "rejected", "match-not-started");
                 StateChanged?.Invoke(this, EventArgs.Empty);
                 return;
             }
             try
             {
+                LogScanCheckpoint("cache-wait");
                 await EnsureMapCacheSynchronizedAsync().WaitAsync(TimeSpan.FromMilliseconds(
                     Math.Max(1, scanExecution.RemainingMilliseconds - 60)), scanCancellation);
+                LogScanCheckpoint("cache-ready");
             }
             catch (TimeoutException)
             {
-                if (scanExecution.IsSuperseded) return;
+                if (scanExecution.IsSuperseded)
+                {
+                    LogScanCheckpoint("cache-wait", "superseded", "new-scan-request");
+                    return;
+                }
                 _statusMessage = "地图目录正在更新，本次扫描未能在预算内开始比较。";
+                LogScanCheckpoint("cache-wait", "timed-out", "cache-wait-deadline");
                 StateChanged?.Invoke(this, EventArgs.Empty);
                 return;
             }
             catch (OperationCanceledException) when (scanCancellation.IsCancellationRequested)
             {
+                LogScanCheckpoint("cache-wait", scanExecution.IsSuperseded ? "superseded" : "cancelled",
+                    scanExecution.IsSuperseded ? "new-scan-request" : "scan-cancelled");
                 return;
             }
-            if (scanExecution.Expired) return;
+            if (scanExecution.Expired)
+            {
+                LogScanCheckpoint("before-capture", scanExecution.IsSuperseded ? "superseded"
+                    : scanCancellation.IsCancellationRequested ? "cancelled" : "timed-out", scanExecution.ComputeStopReason);
+                return;
+            }
             if (_settings.BackgroundScanEnabled)
                 ClearPendingBackgroundScan();
             var operationMatch = _matchSession.Snapshot;
@@ -78,6 +98,7 @@ public sealed partial class SessionOrchestrator
                     out var clientBounds, out var windowHandle, out var failureReason))
             {
                 ReportCliCaptureFailure(failureReason);
+                LogScanCheckpoint("capture-target", "rejected", "foreground-unavailable:" + failureReason);
                 return;
             }
 
@@ -99,6 +120,8 @@ public sealed partial class SessionOrchestrator
             try
             {
                 _hasCompletedQuickScanAlignment = false;
+                LogScanCheckpoint("pipeline");
+                if (ScanRequestDiagnostics.Current is { } request) request.PipelineStarted = true;
                 await RunRecognitionPipelineAsync();
                 scanCompleted = !scanCancellation.IsCancellationRequested
                     && IsCurrentMatchOperation(operationMatch)
@@ -106,6 +129,15 @@ public sealed partial class SessionOrchestrator
                     ? _backgroundScanStatus == BackgroundScanStatus.CompletedIdentified
                     : _hasCompletedQuickScanAlignment
                         && _lastRecognition?.Result.OverlayTransform is not null);
+                if (ScanRequestDiagnostics.Current is { } terminal)
+                {
+                    if (scanExecution.IsSuperseded) terminal.Complete("superseded", "new-scan-request");
+                    else if (scanCancellation.IsCancellationRequested) terminal.Complete("cancelled", "scan-cancelled");
+                    else if (!IsCurrentMatchOperation(operationMatch)) terminal.Complete("superseded", "match-changed");
+                    else if (scanCompleted) terminal.Complete("success", backgroundScan ? "background-identified" : "alignment-committed");
+                    else if (terminal.Outcome is "pending" or "success")
+                        terminal.Complete("failed", "pipeline-returned-without-committed-alignment");
+                }
             }
             finally
             {

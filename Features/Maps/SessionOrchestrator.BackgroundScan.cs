@@ -55,6 +55,21 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         CancellationToken cancellationToken)
     {
+        if (ScanExecutionContext.Current is { Policy.Mode: ScanPerformanceMode.DeepScan } deepScan
+            && (deepScan.Expired || !deepScan.RetrievalCompleted
+                || deepScan.CatalogRevision?.Equals(_recognition.CatalogRevision) != true))
+        {
+            state.Recognition = null;
+            state.PendingSideEntranceIdentity = null;
+            state.PendingSideEntranceSeed = null;
+            // The deadline invalidates automatic identity/pose publication, but
+            // completed, current-catalog choices may still be shown for manual selection.
+            if (!MapCandidatePresentationRules.CanPresentChoices(deepScan, state.PendingChoices,
+                    state.PendingSideEntranceScan?.Candidates)
+                || deepScan.CatalogRevision?.Equals(_recognition.CatalogRevision) != true)
+                state.PendingChoices = null;
+            state.FailureReason = "DeepScan 已超时、目录已变化或比较未完成，未保存扫描结果。";
+        }
         var outcome = BackgroundScanRules.ClassifyBackgroundScan(
             state.Recognition,
             state.PendingChoices,
@@ -88,7 +103,11 @@ public sealed partial class SessionOrchestrator
         // 唯一严格验证候选会携带侧门种子；歧义路径种子为 null，但扫描
         // 特征会保留，消费候选确认后可为所选地图重建对应种子。
         _pendingBackgroundSeed = state.PendingSideEntranceSeed;
-        _pendingBackgroundScan = state.PendingSideEntranceScan;
+        // A DeepScan proposal has no gate anchor. After a manual choice, use
+        // the selected floor's independent alignment, never a fake side-door seed.
+        _pendingBackgroundScan = ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
+            && outcome.Status == BackgroundScanStatus.CompletedAmbiguous
+                ? null : state.PendingSideEntranceScan;
         // 完成状态只能在所有候选资源冻结后发布。准备期间保持 Idle，避免
         // 开图热键提前进入仍在计算的候选消费路径。
         _backgroundScanStatus = BackgroundScanStatus.Idle;

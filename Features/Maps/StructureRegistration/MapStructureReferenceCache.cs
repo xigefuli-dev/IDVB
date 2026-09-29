@@ -149,6 +149,19 @@ public sealed partial class MapStructureReferenceCache : IDisposable
         MapStructurePreprocessingProfile profile =
             MapStructurePreprocessingProfile.EdgesAndFeatures)
     {
+        // A cleanup may remove only complete, idle disk entries.
+        using var protection = AppDataPaths.ProtectCachePath(
+            Path.Combine(_rootDirectory, mapId.ToString("N")));
+        return GetOrCreateCore(mapId, updatedAt, referenceImage, ignoreRegions,
+            floor, generationTuning, profile);
+    }
+
+    private MapStructureFeatures GetOrCreateCore(
+        Guid mapId, DateTimeOffset updatedAt, Mat referenceImage,
+        IReadOnlyList<NormalizedRectangle>? ignoreRegions, string floor,
+        MapStructureGenerationTuning? generationTuning,
+        MapStructurePreprocessingProfile profile)
+    {
         using var cacheRoute = MapOperationTraceAmbient.StartChild(
             "reference_cache_route",
             MapOperationWaitKind.Io,

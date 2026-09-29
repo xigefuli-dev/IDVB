@@ -16,6 +16,7 @@ public sealed record ScanIdentityEvidence(ScanIdentityState State, int TestedPoi
     int TotalPoints, double ForwardMeanPixels, double SupportedFraction,
     double LongestConflictPixels, string Reason)
 {
+    public int UnknownReferencePoints { get; init; }
     public int ConflictCell { get; init; } = -1;
     public int ConflictCellPoints { get; init; }
     public int ConflictCellHits { get; init; }
@@ -48,6 +49,21 @@ internal sealed class ScanStructureIndex
     public int Height { get; }
     internal int RetainedDistanceBytes => _distances.Length;
     private readonly byte[] _distances;
+    private readonly Rect _unknownBounds;
+    // DeepScan views share immutable distance storage, never mutate the ordinary
+    // scan cache, and retain only this floor's explicitly erased anchor rectangle.
+    private ScanStructureIndex(ScanStructureIndex source, Rect unknownBounds)
+    {
+        Width = source.Width; Height = source.Height;
+        _distances = source._distances;
+        _unknownBounds = unknownBounds.Intersect(new(0, 0, Width, Height));
+    }
+    internal ScanStructureIndex WithUnknownBounds(Rect bounds) => new(this, bounds);
+    internal bool IsUnknown(double x, double y) => _unknownBounds.Width > 0 && _unknownBounds.Height > 0
+        && x >= _unknownBounds.X && y >= _unknownBounds.Y
+        && x < _unknownBounds.Right && y < _unknownBounds.Bottom;
+    internal static bool HasEnoughKnownPoints(int known, int total, int minimum) =>
+        known >= minimum && known >= total * .65;
     private ScanStructureIndex(Mat line)
     {
         Width = line.Width; Height = line.Height;
@@ -90,6 +106,28 @@ internal sealed class ScanStructureIndex
         encoded <= FineDistanceLimit * FineDistanceUnitsPerPixel
             ? encoded / FineDistanceUnitsPerPixel
             : (encoded - CoarseDistanceOffset) / CoarseDistanceUnitsPerPixel;
+    // DeepScan evaluates many local poses. Decode its immutable byte distances
+    // once instead of repeating four piecewise decodes for every sampled pixel.
+    // Ordinary modes and the final identity verifier retain their original path.
+    private static class DeepScanDecoder
+    {
+        internal static readonly double[] Values = Enumerable.Range(0, 256)
+            .Select(value => DecodeDistance((byte)value)).ToArray();
+    }
+    internal double DeepScanDistance(double x, double y, double scale)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || x < 0 || y < 0 || x >= Width - 1 || y >= Height - 1)
+            return 50d;
+        var ix = (int)x; var iy = (int)y;
+        var fx = x - ix; var fy = y - iy;
+        var lookup = DeepScanDecoder.Values;
+        var row = iy * Width + ix;
+        var distance = (lookup[_distances[row]] * (1 - fx)
+                + lookup[_distances[row + 1]] * fx) * (1 - fy)
+            + (lookup[_distances[row + Width]] * (1 - fx)
+                + lookup[_distances[row + Width + 1]] * fx) * fy;
+        return distance * scale;
+    }
     public double Score(IReadOnlyList<Point> points, double scale, double x, double y)
     {
         var sum = 0d;
@@ -164,15 +202,22 @@ internal static class ScanIdentityVerifier
         var scale = transform.ScaleX;
         var tx = transform.OffsetX - viewport.X;
         var ty = transform.OffsetY - viewport.Y;
-        double Distance(Point p) => index.Distance((p.X - tx) / scale, (p.Y - ty) / scale, scale);
-        var hits = 0; var tested = 0; var distance = 0d;
+        var deep = policy.Mode == ScanPerformanceMode.DeepScan;
+        double SampleDistance(double x, double y) => deep ? index.DeepScanDistance(x, y, scale) : index.Distance(x, y, scale);
+        bool Unknown(Point p) => index.IsUnknown((p.X - tx) / scale, (p.Y - ty) / scale);
+        // Unknown breaks a conflict run, but is never counted as a supporting hit.
+        double Distance(Point p) => Unknown(p) ? 0 : SampleDistance((p.X - tx) / scale, (p.Y - ty) / scale);
+        var hits = 0; var tested = 0; var unknown = 0; var distance = 0d;
         Span<int> cellTotals = stackalloc int[16];
         Span<int> cellHits = stackalloc int[16];
         foreach (var p in points)
         {
-            if ((tested & 255) == 0 && context is { CanCompute: false })
+            if (((tested + unknown) & 255) == 0 && context is { CanCompute: false })
                 return ScanIdentityEvidence.Unverified("deadline");
-            var d = Distance(p);
+            var rx = (p.X - tx) / scale;
+            var ry = (p.Y - ty) / scale;
+            if (index.IsUnknown(rx, ry)) { unknown++; continue; }
+            var d = SampleDistance(rx, ry);
             var cell = Math.Min(3, p.X * 4 / frame.Source.Width) + 4 * Math.Min(3, p.Y * 4 / frame.Source.Height);
             cellTotals[cell]++;
             if (d <= SupportTolerancePixels) cellHits[cell]++;
@@ -185,16 +230,21 @@ internal static class ScanIdentityVerifier
                 return new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
                     hits / (double)tested, 0, "unexplained-visible-structure");
         }
+        if (!ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80))
+            return ScanIdentityEvidence.Unverified("insufficient-unmasked-reference-structure")
+                with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown };
         var longest = 0d;
         Point? conflictStart = null, conflictEnd = null;
-        foreach (var contour in frame.Contours)
+        var prepared = deep ? frame.PreparedConflictContours : null;
+        foreach (var contour in prepared ?? frame.Contours)
         {
             if (context is { CanCompute: false }) return ScanIdentityEvidence.Unverified("deadline");
-            var measured = MeasureStraightConflict(contour, Distance, out var start, out var end);
-            if (measured > longest) { longest = measured; conflictStart = start; conflictEnd = end; }
+            var measured = MeasureStraightConflict(contour, Distance, out var measuredStart, out var measuredEnd,
+                alreadyApproximated: prepared is not null);
+            if (measured > longest) { longest = measured; conflictStart = measuredStart; conflictEnd = measuredEnd; }
             if (longest >= MaximumContinuousConflictPixels) break;
         }
-        var support = hits / (double)points.Length;
+        var support = hits / (double)tested;
         var spatialConflict = false;
         var conflictCell = -1;
         for (var cell = 0; cell < cellTotals.Length; cell++)
@@ -205,6 +255,7 @@ internal static class ScanIdentityVerifier
             tested, points.Length, distance / tested, support, longest,
             accepted ? "visible-structure-supported" : spatialConflict ? "spatial-support-conflict" : "visible-contour-conflict")
         {
+            UnknownReferencePoints = unknown,
             ConflictCell = conflictCell,
             ConflictCellPoints = conflictCell < 0 ? 0 : cellTotals[conflictCell],
             ConflictCellHits = conflictCell < 0 ? 0 : cellHits[conflictCell],
@@ -218,13 +269,13 @@ internal static class ScanIdentityVerifier
         => MeasureStraightConflict(contour, distance, out _, out _);
 
     internal static double MeasureStraightConflict(Point[] contour, Func<Point, double> distance,
-        out Point? conflictStart, out Point? conflictEnd)
+        out Point? conflictStart, out Point? conflictEnd, bool alreadyApproximated = false)
     {
         conflictStart = null; conflictEnd = null;
         // A small badge's perimeter (or a contour visited twice) is not the length
         // of an unexplained wall. Split at genuine turns, tolerating raster stair
         // steps, and measure supported/unsupported runs on each straight segment.
-        var vertices = Cv2.ApproxPolyDP(contour, 1.5, true);
+        var vertices = alreadyApproximated ? contour : Cv2.ApproxPolyDP(contour, 1.5, true);
         var longest = 0d;
         for (var i = 0; i < vertices.Length; i++)
         {

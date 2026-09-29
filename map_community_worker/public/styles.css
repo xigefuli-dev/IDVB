@@ -176,6 +176,12 @@
 }
 
 /* The normal Turnstile widget needs 300px, including on 320px phones. */
+#version-policy-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;align-items:end;margin:24px 0}
+#version-policy-form label{display:flex;flex-direction:column;gap:8px;font-weight:600}
+#version-policy-form label:has(input[type=checkbox]){flex-direction:row;align-items:center;min-height:44px}
+#version-policy-form input:not([type=checkbox]){width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:10px;font:inherit;box-sizing:border-box}
+#version-policy-status{min-height:24px;overflow-wrap:anywhere}
+#versions-tbody td:nth-child(3){max-width:400px;white-space:normal;overflow-wrap:anywhere}
 @media(max-width:360px){.auth-content{padding-left:10px;padding-right:10px}.brand{gap:6px}.account-actions{gap:2px}}
 
 

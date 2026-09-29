@@ -227,6 +227,11 @@ public sealed partial class SessionOrchestrator
         }
         else
         {
+            if (ScanRequestDiagnostics.Current is { } request)
+            {
+                request.TraceId = summary.OperationId;
+                request.Complete(summary.Outcome, summary.TerminalReason);
+            }
             _lastScanOperationTrace = summary;
             _lastScanPhaseTimings = summary.ToPhaseTimings();
             if (_lastDiagnostics is { } diagnostics)

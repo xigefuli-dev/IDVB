@@ -82,7 +82,8 @@ public sealed partial class MainPage : Page
         try
         {
             NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
-            _ = AccountSession.RefreshAsync();
+            // The application access gate validates the session. A separate refresh
+            // would invalidate the intentionally offline privileged login.
             if (ModuleContentHost.Content is HomePage homePage)
                 await homePage.InitialReady;
         }

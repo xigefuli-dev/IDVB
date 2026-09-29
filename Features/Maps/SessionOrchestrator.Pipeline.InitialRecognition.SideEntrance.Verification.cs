@@ -35,6 +35,7 @@ public sealed partial class SessionOrchestrator
             candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
         }
         timings["scan_class_evidence"] = timer.Elapsed.TotalMilliseconds;
+        var deferAmbiguousAlignment = ScanUncertainPolicies.DeferAmbiguousDeepScanAlignment(context!, candidates);
         var completed = 0;
         var formal = 0;
         var reusedFamily = 0;
@@ -59,7 +60,7 @@ public sealed partial class SessionOrchestrator
             ScanIdentityEvidence? bestEvidence = null;
             MapAlignmentSession? bestSeed = null;
             MapRecognitionAttempt? bestAttempt = null;
-            foreach (var proposal in hypotheses)
+            foreach (var proposal in deferAmbiguousAlignment ? Array.Empty<SideEntranceScanCandidate>() : hypotheses)
             {
                 var hypothesis = proposal;
                 if (!context.CanCompute) { complete = false; break; }
@@ -107,8 +108,10 @@ public sealed partial class SessionOrchestrator
                         CreateStructureTuningForFloor(candidate.Map, candidate.FloorKey, CreateInitialAlignmentStructureTuning())));
                 structureTuning.StructureFallbackBudgetMilliseconds = Math.Max(1, Math.Min(
                     structureTuning.StructureFallbackBudgetMilliseconds, context.RemainingMilliseconds - 60));
-                var attempt = RunMandatoryCandidateStructureRegistration(frame, hypothesis, seed,
-                    sideAlignmentTuning, structureTuning, out seed);
+                var attempt = context.Policy.Mode == ScanPerformanceMode.DeepScan
+                    ? _recognition.AlignDeepScan(frame, hypothesis, seed, sideAlignmentTuning, structureTuning)
+                    : RunMandatoryCandidateStructureRegistration(frame, hypothesis, seed,
+                        sideAlignmentTuning, structureTuning, out seed);
                 formal++;
                 if (attempt.Recognition?.Result.OverlayTransform is not { } finalTransform || !attempt.StructureAccepted)
                 {
@@ -186,7 +189,8 @@ public sealed partial class SessionOrchestrator
         timings["scan_verification"] = timer.Elapsed.TotalMilliseconds;
         _lastDiagnostics!.ScanCandidateCount = candidates.Count;
         _lastDiagnostics.ScanVerificationCandidateCount = candidates.Count;
-        _lastDiagnostics.ScanVerifiedCandidateCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
+        context!.VerifiedCandidateCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
+        _lastDiagnostics.ScanVerifiedCandidateCount = context.VerifiedCandidateCount.Value;
         _lastDiagnostics.ScanVerificationTimedOut = !context!.CanCompute;
         _lastDiagnostics.ScanEarlyExited = false;
         _lastDiagnostics.ScanFormalStructureAttemptCount = formal;
@@ -202,6 +206,7 @@ public sealed partial class SessionOrchestrator
                 ["verifiedMembers"] = reliable.Count,
                 ["skippedSiblingAlignments"] = reusedFamily,
                 ["skippedDominatedAlignments"] = dominatedAlignments,
+                ["deferredAmbiguousAlignment"] = deferAmbiguousAlignment,
                 ["classEvidenceMs"] = timings["scan_class_evidence"]
             });
         return reliable;

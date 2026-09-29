@@ -8,6 +8,9 @@ public sealed class FeedbackSubmissionPayload
     /// <summary>问题描述（必须填写且加权字符数大于 10）。</summary>
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>联系 QQ 号（未登录时必填）。</summary>
+    public string ContactQq { get; set; } = string.Empty;
+
     /// <summary>是否包含日志数据。</summary>
     public bool IncludeLogs { get; set; }
 

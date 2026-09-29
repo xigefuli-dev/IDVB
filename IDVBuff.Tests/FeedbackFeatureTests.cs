@@ -105,7 +105,7 @@ public sealed class FeedbackFeatureTests
     }
 
     [Fact]
-    public async Task OfficialFeedbackService_FailsWhenNotLoggedIn()
+    public async Task OfficialFeedbackService_RequiresQqWhenNotLoggedIn()
     {
         OfficialFeedbackService.TokenProvider = () => null;
         var service = OfficialFeedbackService.Instance;
@@ -119,7 +119,52 @@ public sealed class FeedbackFeatureTests
         var result = await service.SubmitFeedbackAsync(payload);
 
         Assert.False(result.Success);
-        Assert.Contains("登录", result.Message);
+        Assert.Contains("QQ", result.Message);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("1234", false)]
+    [InlineData("012345", false)]
+    [InlineData("12345a", false)]
+    [InlineData("１２３４５６", false)]
+    [InlineData("1234567890123", false)]
+    [InlineData("12345", true)]
+    [InlineData(" 123456789012 ", true)]
+    public void ContactQqValidation(string? value, bool expected)
+        => Assert.Equal(expected, FeedbackTextValidator.IsContactQqValid(value));
+
+    [Fact]
+    public async Task OfficialFeedbackService_SubmitsGuestQqWithoutAuthorization()
+    {
+        using var client = new HttpClient(new TestHttpMessageHandler
+        {
+            Handler = request =>
+            {
+                Assert.Null(request.Headers.Authorization);
+                var form = Assert.IsType<MultipartFormDataContent>(request.Content);
+                var contact = Assert.Single(form.Where(part => part.Headers.ContentDisposition?.Name?.Trim('"') == "contactQq"));
+                Assert.Equal("12345678", contact.ReadAsStringAsync().GetAwaiter().GetResult());
+                return new HttpResponseMessage(System.Net.HttpStatusCode.Created);
+            }
+        }) { BaseAddress = new Uri("https://community.idvb.test/") };
+        OfficialFeedbackService.TokenProvider = () => null;
+        OfficialFeedbackService.CustomHttpClient = client;
+        try
+        {
+            var result = await OfficialFeedbackService.Instance.SubmitFeedbackAsync(new FeedbackSubmissionPayload
+            {
+                Description = "这是未登录用户的问题描述",
+                ContactQq = " 12345678 "
+            });
+            Assert.True(result.Success, result.Message);
+        }
+        finally
+        {
+            OfficialFeedbackService.CustomHttpClient = null;
+            OfficialFeedbackService.TokenProvider = null;
+        }
     }
 
     [Fact]

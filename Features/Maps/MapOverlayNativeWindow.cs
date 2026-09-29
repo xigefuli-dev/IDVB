@@ -12,10 +12,10 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
     private const uint WmMouseActivate = 0x0021;
     private const int HtTransparent = -1;
     private const int MaNoActivate = 3;
-    internal const int SwHide = 0;
-    internal const int SwShowNoActivate = 4;
     internal const uint SwpNoSize = 0x0001;
     internal const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpHideWindow = 0x0080;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpShowWindow = 0x0040;
     internal const byte AcSrcOver = 0;
@@ -47,7 +47,12 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
     internal void Hide()
     {
         if (_handle != IntPtr.Zero)
-            ShowWindow(_handle, SwHide);
+        {
+            // A display layer must not hand off focus: games can discard held
+            // movement keys when activation changes.
+            SetWindowPos(_handle, IntPtr.Zero, 0, 0, 0, 0,
+                SwpNoActivate | SwpNoMove | SwpNoSize | SwpNoZOrder | SwpHideWindow);
+        }
         IsVisible = false;
     }
 
@@ -269,10 +274,6 @@ internal sealed partial class MapOverlayNativeWindow : IDisposable
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ShowWindow(IntPtr window, int command);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

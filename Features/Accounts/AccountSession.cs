@@ -113,6 +113,7 @@ internal static class AccountSession
 
     public static void Clear()
     {
+        VersionAccessClient.ClearProof();
         _publishToken = null;
         Identity = null;
         RemoveSaved();
@@ -122,6 +123,7 @@ internal static class AccountSession
     public static async Task LogoutAsync()
     {
         var token = _publishToken;
+        Clear(); // Revoke local use immediately, even while the server is unreachable.
         try
         {
             if (!string.IsNullOrWhiteSpace(token))

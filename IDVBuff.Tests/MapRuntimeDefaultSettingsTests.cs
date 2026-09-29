@@ -4,12 +4,68 @@ namespace IDVBuff.Tests;
 
 public sealed class MapRuntimeDefaultSettingsTests
 {
+    [Theory]
+    [InlineData("{\"SchemaVersion\":21,\"DiagnosticModeEnabled\":false}")]
+    [InlineData("{\"DiagnosticModeEnabled\":false}")]
+    [InlineData("{\"SchemaVersion\":21,\"DiagnosticModeEnabled\":true}")]
+    public async Task Version166EnablesDiagnosticsOnceAndPreservesLaterOptOut(string json)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"IDVBuff.Settings.{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var path = Path.Combine(root, "settings.json");
+            await File.WriteAllTextAsync(path, json);
+            var repository = new MapRuntimeSettingsRepository(root);
+            var migrated = await repository.LoadAsync();
+            Assert.True(migrated.DiagnosticModeEnabled);
+            using (var persisted = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(path)))
+            {
+                Assert.Equal(22, persisted.RootElement.GetProperty("SchemaVersion").GetInt32());
+                Assert.True(persisted.RootElement.GetProperty("DiagnosticModeEnabled").GetBoolean());
+            }
+
+            var restarted = await new MapRuntimeSettingsRepository(root).LoadAsync();
+            Assert.True(restarted.DiagnosticModeEnabled);
+            restarted.DiagnosticModeEnabled = false;
+            await repository.SaveAsync(restarted.Clone());
+            var optedOut = await new MapRuntimeSettingsRepository(root).LoadAsync();
+            optedOut.Normalize();
+            Assert.False(optedOut.DiagnosticModeEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FreshSettingsEnableDiagnosticsAndAllowOptOut()
+    {
+        Assert.True(new MapRuntimeSettings().DiagnosticModeEnabled);
+        var root = Path.Combine(Path.GetTempPath(), $"IDVBuff.Settings.{Guid.NewGuid():N}");
+        try
+        {
+            var repository = new MapRuntimeSettingsRepository(root);
+            var settings = await repository.LoadAsync();
+            Assert.True(settings.DiagnosticModeEnabled);
+            settings.DiagnosticModeEnabled = false;
+            await repository.SaveAsync(settings);
+            Assert.False((await repository.LoadAsync()).DiagnosticModeEnabled);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void NewSettingsUseTheSafeReleaseBaselineWithoutMachineSpecificData()
     {
         var settings = MapRuntimeSettings.CreateDefault();
 
-        Assert.Equal(21, settings.SchemaVersion);
+        Assert.Equal(22, settings.SchemaVersion);
+        Assert.True(settings.DiagnosticModeEnabled);
         Assert.Equal(ScanPerformanceMode.Balanced, settings.ScanPerformanceMode);
         Assert.False(settings.IsEnabled);
         Assert.Equal(FirstScanStrategy.SideEntrance, settings.FirstScanStrategy);

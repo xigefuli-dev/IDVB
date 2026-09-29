@@ -80,6 +80,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
         using var perfScope = RealtimePerformanceTracker.TrackScope("ResetMatchState", forceLog: true);
         ObjectDisposedException.ThrowIf(_disposed, this);
         _gateDetector.ResetSuccessfulScale();
+        _deepScanGateDetector?.ResetSuccessfulScale();
 
         Task[] pendingTasks;
         lock (_floorPrewarmGate)
@@ -190,6 +191,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     }
 
                     var builtSideEntrance = MapCvRecognitionHelpers.BuildSideEntranceFeatureCache(_repository, buildResult.Maps);
+                    PrewarmDeepScan(builtSideEntrance.Values);
                     return (buildResult, builtSideEntrance);
                 });
             }

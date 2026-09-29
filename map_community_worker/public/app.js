@@ -433,7 +433,48 @@ function switchBuilderTab(tab) {
   else if (tab === "feedbacks") loadBuilderFeedbacks();
   else if (tab === "maps") loadBuilderMaps();
   else if (tab === "announcements") loadBuilderAnnouncements();
+  else if (tab === "versions") loadBuilderVersions();
 }
+
+async function loadBuilderVersions() {
+  const status = document.querySelector("#version-policy-status");
+  const tbody = document.querySelector("#versions-tbody");
+  tbody.replaceChildren();
+  status.textContent = "正在读取版本策略…";
+  try {
+    const { versions } = await api("/api/builder/versions");
+    for (const policy of versions) {
+      const row = document.createElement("tr");
+      for (const value of [policy.version, policy.enabled ? "可用" : "已停用", policy.message, policy.updated_at]) {
+        const cell = document.createElement("td"); cell.textContent = value; row.append(cell);
+      }
+      const cell = document.createElement("td");
+      const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "编辑";
+      edit.addEventListener("click", () => {
+        document.querySelector("#version-policy-version").value = policy.version;
+        document.querySelector("#version-policy-enabled").checked = Boolean(policy.enabled);
+        document.querySelector("#version-policy-message").value = policy.message;
+      });
+      cell.append(edit); row.append(cell); tbody.append(row);
+    }
+    status.textContent = "策略已加载。停用将在客户端下一次联网校验后生效（正常轮询间隔 60 秒）。";
+  } catch (error) { status.textContent = error.message; }
+}
+
+document.querySelector("#version-policy-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = event.submitter;
+  const version = document.querySelector("#version-policy-version").value.trim();
+  const enabled = document.querySelector("#version-policy-enabled").checked;
+  if (!enabled && !confirm(`停用 ${version} 后，普通账户必须升级到可用版本。确认停用？`)) return;
+  button.disabled = true;
+  try {
+    await api("/api/builder/versions", { method: "PUT", body: JSON.stringify({ version, enabled,
+      message: document.querySelector("#version-policy-message").value.trim() }) });
+    await loadBuilderVersions();
+  } catch (error) { document.querySelector("#version-policy-status").textContent = error.message; }
+  finally { button.disabled = false; }
+});
 
 async function loadBuilderUsers() {
   const tbody = document.querySelector("#users-tbody");
@@ -545,7 +586,7 @@ function renderBuilderFeedbacks() {
 
   container.innerHTML = builderFeedbacksData.map((f) => {
     const timeStr = f.created_at ? new Date(f.created_at).toLocaleString("zh-CN") : "-";
-    const userDisplay = f.user_name ? `${escapeHtml(f.user_name)} (${escapeHtml(f.user_email || "")})` : (f.user_email || "未知用户");
+    const userDisplay = f.user_name ? `${escapeHtml(f.user_name)} (${escapeHtml(f.user_email || "")})` : escapeHtml(f.user_email || (f.user_id == null ? (f.contact_qq ? "桌面端未登录反馈" : "Android 匿名反馈") : "未知用户"));
     const safeId = escapeHtml(f.id);
     const shortId = escapeHtml(f.id.slice(0, 8));
 
@@ -562,6 +603,7 @@ function renderBuilderFeedbacks() {
       <div class="feedback-card-header">
         <div class="feedback-user-info">
           <strong>${userDisplay}</strong>
+          ${f.contact_qq ? `<span>QQ号：${escapeHtml(f.contact_qq)}</span>` : ""}
           <code title="${safeId}">${shortId}</code>
         </div>
         <div class="feedback-time">${timeStr}</div>

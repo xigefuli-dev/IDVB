@@ -60,6 +60,8 @@ public sealed class MapVpsgScaleGraphCache
         IReadOnlyList<KeyPoint> keyPoints)
     {
         var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(map);
+        using var protection = AppDataPaths.ProtectCachePath(
+            Path.Combine(_rootDirectory, map.Id.ToString("N")));
         var memoryKey = $"{map.Id:N}|{fingerprint}|{floorKey}|{keyPoints.Count}";
         lock (_gate)
         {

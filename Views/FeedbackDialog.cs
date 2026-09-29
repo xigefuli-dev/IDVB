@@ -10,12 +10,14 @@ namespace IDVBuff.Views;
 /// 反馈问题对话框。
 /// 提供问题描述输入（中文汉字算2字符，必须大于10字符）、日志与诊断数据发送选项，
 /// 并执行安全的异步后台打包与官网后台接口提交。
-/// 强制要求必须登录后才能使用。
+/// 未登录时必须提供联系 QQ 号。
 /// </summary>
 public sealed class FeedbackDialog : ContentDialog
 {
     private readonly InfoBar _loginNoticeBar;
     private readonly TextBox _descriptionBox;
+    private readonly TextBox _contactQqBox;
+    private bool _isBusy;
     private readonly TextBlock _counterBlock;
     private readonly CheckBox _sendLogsCheckBox;
     private readonly CheckBox _sendDiagnosticsCheckBox;
@@ -41,13 +43,13 @@ public sealed class FeedbackDialog : ContentDialog
             MinWidth = 460
         };
 
-        // 登录提示条（未登录时强制提示并禁用提交）
+        // 未登录时填写 QQ 号即可反馈，也可以选择登录。
         _loginNoticeBar = new InfoBar
         {
             IsOpen = false,
-            Severity = InfoBarSeverity.Warning,
+            Severity = InfoBarSeverity.Informational,
             IsClosable = false,
-            Message = "反馈功能必须登录社区账户后才能使用。"
+            Message = "无需登录也可反馈；未登录时请填写联系 QQ 号，方便我们跟进问题。"
         };
         var loginButton = new Button
         {
@@ -73,6 +75,15 @@ public sealed class FeedbackDialog : ContentDialog
         };
         _loginNoticeBar.ActionButton = loginButton;
         rootPanel.Children.Add(_loginNoticeBar);
+
+        _contactQqBox = new TextBox
+        {
+            Header = "联系方式：QQ号（未登录时必填）",
+            PlaceholderText = "5–12 位数字，不能以 0 开头",
+            MaxLength = 12
+        };
+        _contactQqBox.TextChanged += (_, _) => UpdateLoginState();
+        rootPanel.Children.Add(_contactQqBox);
 
         // 描述说明标签
         var descHeader = new TextBlock
@@ -173,9 +184,11 @@ public sealed class FeedbackDialog : ContentDialog
 
     private void UpdateLoginState()
     {
-        bool isLoggedIn = AccountSession.Identity != null && !string.IsNullOrWhiteSpace(AccountSession.PublishToken);
+        bool isLoggedIn = !string.IsNullOrWhiteSpace(AccountSession.PublishToken);
         _loginNoticeBar.IsOpen = !isLoggedIn;
-        IsPrimaryButtonEnabled = isLoggedIn && FeedbackTextValidator.IsDescriptionValid(_descriptionBox.Text);
+        _contactQqBox.Visibility = isLoggedIn ? Visibility.Collapsed : Visibility.Visible;
+        IsPrimaryButtonEnabled = !_isBusy && FeedbackTextValidator.IsDescriptionValid(_descriptionBox.Text)
+            && (isLoggedIn || FeedbackTextValidator.IsContactQqValid(_contactQqBox.Text));
     }
 
     private void DescriptionBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -183,9 +196,7 @@ public sealed class FeedbackDialog : ContentDialog
         var text = _descriptionBox.Text;
         int count = FeedbackTextValidator.CalculateWeightedLength(text);
         bool isValid = FeedbackTextValidator.IsDescriptionValid(text);
-        bool isLoggedIn = AccountSession.Identity != null && !string.IsNullOrWhiteSpace(AccountSession.PublishToken);
-
-        IsPrimaryButtonEnabled = isValid && isLoggedIn;
+        UpdateLoginState();
 
         if (isValid)
         {
@@ -206,9 +217,12 @@ public sealed class FeedbackDialog : ContentDialog
         // 阻止对话框默认立刻关闭，执行异步打包与提交
         args.Cancel = true;
 
-        if (AccountSession.Identity == null || string.IsNullOrWhiteSpace(AccountSession.PublishToken))
+        if (_isBusy) return;
+
+        if (string.IsNullOrWhiteSpace(AccountSession.PublishToken)
+            && !FeedbackTextValidator.IsContactQqValid(_contactQqBox.Text))
         {
-            _statusBlock.Text = "反馈功能必须登录社区账户后才能使用，请先点击上方“立即登录”。";
+            _statusBlock.Text = "请提供联系 QQ 号（5–12 位数字，不能以 0 开头）。";
             UpdateLoginState();
             return;
         }
@@ -247,6 +261,7 @@ public sealed class FeedbackDialog : ContentDialog
             var payload = new FeedbackSubmissionPayload
             {
                 Description = _descriptionBox.Text.Trim(),
+                ContactQq = string.IsNullOrWhiteSpace(AccountSession.PublishToken) ? _contactQqBox.Text.Trim() : string.Empty,
                 IncludeLogs = includeLogs,
                 LogsZipPath = buildResult.LogsZipPath,
                 LogsZipSizeBytes = buildResult.LogsZipSizeBytes,
@@ -300,11 +315,13 @@ public sealed class FeedbackDialog : ContentDialog
 
     private void SetBusyState(bool isBusy)
     {
+        _isBusy = isBusy;
+        _contactQqBox.IsEnabled = !isBusy;
+        _loginNoticeBar.IsEnabled = !isBusy;
         _descriptionBox.IsEnabled = !isBusy;
         _sendLogsCheckBox.IsEnabled = !isBusy;
         _sendDiagnosticsCheckBox.IsEnabled = !isBusy;
-        bool isLoggedIn = AccountSession.Identity != null && !string.IsNullOrWhiteSpace(AccountSession.PublishToken);
-        IsPrimaryButtonEnabled = !isBusy && isLoggedIn && FeedbackTextValidator.IsDescriptionValid(_descriptionBox.Text);
+        UpdateLoginState();
         IsSecondaryButtonEnabled = !isBusy;
 
         _progressRing.IsActive = isBusy;

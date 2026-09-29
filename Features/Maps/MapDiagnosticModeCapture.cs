@@ -8,6 +8,7 @@ internal static class MapDiagnosticModeCapture
     private static int _currentMapOpenId;
     private static readonly AsyncLocal<int> SuppressionDepth = new();
     private static string? _matchDirectory;
+    private static IDisposable? _cacheProtection;
     private static int _attemptId;
 
     internal static string RootDirectory => Path.Combine(
@@ -39,6 +40,8 @@ internal static class MapDiagnosticModeCapture
                 .DefaultIfEmpty()
                 .Max() + 1;
             _matchDirectory = Path.Combine(RootDirectory, $"对局 {matchId}");
+            _cacheProtection?.Dispose();
+            _cacheProtection = AppDataPaths.ProtectCachePath(_matchDirectory);
             foreach (var category in new[] { "结构配准", "显示区域", "贴合度" })
                 Directory.CreateDirectory(Path.Combine(_matchDirectory, category));
             _attemptId = 0;
@@ -51,6 +54,8 @@ internal static class MapDiagnosticModeCapture
         lock (Gate)
         {
             _matchDirectory = null;
+            _cacheProtection?.Dispose();
+            _cacheProtection = null;
             _currentMapOpenId = 0;
         }
     }
@@ -198,6 +203,7 @@ internal static class MapDiagnosticModeCapture
 
     internal static void TryWrite(string path, Mat image)
     {
+        using var protection = AppDataPaths.ProtectCachePath(path);
         try { Cv2.ImWrite(path, image); }
         catch { /* Diagnostics must never change alignment behavior. */ }
     }

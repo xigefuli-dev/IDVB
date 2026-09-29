@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="..\Features\Accounts\VersionAccessClient.cs" Link="Production\VersionAccessClient.cs" />
+    <Compile Include="..\Features\Accounts\VersionAccessProof.cs" Link="Production\VersionAccessProof.cs" />
+  </ItemGroup>
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -45,6 +49,7 @@
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
     <Compile Include="..\Diagnostics\OutputLog.Context.cs" Link="Production\Diagnostics\OutputLog.Context.cs" />
     <Compile Include="..\Diagnostics\SavedDiagnosticDataRetention.cs" Link="Production\Diagnostics\SavedDiagnosticDataRetention.cs" />
+    <Compile Include="..\Diagnostics\LocalCacheCleanup*.cs" />
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
     <Compile Include="..\Features\Plugins\PluginPreferencesStore.cs" Link="Production\Plugins\PluginPreferencesStore.cs" />
@@ -333,7 +338,10 @@
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.MultiGate.cs" Link="Production\SideEntranceScanPipeline.MultiGate.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
+    <Compile Include="..\Features\Maps\MapRequestDiagnostics.cs" Link="Production\MapRequestDiagnostics.cs" />
     <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
+    <Compile Include="..\Features\Maps\DeepScan*.cs" />
+    <Compile Include="..\Features\Maps\MapCvRecognitionService.DeepScan.cs" />
     <Compile Include="..\Views\ScanModeVisualRules.cs" Link="Production\ScanModeVisualRules.cs" />
     <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
     <Compile Include="..\Features\Maps\ScanObservationRules.cs" Link="Production\ScanObservationRules.cs" />

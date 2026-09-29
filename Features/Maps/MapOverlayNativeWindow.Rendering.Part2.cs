@@ -117,7 +117,7 @@ internal sealed partial class MapOverlayNativeWindow
 
         Debug.WriteLine($"[Overlay] 开始创建窗口 - Handle: {(_handle == IntPtr.Zero ? "NULL" : _handle.ToInt64().ToString("X"))}, x: {x}, y: {y}, w: {width}, h: {height}");
 
-        ShowWindow(_handle, SwShowNoActivate);
+        // SetWindowPos performs both visibility and placement without activation.
         SetLastError(0);
         if (!SetWindowPos(
                 _handle,
@@ -133,7 +133,7 @@ internal sealed partial class MapOverlayNativeWindow
             throw NativeFailure("Unable to place the overlay above the game window.");
         }
         IsVisible = true;
-        Debug.WriteLine($"[Overlay] ShowWindow + SetWindowPos 成功，窗口已置顶！");
+        Debug.WriteLine($"[Overlay] SetWindowPos 成功，窗口已无激活置顶！");
 
         EnsureCachedBuffer(width, height);
 

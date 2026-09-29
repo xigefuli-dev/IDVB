@@ -1,4 +1,5 @@
 import { serveIdvbWeb } from "./web.js";
+import { versionAccessResponse, manageVersions } from "./version-access.js";
 
 const SESSION_COOKIE = "idvb_community_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -46,6 +47,10 @@ async function apiResponse(request, env, url) {
 
   const route = `${request.method} ${url.pathname}`;
   try {
+    if (route === "POST /api/client/version-access")
+      return await versionAccessResponse(request, env, { requirePublishToken, json, ApiError, sha256Base64Url });
+    if (route === "GET /api/builder/versions" || route === "PUT /api/builder/versions")
+      return await manageVersions(request, env, { requireSessionUser, rejectCrossSite, json, ApiError });
     if (route === "GET /api/maps") {
       return await mapCatalogResponse(env);
     }
@@ -113,8 +118,17 @@ async function apiResponse(request, env, url) {
       return await oauthTokenResponse(request, env);
     }
     if (route === "POST /api/feedback") {
+      rejectCrossSite(request, url);
       await enforceRateLimit(env.FEEDBACK_RATE_LIMITER, request);
       return await submitFeedbackResponse(request, env);
+    }
+    if (route === "POST /api/android/feedback") {
+      rejectCrossSite(request, url);
+      if (!env.FEEDBACK_RATE_LIMITER) {
+        throw new ApiError(503, "service_unavailable", "反馈服务暂不可用，请稍后重试。");
+      }
+      await enforceRateLimit(env.FEEDBACK_RATE_LIMITER, request);
+      return await submitFeedbackResponse(await boundedFeedbackRequest(request), env, true);
     }
     if (route === "GET /api/builder/users") {
       return await builderUsersResponse(request, env);
@@ -916,11 +930,46 @@ function calculateWeightedLength(text) {
   return len;
 }
 
-async function submitFeedbackResponse(request, env) {
-  const user = await requireAuthUser(request, env);
+// This is a public anonymous intake, not proof that a caller is an Android app.
+// Limit the actual streamed body before multipart parsing, including chunked uploads.
+async function boundedFeedbackRequest(request) {
+  const maximum = 20 * 1024 * 1024;
+  if (Number(request.headers.get("content-length")) > maximum) {
+    throw new ApiError(413, "feedback_too_large", "反馈附件总大小超出限制。");
+  }
+  const reader = request.body?.getReader();
+  if (!reader) throw new ApiError(400, "invalid_feedback", "反馈内容为空。");
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximum) {
+        await reader.cancel();
+        throw new ApiError(413, "feedback_too_large", "反馈附件总大小超出限制。");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return new Request(request.url, { method: "POST", headers: request.headers, body: new Blob(chunks) });
+}
+
+async function submitFeedbackResponse(request, env, anonymousAndroid = false) {
+  const hasCredentials = request.headers.has("authorization") || Boolean(getCookie(request, SESSION_COOKIE));
+  const user = anonymousAndroid || !hasCredentials ? { id: null } : await requireAuthUser(request, env);
   const form = await publicationFormData(request);
+  const contactQq = anonymousAndroid ? "" : String(form.get("contactQq") || "").trim();
+  if (!anonymousAndroid && (!user.id || contactQq) && !/^[1-9][0-9]{4,11}$/.test(contactQq)) {
+    throw new ApiError(400, "invalid_contact_qq", "未登录时请提供联系 QQ 号（5–12 位数字，不能以 0 开头）。");
+  }
   const description = String(form.get("description") || "").trim();
-  const clientVersion = String(form.get("clientVersion") || "unknown").slice(0, 64);
+  const suppliedVersion = String(form.get("clientVersion") || "unknown");
+  const clientVersion = (anonymousAndroid
+    ? `Android ${suppliedVersion.replace(/^Android\s*/i, "")}` : suppliedVersion).slice(0, 64);
   const logs = form.get("logs");
   const diagnostics = form.get("diagnostics");
 
@@ -929,6 +978,15 @@ async function submitFeedbackResponse(request, env) {
   }
   if (description.length > 4000) {
     throw new ApiError(400, "invalid_description", "问题描述过长，不能超过 4000 字符。");
+  }
+  // Validate both attachments before writing either one.
+  for (const [file, maximum, name] of [[logs, 30, "日志"], [diagnostics, 100, "诊断数据"]]) {
+    if (file !== null && !(file instanceof File)) {
+      throw new ApiError(400, "invalid_attachment", `${name}必须为 ZIP 附件。`);
+    }
+    if (file instanceof File && file.size > maximum * 1024 * 1024) {
+      throw new ApiError(400, "attachment_too_large", `${name}压缩包不能超过 ${maximum} MB。`);
+    }
   }
 
   const feedbackId = crypto.randomUUID();
@@ -948,7 +1006,7 @@ async function submitFeedbackResponse(request, env) {
     logsSize = logs.size;
     await env.MAP_BUCKET.put(logsKey, await logs.arrayBuffer(), {
       httpMetadata: { contentType: "application/zip", cacheControl: "no-store" },
-      customMetadata: { feedbackId, userId: user.id, clientVersion, type: "logs" },
+      customMetadata: { feedbackId, userId: user.id || (anonymousAndroid ? "anonymous-android" : "anonymous-desktop"), clientVersion, type: "logs" },
     });
   }
 
@@ -965,7 +1023,7 @@ async function submitFeedbackResponse(request, env) {
     diagnosticsSize = diagnostics.size;
     await env.MAP_BUCKET.put(diagnosticsKey, await diagnostics.arrayBuffer(), {
       httpMetadata: { contentType: "application/zip", cacheControl: "no-store" },
-      customMetadata: { feedbackId, userId: user.id, clientVersion, type: "diagnostics" },
+      customMetadata: { feedbackId, userId: user.id || (anonymousAndroid ? "anonymous-android" : "anonymous-desktop"), clientVersion, type: "diagnostics" },
     });
   }
 
@@ -974,12 +1032,12 @@ async function submitFeedbackResponse(request, env) {
   await env.COMMUNITY_DB.prepare(
     `INSERT INTO feedbacks
        (id, user_id, description, client_version, client_ip, has_logs, logs_key, logs_size,
-        has_diagnostics, diagnostics_key, diagnostics_size, status, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'open', ?12)`
+        has_diagnostics, diagnostics_key, diagnostics_size, status, created_at, contact_qq)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'open', ?12, ?13)`
   ).bind(
     feedbackId, user.id, description, clientVersion, clientIp,
     hasLogs, logsKey, logsSize,
-    hasDiagnostics, diagnosticsKey, diagnosticsSize, now
+    hasDiagnostics, diagnosticsKey, diagnosticsSize, now, contactQq || null
   ).run();
 
   return json({
@@ -1036,7 +1094,7 @@ async function builderFeedbacksResponse(request, env) {
   await requireSignedInBuilder(request, env);
   const result = await env.COMMUNITY_DB.prepare(
     `SELECT f.id, f.user_id, u.display_name AS user_name, u.email AS user_email,
-            f.description, f.client_version, f.client_ip,
+            f.description, f.client_version, f.client_ip, f.contact_qq,
             f.has_logs, f.logs_size,
             f.has_diagnostics, f.diagnostics_size,
             f.status, f.created_at

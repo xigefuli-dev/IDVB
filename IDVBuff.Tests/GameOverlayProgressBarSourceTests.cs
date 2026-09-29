@@ -3,6 +3,26 @@ namespace IDVBuff.Tests;
 public sealed class GameOverlayProgressBarSourceTests
 {
     [Fact]
+    public void ScanDisplayLayersDoNotActivateOrReleaseHeldInputs()
+    {
+        var root = FindRepositoryRoot();
+        string Read(string name) => File.ReadAllText(Path.Combine(root, "Features", "Maps", name));
+        foreach (var file in new[] { "GameOverlayProgressBar.cs", "MapOverlayNativeWindow.cs" })
+        {
+            var source = Read(file);
+            Assert.DoesNotContain("ShowWindow(", source);
+            Assert.Contains("SwpNoActivate | SwpNoMove | SwpNoSize | SwpNoZOrder | SwpHideWindow", source);
+        }
+        foreach (var file in new[] { "GameOverlayProgressBar.cs", "MapOverlayNativeWindow.Rendering.Part2.cs" })
+        {
+            var source = Read(file);
+            Assert.DoesNotContain("ShowWindow(", source);
+            Assert.Contains("SwpNoActivate | SwpNoMove | SwpNoSize | SwpShowWindow", source);
+        }
+        Assert.DoesNotContain("ReleaseAllPressedInputs", Read("SessionOrchestrator.QuickScan.cs"));
+    }
+
+    [Fact]
     public void ScanFailureUsesRedHighContrastTerminalState()
     {
         var root = FindRepositoryRoot();

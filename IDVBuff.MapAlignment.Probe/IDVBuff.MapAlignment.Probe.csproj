@@ -112,7 +112,9 @@
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Evidence.cs" Link="Production\SideEntranceScanPipeline.Evidence.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
+    <Compile Include="..\Features\Maps\MapRequestDiagnostics.cs" Link="Production\MapRequestDiagnostics.cs" />
     <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
+    <Compile Include="..\Features\Maps\DeepScanLiveEvidence.cs" Link="Production\DeepScanLiveEvidence.cs" />
     <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorCaptureService.cs" Link="Production\FloorIndicatorCaptureService.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.cs" Link="Production\FloorIndicatorRecognizer.cs" />

@@ -10,6 +10,33 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
 {
+    private static Dictionary<string, object?>? EnrichDiagnosticDetails(Dictionary<string, object?>? details)
+    {
+        if (MapInputOperationContext.Current is { } input)
+        {
+            details = details is null ? new() : new(details);
+            details.TryAdd("inputOperationId", input.Id);
+        }
+        if (ScanRequestDiagnostics.Current is { } request)
+        {
+            details = details is null ? new() : new(details);
+            if (details.GetValueOrDefault("scanId") is null) details["scanId"] = request.ScanId;
+            if (Equals(details["scanId"], request.ScanId)) details["requestStage"] = request.Stage;
+        }
+        if (ScanExecutionContext.Current is { } scan)
+        {
+            details = details is null ? new() : new(details);
+            if (details.GetValueOrDefault("scanId") is null) details["scanId"] = scan.ScanId;
+            if (!Equals(details["scanId"], scan.ScanId)) return details;
+            details["scanElapsedMs"] = scan.ElapsedMilliseconds;
+            details["scanRemainingMs"] = scan.RemainingMilliseconds;
+            details["scanCancelled"] = scan.CancellationToken.IsCancellationRequested;
+            details["scanSuperseded"] = scan.IsSuperseded;
+        }
+        return details;
+    }
+
+
     public bool DisablePersistence { get; set; }
 
     public void AppendStatus(
@@ -22,6 +49,7 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
             : (status.IsFallback || status.IsClientError) ? MapLogLevel.Warning
             : MapLogLevel.Info;
 
+        details = EnrichDiagnosticDetails(details);
         var message = status.ToTraceString();
         WritePlainTextOutput(category, level, message, elapsedMs, details);
         lock (_stateGate)

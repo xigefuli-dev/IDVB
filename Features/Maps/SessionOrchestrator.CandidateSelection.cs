@@ -25,7 +25,12 @@ public sealed partial class SessionOrchestrator
         MapLearningScoreResult? precomputedLearningResult = null)
     {
         var selectionExecution = ScanExecutionContext.Current;
-        Action? onPresented = selectionExecution is null ? null : () => FinishScanExecution(selectionExecution);
+        var selectionRequest = ScanRequestDiagnostics.Current;
+        Action? onPresented = selectionExecution is null ? null : () =>
+        {
+            LogScanCheckpoint("candidate-presented", capturedRequest: selectionRequest);
+            FinishScanExecution(selectionExecution);
+        };
         var scopedCandidates = candidates
             .Where(candidate => string.Equals(
                 candidate.Recognition.Map.Class,

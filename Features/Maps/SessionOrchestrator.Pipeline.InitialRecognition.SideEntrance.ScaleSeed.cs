@@ -34,8 +34,9 @@ public sealed partial class SessionOrchestrator
             });
         }
 
+        var scanMode = ScanExecutionContext.Current?.Policy.Mode ?? ScanPerformanceMode.Balanced;
         referenceCandidates = MapCandidatePresentationRules.SelectScanReferences(
-            candidates, SideEntranceScanRules.MaximumReferenceCandidates);
+            candidates, SideEntranceScanRules.MaximumReferenceCandidates, scanMode);
         for (var index = 0; index < referenceCandidates.Length; index++)
         {
             var candidate = referenceCandidates[index];
@@ -53,7 +54,11 @@ public sealed partial class SessionOrchestrator
                     EvidenceScore = candidate.MatchScore,
                     IsReferenceOnly = true,
                     PreferredOrder = index,
-                    EvidenceLabel = (candidate.IdentityEvidence.State == ScanIdentityState.Excluded
+                    EvidenceLabel = scanMode == ScanPerformanceMode.DeepScan
+                        && candidate.IdentityEvidence.State == ScanIdentityState.Supported
+                        ? $"身份未确定 · 局部轮廓支持 {candidate.IdentityEvidence.SupportedFraction:P0} · "
+                            + $"平均距离 {candidate.IdentityEvidence.ForwardMeanPixels:F2}px · 待确认对齐"
+                        : (candidate.IdentityEvidence.State == ScanIdentityState.Excluded
                             ? "身份未确定 · 当前变换存在结构冲突 · "
                             : "身份未确定 · 尚未完成验证 · ")
                         + $"轮廓召回分 {candidate.MatchScore:P0} · "
@@ -62,6 +67,18 @@ public sealed partial class SessionOrchestrator
             }
         }
 
+        if (scanMode == ScanPerformanceMode.DeepScan)
+            _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                "DeepScan 结构候选排序", details: new()
+                {
+                    ["references"] = referenceCandidates.Select((candidate, index) => new
+                    {
+                        rank = index + 1, mapId = candidate.Map.Id, candidate.Map.SequenceNumber,
+                        state = candidate.IdentityEvidence.State.ToString(), candidate.MatchScore,
+                        fitCost = double.IsFinite(ScanIdentityVerifier.FitCost(candidate.IdentityEvidence))
+                            ? ScanIdentityVerifier.FitCost(candidate.IdentityEvidence) : (double?)null
+                    }).ToArray()
+                });
         return choices;
     }
 

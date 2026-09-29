@@ -6,14 +6,79 @@ namespace IDVBuff.Tests;
 
 public sealed class DeepScanModeTests
 {
+    [Theory]
+    [InlineData(ScanPerformanceMode.DeepScan, true)]
+    [InlineData(ScanPerformanceMode.Fast, false)]
+    [InlineData(ScanPerformanceMode.Balanced, false)]
+    [InlineData(ScanPerformanceMode.Quality, false)]
+    public void ReferenceChoicesCanBeShownOnlyByDeepScanWithoutBecomingAutomaticIdentity(
+        ScanPerformanceMode mode, bool expected)
+    {
+        using var execution = ScanExecutionContext.Enter(mode);
+        var candidate = new SideEntranceScanCandidate
+        {
+            Map = new() { Id = Guid.NewGuid() }, FloorKey = "1f",
+            IdentityEvidence = new(ScanIdentityState.Excluded, 100, 100, 12, .6, 30, "spatial-support-conflict")
+        };
+        MapRecognitionChoice[] choices = [new() { IsReferenceOnly = true }];
+        Assert.Equal(expected, MapCandidatePresentationRules.CanPresentChoices(execution, choices, [candidate]));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([candidate], true, true));
+        candidate.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
+        Assert.Equal(expected, MapCandidatePresentationRules.CanPresentChoices(execution, choices, [candidate]));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([candidate], true, true));
+    }
+
     [Fact]
-    public void ReservedModeKeepsQualityPolicyAndExistingDeadline()
+    public void DeepScanCannotPresentCancelledOrIncompleteResults()
+    {
+        MapRecognitionChoice[] choices = [new() { IsReferenceOnly = true }];
+        using var cancellation = new CancellationTokenSource();
+        using var execution = ScanExecutionContext.Enter(ScanPerformanceMode.DeepScan, cancellation.Token);
+        execution.RetrievalCompleted = false;
+        Assert.False(MapCandidatePresentationRules.CanPresentChoices(execution, choices, []));
+        execution.RetrievalCompleted = true;
+        cancellation.Cancel();
+        Assert.False(MapCandidatePresentationRules.CanPresentChoices(execution, choices, []));
+    }
+
+    [Fact]
+    public void ExpiredDeepScanCanOfferCompletedChoicesButCannotConfirmAutomatically()
+    {
+        using var execution = ScanExecutionContext.Enter(ScanPerformanceMode.DeepScan,
+            startedTimestamp: System.Diagnostics.Stopwatch.GetTimestamp() - System.Diagnostics.Stopwatch.Frequency * 3);
+        Assert.True(execution.Expired);
+        Assert.True(MapCandidatePresentationRules.CanPresentChoices(execution, [new() { IsReferenceOnly = true }], []));
+        Assert.Null(ScanIdentityVerifier.SelectIdentity([], true, execution.CanCompute));
+    }
+
+    [Theory]
+    [InlineData(ScanPerformanceMode.DeepScan, true)]
+    [InlineData(ScanPerformanceMode.Balanced, false)]
+    public void AmbiguousLocalIdentitiesWaitForSelectionBeforeAlignment(ScanPerformanceMode mode, bool expected)
+    {
+        using var execution = ScanExecutionContext.Enter(mode);
+        var candidates = Enumerable.Range(0, 2).Select(_ => new SideEntranceScanCandidate
+        {
+            Map = new() { Id = Guid.NewGuid() }, FloorKey = "1f",
+            IdentityEvidence = new(ScanIdentityState.Supported, 100, 100, .2, 1, 0, "visible-structure-supported")
+        }).ToArray();
+        Assert.Equal(expected, ScanUncertainPolicies.DeferAmbiguousDeepScanAlignment(execution, candidates));
+        execution.VariantGroups = [candidates.Select(c => c.Map.Id).ToArray()];
+        Assert.Equal(expected, ScanUncertainPolicies.DeferAmbiguousDeepScanAlignment(execution, candidates));
+        Assert.False(ScanUncertainPolicies.DeferAmbiguousDeepScanAlignment(execution, candidates.Take(1).ToArray()));
+    }
+
+    [Fact]
+    public void DedicatedPolicyHasTwoSecondBudgetWithoutChangingOtherModes()
     {
         var quality = ScanExecutionPolicy.For(ScanPerformanceMode.Quality);
         var deep = ScanExecutionPolicy.For(ScanPerformanceMode.DeepScan);
         Assert.Equal(ScanPerformanceMode.DeepScan, deep.Mode);
-        Assert.Equal(quality, deep with { Mode = ScanPerformanceMode.Quality });
-        Assert.InRange(deep.BudgetMilliseconds, 1, 1000);
+        Assert.Equal(2000, deep.BudgetMilliseconds);
+        Assert.Equal(1000, quality.BudgetMilliseconds);
+        Assert.Equal(1000, ScanExecutionPolicy.For(ScanPerformanceMode.Balanced).BudgetMilliseconds);
+        Assert.Equal(500, ScanExecutionPolicy.For(ScanPerformanceMode.Fast).BudgetMilliseconds);
+        Assert.NotEqual(quality, deep with { Mode = ScanPerformanceMode.Quality });
     }
 
     [Theory]

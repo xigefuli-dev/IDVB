@@ -34,6 +34,18 @@ internal static class ScanUncertainPolicies
         };
     public static Policy Resolve(ScanUncertainAction action) => Registered.TryGetValue(action, out var policy)
         ? policy : Registered[ScanUncertainAction.ShowCandidates];
+
+    internal static bool DeferAmbiguousDeepScanAlignment(ScanExecutionContext execution,
+        IReadOnlyList<SideEntranceScanCandidate> candidates)
+    {
+        if (execution.Policy.Mode != ScanPerformanceMode.DeepScan) return false;
+        var supported = candidates.Where(c => c.IdentityEvidence.State == ScanIdentityState.Supported)
+            .Select(c => c.Map.Id).Distinct().ToArray();
+        // A tiny local patch may fit multiple members of a variant family too.
+        // Confirming one pose does not identify that member. Preserve the
+        // candidates instead of letting the first aligned sibling win by default.
+        return supported.Length > 1;
+    }
 }
 
 public sealed record ScanExecutionPolicy(
@@ -46,9 +58,7 @@ public sealed record ScanExecutionPolicy(
     {
         ScanPerformanceMode.Fast => new(mode, 500, 256, .08, .02, 1, 3),
         ScanPerformanceMode.Quality => new(mode, 1000, 256, .02, .005, 3, 1),
-        // Reserved entry for the future scanner. Keep its persisted identity while
-        // inheriting Quality unchanged, including its end-to-end deadline.
-        ScanPerformanceMode.DeepScan => For(ScanPerformanceMode.Quality) with { Mode = mode },
+        ScanPerformanceMode.DeepScan => new(mode, 2000, 384, .02, .0025, 8, 1),
         _ => new(ScanPerformanceMode.Balanced, 1000, 256, .04, .01, 2, 3)
     };
 }
@@ -66,15 +76,17 @@ internal sealed class ScanExecutionContext : IDisposable
     private bool _disposed;
     private (ScanStructureIndex Index, MapScreenRect Viewport)? _alignmentIdentity;
     public static ScanExecutionContext? Current => Ambient.Value;
-    public string ScanId { get; } = Guid.NewGuid().ToString("N");
+    public string ScanId { get; } = ScanRequestDiagnostics.Current?.ScanId ?? Guid.NewGuid().ToString("N");
     public string ComputeStopReason => _cancellation.IsCancellationRequested ? "cancelled"
-        : IsSuperseded ? "superseded" : RemainingMilliseconds <= 60 && IsAutomatic
+        : IsSuperseded ? "superseded" : RemainingMilliseconds == 0 && IsAutomatic ? "deadline-exceeded"
+        : RemainingMilliseconds <= 60 && IsAutomatic
             ? "commit-budget-reserved" : "none";
     public ScanExecutionPolicy Policy { get; }
     public CancellationToken CancellationToken => _cancellation;
     public ScanFrameEvidence? Frame { get; private set; }
     public bool RetrievalCompleted { get; set; } = true;
     public int EligibleIdentities { get; set; }
+    public int? VerifiedCandidateCount { get; set; }
     public object? CatalogRevision { get; set; }
     public int TestedHypotheses;
     public IReadOnlyList<Guid[]> VariantGroups { get; set; } = [];
@@ -160,12 +172,15 @@ internal sealed class ScanFrameEvidence : IDisposable
     public Point[] DensePoints { get; }
     public Point[] SearchPoints { get; }
     public IReadOnlyList<Point[]> Contours { get; }
+    internal IReadOnlyList<Point[]>? PreparedConflictContours { get; }
     public ScanFrameEvidence(Mat frame, MapScreenRect? viewport, IReadOnlyList<GateDetection> gates,
         ScanExecutionPolicy policy, double doorMaskWidth = 0, double doorMaskHeight = 0)
     {
         Source = frame;
         Observation = Vpsg3FastLiveExtractor.Extract(frame, viewport, policy.SparsePoints);
-        MaskColoredAnnotations(frame, Observation);
+        if (policy.Mode == ScanPerformanceMode.DeepScan)
+            DeepScanLiveEvidence.MaskAnnotations(frame, Observation);
+        else MaskColoredAnnotations(frame, Observation);
         // Remove icons in evidence space, not by painting artificial edges into the source frame.
         var bounds = new Rect(0, 0, frame.Width, frame.Height);
         foreach (var gate in gates)
@@ -195,6 +210,8 @@ internal sealed class ScanFrameEvidence : IDisposable
         Cv2.FindContours(Observation.ObservedEdges, out Point[][] contours, out _,
             RetrievalModes.List, ContourApproximationModes.ApproxNone);
         Contours = contours.Where(c => Cv2.ArcLength(c, false) >= 30).ToArray();
+        if (policy.Mode == ScanPerformanceMode.DeepScan)
+            PreparedConflictContours = Contours.Select(c => Cv2.ApproxPolyDP(c, 1.5, true)).ToArray();
     }
     internal static Point[] SampleUniform(IReadOnlyList<Point> points, int width, int height, int maximum)
     {

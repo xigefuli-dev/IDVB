@@ -15,10 +15,15 @@ public static class AppDataPaths
     public const string DisplayName = "Identity Vision Bridge";
 #endif
 
-    public static string RootDirectory { get; } = ResolveRootDirectory();
+    private static readonly Lazy<string> ResolvedRoot = new(ResolveRootDirectory);
+    public static string RootDirectory => ResolvedRoot.Value;
 
     private static string ResolveRootDirectory()
     {
+#if IDVB_UNIT_TEST
+        // Unit tests must never migrate or write the user's installed data.
+        return Path.Combine(Path.GetTempPath(), $"IDVB-UnitTests-{Environment.ProcessId}");
+#else
         var localAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData);
         var targetDirectory = Path.Combine(localAppData, ProductDirectoryName);
@@ -43,6 +48,37 @@ public static class AppDataPaths
         }
 
         return targetDirectory;
+#endif
+    }
+
+    internal static readonly object CacheIoGate = new();
+    private static readonly Dictionary<string, int> ActiveCachePaths = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static IDisposable ProtectCachePath(string path)
+    {
+        path = Path.GetFullPath(path);
+        lock (CacheIoGate)
+            ActiveCachePaths[path] = ActiveCachePaths.GetValueOrDefault(path) + 1;
+        return new CachePathLease(path);
+    }
+
+    internal static string[] GetActiveCachePaths()
+    {
+        lock (CacheIoGate) return ActiveCachePaths.Keys.ToArray();
+    }
+
+    private sealed class CachePathLease(string path) : IDisposable
+    {
+        private bool _disposed;
+        public void Dispose()
+        {
+            lock (CacheIoGate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                if (--ActiveCachePaths[path] == 0) ActiveCachePaths.Remove(path);
+            }
+        }
     }
 
     private static void MoveMissingLegacyEntries(

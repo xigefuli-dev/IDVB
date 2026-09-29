@@ -6,6 +6,26 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private static void DisposeViewportFrame(IDisposable? frame, int attemptIndex)
+    {
+        if (frame is null)
+            return;
+
+        var dispose = MapOperationTraceAmbient.StartChild(
+            "frame_dispose",
+            MapOperationWaitKind.Io,
+            attemptIndex: attemptIndex);
+        try
+        {
+            frame.Dispose();
+        }
+        finally
+        {
+            dispose.Complete();
+        }
+    }
+
+
     private async Task<CapturedGameFrame?> CaptureSurveyViewportOnceAsync(
         string operation,
         CancellationToken cancellationToken = default)

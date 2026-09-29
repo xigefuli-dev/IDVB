@@ -269,6 +269,7 @@ public sealed partial class MapListPage
             return;
 
         SetPackageOperationState(importButton, exportButton, isBusy: true, "正在发布…");
+        using var publicationProtection = AppDataPaths.ProtectCachePath(outputDirectory);
         try
         {
             var publication = await _mapPublicationService.PublishAsync(

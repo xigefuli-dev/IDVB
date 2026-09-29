@@ -5,6 +5,31 @@ namespace IDVBuff.Tests;
 public sealed class MapCandidatePresentationRulesTests
 {
     [Fact]
+    public void DeepScanUsesDenseEvidenceBeforeSparseScoreAndTruncation()
+    {
+        var conflict = new SideEntranceScanCandidate
+        {
+            Map = CreateMap(1, "S1"), MatchScore = .99,
+            IdentityEvidence = new(ScanIdentityState.Excluded, 200, 200, 1, .95, 32, "conflict")
+        };
+        var supported = new SideEntranceScanCandidate
+        {
+            Map = CreateMap(30, "S1"), MatchScore = .92,
+            IdentityEvidence = new(ScanIdentityState.Supported, 200, 200, .1, 1, 0, "supported")
+        };
+        var weaker = new SideEntranceScanCandidate
+        {
+            Map = CreateMap(15, "S1"), MatchScore = .98,
+            IdentityEvidence = new(ScanIdentityState.Supported, 200, 200, 1, .9, 0, "supported")
+        };
+        var candidates = new[] { conflict, weaker, supported };
+        Assert.Equal(new[] { supported, weaker }, MapCandidatePresentationRules.SelectScanReferences(
+            candidates, 2, ScanPerformanceMode.DeepScan));
+        foreach (var mode in new[] { ScanPerformanceMode.Fast, ScanPerformanceMode.Balanced, ScanPerformanceMode.Quality })
+            Assert.Same(conflict, MapCandidatePresentationRules.SelectScanReferences(candidates, 1, mode)[0]);
+    }
+
+    [Fact]
     public void ScanReferencesKeepBestStructuralMatchBeforeTruncationAndCatalogAppend()
     {
         var winner = new SideEntranceScanCandidate

@@ -72,14 +72,7 @@ namespace IDVBuff
                 var cliOptions = CliLaunchOptions.Parse(Environment.GetCommandLineArgs());
                 if (cliOptions.IsCli)
                 {
-                    if (!UsageNotice.IsAccepted())
-                    {
-                        AttachCliConsole();
-                        Console.Error.WriteLine("请先正常启动 Identity Vision Bridge，阅读并确认软件性质及使用责任声明。");
-                        Environment.ExitCode = RealCliExitCodes.Fatal;
-                        Exit();
-                        return;
-                    }
+                    if (!await RequireCliVersionAccessAsync()) return;
                     await RunCliAsync(cliOptions);
                     return;
                 }
@@ -110,6 +103,7 @@ namespace IDVBuff
                     return;
                 }
                 window.Closed += (_, _) => StopStartupRenderObservation();
+                if (!await RequireVersionAccessAsync()) { Exit(); return; }
                 window.AppWindow.Closing += AppWindow_Closing;
                 window.AppWindow.Changed += AppWindow_Changed;
                 window.Closed += Window_Closed;
@@ -272,12 +266,16 @@ namespace IDVBuff
                 StartupSplash.Report("正在完成准备…");
                 await PrepareMapListAsync(session);
                 await CompleteStartupPresentationAsync(startMinimized);
+                StartVersionAccessMonitor();
+                if (_accessStopping) return;
                 if (!startMinimized
                     && !startupElevationRequired
                     && UpdateLifecycleState.WasRestartedAfterUpdate)
                     await ShowUpdatedSuccessfullyAsync();
+                if (_accessStopping) return;
                 if (!startMinimized && !startupElevationRequired)
                     await ShowQuickStartAsync(session);
+                if (_accessStopping) return;
                 StartStartupBackgroundTasks(session);
                 if (startMinimized)
                 {
@@ -317,6 +315,7 @@ namespace IDVBuff
             Console.OutputEncoding = System.Text.Encoding.UTF8;
             OutputLog.Initialize(captureFirstChanceExceptions: false);
             using var cancellation = new CancellationTokenSource();
+            _ = Features.Accounts.VersionAccessClient.MonitorHeadlessAsync(BuildVersionInfo.ProductVersion, cancellation.Token);
             ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
             {
                 eventArgs.Cancel = true;
@@ -381,28 +380,6 @@ namespace IDVBuff
 
             Environment.ExitCode = exitCode;
             Environment.Exit(exitCode);
-        }
-
-        private static void AttachCliConsole()
-        {
-            const uint AttachParentProcess = 0xFFFFFFFF;
-            if (!AttachConsole(AttachParentProcess))
-                AllocConsole();
-
-            var output = new StreamWriter(
-                Console.OpenStandardOutput(),
-                System.Text.Encoding.UTF8)
-            {
-                AutoFlush = true
-            };
-            var error = new StreamWriter(
-                Console.OpenStandardError(),
-                System.Text.Encoding.UTF8)
-            {
-                AutoFlush = true
-            };
-            Console.SetOut(output);
-            Console.SetError(error);
         }
 
         [DllImport("kernel32.dll", SetLastError = true)]

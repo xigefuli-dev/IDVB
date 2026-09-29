@@ -68,6 +68,7 @@ public sealed class SavedDiagnosticDataRetentionTests
         var path = Path.Combine(root, name);
         Directory.CreateDirectory(path);
         File.WriteAllText(Path.Combine(path, "data.txt"), "diagnostic data");
+        File.SetLastWriteTimeUtc(Path.Combine(path, "data.txt"), createdUtc);
         Directory.SetCreationTimeUtc(path, createdUtc);
         return path;
     }

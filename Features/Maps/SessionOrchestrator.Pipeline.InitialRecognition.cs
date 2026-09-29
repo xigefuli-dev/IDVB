@@ -17,6 +17,7 @@ public sealed partial class SessionOrchestrator
         public RuntimeMapRecognition? Recognition;
         public bool ObserveUntilConfirmed;
         public ScanIdentitySelectionPolicy IdentitySelectionPolicy => ObserveUntilConfirmed
+            || ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
             ? ScanIdentitySelectionPolicy.RequireUniqueSupport
             : ScanIdentitySelectionPolicy.AllowDominantSupport;
         public Guid? PreviousPreviewMapId;
@@ -50,7 +51,8 @@ public sealed partial class SessionOrchestrator
         // 侧门识别「识别即对齐」：识别阶段的结构验证对齐（确认候选图）是
         // 侧门身份确认的必需步骤，后台扫描（recognizeOnly）同样走此链路，
         // 只是收尾不提交可靠会话、不锁定最终识别（见 SideEntrance.cs）。
-        if (_settings!.FirstScanStrategy == FirstScanStrategy.SideEntrance
+        if (ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
+            || _settings!.FirstScanStrategy == FirstScanStrategy.SideEntrance
             || _recognition.RequiresSingleFeatureScan(_matchSession.Snapshot.MapClass))
         {
             RunInitialSideEntranceRecognition(frame, result, recognizeOnly);

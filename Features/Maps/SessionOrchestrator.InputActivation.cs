@@ -13,6 +13,15 @@ public sealed partial class SessionOrchestrator
 
     private async Task SetEnabledCoreAsync(bool v)
     {
+        _logCollector.Append(MapLogCategory.System, MapLogLevel.Info,
+            "运行层启用检查", details: new()
+            {
+                ["requestedEnabled"] = v, ["previousEnabled"] = _settings?.IsEnabled,
+                ["safeMode"] = App.IsSafeMode, ["mapCount"] = _recognition.TotalMapCount,
+                ["mapToggleConfigured"] = _settings?.GameMapToggleBinding.IsConfigured,
+                ["controlPanelConfigured"] = _settings?.ControlPanelToggleBinding.IsConfigured,
+                ["quickScanConfigured"] = _settings?.QuickScanBinding.IsConfigured
+            });
         try
         {
             if (_settings is null)
@@ -26,6 +35,8 @@ public sealed partial class SessionOrchestrator
                     StartMapObservation();
             }, SaveSettingsAsync);
             _statusMessage = v ? "运行层已开启。" : "运行层已关闭。";
+            _logCollector.Append(MapLogCategory.System, MapLogLevel.Info,
+                "运行层状态已应用并保存", details: new() { ["enabled"] = _settings.IsEnabled });
         }
         catch (Exception failure)
         {

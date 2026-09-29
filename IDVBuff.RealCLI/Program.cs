@@ -24,6 +24,10 @@ using System.Text;
 Console.OutputEncoding = Encoding.UTF8;
 Console.InputEncoding = Encoding.UTF8;
 
+var access = await IDVBuff.Features.Accounts.VersionAccessClient.CheckAsync(BuildVersionInfo.ProductVersion);
+if (!access.Allowed) { Console.Error.WriteLine(access.Message); return 1; }
+_ = IDVBuff.Features.Accounts.VersionAccessClient.MonitorHeadlessAsync(BuildVersionInfo.ProductVersion);
+
 if (!IDVBuff.Lifecycle.UsageNotice.IsAccepted())
 {
     Console.Error.WriteLine("请先正常启动 Identity Vision Bridge，阅读并确认软件性质及使用责任声明。");

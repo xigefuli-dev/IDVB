@@ -125,15 +125,7 @@ public sealed partial class MapLogCollector : IDisposable, IAsyncDisposable
         double? elapsedMs = null,
         Dictionary<string, object?>? details = null)
     {
-        if (ScanExecutionContext.Current is { } scan)
-        {
-            details = details is null ? new() : new(details);
-            details["scanId"] = scan.ScanId;
-            details["scanElapsedMs"] = scan.ElapsedMilliseconds;
-            details["scanRemainingMs"] = scan.RemainingMilliseconds;
-            details["scanCancelled"] = scan.CancellationToken.IsCancellationRequested;
-            details["scanSuperseded"] = scan.IsSuperseded;
-        }
+        details = EnrichDiagnosticDetails(details);
         WritePlainTextOutput(category, level, message, elapsedMs, details);
         lock (_stateGate)
         {

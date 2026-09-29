@@ -161,9 +161,9 @@ function createEnvironment() {
             if (user) Object.assign(user, { is_official, updated_at });
           } else if (sql.includes("INSERT INTO feedbacks")) {
             const [id, user_id, description, client_version, client_ip, has_logs, logs_key, logs_size,
-              has_diagnostics, diagnostics_key, diagnostics_size, created_at] = this.values;
+              has_diagnostics, diagnostics_key, diagnostics_size, created_at, contact_qq] = this.values;
             feedbacks.set(id, { id, user_id, description, client_version, client_ip, has_logs, logs_key, logs_size,
-              has_diagnostics, diagnostics_key, diagnostics_size, status: 'open', created_at });
+              has_diagnostics, diagnostics_key, diagnostics_size, status: 'open', created_at, contact_qq });
           } else if (sql.includes("INSERT INTO announcements")) {
             const [id, title, category, tag, summary, content, cover_image_url, author_id, is_pinned, is_published, priority, min_client_version, publish_at, expires_at, created_at, updated_at] = this.values;
             announcements.set(id, { id, title, category, tag, summary, content, cover_image_url, author_id, is_pinned, is_published: is_published ?? 1, priority, min_client_version, publish_at, expires_at, created_at, updated_at });
@@ -552,15 +552,60 @@ test("map publication accepts dotnet multipart names without quotes", async () =
   assert.equal(form.get("contentKey"), "A".repeat(43));
 });
 
-test("feedback submission requires login and validates weighted length", async () => {
+test("Android feedback accepts anonymous text and optional attachments without creating an account", async () => {
   const env = createEnvironment();
-  // 1. 未登录提交直接被 401 拦截
+  env.FEEDBACK_RATE_LIMITER = { limit: async () => ({ success: true }) };
+  for (const attachments of [false, true]) {
+    const form = new FormData();
+    form.set("description", "安卓识别问题反馈");
+    form.set("clientVersion", "Android v0.1.0-unstable");
+    if (attachments) {
+      form.set("logs", new Blob(["PK-logs"]), "logs.zip");
+      form.set("diagnostics", new Blob(["PK-diagnostics"]), "diagnostics.zip");
+    }
+    const response = await worker.fetch(new Request("https://community.idvb.test/api/android/feedback", {
+      method: "POST", body: form,
+    }), env);
+    assert.equal(response.status, 201);
+    const record = env.feedbacks.get((await response.json()).feedbackId);
+    assert.equal(record.user_id, null);
+    assert.equal(record.client_version, "Android v0.1.0-unstable");
+    assert.equal(record.has_logs, Number(attachments));
+    assert.equal(record.has_diagnostics, Number(attachments));
+  }
+  assert.equal(env.users.size, 0);
+});
+
+test("Android feedback validates content and requires an active rate limiter", async () => {
+  const env = createEnvironment();
+  delete env.FEEDBACK_RATE_LIMITER;
+  const submit = (description, headers = {}) => {
+    const form = new FormData();
+    form.set("description", description);
+    return worker.fetch(new Request("https://community.idvb.test/api/android/feedback", {
+      method: "POST", body: form, headers,
+    }), env);
+  };
+  assert.equal((await submit("安卓识别问题反馈")).status, 503);
+  env.FEEDBACK_RATE_LIMITER = { limit: async () => ({ success: false }) };
+  assert.equal((await submit("安卓识别问题反馈")).status, 429);
+  env.FEEDBACK_RATE_LIMITER = { limit: async () => ({ success: true }) };
+  assert.equal((await submit("一二三四五")).status, 400);
+  assert.equal((await submit("a".repeat(4001))).status, 400);
+  assert.equal((await submit("安卓识别问题反馈", { "content-length": String(132 * 1024 * 1024) })).status, 413);
+  assert.equal(env.feedbacks.size, 0);
+});
+
+test("feedback submission requires guest contact and validates weighted length", async () => {
+  const env = createEnvironment();
+  // 1. 未登录且未提供 QQ 号时拒绝提交。
   const unauthForm = new FormData();
   unauthForm.set("description", "这是一个测试反馈");
   const unauthRes = await worker.fetch(new Request("https://community.idvb.test/api/feedback", {
     method: "POST", body: unauthForm,
   }), env);
-  assert.equal(unauthRes.status, 401);
+  assert.equal(unauthRes.status, 400);
+  assert.equal((await unauthRes.json()).error, "invalid_contact_qq");
 
   // 2. 注册并登录用户
   const regRes = await worker.fetch(new Request("https://community.idvb.test/api/auth/register", {
@@ -1083,4 +1128,27 @@ test("announcements: 权限控制、发布、读取与管理流程", async () =>
   }), env);
   assert.equal(delRes.status, 200);
   assert.equal(env.announcements.has(notice2Id), false);
+});
+
+test("desktop guest feedback requires QQ and persists contact and attachments", async () => {
+  const env = createEnvironment();
+  for (const qq of ["", "1234", "012345", "12345a", "１２３４５", "1234567890123"]) {
+    const form = new FormData();
+    form.set("description", "桌面端未登录反馈测试描述");
+    form.set("contactQq", qq);
+    const response = await worker.fetch(new Request("https://community.idvb.test/api/feedback", { method: "POST", body: form }), env);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, "invalid_contact_qq");
+  }
+  assert.equal(env.feedbacks.size, 0);
+  const form = new FormData();
+  form.set("description", "桌面端未登录反馈测试描述");
+  form.set("contactQq", " 12345678 ");
+  form.set("logs", new File(["sample logs"], "logs.zip", { type: "application/zip" }));
+  const response = await worker.fetch(new Request("https://community.idvb.test/api/feedback", { method: "POST", body: form }), env);
+  assert.equal(response.status, 201);
+  const record = env.feedbacks.get((await response.json()).feedbackId);
+  assert.equal(record.user_id, null);
+  assert.equal(record.contact_qq, "12345678");
+  assert.equal(record.has_logs, 1);
 });

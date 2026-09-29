@@ -63,7 +63,7 @@ internal sealed class ReferencePythonEngineClient : IDisposable, IAsyncDisposabl
         return startup.WaitAsync(cancellationToken);
     }
 
-    public Task<ReferencePythonEngineResponse> InvokeAsync(Mat fullClientBgr,
+    public Task<ReferencePythonEngineResponse> InvokeAsync(Mat fullClientImage,
         object request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -77,7 +77,7 @@ internal sealed class ReferencePythonEngineClient : IDisposable, IAsyncDisposabl
 
         // Copy before the first await. The caller may dispose its Mat as soon
         // as a cancelled await returns, while the worker is still reading.
-        var frame = SharedFrame.Create(fullClientBgr);
+        var frame = SharedFrame.Create(fullClientImage);
         message["id"] = Guid.NewGuid().ToString("N");
         message["frame"] = JsonSerializer.SerializeToNode(new
         {
@@ -323,8 +323,15 @@ internal sealed class ReferencePythonEngineClient : IDisposable, IAsyncDisposabl
         public static SharedFrame Create(Mat image)
         {
             ArgumentNullException.ThrowIfNull(image);
-            if (image.Empty() || image.Type() != MatType.CV_8UC3)
-                throw new ArgumentException("Python 引擎需要非空 UInt8 BGR 客户区图像。", nameof(image));
+            if (image.Empty() || (image.Type() != MatType.CV_8UC3 && image.Type() != MatType.CV_8UC4))
+                throw new ArgumentException($"Python 桥接需要非空 UInt8 BGR/BGRA 截图，实际为 {image.Type()}。", nameof(image));
+            // Live GDI and WGC captures are BGRA; file replays may be BGR.
+            // Normalize only at the IPC boundary, without changing the shared
+            // capture or its coordinate space. The worker always receives BGR.
+            using var converted = image.Type() == MatType.CV_8UC4 ? new Mat() : null;
+            if (converted is not null)
+                Cv2.CvtColor(image, converted, ColorConversionCodes.BGRA2BGR);
+            var pixels = converted ?? image;
             var width = image.Width;
             var height = image.Height;
             var stride = checked(width * 3);
@@ -337,7 +344,7 @@ internal sealed class ReferencePythonEngineClient : IDisposable, IAsyncDisposabl
                 var row = new byte[stride];
                 for (var y = 0; y < height; y++)
                 {
-                    Marshal.Copy(image.Ptr(y), row, 0, stride);
+                    Marshal.Copy(pixels.Ptr(y), row, 0, stride);
                     view.WriteArray((long)y * stride, row, 0, stride);
                 }
                 return new SharedFrame(memory, name, width, height, stride);

@@ -35,6 +35,7 @@ public sealed partial class SessionOrchestrator
             candidate.Disposition = SideEntranceCandidateDisposition.NeedsVerification;
         }
         timings["scan_class_evidence"] = timer.Elapsed.TotalMilliseconds;
+        var deferAmbiguousAlignment = ScanUncertainPolicies.DeferAmbiguousDeepScanAlignment(context!, candidates);
         var completed = 0;
         var formal = 0;
         var reusedFamily = 0;
@@ -59,7 +60,7 @@ public sealed partial class SessionOrchestrator
             ScanIdentityEvidence? bestEvidence = null;
             MapAlignmentSession? bestSeed = null;
             MapRecognitionAttempt? bestAttempt = null;
-            foreach (var proposal in hypotheses)
+            foreach (var proposal in deferAmbiguousAlignment ? Array.Empty<SideEntranceScanCandidate>() : hypotheses)
             {
                 var hypothesis = proposal;
                 if (!context.CanCompute) { complete = false; break; }
@@ -72,7 +73,7 @@ public sealed partial class SessionOrchestrator
                     ? reliable.Min(item => ScanIdentityVerifier.FitCost(item.Candidate.IdentityEvidence))
                         + ScanIdentityVerifier.DominantFitMargin
                     : double.PositiveInfinity;
-                if (evidence.State == ScanIdentityState.Excluded && evidence.SupportedFraction >= .80
+                if (ScanIdentityVerifier.HasRefinablePose(evidence)
                     && SideEntranceScanPipeline.RefineIdentityPose(hypothesis, evidenceFrame, frame.ViewportBounds,
                         context, competitiveCost) is { } refined
                     && _recognition.TryCreateSideEntranceAlignmentSeed(refined, frame.ViewportBounds, out var refinedSeed, out _))
@@ -89,7 +90,12 @@ public sealed partial class SessionOrchestrator
                         || ScanIdentityVerifier.FitCost(evidence) < ScanIdentityVerifier.FitCost(candidate.IdentityEvidence)))
                     candidate.IdentityEvidence = evidence;
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
-                if (evidence.State != ScanIdentityState.Supported) continue;
+                // A gate-anchored retrieval pose is not a confirmed alignment.
+                // Its bounded residual search can leave a near fit a few pixels
+                // off an authored anchor. Let the existing formal registration
+                // and VPSG confirmation correct it before excluding the identity.
+                // Only their final transform may pass the unchanged verifier below.
+                if (!ScanIdentityVerifier.ShouldAttemptStructureRegistration(evidence, context.Policy.Mode)) continue;
                 // Refinement can recover a weak outside identity. Keep that
                 // evidence in the final comparison, but do not spend a full
                 // registration/rescue on it if a verified family already wins.
@@ -107,8 +113,10 @@ public sealed partial class SessionOrchestrator
                         CreateStructureTuningForFloor(candidate.Map, candidate.FloorKey, CreateInitialAlignmentStructureTuning())));
                 structureTuning.StructureFallbackBudgetMilliseconds = Math.Max(1, Math.Min(
                     structureTuning.StructureFallbackBudgetMilliseconds, context.RemainingMilliseconds - 60));
-                var attempt = RunMandatoryCandidateStructureRegistration(frame, hypothesis, seed,
-                    sideAlignmentTuning, structureTuning, out seed);
+                var attempt = context.Policy.Mode == ScanPerformanceMode.DeepScan
+                    ? _recognition.AlignDeepScan(frame, hypothesis, seed, sideAlignmentTuning, structureTuning)
+                    : RunMandatoryCandidateStructureRegistration(frame, hypothesis, seed,
+                        sideAlignmentTuning, structureTuning, out seed);
                 formal++;
                 if (attempt.Recognition?.Result.OverlayTransform is not { } finalTransform || !attempt.StructureAccepted)
                 {
@@ -175,9 +183,13 @@ public sealed partial class SessionOrchestrator
                     ["coordinateSpace"] = "viewport-pixels",
                     ["hypothesisCount"] = candidate.SearchHypotheses.Count,
                     ["hypotheses"] = candidate.SearchHypotheses
-                        .Where(h => h.IdentityEvidence.SupportedFraction >= .80).Take(8).Select(h => new
+                        .OrderBy(h => ScanIdentityVerifier.FitCost(h.IdentityEvidence))
+                        .Take(8).Select(h => new
                     {
-                        h.MatchScale, h.MatchLocation, h.IdentityEvidence, h.VerifiedTransform
+                        h.MatchScale, h.MatchLocation, h.IdentityEvidence, h.VerifiedTransform,
+                        h.AssociatedGateIndex,
+                        gateBounds = h.AssociatedGate?.ScreenBounds,
+                        h.GateSpatialResidualPixels
                     }).ToArray(),
                     ["reason"] = candidate.IdentityEvidence.Reason
                 });
@@ -186,7 +198,8 @@ public sealed partial class SessionOrchestrator
         timings["scan_verification"] = timer.Elapsed.TotalMilliseconds;
         _lastDiagnostics!.ScanCandidateCount = candidates.Count;
         _lastDiagnostics.ScanVerificationCandidateCount = candidates.Count;
-        _lastDiagnostics.ScanVerifiedCandidateCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
+        context!.VerifiedCandidateCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
+        _lastDiagnostics.ScanVerifiedCandidateCount = context.VerifiedCandidateCount.Value;
         _lastDiagnostics.ScanVerificationTimedOut = !context!.CanCompute;
         _lastDiagnostics.ScanEarlyExited = false;
         _lastDiagnostics.ScanFormalStructureAttemptCount = formal;
@@ -202,6 +215,7 @@ public sealed partial class SessionOrchestrator
                 ["verifiedMembers"] = reliable.Count,
                 ["skippedSiblingAlignments"] = reusedFamily,
                 ["skippedDominatedAlignments"] = dominatedAlignments,
+                ["deferredAmbiguousAlignment"] = deferAmbiguousAlignment,
                 ["classEvidenceMs"] = timings["scan_class_evidence"]
             });
         return reliable;

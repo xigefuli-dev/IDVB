@@ -46,6 +46,7 @@ public sealed class MapPublicationService
         CancellationToken cancellationToken = default)
     {
         var snapshot = await _packages.GetExportMapsAsync(scope, className, cancellationToken);
+        using var protection = AppDataPaths.ProtectCachePath(outputParentDirectory);
         if (snapshot.Any(map => map.AcquisitionKind == MapAcquisitionKind.Subscription
             && (publicationId is null || map.SubscriptionId != publicationId)))
             throw new InvalidOperationException("只有发布者自己的已发布地图类可以更新。");

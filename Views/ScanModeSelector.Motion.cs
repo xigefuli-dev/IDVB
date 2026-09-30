@@ -21,10 +21,14 @@ public sealed partial class ScanModeSelector
 
     private void UpdateMotion()
     {
+        if (!CanAnimate()) FinishAppearanceTransition();
+        UpdateDeepMotion();
         StopEffectAnimations();
         SetQualityEffectVisibility(Visibility.Collapsed);
         _fastGlow.Visibility = Visibility.Collapsed;
         _speedField.Visibility = Visibility.Collapsed;
+        if (Mode == ScanPerformanceMode.DeepScan)
+            return;
 
         // Balanced is intentionally still: the blue selection pill is the only
         // state indicator, with no ambient pulse competing for attention.
@@ -196,7 +200,13 @@ public sealed partial class ScanModeSelector
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
             _ui.AnimationsEnabledChanged -= AnimationsChanged;
         _window = null;
-        UpdateMotion();
+        _dragPointer = null;
+        _dragTrackX = null;
+        _isPointerDragging = false;
+        _pointerNeedsSettle = false;
+        _expandedForGesture = false;
+        _track.ReleasePointerCaptures();
+        UpdateAppearance(false);
     }
 
     private void WindowChanged(AppWindow sender, AppWindowChangedEventArgs args) =>

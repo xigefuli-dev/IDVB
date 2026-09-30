@@ -75,12 +75,11 @@ public sealed partial class SessionOrchestrator
             sideTimings["side_entrance_scan"] = sideSw.Elapsed.TotalMilliseconds;
             sideTimings["gate_detection"] = sideScan.GateDetection.ElapsedMilliseconds;
             _lastScanPhaseTimings = sideTimings;
-            if (sideScan.GateDetection.Gates.Count == 0)
+            if (sideScan.GateDetection.Gates.Count == 0
+                && ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.DeepScan)
             {
                 var missingGateContext = ScanExecutionContext.Current;
-                var rawEvidencePath = MapDiagnosticModeCapture.WriteUnresolvedScan(frame,
-                    missingGateContext?.Frame, candidates,
-                    missingGateContext?.Policy.Mode ?? ScanPerformanceMode.Balanced);
+                QueueUnresolvedScanDiagnostic(frame, candidates);
                 failureReason =
                     "识别失败：侧门扫描要求当前地图暴露一个门特征，但未检测到门";
                 _logCollector.Append(
@@ -89,8 +88,7 @@ public sealed partial class SessionOrchestrator
                     failureReason, details: new()
                     {
                         ["reason"] = sideScan.GateDetection.BudgetExceeded ? "gate-search-interrupted" : "no-confirmed-gate",
-                        ["computeStopReason"] = missingGateContext?.ComputeStopReason,
-                        ["rawEvidencePath"] = rawEvidencePath
+                        ["computeStopReason"] = missingGateContext?.ComputeStopReason
                     });
                 initialPostProcess.Complete();
                 initialPostProcess = null;
@@ -99,7 +97,8 @@ public sealed partial class SessionOrchestrator
             if (candidates.Count == 0)
             {
                 failureReason =
-                    $"识别失败：已检测到门，但{sideScan.FailureReason}";
+                    ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
+                        ? sideScan.FailureReason : $"识别失败：已检测到门，但{sideScan.FailureReason}";
                 _logCollector.Append(
                     MapLogCategory.ScanLifecycle,
                     MapLogLevel.Warning,
@@ -171,16 +170,13 @@ public sealed partial class SessionOrchestrator
                     failureReason = "正在观察可见结构，地图身份尚未确定。";
                     return;
                 }
-                var diagnosticPath = MapDiagnosticModeCapture.WriteUnresolvedScan(
-                    frame, context?.Frame, candidates,
-                    context?.Policy.Mode ?? ScanPerformanceMode.Balanced);
-                if (diagnosticPath is not null)
-                    _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
-                        "未确定身份的扫描原始证据已保存",
-                        details: new() { ["path"] = diagnosticPath });
+                QueueUnresolvedScanDiagnostic(frame, candidates);
                 pendingChoicesReason = decision.Reason switch
                 {
                     "all-identities-excluded" => "地图尚未确定：所有候选均未通过可见结构校验，请查看冲突诊断。",
+                    "supported-without-confirmed-alignment" when context is not null
+                        && ScanUncertainPolicies.DeferAmbiguousDeepScanAlignment(context, candidates)
+                        => "多张地图具有相似的局部结构，请选择当前地图。",
                     "supported-without-confirmed-alignment" => "地图尚未确定：存在结构匹配，但尚未完成可信对齐。",
                     "unverified-identities" => "地图尚未确定：仍有候选未完成验证。",
                     "retrieval-incomplete" => "地图尚未确定：候选检索未完成。",
@@ -208,6 +204,14 @@ public sealed partial class SessionOrchestrator
         }
         catch (Exception alignEx)
         {
+            if (ScanExecutionContext.Current is { Policy.Mode: ScanPerformanceMode.DeepScan } deepScan)
+            {
+                deepScan.RetrievalCompleted = false;
+                recognition = null;
+                pendingSideEntranceIdentity = null;
+                pendingSideEntranceSeed = null;
+                pendingChoices = null;
+            }
             initialPostProcess?.Complete();
             initialPostProcess = null;
             RecordResearchAttemptForMap(
@@ -270,4 +274,5 @@ public sealed partial class SessionOrchestrator
             failureReason = $"侧门对齐失败：{sideAttempt.FailureReason}";
         }
     }
+
 }

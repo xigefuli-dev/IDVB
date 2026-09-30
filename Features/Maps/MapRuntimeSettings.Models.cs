@@ -5,7 +5,7 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Persisted runtime configuration for the 解锁地图 status module.</summary>
 public sealed partial class MapRuntimeSettings
 {
-    public const int CurrentSchemaVersion = 21;
+    public const int CurrentSchemaVersion = 22;
     public const int CurrentCalibrationVersion = MapRuntimeSettingsRules.CurrentCalibrationVersion;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -49,7 +49,7 @@ public sealed partial class MapRuntimeSettings
     public string? LastSelectedMapClass { get; set; }
     public bool ShowOverlayStatus { get; set; } = true;
     public bool CollectLogs { get; set; }
-    public bool DiagnosticModeEnabled { get; set; }
+    public bool DiagnosticModeEnabled { get; set; } = true;
     public bool CollectAlignmentResearchData { get; set; }
     public MapCandidateDecisionMode CandidateDecisionMode { get; set; } =
         MapCandidateDecisionMode.Traditional;
@@ -147,7 +147,7 @@ public sealed partial class MapRuntimeSettings
         EnableContinuousAlignment = false,
         ShowOverlayStatus = true,
         CollectLogs = false,
-        DiagnosticModeEnabled = false,
+        DiagnosticModeEnabled = true,
         CollectAlignmentResearchData = false,
         CandidateDecisionMode = MapCandidateDecisionMode.Traditional,
         ContinuousMapLearningEnabled = false,

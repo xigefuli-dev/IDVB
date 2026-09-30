@@ -18,6 +18,7 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
         ChannelReader<WriteRequest> reader,
         string sessionDirectory)
     {
+        using var protection = AppDataPaths.ProtectCachePath(sessionDirectory);
         var attemptsPath = Path.Combine(sessionDirectory, "attempts.jsonl");
         await using var stream = new FileStream(
             attemptsPath, FileMode.Append, FileAccess.Write, FileShare.Read,
@@ -92,6 +93,8 @@ public sealed partial class MapAlignmentResearchCollector : IAsyncDisposable
         var sessionDir = Volatile.Read(ref _sessionDirectory);
         if (sessionDir is null || !File.Exists(referenceImagePath))
             return;
+
+        using var protection = AppDataPaths.ProtectCachePath(sessionDir);
 
         var mapShort = mapId.ToString("N")[..8];
         var key = $"{mapShort}:{floorKey}";

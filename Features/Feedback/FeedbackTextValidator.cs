@@ -8,6 +8,14 @@ public static class FeedbackTextValidator
 {
     public const int MinimumLengthExclusive = 10;
 
+    public static bool IsContactQqValid(string? text)
+    {
+        var value = text?.Trim();
+        return value is { Length: >= 5 and <= 12 }
+            && value[0] >= '1' && value[0] <= '9'
+            && value.All(c => c >= '0' && c <= '9');
+    }
+
     /// <summary>
     /// 判断单个字符是否为中文字符（包含汉字、扩展表意文字以及中文全角标点符号）。
     /// </summary>

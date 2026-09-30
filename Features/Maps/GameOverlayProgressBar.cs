@@ -20,6 +20,7 @@ internal sealed class GameOverlayProgressBar : IDisposable
     private const uint WmNcHitTest = 0x0084;
     private const int HtTransparent = -1;
     private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpNoActivate = 0x0010, SwpShowWindow = 0x0040;
+    private const uint SwpNoZOrder = 0x0004, SwpHideWindow = 0x0080;
     private static readonly IntPtr HwndTopMost = new(-1);
     private readonly object _gate = new();
     private readonly ICaptureProtectionService? _captureProtection;
@@ -87,7 +88,13 @@ internal sealed class GameOverlayProgressBar : IDisposable
     }
 
     /// <summary>立即关闭，用于对局结束和宿主释放。</summary>
-    public void Hide() { lock (_gate) { ++_version; _completing = false; } if (_window != IntPtr.Zero) ShowWindow(_window, 0); }
+    public void Hide()
+    {
+        lock (_gate) { ++_version; _completing = false; }
+        if (_window != IntPtr.Zero)
+            SetWindowPos(_window, IntPtr.Zero, 0, 0, 0, 0,
+                SwpNoActivate | SwpNoMove | SwpNoSize | SwpNoZOrder | SwpHideWindow);
+    }
 
     private async Task AnimateAsync(long version, bool completing)
     {
@@ -198,7 +205,7 @@ internal sealed class GameOverlayProgressBar : IDisposable
 
     private void Present(Bitmap bitmap, int x, int y)
     {
-        ShowWindow(_window, 4);
+        // Visibility and placement must remain non-activating throughout the scan.
         // 置顶于游戏窗口之上（与全屏 Overlay 的 SetWindowPos 一致），
         // 否则对局进行时进度条会被 dwrg.exe 前景窗口遮挡。
         SetWindowPos(_window, HwndTopMost, 0, 0, 0, 0, SwpNoActivate | SwpNoMove | SwpNoSize | SwpShowWindow);
@@ -226,7 +233,6 @@ internal sealed class GameOverlayProgressBar : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern ushort RegisterClassEx(ref WindowClassEx windowClass);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern IntPtr CreateWindowEx(int ex, string cls, string name, int style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
     [DllImport("user32.dll")] private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr window);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool UpdateLayeredWindow(IntPtr window, IntPtr screen, ref PointNative point, ref SizeNative size, IntPtr memory, ref PointNative source, uint colorKey, ref Blend blend, uint flags);

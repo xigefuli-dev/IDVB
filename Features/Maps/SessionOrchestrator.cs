@@ -222,78 +222,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         }
     }
 
-    private void RunInputAction(string actionName, Action action)
-    {
-        LogInputHandlerOutcome(actionName, "handler-started");
-        try
-        {
-            action();
-            LogInputHandlerOutcome(actionName, "handler-completed");
-        }
-        catch (Exception exception)
-        {
-            LogInputHandlerOutcome(actionName, "handler-failed", exception);
-        }
-    }
-
-    private void StartInputOperation(
-        string actionName,
-        Func<Task> operation)
-    {
-        LogInputHandlerOutcome(actionName, "handler-started");
-        Task task;
-        try
-        {
-            task = operation();
-        }
-        catch (Exception exception)
-        {
-            LogInputHandlerOutcome(actionName, "handler-failed", exception);
-            return;
-        }
-
-        _ = ObserveInputOperationAsync(actionName, task);
-    }
-
-    private async Task ObserveInputOperationAsync(
-        string actionName,
-        Task operation)
-    {
-        try
-        {
-            await operation;
-            LogInputHandlerOutcome(actionName, "handler-completed");
-        }
-        catch (Exception exception)
-        {
-            LogInputHandlerOutcome(actionName, "handler-failed", exception);
-        }
-    }
-
-    private void LogInputHandlerOutcome(
-        string actionName,
-        string outcome,
-        Exception? exception = null)
-    {
-        try
-        {
-            _logCollector.Append(
-                MapLogCategory.System,
-                exception is null ? MapLogLevel.Info : MapLogLevel.Error,
-                $"Input handler: {actionName} · {outcome}",
-                details: new()
-                {
-                    ["outcome"] = outcome,
-                    ["action"] = actionName,
-                    ["exceptionType"] = exception?.GetType().FullName,
-                    ["exception"] = exception?.ToString()
-                });
-        }
-        catch
-        {
-        }
-    }
-
     // ════════════════ Initialize ════════════════
 
     public async Task InitializeAsync()
@@ -306,7 +234,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             await Task.Run(FloorIndicatorTemplateRegistry.Prepare);
             var settingsObj = await _settingsRepo.LoadAsync();
             _settings = settingsObj is MapRuntimeSettings s ? s : new MapRuntimeSettings();
-            _logCollector.IsEnabled = _settings.CollectLogs;
+            InitializeLogCollection();
             try
             {
                 await _researchCollector.SetEnabledAsync(

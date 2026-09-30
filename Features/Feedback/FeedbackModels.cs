@@ -8,6 +8,9 @@ public sealed class FeedbackSubmissionPayload
     /// <summary>问题描述（必须填写且加权字符数大于 10）。</summary>
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>联系 QQ 号（未登录时必填）。</summary>
+    public string ContactQq { get; set; } = string.Empty;
+
     /// <summary>是否包含日志数据。</summary>
     public bool IncludeLogs { get; set; }
 
@@ -40,6 +43,9 @@ public sealed class FeedbackSubmissionResult
     public string Message { get; set; } = string.Empty;
 
     public Exception? Error { get; set; }
+
+    // The UI invalidates only the credential used by this request, never a newer login.
+    internal string? RejectedToken { get; init; }
 
     public static FeedbackSubmissionResult Ok(string message = "反馈提交成功") =>
         new() { Success = true, Message = message };

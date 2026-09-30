@@ -9,7 +9,7 @@ public sealed partial class MapCvRecognitionService
         double threshold, GateSearchContext search)
     {
         if (ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.Fast
-            && Math.Max(image.Width, image.Height) <= 960)
+            && Math.Max(image.Width, image.Height) <= 480)
             return _gateDetector.Detect(image, viewport, clientWidth, threshold, search);
 
         // Search the complete view and scale band at half resolution, then confirm every

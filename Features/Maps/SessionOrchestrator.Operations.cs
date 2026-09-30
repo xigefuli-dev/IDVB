@@ -276,10 +276,13 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 
     private async Task ObserveControlPanelToggleAsync()
     {
+        using var input = new MapInputOperationContext();
         const string action = "control-panel-toggle";
         LogInputHandlerOutcome(action, "handler-started");
         if (_controlPanelToggleInProgress)
         {
+            input.Outcome = "rejected";
+            input.Reason = "operation-in-progress";
             LogInputHandlerOutcome(action, "handler-rejected:operation-in-progress");
             return;
         }
@@ -287,11 +290,15 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         try
         {
             var outcome = await ToggleControlPanelAsync();
+            input.Outcome = outcome.StartsWith("handler-rejected:", StringComparison.Ordinal) ? "rejected" : "applied";
+            input.Reason = outcome;
             LogInputHandlerOutcome(action, outcome);
         }
         catch (Exception exception)
         {
             _statusMessage = $"外置控件层显示失败：{exception.Message}";
+            input.Outcome = "failed";
+            input.Reason = exception.GetType().FullName ?? exception.GetType().Name;
             LogInputHandlerOutcome(action, "handler-failed", exception);
         }
         finally

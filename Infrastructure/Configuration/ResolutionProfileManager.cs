@@ -152,6 +152,22 @@ public sealed class ResolutionProfileManager : IResolutionProfileService, IDispo
             },
             new ResolutionTuningProfile
             {
+                Name = "3840x2160 @ 120 DPI",
+                ClientWidth = 3840,
+                ClientHeight = 2160,
+                Dpi = 120,
+                // Initial UHD preset; keep in sync with Presets/3840x2160.
+                MaximumChamferPixels = 3.0,
+                MinimumEdgeCoverage = 0.35,
+                MinimumOccupancyCoverage = 0.40,
+                MinimumCandidateMargin = 0.04,
+                EdgeDistanceTolerancePixels = 3.0,
+                FastCoarseMaxDimension = 160,
+                FastCoarseDownsampleFactor = 2,
+                ScaleSearchRadius = 0.02,
+            },
+            new ResolutionTuningProfile
+            {
                 Name = "3440x1440 @ 120 DPI",
                 ClientWidth = 3440,
                 ClientHeight = 1440,

@@ -2,6 +2,7 @@
 
 using IDVBuff.Core.Contracts;
 using IDVBuff.Core.Models;
+using IDVBuff.Features.Notifications;
 using IDVBuff.Pipeline;
 using Microsoft.UI.Dispatching;
 using OpenCvSharp;
@@ -16,6 +17,7 @@ public sealed partial class SessionOrchestrator
         public RuntimeMapRecognition? Recognition;
         public bool ObserveUntilConfirmed;
         public ScanIdentitySelectionPolicy IdentitySelectionPolicy => ObserveUntilConfirmed
+            || ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
             ? ScanIdentitySelectionPolicy.RequireUniqueSupport
             : ScanIdentitySelectionPolicy.AllowDominantSupport;
         public Guid? PreviousPreviewMapId;
@@ -36,10 +38,21 @@ public sealed partial class SessionOrchestrator
         InitialRecognitionPipelineState result,
         bool recognizeOnly = false)
     {
+        // Warn from the actual recognition image, while leaving scan progress and
+        // candidate verification to run normally.
+        if (!_headless && frame.ClientBounds.IsValid
+            && frame.Image.Width == (int)Math.Round(frame.ClientBounds.Width)
+            && frame.Image.Height == (int)Math.Round(frame.ClientBounds.Height))
+        {
+            OverlayNotificationCenter.UpdateGameBounds(frame.ClientBounds);
+            OverlayNotificationCenter.Error("无法识别画面。你是否忘记了校准显示区域？");
+        }
+
         // 侧门识别「识别即对齐」：识别阶段的结构验证对齐（确认候选图）是
         // 侧门身份确认的必需步骤，后台扫描（recognizeOnly）同样走此链路，
         // 只是收尾不提交可靠会话、不锁定最终识别（见 SideEntrance.cs）。
-        if (_settings!.FirstScanStrategy == FirstScanStrategy.SideEntrance
+        if (ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
+            || _settings!.FirstScanStrategy == FirstScanStrategy.SideEntrance
             || _recognition.RequiresSingleFeatureScan(_matchSession.Snapshot.MapClass))
         {
             RunInitialSideEntranceRecognition(frame, result, recognizeOnly);

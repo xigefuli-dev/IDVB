@@ -130,75 +130,15 @@ public sealed partial class SessionOrchestrator
             attempt.Diagnostics.LowStructureEvidencePending = evidence.Pending;
         }
 
-        var confidence = attempt.StructureResult?.Confidence
-            ?? attempt.Recognition?.Result.Confidence
-            ?? 0d;
-
-        var isBudgetExceeded = (attempt.FailureReason?.Contains("预算") == true)
-            || (attempt.FailureReason?.Contains("budget", StringComparison.OrdinalIgnoreCase) == true);
-
-        if (isBudgetExceeded)
-        {
-            return new FloorAlignmentAttemptResult
-            {
-                FloorKey = candidateFloorKey,
-                Outcome = FloorAlignmentAttemptOutcome.Inconclusive,
-                Attempt = attempt,
-                Diagnostics = attempt.Diagnostics,
-                Confidence = confidence,
-                FailureReason = attempt.FailureReason
-            };
-        }
-
-        var isFullyAccepted = FloorAlignmentRecoveryRules.IsAttemptFullyAccepted(
-            attempt,
-            channel,
+        return FloorAlignmentRecoveryRules.ClassifyAttemptResult(
             context.MapId,
             candidateFloorKey,
+            channel,
+            attempt,
+            repairKey,
             _settings?.RecognitionTuning.MinimumConfidence ?? MapRecognitionTuning.DefaultMinimumConfidence,
-            lowStructureEvidenceAccepted);
-
-        if (isFullyAccepted)
-        {
-            return new FloorAlignmentAttemptResult
-            {
-                FloorKey = candidateFloorKey,
-                Outcome = FloorAlignmentAttemptOutcome.Accepted,
-                Attempt = attempt,
-                AlignedRecognition = attempt.Recognition,
-                PendingRepairCacheKey = repairKey,
-                Diagnostics = attempt.Diagnostics,
-                Confidence = confidence
-            };
-        }
-
-        if (channel == MapAlignmentChannel.LowStructure && isLowStructurePending)
-        {
-            return new FloorAlignmentAttemptResult
-            {
-                FloorKey = candidateFloorKey,
-                Outcome = FloorAlignmentAttemptOutcome.PendingEvidence,
-                Attempt = attempt,
-                Diagnostics = attempt.Diagnostics,
-                Confidence = confidence,
-                LowStructurePending = true,
-                FailureReason = "低结构楼层跨帧样本等待中。"
-            };
-        }
-
-        var rejectionReason = attempt.StructureResult?.RejectionReason
-            ?? MapStructureRejectionReason.None;
-
-        return new FloorAlignmentAttemptResult
-        {
-            FloorKey = candidateFloorKey,
-            Outcome = FloorAlignmentAttemptOutcome.Rejected,
-            Attempt = attempt,
-            RejectionReason = rejectionReason,
-            FailureReason = attempt.FailureReason ?? rejectionReason.ToString(),
-            Diagnostics = attempt.Diagnostics,
-            Confidence = confidence
-        };
+            lowStructureEvidenceAccepted,
+            isLowStructurePending);
     }
 
     private void LogFloorProposal(
@@ -219,6 +159,9 @@ public sealed partial class SessionOrchestrator
                 ["mapUpdatedAt"] = context.MapUpdatedAt,
                 ["generation"] = context.OperationGeneration,
                 ["toggleVersion"] = context.MapToggleVersion,
+                ["frameId"] = context.CaptureFrameId,
+                ["previousConfirmedFloor"] = GetConfirmedFloorPreference(context.MapId),
+                ["currentFloor"] = _currentFloorKey,
                 ["proposedFloor"] = proposedFloorKey,
                 ["score"] = score,
                 ["margin"] = margin
@@ -276,7 +219,8 @@ public sealed partial class SessionOrchestrator
     private void LogFloorRecoveryResolved(
         MapOpenOperationContext context,
         FloorRecoveryDecision decision,
-        double totalElapsedMs)
+        double totalElapsedMs,
+        string? requiredFloorKey)
     {
         _logCollector.Append(
             MapLogCategory.FloorRecognition,
@@ -288,6 +232,13 @@ public sealed partial class SessionOrchestrator
                 ["event"] = "FloorRecoveryResolved",
                 ["resolution"] = decision.Resolution.ToString(),
                 ["winnerFloor"] = decision.Winner?.FloorKey,
+                ["requiredFloor"] = requiredFloorKey,
+                ["previousConfirmedFloor"] = GetConfirmedFloorPreference(context.MapId),
+                ["currentFloor"] = _currentFloorKey,
+                ["frameId"] = context.CaptureFrameId,
+                ["generation"] = context.OperationGeneration,
+                ["initialAttemptFloor"] = decision.Attempts.FirstOrDefault()?.FloorKey,
+                ["initialAttemptOutcome"] = decision.Attempts.FirstOrDefault()?.Outcome.ToString(),
                 ["reason"] = decision.Reason,
                 ["attemptsCount"] = decision.Attempts.Count,
                 ["matchId"] = context.MatchId,
@@ -304,24 +255,46 @@ public sealed partial class SessionOrchestrator
         string? preferredConfirmed,
         CancellationToken cancellationToken)
     {
-        var isManualFloor = context.ManualFloorKey is not null;
+        var isManualFloor = context.IsManualFloor;
         var isSingleFloorMap = orderedFloors.Count <= 1;
+        var requiredFloorKey = context.ManualFloorKey ?? frame.DetectedFloorKey;
 
         var shouldRecover = FloorAlignmentRecoveryRules.ShouldAttemptFloorRecovery(
             isManualFloor: isManualFloor,
             isSingleFloorMap: isSingleFloorMap,
-            initialAttempt: initialAttemptResult);
+            initialAttempt: initialAttemptResult,
+            detectedFloorKey: frame.DetectedFloorKey);
 
         if (!shouldRecover)
         {
-            var isInitialAccepted = initialAttemptResult.Outcome == FloorAlignmentAttemptOutcome.Accepted;
-            return new FloorRecoveryDecision
+            var initialDecision = FloorAlignmentRecoveryRules.DecideFromAttempts(
+                [initialAttemptResult], budgetExhausted: false, requiredFloorKey);
+            if (initialDecision.Resolution == FloorRecoveryResolution.SingleAccepted)
             {
-                Resolution = isInitialAccepted ? FloorRecoveryResolution.SingleAccepted : FloorRecoveryResolution.NotAttempted,
-                Winner = isInitialAccepted ? initialAttemptResult : null,
-                Attempts = [initialAttemptResult],
-                Reason = isInitialAccepted ? "首选楼层初次对齐成功。" : initialAttemptResult.FailureReason
-            };
+                initialDecision = initialDecision with
+                {
+                    Reason = $"目标楼层 {initialAttemptResult.FloorKey} 初次对齐成功。"
+                };
+            }
+            if (initialDecision.Resolution == FloorRecoveryResolution.AllRejected)
+            {
+                initialDecision = initialDecision with
+                {
+                    Resolution = FloorRecoveryResolution.NotAttempted,
+                    Reason = initialAttemptResult.FailureReason
+                };
+            }
+            if (initialDecision.Resolution != FloorRecoveryResolution.SingleAccepted
+                && !string.IsNullOrEmpty(requiredFloorKey))
+            {
+                initialDecision = initialDecision with
+                {
+                    Reason = $"本次楼层依据为 {requiredFloorKey}，该层暂未完成对齐："
+                        + (initialAttemptResult.FailureReason ?? initialDecision.Reason)
+                };
+            }
+            LogFloorRecoveryResolved(context, initialDecision, 0d, requiredFloorKey);
+            return initialDecision;
         }
 
         var altFloors = FloorAlignmentRecoveryRules.ResolveAlternativeFloors(
@@ -378,13 +351,69 @@ public sealed partial class SessionOrchestrator
 
         var decision = FloorAlignmentRecoveryRules.DecideFromAttempts(
             recoveryAttempts,
-            budgetExhausted);
+            budgetExhausted,
+            requiredFloorKey);
 
         LogFloorRecoveryResolved(
             context,
             decision,
-            recoveryTimer.Elapsed.TotalMilliseconds);
+            recoveryTimer.Elapsed.TotalMilliseconds,
+            requiredFloorKey);
 
         return decision;
+    }
+
+    private bool TryValidateFloorCommit(
+        RuntimeMapRecognition aligned,
+        string targetFloorKey,
+        string? requiredFloorKey,
+        MapOpenOperationContext? context,
+        out string? failureReason)
+    {
+        failureReason = null;
+        if (string.Equals(aligned.Result.Floor, targetFloorKey, StringComparison.Ordinal)
+            && FloorAlignmentRecoveryRules.IsFloorCommitAllowed(aligned.Result.Floor, requiredFloorKey))
+            return true;
+
+        failureReason = $"对齐结果楼层 {aligned.Result.Floor} 与本次楼层依据 "
+            + $"{requiredFloorKey ?? targetFloorKey} 冲突，等待重新开图确认。";
+        _logCollector.Append(MapLogCategory.FloorRecognition, MapLogLevel.Warning,
+            "FloorCommitRejected · reason=floor-evidence-conflict", details: new()
+            {
+                ["event"] = "FloorCommitRejected",
+                ["mapId"] = aligned.Map.Id,
+                ["candidateFloor"] = aligned.Result.Floor,
+                ["requiredFloor"] = requiredFloorKey,
+                ["targetFloor"] = targetFloorKey,
+                ["currentFloor"] = _currentFloorKey,
+                ["previousConfirmedFloor"] = GetConfirmedFloorPreference(aligned.Map.Id),
+                ["frameId"] = context?.CaptureFrameId
+            });
+        return false;
+    }
+
+    private void LogFloorCommitted(
+        RuntimeMapRecognition aligned,
+        string? requiredFloorKey,
+        string? previousFloorKey,
+        string? previousConfirmedFloor,
+        MapOpenOperationContext? context)
+    {
+        _logCollector.Append(MapLogCategory.Session, MapLogLevel.Info,
+            $"仅对齐完成 · map={aligned.Map.Id} · floor={aligned.Result.Floor}",
+            details: new()
+            {
+                ["mapId"] = aligned.Map.Id,
+                ["floor"] = aligned.Result.Floor,
+                ["committedFloor"] = aligned.Result.Floor,
+                ["requiredFloor"] = requiredFloorKey,
+                ["previousFloor"] = previousFloorKey,
+                ["previousConfirmedFloor"] = previousConfirmedFloor,
+                ["frameId"] = context?.CaptureFrameId,
+                ["commitReason"] = requiredFloorKey is null ? "target-floor-alignment" : "floor-evidence-and-alignment",
+                ["identityConfidence"] = aligned.Result.IdentityConfidence,
+                ["localizationConfidence"] = aligned.Result.LocalizationConfidence,
+                ["candidateMargin"] = MapFeatureCacheRules.GetCandidateMargin(aligned.Result)
+            });
     }
 }

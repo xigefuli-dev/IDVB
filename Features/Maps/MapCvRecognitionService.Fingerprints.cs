@@ -178,6 +178,9 @@ public sealed partial class MapCvRecognitionService
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(frame);
 
+        if (ScanExecutionContext.Current is { Policy.Mode: ScanPerformanceMode.DeepScan } deepScan)
+            return RunDeepScan(frame, mapClass, deepScan, progress);
+
         tuning = MapCvRecognitionHelpers.NormalizedCopy(tuning);
         progress?.Invoke(0d);
         using var livePreprocess = MapOperationTraceAmbient.StartChild(
@@ -470,6 +473,7 @@ public sealed partial class MapCvRecognitionService
             _floorPrewarmTasks.Clear();
         }
         _gateDetector.Dispose();
+        _deepScanGateDetector?.Dispose();
         _structureCache.Dispose();
         MapStructurePreprocessor.ClearReferenceCache();
         DisposeVpsg3();

@@ -346,16 +346,27 @@ public sealed partial class SessionOrchestrator
                     captureTimedOut: !cancellationToken.IsCancellationRequested && (shouldContinue?.Invoke() ?? true));
             }
 
+            var readinessStopReason = _disposed ? "disposed"
+                : cancellationToken.IsCancellationRequested ? "cancelled"
+                : !(shouldContinue?.Invoke() ?? true) ? "superseded" : "deadline-exceeded";
             _logCollector.Append(
                 MapLogCategory.ViewportCapture,
                 MapLogLevel.Warning,
-                $"画面就绪确认超时 · op={operation} · attempts={attempts} "
+                $"画面就绪确认未通过 · reason={readinessStopReason} · op={operation} · attempts={attempts} "
                 + $"· captures={successfulCaptures} · lastMode={lastPresence?.Mode} "
                 + $"· lastScore={lastPresence?.Score:F4}",
                 elapsedMs: stopwatch.Elapsed.TotalMilliseconds,
                 details: new()
                 {
                     ["operation"] = operation,
+                    ["stopReason"] = readinessStopReason,
+                    ["timeoutMs"] = timeout,
+                    ["checks"] = lastPresence?.Checks,
+                    ["requestedViewport"] = viewport,
+                    ["captureViewport"] = captureViewport,
+                    ["clientBounds"] = lastFrame?.ClientBounds,
+                    ["viewportBounds"] = lastFrame?.ViewportBounds,
+                    ["detectedFloor"] = autoFloor?.FloorKey,
                     ["attempts"] = attempts,
                     ["successfulCaptures"] = successfulCaptures,
                     ["mapPresenceMode"] = lastPresence?.Mode,
@@ -376,25 +387,6 @@ public sealed partial class SessionOrchestrator
         finally
         {
             DisposeViewportFrame(lastFrame, attempts);
-        }
-    }
-
-    private static void DisposeViewportFrame(IDisposable? frame, int attemptIndex)
-    {
-        if (frame is null)
-            return;
-
-        var dispose = MapOperationTraceAmbient.StartChild(
-            "frame_dispose",
-            MapOperationWaitKind.Io,
-            attemptIndex: attemptIndex);
-        try
-        {
-            frame.Dispose();
-        }
-        finally
-        {
-            dispose.Complete();
         }
     }
 
@@ -450,15 +442,24 @@ public sealed partial class SessionOrchestrator
     {
         if (_captureSvc.TryGetForegroundClientBounds(
                 out var clientBounds,
-                out _,
+                out var windowHandle,
                 out _)
             && clientBounds is MapScreenRect physicalBounds)
         {
-            return ResolveViewportRegion(
+            var region = ResolveViewportRegion(
                 (int)Math.Round(physicalBounds.Width),
                 (int)Math.Round(physicalBounds.Height));
+            if (physicalBounds.IsValid && IDVBuff.Diagnostics.OutputLog.CurrentLogPath is not null)
+            {
+                var pixels = DwrGameWindowCaptureService.GetViewportBounds(physicalBounds, region);
+                IDVBuff.Diagnostics.OutputLog.UpdateCaptureContext(
+                    (int)Math.Round(physicalBounds.Width), (int)Math.Round(physicalBounds.Height),
+                    (int)pixels.Width, (int)pixels.Height, windowHandle);
+            }
+            return region;
         }
 
+        IDVBuff.Diagnostics.OutputLog.ClearCaptureContext();
         return ResolveViewportRegion(0, 0);
     }
 

@@ -29,6 +29,9 @@ public sealed partial class MapRuntimeSettings
         if (!Enum.IsDefined(ScanUncertainAction)) ScanUncertainAction = ScanUncertainAction.ShowCandidates;
         var previousSchema = SchemaVersion;
         SchemaVersion = CurrentSchemaVersion;
+        // 1.6.6 enables diagnostics once for existing settings; later user choices persist.
+        if (previousSchema < 22)
+            DiagnosticModeEnabled = true;
         // These are deliberately product-owned choices, rather than user
         // preferences. Normalize after every deserialization/save so imported,
         // migrated, and quick-start settings cannot re-enable retired paths.

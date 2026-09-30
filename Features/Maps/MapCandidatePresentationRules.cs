@@ -7,20 +7,50 @@ namespace IDVBuff.Features.Maps;
 /// </summary>
 internal static class MapCandidatePresentationRules
 {
+    internal static bool CanPresentChoices(ScanExecutionContext execution,
+        IReadOnlyList<MapRecognitionChoice>? choices)
+    {
+        if (execution.CancellationToken.IsCancellationRequested || execution.IsSuperseded) return false;
+        // The user may explicitly identify a map even when its provisional
+        // pose failed verification. Presentation never grants automatic support.
+        return execution.RetrievalCompleted && choices is { Count: > 0 };
+    }
+
     internal const double LivePreviewZoom = 1.20d;
     internal const double MapPreviewZoom = 1.10d;
     internal const double SecondaryFloorMapPreviewZoom = 3.00d;
     internal const double PreviewSafeInset = 0.10d;
 
     internal static SideEntranceScanCandidate[] SelectScanReferences(
-        IEnumerable<SideEntranceScanCandidate> candidates, int maximum) => candidates
-        .Where(candidate => candidate.Disposition != SideEntranceCandidateDisposition.Reliable)
+        IEnumerable<SideEntranceScanCandidate> candidates, int maximum,
+        ScanPerformanceMode mode = ScanPerformanceMode.Balanced)
+    {
+        var references = candidates.Where(candidate => candidate.Disposition != SideEntranceCandidateDisposition.Reliable);
+        if (mode == ScanPerformanceMode.DeepScan)
+            return references
+                // Retrieval scores use sparse samples. Dense evidence must win
+                // before truncation; a contradicted pose is only a manual reference.
+                .OrderBy(candidate => candidate.IdentityEvidence.State switch
+                {
+                    ScanIdentityState.Supported => 0,
+                    ScanIdentityState.Unverified => 1,
+                    _ => 2
+                })
+                .ThenBy(candidate => double.IsFinite(ScanIdentityVerifier.FitCost(candidate.IdentityEvidence))
+                    ? ScanIdentityVerifier.FitCost(candidate.IdentityEvidence) : double.PositiveInfinity)
+                .ThenByDescending(candidate => double.IsFinite(candidate.MatchScore)
+                    ? candidate.MatchScore : double.NegativeInfinity)
+                .ThenBy(candidate => candidate.Map.SequenceNumber)
+                .ThenBy(candidate => candidate.Map.Id)
+                .Take(Math.Max(1, maximum)).ToArray();
+        return references
         // All seeds have already been anchored to a detected gate. Its small residual
         // is a search constraint, not cross-map identity evidence. Rank before Take.
         .OrderByDescending(candidate => double.IsFinite(candidate.MatchScore)
             ? candidate.MatchScore : double.NegativeInfinity)
         .Take(Math.Max(1, maximum))
         .ToArray();
+    }
 
     internal sealed record MapPreviewPlan(
         MapNormalizedPoint Center,

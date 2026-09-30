@@ -15,24 +15,29 @@ public sealed partial class DwrGameWindowCaptureService
     public void PrepareViewportCapture()
     {
         if (!TryGetForegroundClientBounds(out var bounds, out var window, out _)) return;
+        GameFrameStream? previous;
+        long version;
         lock (_streamGate)
         {
             _streamDemand.Request(Environment.TickCount64);
             // Cache failures for this window geometry too; do not repeatedly initialize a failed GPU device.
             if (_streamWindow == window && _streamBounds == bounds) return;
             _streamIdleTimer ??= new Timer(_ => ReleaseIdleFrameStream(), null, 1000, 1000);
-            _stream?.Dispose();
+            previous = _stream;
             _stream = null;
             _streamWindow = window;
             _streamBounds = bounds;
-            var version = ++_streamVersion;
-            // Device/session creation is cold work (including driver/JIT startup), never a map-open wait.
-            _ = Task.Run(() => InitializeFrameStream(window, version));
+            version = ++_streamVersion;
         }
+        previous?.Dispose();
+        // Native creation and shutdown share an owner; neither blocks map-open/UI work.
+        _ = CaptureStreamWorker.RunAsync(() => InitializeFrameStream(window, version));
     }
 
     private void InitializeFrameStream(IntPtr window, long version)
     {
+        lock (_streamGate)
+            if (_streamVersion != version) return;
         GameFrameStream? created = null;
         try
         {
@@ -161,15 +166,17 @@ public sealed partial class DwrGameWindowCaptureService
 
     private void ResetFrameStream()
     {
+        GameFrameStream? previous;
         lock (_streamGate)
         {
             _streamIdleTimer?.Dispose();
             _streamIdleTimer = null;
-            _stream?.Dispose();
+            previous = _stream;
             _stream = null;
             _streamWindow = IntPtr.Zero;
             _streamBounds = default;
             _streamVersion++;
         }
+        previous?.Dispose();
     }
 }

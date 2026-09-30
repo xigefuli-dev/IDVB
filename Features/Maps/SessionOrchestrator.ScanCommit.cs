@@ -30,15 +30,21 @@ public sealed partial class SessionOrchestrator
     private void FinishScanExecution(ScanExecutionContext execution)
     {
         if (execution.Reported) return;
+        var stopReason = execution.ComputeStopReason;
         execution.CompleteAutomaticPhase();
         execution.Reported = true;
         var met = execution.ElapsedMilliseconds <= execution.Policy.BudgetMilliseconds;
         _logCollector.Append(MapLogCategory.ScanLifecycle, met ? MapLogLevel.Info : MapLogLevel.Warning,
-            $"扫描端到端 · mode={execution.Policy.Mode} · elapsed={execution.ElapsedMilliseconds:F1}ms · budgetMet={met}",
+            $"扫描自动阶段结束 · mode={execution.Policy.Mode} · elapsed={execution.ElapsedMilliseconds:F1}ms · budgetMet={met}",
             elapsedMs: execution.ElapsedMilliseconds,
             details: new()
             {
                 ["scanId"] = execution.ScanId,
+                ["phase"] = "automatic-phase-only",
+                ["computeStopReason"] = stopReason,
+                ["requestOutcome"] = ScanRequestDiagnostics.Current?.Outcome,
+                ["requestReason"] = ScanRequestDiagnostics.Current?.Reason,
+                ["evidenceFrameCreated"] = execution.Frame is not null,
                 ["cancelled"] = execution.CancellationToken.IsCancellationRequested,
                 ["superseded"] = execution.IsSuperseded,
                 ["budgetMs"] = execution.Policy.BudgetMilliseconds,
@@ -47,7 +53,7 @@ public sealed partial class SessionOrchestrator
                 ["searchHypotheses"] = execution.TestedHypotheses,
                 ["variantRefinements"] = execution.VariantRefinementCount,
                 ["retrievalComplete"] = execution.RetrievalCompleted,
-                ["verifiedCandidates"] = _lastDiagnostics?.ScanVerifiedCandidateCount
+                ["verifiedCandidates"] = execution.VerifiedCandidateCount
             });
     }
 
@@ -133,6 +139,12 @@ public sealed partial class SessionOrchestrator
             details: new()
             {
                 ["mapId"] = recognition.Map.Id,
+                ["scanId"] = execution.ScanId,
+                ["floor"] = recognition.Result.Floor,
+                ["matchVersion"] = match.Version,
+                ["identityLocked"] = true,
+                ["alignmentCommitted"] = true,
+                ["overlayVisible"] = _overlay.IsVisible,
                 ["selectionPolicy"] = result.IdentitySelectionPolicy.ToString(),
                 ["variantGroup"] = execution.VariantGroups.FirstOrDefault(g => g.Contains(recognition.Map.Id)),
                 ["support"] = final.SupportedFraction,

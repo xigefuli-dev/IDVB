@@ -40,7 +40,7 @@ public sealed partial class SideEntranceScanPipeline
                 {
                     var x = gx + dx - ax * scale;
                     var y = gy + dy - ay * scale;
-                    var score = index.Score(points, scale, x, y);
+                    var score = index.Score(points, scale, x, y, best.Score);
                     context.TestedHypotheses++;
                     if (score > best.Score) best = new(scale, x, y, score);
                 }
@@ -76,7 +76,7 @@ public sealed partial class SideEntranceScanPipeline
         var profile = MapFloorRules.GetFloorProfile(map, floorKey);
         var anchor = MapScanFloorRules.GetScanFeatureAnchor(map, floorKey);
         if (profile is null || anchor?.Bounds?.IsValid != true || line.Empty()) return [];
-        var index = ScanStructureIndex.Get(line);
+        var index = ScanStructureIndex.Get(line).WithScanAnchor(map, floorKey);
         var ax = (anchor.Bounds.X + anchor.Bounds.Width / 2) * profile.RecognitionPixelWidth;
         var ay = (anchor.Bounds.Y + anchor.Bounds.Height / 2) * profile.RecognitionPixelHeight;
         var gx = gate.ScreenBounds.CenterX - viewport.X;
@@ -143,7 +143,8 @@ public sealed partial class SideEntranceScanPipeline
             {
                 var x = gx + dx - ax * scale;
                 var y = gy + dy - ay * scale;
-                Add(new(scale, x, y, index.Score(points, scale, x, y)));
+                var competitiveScore = peaks.Count == policy.BasinCount ? peaks[^1].Score : 0;
+                Add(new(scale, x, y, index.Score(points, scale, x, y, competitiveScore)));
                 if (context is not null) Interlocked.Increment(ref context.TestedHypotheses);
             }
         }
@@ -163,7 +164,7 @@ public sealed partial class SideEntranceScanPipeline
                 {
                     var x = gx + dx - ax * scale;
                     var y = gy + dy - ay * scale;
-                    var score = index.Score(points, scale, x, y);
+                    var score = index.Score(points, scale, x, y, best.Score);
                     if (score > best.Score) best = new(scale, x, y, score);
                     if (context is not null) Interlocked.Increment(ref context.TestedHypotheses);
                 }

@@ -82,7 +82,10 @@ public sealed partial class MainPage : Page
         try
         {
             NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
-            _ = AccountSession.RefreshAsync();
+            // With the access gate disabled, persisted credentials still need validation.
+            // When enabled, the gate owns validation, including its offline policy.
+            if (!VersionAccessClient.Enabled)
+                _ = AccountSession.RefreshAsync();
             if (ModuleContentHost.Content is HomePage homePage)
                 await homePage.InitialReady;
         }

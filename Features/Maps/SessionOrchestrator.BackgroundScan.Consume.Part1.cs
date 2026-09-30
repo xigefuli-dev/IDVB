@@ -276,7 +276,8 @@ public sealed partial class SessionOrchestrator
                         attempt.Choices,
                         failureReason ?? string.Empty,
                         operationMatch.MapClass!,
-                        cancellationToken);
+                        cancellationToken,
+                        requiresExplicitSelection: true);
                 }
                 finally
                 {

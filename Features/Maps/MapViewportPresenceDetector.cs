@@ -23,7 +23,18 @@ public sealed record MapViewportPresenceResult(
     bool IsPresent,
     string Mode,
     double Score,
-    double BlueGrayFraction);
+    double BlueGrayFraction)
+{
+    public MapViewportPresenceChecks? Checks { get; init; }
+}
+
+public sealed record MapViewportPresenceChecks(
+    bool HasUsableReference, bool HasPreviousFrame,
+    double ColorThreshold, bool ColorPassed,
+    double? BrightnessDelta, double BrightnessLimit, bool BrightnessPassed,
+    bool StructureRequired, bool StructurePassed,
+    int StableStructureFrames, int RequiredStableStructureFrames,
+    bool StableFallbackPassed);
 
 /// <summary>
 /// Lightweight guard that distinguishes the native blue-gray map viewport
@@ -236,7 +247,14 @@ public static class MapViewportPresenceDetector
                     ? "stable-structure-fallback"
                     : structureReady ? "reference-hsv" : "DeferredNotReady",
                 similarity,
-                candidate.BlueGrayFraction);
+                candidate.BlueGrayFraction)
+            {
+                Checks = new(true, previousFrame is not null,
+                    referenceThreshold, similarity >= referenceThreshold,
+                    brightnessDelta, brightnessTolerance, brightnessDelta <= brightnessTolerance,
+                    requireStructure, structureReady, observedStableStructureFrames,
+                    Math.Max(2, requiredStableStructureFrames), stableFallbackReady)
+            };
         }
 
         var blueGrayReady = candidate.BlueGrayFraction >= blueGrayThreshold;
@@ -254,7 +272,17 @@ public static class MapViewportPresenceDetector
                 ? "blue-gray-fallback"
                 : structureReady ? "blue-gray-fallback" : "DeferredNotReady",
             candidate.BlueGrayFraction,
-            candidate.BlueGrayFraction);
+            candidate.BlueGrayFraction)
+        {
+            Checks = new(false, previousFrame is not null,
+                blueGrayThreshold, candidate.BlueGrayFraction >= blueGrayThreshold,
+                previousFrame is null ? null : Math.Abs(candidate.MeanValue - previousFrame.MeanValue) / 255d,
+                brightnessTolerance,
+                !requireBlueGrayBrightnessStability || (previousFrame is not null
+                    && Math.Abs(candidate.MeanValue - previousFrame.MeanValue) / 255d <= brightnessTolerance),
+                requireStructure, structureReady, observedStableStructureFrames,
+                Math.Max(2, requiredStableStructureFrames), false)
+        };
     }
 
     private static MapViewportStructureSignature CreateStructureSignature(

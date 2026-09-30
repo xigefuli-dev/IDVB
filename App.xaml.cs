@@ -47,10 +47,7 @@ namespace IDVBuff
             // First-chance exception capture is intentionally diagnostic-only.
             // Enabling it for every production GUI process turns a handled
             // exception loop into a high-volume allocation and disk-write loop.
-            if (MapRuntimeSettingsRepository.IsLogCollectionEnabled())
-                OutputLog.Initialize(
-                    captureFirstChanceExceptions: !isCliLaunch
-                        && (System.Diagnostics.Debugger.IsAttached || AppDataPaths.IsTestBuild));
+            InitializeOutputLog(isCliLaunch);
             SavedDiagnosticDataRetention.Start();
             WriteStartupTrace("Output logging initialized.");
             OfficialFeedbackService.TokenProvider = () => Features.Accounts.AccountSession.PublishToken;
@@ -75,6 +72,7 @@ namespace IDVBuff
                 var cliOptions = CliLaunchOptions.Parse(Environment.GetCommandLineArgs());
                 if (cliOptions.IsCli)
                 {
+                    if (!await RequireCliVersionAccessAsync()) return;
                     await RunCliAsync(cliOptions);
                     return;
                 }
@@ -82,6 +80,8 @@ namespace IDVBuff
                 WriteStartupTrace("Creating the main window.");
                 WriteStartupTrace("Preferences load begin.");
                 var preferences = MainProgramPreferences.Load(); IsSafeMode = preferences.SafeMode;
+                OutputLog.ConfigureApplication(
+                    BuildVersionInfo.ProductVersion, BuildVersionInfo.BuildVersion, IsSafeMode);
                 WriteStartupTrace($"Preferences loaded: safeMode={IsSafeMode}; startMinimized={preferences.StartMinimized}.");
                 PluginRandomDelayPolicy.AllowUnsafeMinimums = !IsSafeMode && preferences.AllowUnsafePluginRandomDelayMinimums; var startMinimized = preferences.StartMinimized;
                 var isIsolatedDevelopmentInstance = Environment.GetCommandLineArgs().Any(argument => string.Equals(argument, "--isolated-dev-instance", StringComparison.OrdinalIgnoreCase));
@@ -97,7 +97,13 @@ namespace IDVBuff
                 WriteStartupTrace("Window constructed; icon setup begin.");
                 TrySetWindowIcon(window);
                 WriteStartupTrace("Window icon setup complete.");
+                if (!await RequireUsageNoticeAsync())
+                {
+                    Exit();
+                    return;
+                }
                 window.Closed += (_, _) => StopStartupRenderObservation();
+                if (!await RequireVersionAccessAsync()) { Exit(); return; }
                 window.AppWindow.Closing += AppWindow_Closing;
                 window.AppWindow.Changed += AppWindow_Changed;
                 window.Closed += Window_Closed;
@@ -260,12 +266,16 @@ namespace IDVBuff
                 StartupSplash.Report("正在完成准备…");
                 await PrepareMapListAsync(session);
                 await CompleteStartupPresentationAsync(startMinimized);
+                StartVersionAccessMonitor();
+                if (_accessStopping) return;
                 if (!startMinimized
                     && !startupElevationRequired
                     && UpdateLifecycleState.WasRestartedAfterUpdate)
                     await ShowUpdatedSuccessfullyAsync();
+                if (_accessStopping) return;
                 if (!startMinimized && !startupElevationRequired)
                     await ShowQuickStartAsync(session);
+                if (_accessStopping) return;
                 StartStartupBackgroundTasks(session);
                 if (startMinimized)
                 {
@@ -305,6 +315,7 @@ namespace IDVBuff
             Console.OutputEncoding = System.Text.Encoding.UTF8;
             OutputLog.Initialize(captureFirstChanceExceptions: false);
             using var cancellation = new CancellationTokenSource();
+            _ = Features.Accounts.VersionAccessClient.MonitorHeadlessAsync(BuildVersionInfo.ProductVersion, cancellation.Token);
             ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
             {
                 eventArgs.Cancel = true;
@@ -369,28 +380,6 @@ namespace IDVBuff
 
             Environment.ExitCode = exitCode;
             Environment.Exit(exitCode);
-        }
-
-        private static void AttachCliConsole()
-        {
-            const uint AttachParentProcess = 0xFFFFFFFF;
-            if (!AttachConsole(AttachParentProcess))
-                AllocConsole();
-
-            var output = new StreamWriter(
-                Console.OpenStandardOutput(),
-                System.Text.Encoding.UTF8)
-            {
-                AutoFlush = true
-            };
-            var error = new StreamWriter(
-                Console.OpenStandardError(),
-                System.Text.Encoding.UTF8)
-            {
-                AutoFlush = true
-            };
-            Console.SetOut(output);
-            Console.SetError(error);
         }
 
         [DllImport("kernel32.dll", SetLastError = true)]

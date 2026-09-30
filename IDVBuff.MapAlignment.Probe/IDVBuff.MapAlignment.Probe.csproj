@@ -21,11 +21,13 @@
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
     <Compile Include="..\Features\Maps\CaptureStreamDemand.cs" Link="Production\CaptureStreamDemand.cs" />
+    <Compile Include="..\Features\Maps\CaptureStreamWorker.cs" Link="Production\CaptureStreamWorker.cs" />
     <Compile Include="..\Features\Maps\IdvaNativeObservedExtractor.cs" Link="Production\IdvaNativeObservedExtractor.cs" />
     <None Include="..\Assets\Algorithms\structure-native-observed-v2.idva" Link="Assets\Algorithms\structure-native-observed-v2.idva" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\Pipeline\MapOperationTrace.cs" Link="Production\Pipeline\MapOperationTrace.cs" />
     <Compile Include="..\Pipeline\MapOperationTrace.Part*.cs" />
     <Compile Include="..\Diagnostics\OutputLog.cs" Link="Production\Diagnostics\OutputLog.cs" />
+    <Compile Include="..\Diagnostics\OutputLog.Context.cs" Link="Production\Diagnostics\OutputLog.Context.cs" />
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.cs" Link="Production\MapSessionModels.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.Coordinates.cs" Link="Production\MapSessionModels.Coordinates.cs" />
@@ -111,7 +113,9 @@
     <Compile Include="..\Features\Maps\SideEntranceScanPipeline.Evidence.cs" Link="Production\SideEntranceScanPipeline.Evidence.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanModels.cs" Link="Production\SideEntranceScanModels.cs" />
     <Compile Include="..\Features\Maps\SideEntranceScanRules.cs" Link="Production\SideEntranceScanRules.cs" />
+    <Compile Include="..\Features\Maps\MapRequestDiagnostics.cs" Link="Production\MapRequestDiagnostics.cs" />
     <Compile Include="..\Features\Maps\ScanExecutionPolicy.cs" Link="Production\ScanExecutionPolicy.cs" />
+    <Compile Include="..\Features\Maps\DeepScanLiveEvidence.cs" Link="Production\DeepScanLiveEvidence.cs" />
     <Compile Include="..\Features\Maps\ScanIdentityEvidence.cs" Link="Production\ScanIdentityEvidence.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorCaptureService.cs" Link="Production\FloorIndicatorCaptureService.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorRecognizer.cs" Link="Production\FloorIndicatorRecognizer.cs" />

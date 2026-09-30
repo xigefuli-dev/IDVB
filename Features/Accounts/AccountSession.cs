@@ -113,15 +113,23 @@ internal static class AccountSession
 
     public static void Clear()
     {
+        VersionAccessClient.ClearProof();
         _publishToken = null;
         Identity = null;
         RemoveSaved();
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
+    internal static void ClearIfCurrent(string? token)
+    {
+        if (token is not null && string.Equals(_publishToken, token, StringComparison.Ordinal))
+            Clear();
+    }
+
     public static async Task LogoutAsync()
     {
         var token = _publishToken;
+        Clear(); // Revoke local use immediately, even while the server is unreachable.
         try
         {
             if (!string.IsNullOrWhiteSpace(token))
@@ -133,24 +141,28 @@ internal static class AccountSession
         }
         finally
         {
-            Clear();
+            ClearIfCurrent(token);
         }
     }
 
     public static async Task<AccountIdentity> RequirePublishAccessAsync(CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_publishToken))
+        var token = _publishToken;
+        if (string.IsNullOrWhiteSpace(token))
             throw new UnauthorizedAccessException("请先在左侧“账户”中登录。");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/auth/publish-token");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _publishToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var response = await Http.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            Clear();
+            ClearIfCurrent(token);
             throw new UnauthorizedAccessException("登录已过期，请重新登录。");
         }
+        response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (!string.Equals(_publishToken, token, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("账户已切换，请重新操作。");
         var user = document.RootElement.GetProperty("user");
         return new AccountIdentity(
             user.GetProperty("displayName").GetString() ?? "IDVB 用户",
@@ -162,15 +174,18 @@ internal static class AccountSession
 
     public static async Task RefreshAsync()
     {
+        var token = _publishToken;
         try
         {
             var identity = await RequirePublishAccessAsync();
-            if (identity != Identity && _publishToken is { } token)
+            if (token is not null && string.Equals(_publishToken, token, StringComparison.Ordinal) && identity != Identity)
                 Set(token, identity);
         }
         catch (UnauthorizedAccessException) { }
         catch (HttpRequestException) { }
         catch (TaskCanceledException) { }
+        catch (JsonException) { }
+        catch (InvalidDataException) { }
     }
 
     public static async Task<string> UploadPublicationAsync(

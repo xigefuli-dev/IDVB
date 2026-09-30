@@ -55,10 +55,12 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         CancellationToken cancellationToken)
     {
-        var outcome = BackgroundScanRules.ClassifyBackgroundScan(
-            state.Recognition,
-            state.PendingChoices,
-            state.FailureReason);
+        var execution = ScanExecutionContext.Current;
+        var outcome = execution is not null
+            ? BackgroundScanRules.ClassifyAutomaticScan(execution, state.Recognition, state.PendingChoices,
+                state.FailureReason, _recognition.CatalogRevision, _mapRepository.GetCatalogRevision(),
+                _settings!.ScanUncertainAction)
+            : BackgroundScanRules.ClassifyBackgroundScan(state.Recognition, state.PendingChoices, state.FailureReason);
         if (_silentScanActive)
         {
             // A candidate list is ambiguous. Silent mode never guesses or opens UI.
@@ -87,8 +89,12 @@ public sealed partial class SessionOrchestrator
         _pendingBackgroundFailureReason = outcome.FailureReason;
         // 唯一严格验证候选会携带侧门种子；歧义路径种子为 null，但扫描
         // 特征会保留，消费候选确认后可为所选地图重建对应种子。
-        _pendingBackgroundSeed = state.PendingSideEntranceSeed;
-        _pendingBackgroundScan = state.PendingSideEntranceScan;
+        _pendingBackgroundSeed = outcome.Identity is null ? null : state.PendingSideEntranceSeed;
+        // A DeepScan proposal has no gate anchor. After a manual choice, use
+        // the selected floor's independent alignment, never a fake side-door seed.
+        _pendingBackgroundScan = ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
+            && outcome.Status == BackgroundScanStatus.CompletedAmbiguous
+                ? null : state.PendingSideEntranceScan;
         // 完成状态只能在所有候选资源冻结后发布。准备期间保持 Idle，避免
         // 开图热键提前进入仍在计算的候选消费路径。
         _backgroundScanStatus = BackgroundScanStatus.Idle;
@@ -163,6 +169,17 @@ public sealed partial class SessionOrchestrator
                     backgroundCandidateFrame.ViewportBounds);
             _pendingBackgroundChoicesAreDisplayReady = true;
             _scanProgressOverlay.Report(0.99d, "候选结果已就绪...");
+        }
+
+        // Preview/model preparation awaits can outlive cancellation or a catalog
+        // change. Recheck before publishing; the scan gate still owns these fields.
+        if (cancellationToken.IsCancellationRequested || execution is not null
+            && !BackgroundScanRules.HasCurrentResultContext(execution,
+                _recognition.CatalogRevision, _mapRepository.GetCatalogRevision()))
+        {
+            ClearPendingBackgroundScan();
+            ActiveOperationTrace?.SetTerminal("superseded", "background-result-context-changed");
+            return;
         }
 
         // 后台扫描不改变游戏地图的物理开关状态。只有已经保存了可消费

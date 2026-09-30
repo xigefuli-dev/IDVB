@@ -9,7 +9,7 @@ namespace IDVBuff.Diagnostics;
 /// Process-wide plain-text output log. This runs beside the structured map log and
 /// captures diagnostic output as it is emitted, using wall-clock timestamps.
 /// </summary>
-public static class OutputLog
+public static partial class OutputLog
 {
     private const int RetainedLogCount = 10;
     private const long MaximumLogBytes = 16L * 1024 * 1024;
@@ -32,7 +32,6 @@ public static class OutputLog
     private static DateTime firstChanceWindowStartedUtc = DateTime.UtcNow;
     private static int firstChanceCount;
     private static int suppressedFirstChanceCount;
-
     public static string? CurrentLogPath { get; private set; }
 
     public static void Initialize(
@@ -99,6 +98,11 @@ public static class OutputLog
         }
 
         Write("INFO", "SYSTEM", "Plain-text output logging started.");
+        lock (Gate)
+        {
+            deviceResolution = ReadDeviceResolution(captureContext?.Monitor ?? IntPtr.Zero);
+            WriteContext("Output log context");
+        }
     }
 
     public static void Write(
@@ -202,6 +206,7 @@ public static class OutputLog
             writer = null;
             CurrentLogPath = null;
             logSizeLimitReached = false;
+            captureContext = null;
         }
     }
 

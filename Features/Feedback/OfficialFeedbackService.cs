@@ -46,9 +46,9 @@ public sealed class OfficialFeedbackService : IFeedbackService
         ArgumentNullException.ThrowIfNull(payload);
 
         var token = TokenProvider?.Invoke();
-        if (string.IsNullOrWhiteSpace(token))
+        if (string.IsNullOrWhiteSpace(token) && !FeedbackTextValidator.IsContactQqValid(payload.ContactQq))
         {
-            return FeedbackSubmissionResult.Fail("反馈功能必须登录后才能使用，请先登录社区账户。");
+            return FeedbackSubmissionResult.Fail("未登录时请提供联系 QQ 号（5–12 位数字，不能以 0 开头）。");
         }
 
         FileStream? logsStream = null;
@@ -58,6 +58,7 @@ public sealed class OfficialFeedbackService : IFeedbackService
         {
             using var formData = new MultipartFormDataContent();
             formData.Add(new StringContent(payload.Description), "description");
+            formData.Add(new StringContent(payload.ContactQq.Trim()), "contactQq");
             formData.Add(new StringContent(ClientVersionProvider?.Invoke() ?? "1.0.0"), "clientVersion");
 
             if (!string.IsNullOrEmpty(payload.LogsZipPath) && File.Exists(payload.LogsZipPath))
@@ -76,11 +77,16 @@ public sealed class OfficialFeedbackService : IFeedbackService
                 formData.Add(diagsContent, "diagnostics", "diagnostics.zip");
             }
 
+            // Match the anonymous endpoint's total multipart body limit, including metadata.
+            if (string.IsNullOrWhiteSpace(token) && formData.Headers.ContentLength is > 20L * 1024 * 1024)
+                return FeedbackSubmissionResult.Fail("未登录时反馈数据总大小不能超过 20 MB，请减少附加信息或登录后重试。");
+
             using var request = new HttpRequestMessage(HttpMethod.Post, "api/feedback")
             {
                 Content = formData,
             };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (!string.IsNullOrWhiteSpace(token))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             using var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false);
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -92,7 +98,11 @@ public sealed class OfficialFeedbackService : IFeedbackService
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                return FeedbackSubmissionResult.Fail("登录凭证已失效，请在社区登录后重试。");
+                return new FeedbackSubmissionResult
+                {
+                    Message = "登录凭证已失效，请重新登录，或填写联系 QQ 号后重试。",
+                    RejectedToken = token,
+                };
             }
 
             if ((int)response.StatusCode == 429)

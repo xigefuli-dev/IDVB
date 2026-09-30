@@ -2,6 +2,28 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private void QueueUnresolvedScanDiagnostic(CapturedGameFrame frame,
+        IReadOnlyList<SideEntranceScanCandidate> candidates)
+    {
+        var context = ScanExecutionContext.Current;
+        // Diagnostic encoding/I/O must not consume the automatic commit budget
+        // or carry a disposed scan lease into the background writer.
+        using (ExecutionContext.IsFlowSuppressed() ? default : ExecutionContext.SuppressFlow())
+        {
+            var write = MapDiagnosticModeCapture.WriteUnresolvedScanAsync(frame,
+                context?.Frame, candidates, context?.Policy.Mode ?? ScanPerformanceMode.Balanced);
+            _ = ReportUnresolvedScanDiagnosticAsync(write, context?.ScanId);
+        }
+    }
+
+    private async Task ReportUnresolvedScanDiagnosticAsync(Task<string?> write, string? scanId)
+    {
+        if (await write.ConfigureAwait(false) is { } path)
+            _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                "未确定身份的扫描原始证据已保存",
+                details: new() { ["path"] = path, ["scanId"] = scanId });
+    }
+
     private void ReportInputDecision(string action, string outcome, string reason)
     {
         if (MapInputOperationContext.Current is { } input)

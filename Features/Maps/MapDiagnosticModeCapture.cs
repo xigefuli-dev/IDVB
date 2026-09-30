@@ -149,25 +149,59 @@ internal static class MapDiagnosticModeCapture
         ScanFrameEvidence? evidence, IReadOnlyList<SideEntranceScanCandidate> candidates,
         ScanPerformanceMode mode)
     {
+        var snapshot = CaptureUnresolvedScan(frame, evidence, candidates, mode);
+        return snapshot is null ? null : WriteUnresolvedScanSnapshot(snapshot);
+    }
+
+    internal static Task<string?> WriteUnresolvedScanAsync(CapturedGameFrame frame,
+        ScanFrameEvidence? evidence, IReadOnlyList<SideEntranceScanCandidate> candidates,
+        ScanPerformanceMode mode)
+    {
+        // Freeze pixels and metadata before returning to the scan. Neither a
+        // disposed frame nor a later match/candidate may change this evidence.
+        var snapshot = CaptureUnresolvedScan(frame, evidence, candidates, mode);
+        if (snapshot is null) return Task.FromResult<string?>(null);
+        try { return Task.Run(() => WriteUnresolvedScanSnapshot(snapshot)); }
+        catch
+        {
+            snapshot.Dispose();
+            return Task.FromResult<string?>(null);
+        }
+    }
+
+    private sealed record UnresolvedScanSnapshot(string Directory, string Json,
+        Mat Image, Mat? Edges, Mat? Mask, IDisposable Protection) : IDisposable
+    {
+        public void Dispose()
+        {
+            Image.Dispose();
+            Edges?.Dispose();
+            Mask?.Dispose();
+            Protection.Dispose();
+        }
+    }
+
+    private static UnresolvedScanSnapshot? CaptureUnresolvedScan(CapturedGameFrame frame,
+        ScanFrameEvidence? evidence, IReadOnlyList<SideEntranceScanCandidate> candidates,
+        ScanPerformanceMode mode)
+    {
         // Explicit scan evidence is separate from suppressed per-candidate alignment
         // captures. The caller has already made the automatic identity decision.
         lock (Gate)
         {
             if (_matchDirectory is null) return null;
+            Mat? image = null, edges = null, mask = null;
             try
             {
                 var directory = Path.Combine(_matchDirectory, "扫描",
                     DateTime.Now.ToString("yyyyMMdd_HHmmss_fffffff"));
-                Directory.CreateDirectory(directory);
-                WritePng(Path.Combine(directory, "viewport.png"), frame.Image);
-                if (evidence is not null)
-                {
-                    WritePng(Path.Combine(directory, "observed-edges.png"), evidence.Observation.ObservedEdges);
-                    WritePng(Path.Combine(directory, "valid-mask.png"), evidence.Observation.ValidMask);
-                }
+                var execution = ScanExecutionContext.Current;
                 var data = new
                 {
                     mode = mode.ToString(), frame.ClientBounds, frame.ViewportBounds,
+                    scanId = execution?.ScanId, scanElapsedMs = execution?.ElapsedMilliseconds,
+                    retrievalComplete = execution?.RetrievalCompleted,
+                    computeStopReason = execution?.ComputeStopReason,
                     candidates = candidates.Select((candidate, rank) => new
                     {
                         retrievalRank = rank + 1, candidate.Map.Id, candidate.Map.Class,
@@ -182,15 +216,38 @@ internal static class MapDiagnosticModeCapture
                             })
                     })
                 };
-                File.WriteAllText(Path.Combine(directory, "scan.json"),
-                    System.Text.Json.JsonSerializer.Serialize(data, new System.Text.Json.JsonSerializerOptions
+                var json = System.Text.Json.JsonSerializer.Serialize(data, new System.Text.Json.JsonSerializerOptions
                     {
                         WriteIndented = true,
                         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals
-                    }));
-                return directory;
+                    });
+                image = frame.Image.Clone();
+                edges = evidence?.Observation.ObservedEdges.Clone();
+                mask = evidence?.Observation.ValidMask.Clone();
+                return new(directory, json, image, edges, mask, AppDataPaths.ProtectCachePath(directory));
             }
-            catch { return null; /* Diagnostics must not change the scan result. */ }
+            catch
+            {
+                image?.Dispose(); edges?.Dispose(); mask?.Dispose();
+                return null; /* Diagnostics must not change the scan result. */
+            }
+        }
+    }
+
+    private static string? WriteUnresolvedScanSnapshot(UnresolvedScanSnapshot snapshot)
+    {
+        using (snapshot)
+        {
+            try
+            {
+                Directory.CreateDirectory(snapshot.Directory);
+                WritePng(Path.Combine(snapshot.Directory, "viewport.png"), snapshot.Image);
+                if (snapshot.Edges is not null) WritePng(Path.Combine(snapshot.Directory, "observed-edges.png"), snapshot.Edges);
+                if (snapshot.Mask is not null) WritePng(Path.Combine(snapshot.Directory, "valid-mask.png"), snapshot.Mask);
+                File.WriteAllText(Path.Combine(snapshot.Directory, "scan.json"), snapshot.Json);
+                return snapshot.Directory;
+            }
+            catch { return null; /* Preserve the automatic decision on write failure. */ }
         }
     }
 

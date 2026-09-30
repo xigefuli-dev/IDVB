@@ -27,6 +27,8 @@ internal sealed partial class GameFrameStream : IDisposable
 
     public GameFrameStream(IntPtr window)
     {
+        if (!CaptureStreamWorker.HasThreadAccess)
+            throw new InvalidOperationException("WGC resources must be created on their capture worker.");
         Window = window;
         var iid = new Guid("79C3F95B-31F7-4EC2-A464-632EF5D30760");
         var pointer = GraphicsCaptureItem.As<ICaptureItemInterop>().CreateForWindow(window, ref iid);
@@ -53,7 +55,8 @@ internal sealed partial class GameFrameStream : IDisposable
                         "WGC session started", details: new()
                         {
                             ["window"] = window.ToInt64(), ["width"] = item.Size.Width,
-                            ["height"] = item.Size.Height, ["streamId"] = _createdAt
+                            ["height"] = item.Size.Height, ["streamId"] = _createdAt,
+                            ["ownerThreadId"] = Environment.CurrentManagedThreadId
                         });
                 }
                 catch { _session.Dispose(); throw; }
@@ -167,31 +170,56 @@ internal sealed partial class GameFrameStream : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _resourcesDisposed, 1) != 0) return;
-        Interlocked.Decrement(ref CaptureStreamDiagnostics.ActiveSessions);
         lock (_gate)
         {
             _disposed = true;
-            _pool.FrameArrived -= OnFrameArrived;
-            _latest?.Dispose();
-            _latest = null;
             _changed.TrySetResult();
         }
-        // Do not hold the callback lock while closing the native frame pool.
-        _session.Dispose();
-        _pool.Dispose();
+        // Close on the same MTA thread that created the WinRT interfaces. Reset,
+        // idle expiry and failed readback can all request shutdown from other threads.
+        if (CaptureStreamWorker.HasThreadAccess) DisposeResources();
+        else _ = CaptureStreamWorker.RunAsync(DisposeResources);
+    }
+
+    private void DisposeResources()
+    {
+        var failures = new List<string>();
+        bool Release(string resource, Action close)
+        {
+            try { close(); return true; }
+            catch (Exception exception)
+            {
+                failures.Add($"{resource}: {exception.GetType().Name} (0x{exception.HResult:X8}) {exception.Message}");
+                return false;
+            }
+        }
+
+        // Native Close can wait for callbacks. Never hold the callback/service
+        // gate, and continue releasing the other resources if one close fails.
+        Release("frame-event", () => _pool.FrameArrived -= OnFrameArrived);
+        Direct3D11CaptureFrame? latest;
+        lock (_gate) { latest = _latest; _latest = null; }
+        Release("latest-frame", () => latest?.Dispose());
+        var sessionClosed = Release("session", _session.Dispose);
+        Release("frame-pool", _pool.Dispose);
         lock (_readbackGate)
         {
-            _readback?.Dispose();
+            Release("readback", () => _readback?.Dispose());
             _readback = null;
-            _device.Dispose();
+            Release("device", _device.Dispose);
         }
-        MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture, MapLogLevel.Info,
-            "WGC session disposed", details: new()
+        if (sessionClosed) Interlocked.Decrement(ref CaptureStreamDiagnostics.ActiveSessions);
+        MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture,
+            failures.Count == 0 ? MapLogLevel.Info : MapLogLevel.Warning,
+            failures.Count == 0 ? "WGC session disposed" : "WGC session shutdown incomplete", details: new()
             {
                 ["streamId"] = _createdAt, ["window"] = Window.ToInt64(),
                 ["lifetimeMs"] = Stopwatch.GetElapsedTime(_createdAt).TotalMilliseconds,
                 ["frameCallbacks"] = _arrivedCount, ["readbacks"] = _readbackCount,
-                ["readbackTotalMs"] = _readbackTotalMs
+                ["readbackTotalMs"] = _readbackTotalMs,
+                ["ownerThreadId"] = Environment.CurrentManagedThreadId,
+                ["sessionClosed"] = sessionClosed,
+                ["shutdownFailures"] = failures
             });
     }
 

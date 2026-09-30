@@ -293,6 +293,7 @@
     <Compile Include="..\Features\Maps\KeyboardInputEdges.cs" Link="Production\KeyboardInputEdges.cs" />
     <Compile Include="..\Features\Maps\InputHookLatency.cs" Link="Production\InputHookLatency.cs" />
     <Compile Include="..\Features\Maps\CaptureStreamDemand.cs" Link="Production\CaptureStreamDemand.cs" />
+    <Compile Include="..\Features\Maps\CaptureStreamWorker.cs" Link="Production\CaptureStreamWorker.cs" />
     <Compile Include="..\Features\Maps\InputRuntimeActivation.cs" Link="Production\InputRuntimeActivation.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettings.Models.cs" Link="Production\MapRuntimeSettings.Models.cs" />
     <Compile Include="..\Features\Maps\MapRuntimeSettings.Models.Part*.cs" />

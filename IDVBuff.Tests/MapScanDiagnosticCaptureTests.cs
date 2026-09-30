@@ -8,6 +8,45 @@ namespace IDVBuff.Tests;
 public sealed class MapScanDiagnosticCaptureTests
 {
     [Fact]
+    public async Task QueuedDiagnosticOwnsPixelsAndMetadataAfterFrameDisposalAndMatchEnd()
+    {
+        var frame = new CapturedGameFrame(new Mat(100, 160, MatType.CV_8UC3, new Scalar(30, 25, 22)),
+            new(0, 0, 1920, 1080), new(400, 200, 160, 100), IntPtr.Zero);
+        var evidence = new ScanFrameEvidence(frame.Image, frame.ViewportBounds, [],
+            ScanExecutionPolicy.For(ScanPerformanceMode.Balanced));
+        using var expected = frame.Image.Clone();
+        var candidate = new SideEntranceScanCandidate
+        {
+            Map = new MapRecord { Id = Guid.NewGuid(), SequenceNumber = 14 }, FloorKey = "1f",
+            MatchScore = .94, MatchScale = .5, MatchLocation = new(10, -20, 200, 125)
+        };
+        MapDiagnosticModeCapture.BeginMatch();
+        Task<string?> write;
+        try
+        {
+            write = MapDiagnosticModeCapture.WriteUnresolvedScanAsync(frame, evidence, [candidate], ScanPerformanceMode.Balanced);
+            candidate.MatchLocation = new(300, 400, 200, 125);
+            frame.Image.SetTo(Scalar.Black);
+        }
+        finally
+        {
+            evidence.Dispose();
+            frame.Dispose();
+            MapDiagnosticModeCapture.EndMatch();
+        }
+        var path = await write;
+        Assert.NotNull(path);
+        using var saved = Cv2.ImRead(Path.Combine(path, "viewport.png"));
+        Assert.Equal(0d, Cv2.Norm(expected, saved));
+        Assert.True(File.Exists(Path.Combine(path, "observed-edges.png")));
+        Assert.True(File.Exists(Path.Combine(path, "valid-mask.png")));
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(path, "scan.json")));
+        Assert.Equal(.5, json.RootElement.GetProperty("candidates")[0].GetProperty("MatchScale").GetDouble());
+        Assert.Equal(10, json.RootElement.GetProperty("candidates")[0].GetProperty("MatchLocation").GetProperty("X").GetDouble());
+        Assert.DoesNotContain(path, AppDataPaths.GetActiveCachePaths());
+    }
+
+    [Fact]
     public void FailedScanPreservesExactInputAndSeedsEvenWhenAlignmentDumpsAreSuppressed()
     {
         using var frame = new CapturedGameFrame(new Mat(100, 160, MatType.CV_8UC3, new Scalar(30, 25, 22)),

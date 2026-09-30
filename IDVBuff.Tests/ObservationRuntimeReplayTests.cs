@@ -8,6 +8,7 @@ namespace IDVBuff.Tests;
 
 // Local diagnostic replay: consumes captured frames and reads the catalog without
 // constructing its live repository (whose constructor may recover/migrate data).
+[Collection(CompleteAlignmentTestCollection.Name)]
 public sealed class ObservationRuntimeReplayTests
 {
     [ReplayFact]
@@ -52,6 +53,14 @@ public sealed class ObservationRuntimeReplayTests
     [ReplayFact]
     public async Task ReplayCapturedScan()
     {
+        var configField = typeof(SideEntranceScanRules).GetField("_config", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var previousConfig = (SideEntranceScanConfig)configField.GetValue(null)!;
+        var minimumScale = double.TryParse(Environment.GetEnvironmentVariable("IDVB_OBSERVATION_MIN_SCALE"),
+            System.Globalization.CultureInfo.InvariantCulture, out var requestedMinimum) ? requestedMinimum : previousConfig.MinimumScale;
+        var parallelism = int.TryParse(Environment.GetEnvironmentVariable("IDVB_OBSERVATION_PARALLELISM"),
+            out var requestedParallelism) ? Math.Max(1, requestedParallelism) : previousConfig.ScanParallelism;
+        var preparationMilliseconds = double.TryParse(Environment.GetEnvironmentVariable("IDVB_OBSERVATION_PREPARATION_MS"),
+            System.Globalization.CultureInfo.InvariantCulture, out var preparation) ? preparation : 0;
         var root = Environment.GetEnvironmentVariable("IDVB_OBSERVATION_REPLAY")!;
         var mapsRoot = Environment.GetEnvironmentVariable("IDVB_OBSERVATION_MAPS")!;
         var output = Environment.GetEnvironmentVariable("IDVB_OBSERVATION_REPORT")!;
@@ -80,6 +89,11 @@ public sealed class ObservationRuntimeReplayTests
         }
         try
         {
+            SideEntranceScanRules.ApplyConfig(new SideEntranceScanConfig
+            {
+                MinimumScale = minimumScale, MaximumScale = previousConfig.MaximumScale,
+                ScanParallelism = parallelism
+            });
             using var image = Cv2.ImDecode(File.ReadAllBytes(Path.Combine(root, "viewport.png")), ImreadModes.Color);
             using var gray = GateTemplateDetector.CreateMatchImage(image);
             using var detector = new GateTemplateDetector(Path.Combine(AppContext.BaseDirectory, "Assets", "Gate.png"));
@@ -98,8 +112,13 @@ public sealed class ObservationRuntimeReplayTests
             if (formalService is not null) await formalService.RefreshCacheAsync();
             for (var run = 0; run < 2; run++)
             {
-                using var context = ScanExecutionContext.Enter(ScanPerformanceMode.Balanced);
+                using var context = ScanExecutionContext.Enter(ScanPerformanceMode.Balanced,
+                    startedTimestamp: Stopwatch.GetTimestamp() - (long)(preparationMilliseconds * Stopwatch.Frequency / 1000));
                 var after = (GateDetectionResult)method.Invoke(service, [gray, viewport, client.Width, .72, search])!;
+                foreach (var gate in before.Gates)
+                    Assert.True(after.Gates.Any(g => Math.Abs(g.ScreenBounds.CenterX - gate.ScreenBounds.CenterX) <= 4
+                        && Math.Abs(g.ScreenBounds.CenterY - gate.ScreenBounds.CenterY) <= 4), $"Source gate lost: {root}");
+                Assert.All(after.Gates, gate => Assert.True(gate.Score >= .72));
                 var candidates = new SideEntranceScanPipeline().RunScan(image, inputs, after.Gates, inputs.Count, viewport);
                 var evidence = new List<object>();
                 foreach (var candidate in candidates)
@@ -160,7 +179,8 @@ public sealed class ObservationRuntimeReplayTests
                         .ThenByDescending(e => e.State == ScanIdentityState.Unverified).First();
                     if (candidate.IdentityEvidence.State == ScanIdentityState.Supported)
                         candidate.Disposition = SideEntranceCandidateDisposition.Reliable;
-                    evidence.Add(new { candidate.Map.Id, candidate.MatchScore, hypotheses });
+                    evidence.Add(new { candidate.Map.Id, candidate.Map.Title, candidate.MatchScore,
+                        state = candidate.IdentityEvidence.State.ToString(), hypotheses });
                 }
                 if (run == 1 && formalService is not null)
                 {
@@ -169,6 +189,8 @@ public sealed class ObservationRuntimeReplayTests
                         context.RetrievalCompleted, context.CanCompute, context.VariantGroups);
                 }
                 rows.Add(new { run, elapsedMs = context.ElapsedMilliseconds, context.RetrievalCompleted,
+                    preparationMilliseconds, context.TestedHypotheses,
+                    context.Policy.MinimumScale, parallelism,
                     gates = after, candidates = evidence });
                 if (run == 1)
                 {
@@ -209,6 +231,10 @@ public sealed class ObservationRuntimeReplayTests
                 Assert.Equal(expectedIdentity, selectedIdentity);
             }
         }
-        finally { foreach (var input in inputs) input.featureTemplate.Dispose(); }
+        finally
+        {
+            SideEntranceScanRules.ApplyConfig(previousConfig);
+            foreach (var input in inputs) input.featureTemplate.Dispose();
+        }
     }
 }

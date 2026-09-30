@@ -5,6 +5,30 @@ namespace IDVBuff.Tests;
 
 public sealed class ScanIdentitySafetyTests
 {
+    [Theory]
+    [InlineData(ScanPerformanceMode.Fast)]
+    [InlineData(ScanPerformanceMode.Balanced)]
+    public void EarlyStructureRejectionRetainsThePoseThatWasActuallyEvaluated(ScanPerformanceMode mode)
+    {
+        using var image = new Mat(240, 320, MatType.CV_8UC3, new Scalar(30, 25, 22));
+        Cv2.Rectangle(image, new Rect(60, 70, 160, 100), new Scalar(110, 97, 88), -1);
+        var viewport = new MapScreenRect(125, 45, 320, 240);
+        using var frame = new ScanFrameEvidence(image, viewport, [], ScanExecutionPolicy.For(mode));
+        using var wrong = new Mat(240, 320, MatType.CV_8UC1, Scalar.Black);
+        var transform = new MapOverlayTransform
+            { ScaleX = 1.23, ScaleY = 1.23, OffsetX = 151, OffsetY = 62 };
+        using var context = ScanExecutionContext.Enter(mode);
+
+        var evidence = ScanIdentityVerifier.Verify(frame, ScanStructureIndex.Get(wrong), transform, viewport, context);
+
+        Assert.Equal(ScanIdentityState.Excluded, evidence.State);
+        Assert.Equal("unexplained-visible-structure", evidence.Reason);
+        Assert.True(evidence.TestedPoints < evidence.TotalPoints);
+        Assert.Equal(1.23, evidence.EvaluatedScale);
+        Assert.Equal(26, evidence.ViewportOffsetX);
+        Assert.Equal(17, evidence.ViewportOffsetY);
+    }
+
     [Fact]
     public void DecisionSeparatesExcludedUnverifiedCompetitionAndMissingAlignment()
     {
@@ -360,6 +384,45 @@ public sealed class ScanIdentitySafetyTests
         Cv2.Line(line, new(30, 0), new(30, 99), Scalar.White);
         var index = ScanStructureIndex.Get(line);
         Assert.Equal(.5, index.Score([new(30, 20), new(130, 20)], 1, 0, 0), 6);
+    }
+
+    [Theory]
+    [InlineData(.1)]
+    [InlineData(.5)]
+    [InlineData(1)]
+    [InlineData(5)]
+    public void BoundedRetrievalRetainsEveryCompetitivePoseWithUnknownAnchorPoints(double scale)
+    {
+        using var line = new Mat(100, 120, MatType.CV_8UC1, Scalar.Black);
+        Cv2.Rectangle(line, new Rect(20, 15, 65, 70), Scalar.White, 1);
+        var index = ScanStructureIndex.Get(line).WithUnknownBounds(new(45, 30, 20, 30));
+        var random = new Random(5959);
+        var points = Enumerable.Range(0, 256).Select(_ =>
+            new Point(random.Next(-20, 140), random.Next(-20, 120))).ToArray();
+        // Compare against the full distance calculation, including out-of-bounds
+        // misses and the changing denominator when a pose enters the erased gate.
+        for (var offset = -12; offset <= 12; offset++)
+        {
+            var known = 0;
+            var sum = 0d;
+            foreach (var p in points)
+            {
+                var x = (p.X - offset) / scale;
+                var y = (p.Y + offset) / scale;
+                if (index.IsUnknown(x, y)) continue;
+                var distance = index.Distance(x, y, scale);
+                sum += distance <= .8 ? 1 : distance <= 2.5 ? .7 : distance <= 5.5 ? .4 : 0;
+                known++;
+            }
+            var expected = ScanStructureIndex.HasEnoughKnownPoints(known, points.Length, 80) ? sum / known : 0;
+            Assert.Equal(expected, index.Score(points, scale, offset, -offset), 12);
+            foreach (var threshold in new[] { 0d, expected, Math.Max(0, expected - .001), expected + .001, .8 })
+            {
+                var actual = index.Score(points, scale, offset, -offset, threshold);
+                if (expected >= threshold) Assert.Equal(expected, actual, 12);
+                else Assert.True(actual == 0 || Math.Abs(actual - expected) < 1e-12);
+            }
+        }
     }
 
     [Fact]

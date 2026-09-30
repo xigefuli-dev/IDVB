@@ -136,20 +136,30 @@ internal sealed class ScanStructureIndex
                 + lookup[_distances[row + Width + 1]] * fx) * fy;
         return distance * scale;
     }
-    public double Score(IReadOnlyList<Point> points, double scale, double x, double y)
+    public double Score(ReadOnlySpan<Point> points, double scale, double x, double y,
+        double minimumCompetitiveScore = 0)
     {
         var sum = 0d;
         var known = 0;
-        foreach (var p in points)
+        for (var i = 0; i < points.Length; i++)
         {
+            var p = points[i];
             var rx = (p.X - x) / scale;
             var ry = (p.Y - y) / scale;
             if (IsUnknown(rx, ry)) continue;
-            var d = Distance(rx, ry, scale);
+            // The shared byte decoder preserves the exact distance bands, while
+            // the span avoids allocating an interface enumerator for every pose.
+            var d = DeepScanDistance(rx, ry, scale);
             known++;
             sum += d <= .8 ? 1 : d <= 2.5 ? .7 : d <= 5.5 ? .4 : 0;
+            // Assume every remaining point is known and matches perfectly. This
+            // is an upper bound even with erased anchors: skipping a future point
+            // cannot improve it. Retain ties and every potentially improving pose.
+            var remaining = points.Length - i - 1;
+            if (sum + remaining + 1e-9 < minimumCompetitiveScore * (known + remaining))
+                return 0;
         }
-        return known > 0 && HasEnoughKnownPoints(known, points.Count, Math.Min(80, points.Count))
+        return known > 0 && HasEnoughKnownPoints(known, points.Length, Math.Min(80, points.Length))
             ? sum / known : 0;
     }
 }
@@ -218,12 +228,14 @@ internal static class ScanIdentityVerifier
             || Math.Abs(transform.ScaleX - transform.ScaleY) > .000001
             || !double.IsFinite(transform.OffsetX) || !double.IsFinite(transform.OffsetY))
             return ScanIdentityEvidence.Unverified("invalid-transform");
-        var points = frame.DensePoints;
-        if (points.Length < 80 || frame.Contours.Count == 0)
-            return ScanIdentityEvidence.Unverified("insufficient-visible-structure");
         var scale = transform.ScaleX;
         var tx = transform.OffsetX - viewport.X;
         var ty = transform.OffsetY - viewport.Y;
+        ScanIdentityEvidence WithPose(ScanIdentityEvidence evidence) => evidence with
+            { EvaluatedScale = scale, ViewportOffsetX = tx, ViewportOffsetY = ty };
+        var points = frame.DensePoints;
+        if (points.Length < 80 || frame.Contours.Count == 0)
+            return WithPose(ScanIdentityEvidence.Unverified("insufficient-visible-structure"));
         var deep = policy.Mode == ScanPerformanceMode.DeepScan;
         double SampleDistance(double x, double y) => deep ? index.DeepScanDistance(x, y, scale) : index.Distance(x, y, scale);
         bool Unknown(Point p) => index.IsUnknown((p.X - tx) / scale, (p.Y - ty) / scale);
@@ -235,7 +247,7 @@ internal static class ScanIdentityVerifier
         foreach (var p in points)
         {
             if (((tested + unknown) & 255) == 0 && context is { CanCompute: false })
-                return ScanIdentityEvidence.Unverified("deadline");
+                return WithPose(ScanIdentityEvidence.Unverified("deadline"));
             var rx = (p.X - tx) / scale;
             var ry = (p.Y - ty) / scale;
             if (index.IsUnknown(rx, ry)) { unknown++; continue; }
@@ -252,19 +264,19 @@ internal static class ScanIdentityVerifier
                 // established: remaining points may all lie in its erased anchor.
                 && ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80)
                 && hits + points.Length - tested - unknown < MinimumSupport * (points.Length - unknown))
-                return new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
+                return WithPose(new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
                     hits / (double)tested, 0, "unexplained-visible-structure")
-                    { UnknownReferencePoints = unknown };
+                    { UnknownReferencePoints = unknown });
         }
         if (!ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80))
-            return ScanIdentityEvidence.Unverified("insufficient-unmasked-reference-structure")
-                with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown };
+            return WithPose(ScanIdentityEvidence.Unverified("insufficient-unmasked-reference-structure")
+                with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown });
         var longest = 0d;
         Point? conflictStart = null, conflictEnd = null;
         var prepared = deep ? frame.PreparedConflictContours : null;
         for (var i = 0; i < frame.Contours.Count; i++)
         {
-            if (context is { CanCompute: false }) return ScanIdentityEvidence.Unverified("deadline");
+            if (context is { CanCompute: false }) return WithPose(ScanIdentityEvidence.Unverified("deadline"));
             var measured = MeasureStraightConflict(frame.Contours[i], Distance, out var measuredStart, out var measuredEnd,
                 preparedVertices: prepared?[i]);
             if (measured > longest) { longest = measured; conflictStart = measuredStart; conflictEnd = measuredEnd; }

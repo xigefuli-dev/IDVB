@@ -183,9 +183,13 @@ public sealed partial class SessionOrchestrator
                     ["coordinateSpace"] = "viewport-pixels",
                     ["hypothesisCount"] = candidate.SearchHypotheses.Count,
                     ["hypotheses"] = candidate.SearchHypotheses
-                        .Where(h => h.IdentityEvidence.SupportedFraction >= .80).Take(8).Select(h => new
+                        .OrderBy(h => ScanIdentityVerifier.FitCost(h.IdentityEvidence))
+                        .Take(8).Select(h => new
                     {
-                        h.MatchScale, h.MatchLocation, h.IdentityEvidence, h.VerifiedTransform
+                        h.MatchScale, h.MatchLocation, h.IdentityEvidence, h.VerifiedTransform,
+                        h.AssociatedGateIndex,
+                        gateBounds = h.AssociatedGate?.ScreenBounds,
+                        h.GateSpatialResidualPixels
                     }).ToArray(),
                     ["reason"] = candidate.IdentityEvidence.Reason
                 });

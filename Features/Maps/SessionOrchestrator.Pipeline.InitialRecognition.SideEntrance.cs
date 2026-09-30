@@ -79,9 +79,7 @@ public sealed partial class SessionOrchestrator
                 && ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.DeepScan)
             {
                 var missingGateContext = ScanExecutionContext.Current;
-                var rawEvidencePath = MapDiagnosticModeCapture.WriteUnresolvedScan(frame,
-                    missingGateContext?.Frame, candidates,
-                    missingGateContext?.Policy.Mode ?? ScanPerformanceMode.Balanced);
+                QueueUnresolvedScanDiagnostic(frame, candidates);
                 failureReason =
                     "识别失败：侧门扫描要求当前地图暴露一个门特征，但未检测到门";
                 _logCollector.Append(
@@ -90,8 +88,7 @@ public sealed partial class SessionOrchestrator
                     failureReason, details: new()
                     {
                         ["reason"] = sideScan.GateDetection.BudgetExceeded ? "gate-search-interrupted" : "no-confirmed-gate",
-                        ["computeStopReason"] = missingGateContext?.ComputeStopReason,
-                        ["rawEvidencePath"] = rawEvidencePath
+                        ["computeStopReason"] = missingGateContext?.ComputeStopReason
                     });
                 initialPostProcess.Complete();
                 initialPostProcess = null;
@@ -173,13 +170,7 @@ public sealed partial class SessionOrchestrator
                     failureReason = "正在观察可见结构，地图身份尚未确定。";
                     return;
                 }
-                var diagnosticPath = MapDiagnosticModeCapture.WriteUnresolvedScan(
-                    frame, context?.Frame, candidates,
-                    context?.Policy.Mode ?? ScanPerformanceMode.Balanced);
-                if (diagnosticPath is not null)
-                    _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
-                        "未确定身份的扫描原始证据已保存",
-                        details: new() { ["path"] = diagnosticPath });
+                QueueUnresolvedScanDiagnostic(frame, candidates);
                 pendingChoicesReason = decision.Reason switch
                 {
                     "all-identities-excluded" => "地图尚未确定：所有候选均未通过可见结构校验，请查看冲突诊断。",

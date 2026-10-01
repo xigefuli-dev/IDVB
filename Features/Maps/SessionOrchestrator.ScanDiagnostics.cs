@@ -3,7 +3,7 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
     private void QueueUnresolvedScanDiagnostic(CapturedGameFrame frame,
-        IReadOnlyList<SideEntranceScanCandidate> candidates)
+        IReadOnlyList<SideEntranceScanCandidate> candidates, SideEntranceScanResult? scanResult = null)
     {
         var context = ScanExecutionContext.Current;
         // Diagnostic encoding/I/O must not consume the automatic commit budget
@@ -11,7 +11,7 @@ public sealed partial class SessionOrchestrator
         using (ExecutionContext.IsFlowSuppressed() ? default : ExecutionContext.SuppressFlow())
         {
             var write = MapDiagnosticModeCapture.WriteUnresolvedScanAsync(frame,
-                context?.Frame, candidates, context?.Policy.Mode ?? ScanPerformanceMode.Balanced);
+                context?.Frame, candidates, context?.Policy.Mode ?? ScanPerformanceMode.Balanced, scanResult);
             _ = ReportUnresolvedScanDiagnosticAsync(write, context?.ScanId);
         }
     }

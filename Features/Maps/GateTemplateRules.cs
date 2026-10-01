@@ -17,6 +17,7 @@ internal static class GateTemplateRules
 
     /// <summary>Template matching threshold used when the caller doesn't specify one.</summary>
     public static double MatchThreshold => _config.MatchThreshold;
+    public static bool EnablePlayerOcclusionRecovery => _config.EnablePlayerOcclusionRecovery;
 
     public static double EarlyExitScoreThreshold => _config.EarlyExitScoreThreshold;
     public static double NmsIouThreshold => _config.NmsIouThreshold;
@@ -53,7 +54,7 @@ internal static class GateTemplateRules
         _config = config ?? new GateConfig();
     }
 
-    /// <summary>Read and apply configuration from an IConfigProvider under "detection.gate".</summary>
+    /// <summary>Read and apply configuration from an IConfigProvider under "gate".</summary>
     internal static void ApplyConfig(IConfigProvider provider)
     {
         _config = provider.Get<GateConfig>("gate") ?? new GateConfig();

@@ -186,8 +186,15 @@ public static class MapOverlayAlignmentModeExtensions
     };
 }
 
+public enum GateEvidenceKind { FullTemplate, PlayerOcclusionConfirmed }
 public sealed class GateDetection
 {
+    public GateEvidenceKind EvidenceKind { get; init; }
+    public double? WholeTemplateScore { get; init; }
+    /// <summary>Whole-glyph NCC; never replaced by partial-support correlation.</summary>
+    public double FullTemplateScore => WholeTemplateScore ?? Score;
+    /// <summary>Minimum independent-support score for an occlusion-confirmed proposal.</summary>
+    public double? ProposalConfirmationScore => EvidenceKind == GateEvidenceKind.PlayerOcclusionConfirmed ? Score : null;
     public double Score { get; init; }
     public double Scale { get; init; }
     public MapScreenRect ScreenBounds { get; init; }
@@ -343,6 +350,9 @@ public enum AlignmentSearchStage
 
 public sealed partial class MapScanDiagnostics
 {
+    public SideEntranceFailureStage FailureStage { get; set; }
+    public bool? RetrievalWasRun { get; set; }
+    public int? RetrievedCandidateCount { get; set; }
     public int ReadyMapCount { get; set; }
     public int TotalMapCount { get; set; }
     public int SideEntranceReadyMapCount { get; set; }

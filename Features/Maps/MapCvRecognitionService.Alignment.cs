@@ -24,6 +24,8 @@ public sealed partial class MapCvRecognitionService
         double nativeScaleChangeRatio = MapSessionRules.NativeScaleChangeRatio,
         string? mapClass = null)
     {
+        using var resourceLease = _catalogResourceGate.Enter();
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var selectedMap = TryGetMap(selectedMapId);
         using var identityConstraint = structureTuning?.Mode == MapStructureRegistrationMode.ScanVerification
             && selectedMap is not null

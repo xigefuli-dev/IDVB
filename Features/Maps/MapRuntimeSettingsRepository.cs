@@ -123,21 +123,24 @@ public sealed class MapRuntimeSettingsRepository
         }
     }
 
-    public async Task SaveAsync(MapRuntimeSettings settings)
+    public async Task SaveAsync(MapRuntimeSettings settings,CancellationToken cancellationToken=default,bool preservePrevious=false)
     {
         settings.Normalize();
-        await Gate.WaitAsync();
+        await Gate.WaitAsync(cancellationToken);
+        var temporaryPath = $"{SettingsPath}.{Guid.NewGuid():N}.tmp";
         try
         {
             Directory.CreateDirectory(_directory);
-            var temporaryPath = $"{SettingsPath}.tmp";
             await using (var stream = File.Create(temporaryPath))
-                await JsonSerializer.SerializeAsync(stream, settings, SerializerOptions);
+                await JsonSerializer.SerializeAsync(stream, settings, SerializerOptions,cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if(preservePrevious && File.Exists(SettingsPath)) File.Copy(SettingsPath,SettingsPath+".calibration.bak",overwrite:true);
             File.Move(temporaryPath, SettingsPath, overwrite: true);
         }
         finally
         {
-            Gate.Release();
+            try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+            finally { Gate.Release(); }
         }
     }
 }

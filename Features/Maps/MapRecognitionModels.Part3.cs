@@ -85,7 +85,8 @@ public sealed partial class MapScanDiagnostics
             : string.Empty)
         + (ConfirmationMilliseconds > 0 ? $" · 复核 {ConfirmationMilliseconds:F0}ms" : string.Empty)
         + (UsedSingleGateStructureFallback ? " · 单门复核失败，已回退结构" : string.Empty)
-        + (SideEntranceEligibleMapCount > 0
+        + (RetrievalWasRun == false ? " · 地图检索未运行" : string.Empty)
+        + (RetrievalWasRun != false && SideEntranceEligibleMapCount > 0
             ? $" · 侧门就绪 {SideEntranceReadyMapCount}/{SideEntranceEligibleMapCount}"
                 + $" · 拒绝 {SideEntranceRejectedCandidateCount}"
             : string.Empty)

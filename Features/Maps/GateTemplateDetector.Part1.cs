@@ -166,12 +166,14 @@ public sealed partial class GateTemplateDetector : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
-
-        _disposed = true;
-        if (_configProvider is not null)
-            _configProvider.ConfigChanged -= OnConfigChanged;
-        _gateSource.Dispose();
+        lock (_detectionGate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            if (_configProvider is not null)
+                _configProvider.ConfigChanged -= OnConfigChanged;
+            _gateSource.Dispose();
+        }
     }
 }

@@ -10,6 +10,11 @@ public sealed partial class SessionOrchestrator
         IMapCandidateSelector? candidateSelector)
     {
         var scanStartedAt = ScanRequestDiagnostics.Current?.StartedTimestamp ?? Stopwatch.GetTimestamp();
+        if(_calibrationInput.IsActive)
+        {
+            LogScanCheckpoint("guard","rejected","calibration-active");
+            return;
+        }
         _lastCandidateChoices = [];
         if (_disposed)
         {

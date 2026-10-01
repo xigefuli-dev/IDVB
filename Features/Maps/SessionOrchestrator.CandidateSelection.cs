@@ -26,6 +26,7 @@ public sealed partial class SessionOrchestrator
         bool requiresExplicitSelection = false)
     {
         var selectionExecution = ScanExecutionContext.Current;
+        var selectionRevision = _recognition.CatalogRevision;
         // Background consumption runs after the scan's ambient scope ends.
         // Carry its unresolved status explicitly instead of treating it as a
         // fresh opportunity for model/headless top-one selection.
@@ -121,7 +122,7 @@ public sealed partial class SessionOrchestrator
                 frame,
                 orderedCandidates,
                 reason,
-                cancellationToken);
+                cancellationToken, selectionRevision);
         }
 
         if (_headless)
@@ -164,6 +165,8 @@ public sealed partial class SessionOrchestrator
                     mapClass);
             _lastCandidateChoices = displayChoices;
             if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+                return new CandidateSelectionResolution(null, false);
+            if (!CanAcceptCatalogSelection(selectionRevision))
                 return new CandidateSelectionResolution(null, false);
             MapCandidateDecision decision;
             if (_dispatcher.HasThreadAccess)
@@ -301,7 +304,7 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> candidates,
         string reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, MapCatalogRevision selectionRevision)
     {
         var selector = _activeCandidateSelector;
         if (selector is null)
@@ -314,6 +317,8 @@ public sealed partial class SessionOrchestrator
             reason,
             cancellationToken);
         if (cancellationToken.IsCancellationRequested || ScanExecutionContext.Current is { IsSuperseded: true })
+            return new CandidateSelectionResolution(null, false);
+        if (!CanAcceptCatalogSelection(selectionRevision))
             return new CandidateSelectionResolution(null, false);
         if (decision.Kind == MapCandidateDecisionKind.StartSurvey)
             return new CandidateSelectionResolution(null, true);
@@ -374,6 +379,18 @@ public sealed partial class SessionOrchestrator
             .Select(choice => choice.ModelProbability)
             .FirstOrDefault(value => value.HasValue);
         return !second.HasValue || top - second.Value >= 0.15d;
+    }
+
+    private bool CanAcceptCatalogSelection(MapCatalogRevision revision)
+    {
+        if (revision == _recognition.CatalogRevision && revision == _mapRepository.GetCatalogRevision())
+            return true;
+        _statusMessage = "候选展示期间地图目录已改变，请重新扫描。";
+        _logCollector.Append(MapLogCategory.ScanLifecycle,MapLogLevel.Warning,_statusMessage,
+            details:new(){["reason"]="candidate-catalog-revision-changed",["displayRevision"]=revision,
+                ["cacheRevision"]=_recognition.CatalogRevision,["repositoryRevision"]=_mapRepository.GetCatalogRevision()});
+        StateChanged?.Invoke(this,EventArgs.Empty);
+        return false;
     }
 
     private RuntimeMapRecognition LockSelectedMapIdentity(

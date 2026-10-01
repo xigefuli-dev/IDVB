@@ -69,7 +69,16 @@ public sealed partial class SessionOrchestrator
                 SideEntranceEligibleMapCount = sideScan.EligibleMapCount,
                 SideEntranceRejectedCandidateCount =
                     sideScan.RejectedCandidateCount,
-                ScanCandidateCount = sideScan.Candidates.Count
+                ScanCandidateCount = sideScan.Candidates.Count,
+                FailureStage = sideScan.FailureStage,
+                RetrievalWasRun = sideScan.RetrievalWasRun,
+                RetrievedCandidateCount = sideScan.RetrievedCandidateCount,
+                GateCandidateCount = sideScan.GateDetection.Gates.Count,
+                GateSearchMode = sideScan.GateDetection.SearchModeUsed,
+                GateSearchStopReason = sideScan.GateDetection.StopReason,
+                GateMatchTemplateCalls = sideScan.GateDetection.MatchTemplateCalls,
+                GateBudgetExceeded = sideScan.GateDetection.BudgetExceeded,
+                GateScalesEvaluated = sideScan.GateDetection.ScalesEvaluated
             };
             var candidates = sideScan.Candidates;
             sideTimings["side_entrance_scan"] = sideSw.Elapsed.TotalMilliseconds;
@@ -79,15 +88,19 @@ public sealed partial class SessionOrchestrator
                 && ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.DeepScan)
             {
                 var missingGateContext = ScanExecutionContext.Current;
-                QueueUnresolvedScanDiagnostic(frame, candidates);
+                QueueUnresolvedScanDiagnostic(frame, candidates, sideScan);
                 failureReason =
-                    "识别失败：侧门扫描要求当前地图暴露一个门特征，但未检测到门";
+                    sideScan.FailureReason;
                 _logCollector.Append(
                     MapLogCategory.ScanLifecycle,
                     MapLogLevel.Warning,
                     failureReason, details: new()
                     {
                         ["reason"] = sideScan.GateDetection.BudgetExceeded ? "gate-search-interrupted" : "no-confirmed-gate",
+                        ["failureStage"] = sideScan.FailureStage.ToString(),
+                        ["retrievalWasRun"] = sideScan.RetrievalWasRun,
+                        ["retrievedCandidateCount"] = sideScan.RetrievedCandidateCount,
+                        ["gateEvidence"] = sideScan.GateDetection,
                         ["computeStopReason"] = missingGateContext?.ComputeStopReason
                     });
                 initialPostProcess.Complete();
@@ -170,7 +183,10 @@ public sealed partial class SessionOrchestrator
                     failureReason = "正在观察可见结构，地图身份尚未确定。";
                     return;
                 }
-                QueueUnresolvedScanDiagnostic(frame, candidates);
+                sideScan.FailureStage = context is { CanCompute: false } ? SideEntranceFailureStage.BudgetExceeded
+                    : context?.RetrievalCompleted == false ? SideEntranceFailureStage.Retrieval
+                    : SideEntranceFailureStage.StructureVerification;
+                QueueUnresolvedScanDiagnostic(frame, candidates, sideScan);
                 pendingChoicesReason = decision.Reason switch
                 {
                     "all-identities-excluded" => "地图尚未确定：所有候选均未通过可见结构校验，请查看冲突诊断。",

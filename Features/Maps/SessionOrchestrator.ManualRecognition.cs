@@ -12,7 +12,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 {
     public async Task RunManualRecognitionAsync()
     {
-        if (_disposed || !_settings!.IsEnabled)
+        if (_disposed || !_settings!.IsEnabled || _calibrationInput.IsActive)
             return;
         var operationMatch = _matchSession.Snapshot;
         if (!operationMatch.IsStarted || IsMatchEnding)
@@ -23,7 +23,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 
         CancelMapObservation();
         await _observationTask;
-        if (!IsCurrentMatchOperation(operationMatch)) return;
+        if (!IsCurrentMatchOperation(operationMatch) || _calibrationInput.IsActive) return;
 
         if (!await _scanGate.WaitAsync(0))
         {

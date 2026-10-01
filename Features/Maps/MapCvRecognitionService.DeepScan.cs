@@ -73,6 +73,8 @@ public sealed partial class MapCvRecognitionService
             return new()
             {
                 GateDetection = gates, Candidates = candidates, EligibleMapCount = eligible, ReadyMapCount = inputs.Count,
+                RetrievalWasRun = true,
+                FailureStage = candidates.Count == 0 ? SideEntranceFailureStage.Retrieval : SideEntranceFailureStage.None,
                 FailureReason = candidates.Count == 0
                     ? "DeepScan 未找到足够的局部拐角结构，请多露出一小片地图后重试。" : string.Empty
             };
@@ -83,6 +85,7 @@ public sealed partial class MapCvRecognitionService
             MapLogCollector.Instance.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Error,
                 "DeepScan 本次扫描失败。", details: new() { ["exception"] = ex.ToString() });
             return new() { EligibleMapCount = eligible, ReadyMapCount = inputs.Count,
+                RetrievalWasRun = true, FailureStage = SideEntranceFailureStage.Retrieval,
                 FailureReason = "DeepScan 局部结构扫描失败，请重试或选择其他扫描模式。" };
         }
     }

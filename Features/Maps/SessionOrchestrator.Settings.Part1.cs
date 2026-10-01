@@ -34,55 +34,36 @@ public sealed partial class SessionOrchestrator
     /// 将当前校准地图区域写回目标预设目录的 viewport.toml。
     /// 目标预设由用户选择解析：指定配置→该配置；自动→按窗口实际分辨率匹配。
     /// </summary>
-    private async Task WriteViewportCalibrationToPresetAsync(
+    private async Task<bool> WriteViewportCalibrationToPresetAsync(
         int clientWidth,
         int clientHeight,
-        uint observedDpi)
+        uint observedDpi,CancellationToken cancellationToken=default)
     {
         var region = _settings!.GetExactDisplayCalibration(
             clientWidth,
             clientHeight)?.MapViewportRegion;
         if (region?.IsValid is not true)
-            return;
-
-        try
-        {
+            return false;
             var target = ResolutionPresetResolver.MatchPresetName(
                 GetAvailablePresets(),
                 clientWidth,
                 clientHeight,
                 observedDpi > 0 ? (int)observedDpi : 120);
             if (string.IsNullOrWhiteSpace(target))
-                return;
+                return false;
+
+            // A same-size active preset owns the effective ROI; write it directly
+            // even if the automatic resolver's DPI label differs.
+            if(string.Equals(_config.ActiveResolutionPreset.Split(' ')[0],target.Split(' ')[0],StringComparison.OrdinalIgnoreCase))
+                target=_config.ActiveResolutionPreset;
 
             var presetDir = _config.ResolvePresetDirectory(target);
             await ViewportCalibrationTomlWriter.WriteAsync(
                 presetDir,
                 region,
                 clientWidth,
-                clientHeight);
-
-            // 写回目标正是当前活跃预设时，需重载合并表，否则下一次
-            // ResolveViewportRegion 仍会读到旧的 viewport.toml（同名切换会因
-            // SetActivePreset 的早期返回而不触发重载）。
-            var activeGeometry = _config.ActiveResolutionPreset.Split(' ')[0];
-            var targetGeometry = target.Split(' ')[0];
-            if (string.Equals(
-                activeGeometry,
-                targetGeometry,
-                StringComparison.OrdinalIgnoreCase))
-            {
-                _config.Reload();
-            }
-        }
-        catch (Exception ex)
-        {
-            // viewport.toml 写回失败不应影响主流程
-            _logCollector.Append(
-                MapLogCategory.System,
-                MapLogLevel.Warning,
-                $"viewport.toml 写回失败：{ex.Message}");
-        }
+                clientHeight,cancellationToken);
+            return true;
     }
 
     /// <summary>将当前显示设置写回活跃预设的 overlay.toml。</summary>

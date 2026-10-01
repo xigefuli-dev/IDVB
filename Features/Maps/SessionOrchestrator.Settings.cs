@@ -18,8 +18,13 @@ public sealed partial class SessionOrchestrator
 
     private async Task SaveSettingsAsync()
     {
+        await _viewportConfigurationGate.WaitAsync();
+        try
+        {
         if (_settings != null)
             await _settingsRepo.SaveAsync(_settings);
+        }
+        finally {_viewportConfigurationGate.Release();}
     }
 
     /// <summary>
@@ -388,22 +393,13 @@ public sealed partial class SessionOrchestrator
         _overlay.SetShowLineAnnotationsOnMiniMap(showRoutes);
     }
 
-    public async Task SetMapViewportAsync(
+    public async Task<ViewportCalibrationSaveResult> SetMapViewportAsync(
         NormalizedRectangle region,
         int clientWidth,
         int clientHeight,
-        uint observedDpi = 0)
+        uint observedDpi = 0,CancellationToken cancellationToken=default)
     {
-        _settings!.UpsertMapViewportCalibration(
-            region,
-            clientWidth,
-            clientHeight,
-            observedDpi);
-        await SaveSettingsAsync();
-        await WriteViewportCalibrationToPresetAsync(
-            clientWidth,
-            clientHeight,
-            observedDpi);
+        return await SaveVerifiedViewportAsync(region,clientWidth,clientHeight,observedDpi,cancellationToken);
     }
 
     public async Task SetFloorDisplayRegionAsync(

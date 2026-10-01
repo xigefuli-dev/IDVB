@@ -6,11 +6,12 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class MapCvRecognitionService
 {
     private GateDetectionResult DetectScanGates(Mat image, MapScreenRect viewport, double clientWidth,
-        double threshold, GateSearchContext search)
+        double threshold, GateSearchContext search, Mat? colorImage = null)
     {
         if (ScanExecutionContext.Current?.Policy.Mode != ScanPerformanceMode.Fast
             && Math.Max(image.Width, image.Height) <= 480)
-            return _gateDetector.Detect(image, viewport, clientWidth, threshold, search);
+            return AddOcclusionRecovery(_gateDetector.Detect(image, viewport, clientWidth, threshold, search),
+                colorImage, viewport, clientWidth, search);
 
         // Search the complete view and scale band at half resolution, then confirm every
         // proposed spatial gate at source resolution. Identity still sees the full frame.
@@ -24,6 +25,7 @@ public sealed partial class MapCvRecognitionService
         var scales = coarse.ScalesEvaluated;
         var complete = !coarse.BudgetExceeded;
         var confirmations = new List<object>();
+        var scaleEvidence = coarse.ScaleEvidence.ToList();
         foreach (var gate in coarse.Gates)
         {
             var left = ScanExecutionContext.Current is { IsAutomatic: true } execution
@@ -35,11 +37,14 @@ public sealed partial class MapCvRecognitionService
                     Mode = GateSearchMode.LocalConfirmationSearch,
                     PredictedGateRegions = [gate.ScreenBounds], PredictedScale = gate.Scale,
                     TimeBudgetMilliseconds = left, AllowDualGateEarlyExit = false,
+                    CancellationToken = search.CancellationToken,
                     LocalRoiMinimumPaddingPixels = 8
                 });
             calls += exact.MatchTemplateCalls;
             scales += exact.ScalesEvaluated;
             complete &= !exact.BudgetExceeded;
+            complete &= exact.StopReason != GateSearchStopReason.Canceled;
+            scaleEvidence.AddRange(exact.ScaleEvidence);
             confirmed.AddRange(exact.Gates);
             confirmations.Add(new { gate.Score, gate.Scale, gate.ScreenBounds,
                 confirmedCount = exact.Gates.Count, exact.BudgetExceeded, exact.ElapsedMilliseconds,
@@ -55,15 +60,42 @@ public sealed partial class MapCvRecognitionService
                 ["sourceWidth"] = image.Width, ["sourceHeight"] = image.Height,
                 ["computeStopReason"] = ScanExecutionContext.Current?.ComputeStopReason
             });
-        return new GateDetectionResult
+        return AddOcclusionRecovery(new GateDetectionResult
         {
-            Gates = GateTemplateDetector.ClusterAcrossScales(confirmed)
+            Asset = coarse.Asset,
+            ScaleEvidence = scaleEvidence,
+            Gates = !complete ? [] : GateTemplateDetector.ClusterAcrossScales(confirmed)
                 .Select(group => group.OrderByDescending(g => g.Score).First()).ToArray(),
             RawCandidates = confirmed, SearchModeUsed = GateSearchMode.FullSearch,
-            StopReason = complete ? GateSearchStopReason.Completed : GateSearchStopReason.BudgetExceeded,
+            StopReason = search.CancellationToken.IsCancellationRequested ? GateSearchStopReason.Canceled
+                : complete ? GateSearchStopReason.Completed : GateSearchStopReason.BudgetExceeded,
             BudgetExceeded = !complete, MatchTemplateCalls = calls, ScalesEvaluated = scales,
             ElapsedMilliseconds = timer.Elapsed.TotalMilliseconds
-        };
+        }, colorImage, viewport, clientWidth, search);
+    }
+
+    private GateDetectionResult AddOcclusionRecovery(GateDetectionResult strict, Mat? colorImage,
+        MapScreenRect viewport, double clientWidth, GateSearchContext search)
+    {
+        if (strict.Gates.Count>0 || strict.BudgetExceeded || colorImage is null
+            || !GateTemplateRules.EnablePlayerOcclusionRecovery) return strict;
+        var remaining = ScanExecutionContext.Current is { IsAutomatic:true } scan
+            ? scan.RemainingMilliseconds-60 : 160;
+        if(search.TimeBudgetMilliseconds is { } explicitBudget)
+            remaining=Math.Min(remaining,explicitBudget-(int)Math.Ceiling(strict.ElapsedMilliseconds));
+        if (remaining<=0) return strict;
+        var recovery=_gateDetector.DetectPlayerOccludedGates(colorImage,viewport,clientWidth,
+            new() {TimeBudgetMilliseconds=Math.Min(160,remaining),CancellationToken=search.CancellationToken});
+        MapLogCollector.Instance.Append(MapLogCategory.GateDetection,MapLogLevel.Info,
+            "玩家遮挡出口独立复核",elapsedMs:recovery.ElapsedMilliseconds,details:new()
+            { ["asset"]=recovery.Asset,["proposals"]=recovery.OcclusionEvidence,
+                ["confirmedCount"]=recovery.Gates.Count,["stopReason"]=recovery.StopReason.ToString() });
+        return new() { Asset=strict.Asset,ScaleEvidence=strict.ScaleEvidence,OcclusionEvidence=recovery.OcclusionEvidence,
+            Gates=recovery.Gates,RawCandidates=strict.RawCandidates.Concat(recovery.RawCandidates).ToArray(),
+            SearchModeUsed=strict.SearchModeUsed,StopReason=recovery.StopReason,
+            BudgetExceeded=recovery.BudgetExceeded,MatchTemplateCalls=strict.MatchTemplateCalls+recovery.MatchTemplateCalls,
+            ScalesEvaluated=strict.ScalesEvaluated,RegionsEvaluated=strict.RegionsEvaluated,
+            ElapsedMilliseconds=strict.ElapsedMilliseconds+recovery.ElapsedMilliseconds };
     }
 
 }

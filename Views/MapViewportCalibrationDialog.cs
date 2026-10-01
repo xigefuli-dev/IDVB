@@ -47,17 +47,17 @@ internal sealed class MapViewportCalibrationDialog
         CapturedGameFrame frame,
         NormalizedRectangle? currentRegion,
         string title,
-        string instructions)
+        string instructions,CancellationToken cancellationToken=default,Action? opened=null)
     {
         var calibration = new MapViewportCalibrationDialog(
             frame,
             currentRegion,
             title,
             instructions);
-        return await calibration.ShowCoreAsync(xamlRoot);
+        return await calibration.ShowCoreAsync(xamlRoot,cancellationToken,opened);
     }
 
-    private async Task<NormalizedRectangle?> ShowCoreAsync(XamlRoot xamlRoot)
+    private async Task<NormalizedRectangle?> ShowCoreAsync(XamlRoot xamlRoot,CancellationToken cancellationToken,Action? opened)
     {
         var imageRatio = (double)_frame.Image.Width / _frame.Image.Height;
         var surfaceWidthBudget = Math.Clamp(xamlRoot.Size.Width - 112d, 320d, 960d);
@@ -67,7 +67,8 @@ internal sealed class MapViewportCalibrationDialog
         _surface.Width = surfaceWidth;
         _surface.Height = surfaceHeight;
 
-        var bitmap = await CreateBitmapAsync(_frame.Image);
+        var bitmap = await CreateBitmapAsync(_frame.Image,cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var image = new Image { Source = bitmap, Stretch = Stretch.Uniform };
         _surface.Children.Add(image);
         _surface.Children.Add(_canvas);
@@ -111,7 +112,11 @@ internal sealed class MapViewportCalibrationDialog
         };
         _dialog.Resources["ContentDialogMaxWidth"] = dialogWidth;
         _dialog.Resources["ContentDialogMaxHeight"] = dialogHeight;
+        _dialog.Opened+=(_,_)=>opened?.Invoke();
+        using var registration=cancellationToken.Register(()=>_surface.DispatcherQueue.TryEnqueue(()=>_dialog.Hide()));
+        cancellationToken.ThrowIfCancellationRequested();
         var result = await _dialog.ShowAsync();
+        cancellationToken.ThrowIfCancellationRequested();
         return result == ContentDialogResult.Primary && _region?.IsValid is true
             ? _region.Clone()
             : null;
@@ -225,9 +230,10 @@ internal sealed class MapViewportCalibrationDialog
         Height = Math.Abs(end.Y - start.Y)
     };
 
-    private static async Task<BitmapImage> CreateBitmapAsync(Mat image)
+    private static async Task<BitmapImage> CreateBitmapAsync(Mat image,CancellationToken cancellationToken)
     {
-        Cv2.ImEncode(".png", image, out var bytes);
+        var bytes=await Task.Run(()=>{Cv2.ImEncode(".png",image,out var encoded);return encoded;});
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = new InMemoryRandomAccessStream();
         using (var writer = new DataWriter(stream))
         {
@@ -239,6 +245,7 @@ internal sealed class MapViewportCalibrationDialog
         stream.Seek(0);
         var bitmap = new BitmapImage();
         await bitmap.SetSourceAsync(stream);
+        cancellationToken.ThrowIfCancellationRequested();
         return bitmap;
     }
 }

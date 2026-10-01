@@ -5,13 +5,16 @@ namespace IDVBuff.Features.Maps.Adapters;
 /// <summary>ISettingsRepository 适配器 — 委托给 MapRuntimeSettingsRepository。</summary>
 public sealed class SettingsRepositoryAdapter : ISettingsRepository
 {
-    private readonly MapRuntimeSettingsRepository _repo = new();
+    private readonly MapRuntimeSettingsRepository _repo;
+    public SettingsRepositoryAdapter() : this(new MapRuntimeSettingsRepository()) { }
+    internal SettingsRepositoryAdapter(MapRuntimeSettingsRepository repository) => _repo=repository;
 
-    public Task<object> LoadAsync() =>
-        _repo.LoadAsync().ContinueWith(t => (object)t.Result);
+    public async Task<object> LoadAsync() => await _repo.LoadAsync();
 
     public Task SaveAsync(object settings) =>
         _repo.SaveAsync((MapRuntimeSettings)settings);
+    public Task SaveAsync(object settings,CancellationToken cancellationToken,bool preservePrevious) =>
+        _repo.SaveAsync((MapRuntimeSettings)settings,cancellationToken,preservePrevious);
 }
 /*
  * 文件职责：SettingsRepositoryAdapter。

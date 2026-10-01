@@ -64,8 +64,14 @@ public sealed class SideEntranceScanCandidate
     public string RejectionDetail { get; set; } = string.Empty;
 }
 
+public enum SideEntranceFailureStage { None, Input, GateDetection, Retrieval, StructureVerification, Canceled, BudgetExceeded }
+
 public sealed class SideEntranceScanResult
 {
+    public SideEntranceFailureStage FailureStage { get; internal set; }
+    public bool RetrievalWasRun { get; init; }
+    public int? RetrievedCandidateCount => RetrievalWasRun ? Candidates.Count : null;
+    public int? RetrievedReadyMapCount => RetrievalWasRun ? ReadyMapCount : null;
     public GateDetectionResult GateDetection { get; init; } = new();
     public IReadOnlyList<SideEntranceScanCandidate> Candidates { get; init; } = [];
     public string FailureReason { get; init; } = string.Empty;

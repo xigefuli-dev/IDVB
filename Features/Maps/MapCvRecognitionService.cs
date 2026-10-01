@@ -24,6 +24,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
     private readonly MapRepository _repository;
     private readonly SemaphoreSlim _cacheGate = new(1, 1);
+    private readonly MapCatalogResourceGate _catalogResourceGate = new();
     private readonly GateTemplateDetector _gateDetector;
     private readonly MapStructurePreprocessor _structurePreprocessor = new();
     private readonly MapStructureRegistrar _structureRegistrar;
@@ -123,18 +124,23 @@ public sealed partial class MapCvRecognitionService : IDisposable
         if (_cacheInitialized && revision == _catalogRevision)
             return;
 
-        await _cacheGate.WaitAsync();
+        await _cacheGate.WaitAsync().ConfigureAwait(false);
         try
         {
+            using var resourceLease = await _catalogResourceGate.EnterAsync().ConfigureAwait(false);
+            ObjectDisposedException.ThrowIf(_disposed, this);
             revision = _repository.GetCatalogRevision();
             if (_cacheInitialized && revision == _catalogRevision)
                 return;
             // Migrate before loading Mats/fingerprints. Background diagnostics alone
             // could repair files after the first scan had already cached stale lines.
-            await _repository.HealMissingPrebuiltStructureLinesAsync(onlyOutdated: true);
-            var catalog = await _repository.GetCatalogSnapshotAsync();
+            await _repository.HealMissingPrebuiltStructureLinesAsync(onlyOutdated: true).ConfigureAwait(false);
+            var catalog = await _repository.GetCatalogSnapshotAsync().ConfigureAwait(false);
+            await _repository.EnsureDerivedAssetsAsync(catalog.Maps).ConfigureAwait(false);
+            // Derived asset repair may itself write the catalog. Freeze the data
+            // and revision together after that repair, never relabel old data.
+            catalog = await _repository.GetCatalogSnapshotAsync().ConfigureAwait(false);
             var maps = catalog.Maps;
-            await _repository.EnsureDerivedAssetsAsync(maps);
 
             var cacheDispatch = MapOperationTraceAmbient.StartChild(
                 "map_catalog_fingerprint_dispatch_wait",
@@ -193,18 +199,20 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     var builtSideEntrance = MapCvRecognitionHelpers.BuildSideEntranceFeatureCache(_repository, buildResult.Maps);
                     PrewarmDeepScan(builtSideEntrance.Values);
                     return (buildResult, builtSideEntrance);
-                });
+                }).ConfigureAwait(false);
             }
             finally
             {
                 cacheDispatch.Complete();
             }
 
+            var published = _repository.TryPublishCatalogSnapshot(catalog.Revision, () =>
+            {
             TotalMapCount = cache.Maps.Count;
             _maps = cache.Maps;
             ScanVariantGroups = catalog.VariantGroups.Select(g => g.MapIds.ToArray()).ToArray();
             _fingerprints = cache.Fingerprints;
-            _catalogRevision = _repository.GetCatalogRevision();
+            _catalogRevision = catalog.Revision;
             _cacheInitialized = true;
             _structureCache.InvalidateMaps(cache.ChangedMapIds);
             InvalidateAndTriggerVpsg3Rebuild(cache.Maps, cache.ChangedMapIds);
@@ -216,6 +224,13 @@ public sealed partial class MapCvRecognitionService : IDisposable
             _sideEntranceFeatureCache = sideEntranceCache;
             foreach (var mat in oldFeatureCache.Values)
                 mat.Dispose();
+            });
+            if (!published)
+            {
+                foreach(var mat in sideEntranceCache.Values) mat.Dispose();
+                MapLogCollector.Instance.Append(MapLogCategory.System,MapLogLevel.Warning,
+                    "目录构建已过期，未发布旧快照",details:new(){["builtRevision"]=catalog.Revision,["currentRevision"]=_repository.GetCatalogRevision()});
+            }
         }
         finally
         {

@@ -40,6 +40,7 @@ public sealed partial class MapStatusPage : UserControl
             AttachDiagnosticModeToggle();
             AttachMapLearningPanel();
             ApplySimplifiedOptions();
+            AttachCalibrationStatus();
             _viewBuilt = true;
         }
         catch (Exception exception)
@@ -176,6 +177,9 @@ public sealed partial class MapStatusPage : UserControl
 
     private void MapStatusPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        _calibrationStatus.Text="校准已取消，可重新开始。";
+        _cancelCalibration.Visibility=Visibility.Collapsed;
+        _calibrationCoordinator.Cancel();
         _displayPreviewExpanded = false;
         DisplayPreviewVisibilityChanged?.Invoke(false);
         if (!_subscribedToRuntime)

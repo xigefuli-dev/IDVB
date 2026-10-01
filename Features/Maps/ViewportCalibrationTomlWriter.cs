@@ -18,16 +18,18 @@ public static class ViewportCalibrationTomlWriter
         int clientWidth,
         int clientHeight)
     {
+        if(!EffectiveViewportResolver.IsValid(region) || clientWidth<=0 || clientHeight<=0)
+            throw new ArgumentException("地图区域必须位于客户区内，且坐标和面积有效。");
         var sb = new StringBuilder();
         sb.AppendLine("# IDVB Viewport Calibration");
         sb.AppendLine();
         sb.AppendLine("[viewport]");
         sb.AppendLine($"client_width = {clientWidth}");
         sb.AppendLine($"client_height = {clientHeight}");
-        sb.AppendLine($"map_region_x = {region.X:F6}");
-        sb.AppendLine($"map_region_y = {region.Y:F6}");
-        sb.AppendLine($"map_region_width = {region.Width:F6}");
-        sb.AppendLine($"map_region_height = {region.Height:F6}");
+        sb.AppendLine(FormattableString.Invariant($"map_region_x = {region.X:F9}"));
+        sb.AppendLine(FormattableString.Invariant($"map_region_y = {region.Y:F9}"));
+        sb.AppendLine(FormattableString.Invariant($"map_region_width = {region.Width:F9}"));
+        sb.AppendLine(FormattableString.Invariant($"map_region_height = {region.Height:F9}"));
         return sb.ToString();
     }
 
@@ -36,16 +38,21 @@ public static class ViewportCalibrationTomlWriter
         string presetDirectory,
         NormalizedRectangle region,
         int clientWidth,
-        int clientHeight)
+        int clientHeight,CancellationToken cancellationToken=default)
     {
         if (!Directory.Exists(presetDirectory))
             Directory.CreateDirectory(presetDirectory);
 
         var path = Path.Combine(presetDirectory, FileName);
-        await File.WriteAllTextAsync(
-            path,
-            BuildViewportToml(region, clientWidth, clientHeight),
-            Encoding.UTF8);
+        var temporary=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temporary,BuildViewportToml(region, clientWidth, clientHeight),Encoding.UTF8,cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if(File.Exists(path)) File.Copy(path,path+".calibration.bak",overwrite:true);
+            File.Move(temporary,path,overwrite:true);
+        }
+        finally {if(File.Exists(temporary)) File.Delete(temporary);}
     }
 }
 /*

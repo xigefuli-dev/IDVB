@@ -80,6 +80,7 @@
     <Compile Include="..\Features\Maps\GateTemplateDetector.Types.cs" Link="Production\GateTemplateDetector.Types.cs" />
     <Compile Include="..\Features\Maps\GateTemplateDetector.Assets.cs" Link="Production\GateTemplateDetector.Assets.cs" />
     <Compile Include="..\Features\Maps\DwrGameWindowCaptureService.cs" Link="Production\DwrGameWindowCaptureService.cs" />
+    <Compile Include="..\Features\Maps\CalibrationCaptureSnapshot.cs" />
     <Compile Include="..\Features\Maps\DwrGameWindowCaptureService.Stream.cs" Link="Production\DwrGameWindowCaptureService.Stream.cs" />
     <Compile Include="..\Features\Maps\GameFrameStream.cs" Link="Production\GameFrameStream.cs" />
     <Compile Include="..\Features\Maps\GameFrameStream.Readback.cs" Link="Production\GameFrameStream.Readback.cs" />

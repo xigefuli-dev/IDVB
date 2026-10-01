@@ -20,4 +20,8 @@ public interface ISettingsRepository
     /// 将运行时设置写入磁盘。
     /// </summary>
     Task SaveAsync(object /* MapRuntimeSettings */ settings);
+
+    /// <summary>Calibration writes require cancellation and preservation of the previous file.</summary>
+    Task SaveAsync(object settings, CancellationToken cancellationToken, bool preservePrevious) =>
+        throw new NotSupportedException("此保存接口不支持可取消的校准保存。");
 }

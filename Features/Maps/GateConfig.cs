@@ -3,12 +3,13 @@ namespace IDVBuff.Features.Maps;
 /// <summary>
 /// Gate detection algorithm parameters that can be overridden via
 /// <see cref="IDVBuff.Core.Contracts.IConfigProvider"/> under the
-/// "detection.gate" TOML section.
+/// "gate" TOML section.
 /// </summary>
 internal sealed class GateConfig
 {
     // ── Template matching ───────────────────────────────────────────
     public double MatchThreshold { get; set; } = 0.72d;
+    public bool EnablePlayerOcclusionRecovery { get; set; } = true;
 
     // ── NMS / spatial clustering ────────────────────────────────────
     public double NmsIouThreshold { get; set; } = 0.25d;

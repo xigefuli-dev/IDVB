@@ -64,6 +64,7 @@ public sealed partial class MapRepository
                     .Select(record => CloneWithClassProperties(catalog, record))
                     .ToArray())
             {
+                Revision = GetCatalogRevision(),
                 ClassProperties = catalog.ClassProperties.ToDictionary(
                     pair => pair.Key,
                     pair => pair.Value.Clone(),
@@ -282,6 +283,18 @@ public sealed partial class MapRepository
             return MapCatalogRevision.Empty;
         var info = new FileInfo(CatalogPath);
         return new MapCatalogRevision(info.LastWriteTimeUtc.Ticks, info.Length);
+    }
+
+    internal bool TryPublishCatalogSnapshot(MapCatalogRevision expected, Action publish)
+    {
+        Gate.Wait();
+        try
+        {
+            if (GetCatalogRevision()!=expected) return false;
+            publish();
+            return true;
+        }
+        finally { Gate.Release(); }
     }
     public static bool IsSupportedImage(string? path)
     {

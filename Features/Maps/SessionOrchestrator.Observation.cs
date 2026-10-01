@@ -45,6 +45,7 @@ public sealed partial class SessionOrchestrator
             SelectMapByTagsEnabled: false, BackgroundScanEnabled: false }
         && !_silentScanActive && !_manualSelectionActive
         && Volatile.Read(ref _activeScanOperations) == 0
+        && !_calibrationInput.IsActive
         && _lastRecognition is null && _pendingAlignmentIdentity is null
         && _matchSession.Snapshot.IsStarted && _matchSession.Snapshot.Mode != MapRunMode.Survey && !IsMatchEnding;
 
@@ -87,7 +88,7 @@ public sealed partial class SessionOrchestrator
 
     private bool IsMapObservationCurrent(MapMatchSnapshot match, MapGameToggleTransition toggle,
         long generation) => !_disposed && _settings is { IsEnabled: true, ContinuousObservationEnabled: true }
-        && IsCurrentMatchOperation(match)
+        && !_calibrationInput.IsActive && IsCurrentMatchOperation(match)
         && _gameMapToggleState.IsCurrent(toggle)
         && generation == Volatile.Read(ref _observationGeneration);
 

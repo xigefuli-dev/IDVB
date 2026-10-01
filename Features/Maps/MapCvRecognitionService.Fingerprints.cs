@@ -8,13 +8,6 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class MapCvRecognitionService
 {
     internal IReadOnlyList<Guid[]> ScanVariantGroups { get; private set; } = [];
-    public bool RequiresSingleFeatureScan(string? mapClass) => _maps
-        .Where(map => string.IsNullOrWhiteSpace(mapClass)
-            || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
-        .Any(map => !MapScanFloorRules.IsPrimaryFloor(
-            map,
-            MapScanFloorRules.ResolveScanFloorKey(map)));
-
     private MapGeometryFingerprint? TryCreateFingerprint(MapRecord map)
     {
         map.NormalizeRecognition();
@@ -116,6 +109,7 @@ public sealed partial class MapCvRecognitionService
         string? mapClass = null,
         Guid? selectedMapId = null)
     {
+        using var resourceLease = _catalogResourceGate.Enter();
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (capturedFrame.Empty() || _sideEntranceFeatureCache.Count == 0)
             return [];
@@ -175,8 +169,31 @@ public sealed partial class MapCvRecognitionService
         string? mapClass = null,
         Action<double>? progress = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(frame);
+        var execution = ScanExecutionContext.Current;
+        IDisposable? acquiredLease;
+        try
+        {
+            acquiredLease = _catalogResourceGate.TryEnter(execution is { IsAutomatic:true }
+                ? Math.Max(0,execution.RemainingMilliseconds-60) : Timeout.Infinite,
+                execution?.CancellationToken ?? CancellationToken.None);
+        }
+        catch(OperationCanceledException)
+        {
+            if(execution is not null) execution.RetrievalCompleted=false;
+            return new() {FailureStage=SideEntranceFailureStage.Canceled,
+                GateDetection=new(){StopReason=GateSearchStopReason.Canceled},
+                FailureReason="缓存读取等待已取消，门检测和地图检索尚未运行。"};
+        }
+        using var resourceLease = acquiredLease;
+        if(resourceLease is null)
+        {
+            if(execution is not null) execution.RetrievalCompleted=false;
+            return new() {FailureStage=SideEntranceFailureStage.BudgetExceeded,
+                GateDetection=new(){StopReason=GateSearchStopReason.BudgetExceeded,BudgetExceeded=true},
+                FailureReason="缓存读取等待超过预算，门检测和地图检索尚未运行，请重试。"};
+        }
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         if (ScanExecutionContext.Current is { Policy.Mode: ScanPerformanceMode.DeepScan } deepScan)
             return RunDeepScan(frame, mapClass, deepScan, progress);
@@ -207,7 +224,7 @@ public sealed partial class MapCvRecognitionService
                     Math.Max(tuning.GateTemplateThreshold, GateTemplateRules.EarlyExitScoreThreshold),
                 SingleGateScaleTolerance = GateTemplateRules.SingleGateScaleTolerance,
                 AmbiguityScoreGap = GateTemplateRules.SingleGateAmbiguityGap
-            });
+            }, frame.Image);
         gateDetection.Complete();
         if (gateResult.StopReason == GateSearchStopReason.BudgetExceeded
             && ScanExecutionContext.Current is { } incompleteScan)
@@ -220,17 +237,25 @@ public sealed partial class MapCvRecognitionService
             return new SideEntranceScanResult
             {
                 GateDetection = gateResult,
+                FailureStage = gateResult.StopReason == GateSearchStopReason.Canceled
+                    ? SideEntranceFailureStage.Canceled : SideEntranceFailureStage.BudgetExceeded,
                 FailureReason = "扫描已取消或超过时间预算。"
             };
         }
 
         if (gateResult.Gates.Count == 0)
         {
+            if(ScanExecutionContext.Current is { } missingGateScan) missingGateScan.RetrievalCompleted=false;
             return new SideEntranceScanResult
             {
                 GateDetection = gateResult,
+                FailureStage = gateResult.BudgetExceeded ? SideEntranceFailureStage.BudgetExceeded
+                    : gateResult.StopReason == GateSearchStopReason.Canceled ? SideEntranceFailureStage.Canceled
+                    : SideEntranceFailureStage.GateDetection,
                 FailureReason =
-                    "side-entrance scan requires one visible gate feature; no gate was detected."
+                    gateResult.BudgetExceeded ? "门检测超过时间预算，地图检索尚未运行，请重试。"
+                    : gateResult.StopReason == GateSearchStopReason.Canceled ? "门检测已取消，地图检索尚未运行。"
+                    : "当前画面未找到可信门，地图检索尚未运行。请调整视野、减少门图标遮挡后重试。"
             };
         }
 
@@ -253,6 +278,8 @@ public sealed partial class MapCvRecognitionService
         {
             GateDetection = gateResult,
             Candidates = candidates,
+            RetrievalWasRun = true,
+            FailureStage = candidates.Count == 0 ? SideEntranceFailureStage.Retrieval : SideEntranceFailureStage.None,
             EligibleMapCount = eligibleMapCount,
             ReadyMapCount = inputs.Count,
             RejectedCandidateCount = Math.Max(0, inputs.Count - candidates.Count),
@@ -461,28 +488,6 @@ public sealed partial class MapCvRecognitionService
         }
     }
 
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-        _disposed = true;
-        lock (_floorPrewarmGate)
-        {
-            _matchCts.Cancel();
-            _matchCts.Dispose();
-            _floorPrewarmTasks.Clear();
-        }
-        _gateDetector.Dispose();
-        _deepScanGateDetector?.Dispose();
-        _structureCache.Dispose();
-        MapStructurePreprocessor.ClearReferenceCache();
-        DisposeVpsg3();
-        _auxiliaryTemplateCache.Dispose();
-        _cacheGate.Dispose();
-        foreach (var mat in _sideEntranceFeatureCache.Values)
-            mat.Dispose();
-        _sideEntranceFeatureCache = [];
-    }
 }
 /*
  * 文件职责：MapCvRecognitionService.Fingerprints。

@@ -365,6 +365,14 @@ public sealed partial class DwrGameWindowCaptureService
         return true;
     }
 
+    public static CalibrationWindowIdentity? GetCalibrationWindowIdentity(IntPtr window)
+    {
+        if(window==IntPtr.Zero || !TryGetClientBounds(window,out var bounds)) return null;
+        GetWindowThreadProcessId(window,out var process);
+        return process==0 ? null : new(window,process,(int)Math.Round(bounds.Width),
+            (int)Math.Round(bounds.Height),GetWindowDpi(window));
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect
     {

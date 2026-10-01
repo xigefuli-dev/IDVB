@@ -29,6 +29,8 @@ public enum GateSearchStopReason
     BudgetExceeded,
     NoValidScale,
     InvalidSearchContext,
+    Canceled,
+    InvalidTemplate,
 }
 
 /// <summary>
@@ -57,6 +59,7 @@ public sealed class GateSearchContext
     // ── Budget ───────────────────────────────────────────────────
     /// <summary>Checked before each MatchTemplate call. Null = no budget.</summary>
     public int? TimeBudgetMilliseconds { get; set; }
+    public CancellationToken CancellationToken { get; init; }
 
     // ── Single-gate warm exit ────────────────────────────────────
     /// <summary>
@@ -77,6 +80,10 @@ public sealed class GateSearchContext
 /// <summary>Full diagnostic result from one gate detection call.</summary>
 public sealed class GateDetectionResult
 {
+    public GateAssetEvidence? Asset { get; init; }
+    public IReadOnlyList<GateOcclusionEvidence> OcclusionEvidence { get; init; } = [];
+    public IReadOnlyList<GateScaleEvidence> ScaleEvidence { get; init; } = [];
+    public int ClusterCount { get; init; }
     public IReadOnlyList<GateDetection> Gates { get; init; } = [];
     public IReadOnlyList<GateDetection> RawCandidates { get; init; } = [];
     public GateSearchMode SearchModeUsed { get; init; }
@@ -87,6 +94,13 @@ public sealed class GateDetectionResult
     public bool BudgetExceeded { get; init; }
     public double ElapsedMilliseconds { get; init; }
 }
+
+public sealed record GateAssetEvidence(string SourceName, string Sha256, int Width, int Height,
+    int Channels, double GrayStandardDeviation, double? AlphaMinimum, double? AlphaMaximum);
+
+public sealed record GateScaleEvidence(double Scale, int Width, int Height,
+    double PhysicalPixelsPerImagePixel, int RegionX, int RegionY,
+    double? MaximumScore, int MaximumX, int MaximumY);
 /*
  * 文件职责：GateTemplateDetector.Types。
  * 所属模块：Features/Maps，主要负责地图识别、对齐、会话编排、缓存或覆盖层功能。

@@ -147,19 +147,19 @@ internal static class MapDiagnosticModeCapture
 
     internal static string? WriteUnresolvedScan(CapturedGameFrame frame,
         ScanFrameEvidence? evidence, IReadOnlyList<SideEntranceScanCandidate> candidates,
-        ScanPerformanceMode mode)
+        ScanPerformanceMode mode, SideEntranceScanResult? scanResult = null)
     {
-        var snapshot = CaptureUnresolvedScan(frame, evidence, candidates, mode);
+        var snapshot = CaptureUnresolvedScan(frame, evidence, candidates, mode, scanResult);
         return snapshot is null ? null : WriteUnresolvedScanSnapshot(snapshot);
     }
 
     internal static Task<string?> WriteUnresolvedScanAsync(CapturedGameFrame frame,
         ScanFrameEvidence? evidence, IReadOnlyList<SideEntranceScanCandidate> candidates,
-        ScanPerformanceMode mode)
+        ScanPerformanceMode mode, SideEntranceScanResult? scanResult = null)
     {
         // Freeze pixels and metadata before returning to the scan. Neither a
         // disposed frame nor a later match/candidate may change this evidence.
-        var snapshot = CaptureUnresolvedScan(frame, evidence, candidates, mode);
+        var snapshot = CaptureUnresolvedScan(frame, evidence, candidates, mode, scanResult);
         if (snapshot is null) return Task.FromResult<string?>(null);
         try { return Task.Run(() => WriteUnresolvedScanSnapshot(snapshot)); }
         catch
@@ -183,7 +183,7 @@ internal static class MapDiagnosticModeCapture
 
     private static UnresolvedScanSnapshot? CaptureUnresolvedScan(CapturedGameFrame frame,
         ScanFrameEvidence? evidence, IReadOnlyList<SideEntranceScanCandidate> candidates,
-        ScanPerformanceMode mode)
+        ScanPerformanceMode mode, SideEntranceScanResult? scanResult)
     {
         // Explicit scan evidence is separate from suppressed per-candidate alignment
         // captures. The caller has already made the automatic identity decision.
@@ -202,6 +202,11 @@ internal static class MapDiagnosticModeCapture
                     scanId = execution?.ScanId, scanElapsedMs = execution?.ElapsedMilliseconds,
                     retrievalComplete = execution?.RetrievalCompleted,
                     computeStopReason = execution?.ComputeStopReason,
+                    failureStage = scanResult?.FailureStage.ToString(),
+                    retrievalWasRun = scanResult?.RetrievalWasRun,
+                    retrievedCandidateCount = scanResult?.RetrievedCandidateCount,
+                    retrievedReadyMapCount = scanResult?.RetrievedReadyMapCount,
+                    gateDetection = scanResult?.GateDetection,
                     candidates = candidates.Select((candidate, rank) => new
                     {
                         retrievalRank = rank + 1, candidate.Map.Id, candidate.Map.Class,

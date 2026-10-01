@@ -16,13 +16,22 @@ public sealed partial class SessionOrchestrator
         }
     }
 
-    private async Task HandleGameMapToggleAsync()
+    private async Task HandleGameMapToggleAsync(bool suppressScan = false)
     {
         if (_disposed || _settings is not { IsEnabled: true }
             || !_matchSession.Snapshot.IsStarted)
         {
             ReportInputDecision("game-map-toggle", "rejected", _disposed ? "disposed"
                 : _settings is not { IsEnabled: true } ? "runtime-disabled" : "match-not-started");
+            return;
+        }
+
+        if (suppressScan || _calibrationInput.IsActive)
+        {
+            // Preserve the game's key-edge state while suppressing capture and recognition.
+            var calibrationToggle = _gameMapToggleState.Toggle();
+            if (!calibrationToggle.IsOpen) await EndMapDisplayAsync("game map closed during calibration");
+            ReportInputDecision("game-map-toggle", "scan-suppressed", "calibration-active-or-old-input");
             return;
         }
 
@@ -51,6 +60,11 @@ public sealed partial class SessionOrchestrator
         {
             await EndMapDisplayAsync("game map closed");
             ReportInputDecision("game-map-toggle", "applied", "map-closed-after-preset");
+            return;
+        }
+        if (_calibrationInput.IsActive)
+        {
+            ReportInputDecision("game-map-toggle", "scan-suppressed", "calibration-started-during-preset");
             return;
         }
         var route = _matchSession.Snapshot.Mode == MapRunMode.Survey ? "survey"

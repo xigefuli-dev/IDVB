@@ -6,6 +6,12 @@ namespace IDVBuff.Features.Maps;
 /// <summary>Application-lifetime primary-floor gate detector and geometry recognizer.</summary>
 public sealed partial class MapCvRecognitionService : IDisposable
 {
+    public bool RequiresSingleFeatureScan(string? mapClass) => _maps
+        .Where(map => string.IsNullOrWhiteSpace(mapClass)
+            || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase))
+        .Any(map => !MapScanFloorRules.IsPrimaryFloor(
+            map,
+            MapScanFloorRules.ResolveScanFloorKey(map)));
 
     public MapRecognitionAttempt AlignSelected(
         CapturedGameFrame frame,
@@ -55,5 +61,29 @@ public sealed partial class MapCvRecognitionService : IDisposable
         ReferenceGateIconWidth = source.ReferenceGateIconWidth,
         ReferenceGateIconHeight = source.ReferenceGateIconHeight
     };
+
+    public void Dispose()
+    {
+        using var resourceLease = _catalogResourceGate.Enter();
+        if (_disposed)
+            return;
+        _disposed = true;
+        lock (_floorPrewarmGate)
+        {
+            _matchCts.Cancel();
+            _matchCts.Dispose();
+            _floorPrewarmTasks.Clear();
+        }
+        _gateDetector.Dispose();
+        _deepScanGateDetector?.Dispose();
+        _structureCache.Dispose();
+        MapStructurePreprocessor.ClearReferenceCache();
+        DisposeVpsg3();
+        _auxiliaryTemplateCache.Dispose();
+        // Keep the queue alive for refreshes already waiting; they recheck _disposed.
+        foreach (var mat in _sideEntranceFeatureCache.Values)
+            mat.Dispose();
+        _sideEntranceFeatureCache = [];
+    }
 
 }

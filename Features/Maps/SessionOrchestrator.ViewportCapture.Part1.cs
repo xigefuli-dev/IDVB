@@ -469,22 +469,6 @@ public sealed partial class SessionOrchestrator
     /// </summary>
     private NormalizedRectangle ResolveViewportRegion(int width, int height)
     {
-        var toml = _config.Get<ViewportCalibrationConfig>("viewport");
-        if (toml.ClientWidth == width
-            && toml.ClientHeight == height
-            && toml.MapRegionWidth >= 0.01
-            && toml.MapRegionHeight >= 0.01)
-        {
-            return new NormalizedRectangle
-            {
-                X = toml.MapRegionX,
-                Y = toml.MapRegionY,
-                Width = toml.MapRegionWidth,
-                Height = toml.MapRegionHeight
-            };
-        }
-
-        return _settings!.ResolveMapViewportRegion(width, height)
-            ?? new NormalizedRectangle { X = 0, Y = 0, Width = 1, Height = 1 };
+        return ResolveEffectiveViewport(width,height).Region;
     }
 }

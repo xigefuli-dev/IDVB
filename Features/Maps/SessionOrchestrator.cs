@@ -195,16 +195,29 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         // 全局输入事件仅在 GUI 模式订阅（headless CLI 无输入设备）
         if (!headless)
         {
-            _input.QuickScanInvoked += (_, _) =>
+            _input.QuickScanInvoked += (_, args) =>
+            {
+                if(_calibrationInput.Reject((args as MapInputInvokedEventArgs)?.Timestamp))
+                {
+                    LogInputHandlerOutcome("quick-scan","handler-rejected:calibration-active-or-old-input");
+                    return;
+                }
                 StartInputOperation("quick-scan", RunQuickScanAsync);
+            };
             _input.OverlayToggleInvoked += (_, _) =>
                 RunInputAction("overlay-toggle", ToggleOverlay);
-            _input.ManualRecognitionInvoked += (_, _) =>
-                StartInputOperation(
-                    "manual-recognition",
-                    RunManualRecognitionAsync);
-            _input.GameMapToggleInvoked += (_, _) =>
-                StartInputOperation("game-map-toggle", HandleGameMapToggleAsync);
+            _input.ManualRecognitionInvoked += (_, args) =>
+            {
+                if (_calibrationInput.Reject((args as MapInputInvokedEventArgs)?.Timestamp))
+                {
+                    LogInputHandlerOutcome("manual-recognition", "handler-rejected:calibration-active-or-old-input");
+                    return;
+                }
+                StartInputOperation("manual-recognition", RunManualRecognitionAsync);
+            };
+            _input.GameMapToggleInvoked += (_, args) =>
+                StartInputOperation("game-map-toggle", () => HandleGameMapToggleAsync(
+                    _calibrationInput.Reject((args as MapInputInvokedEventArgs)?.Timestamp)));
             _input.ControlPanelToggleInvoked += (_, _) =>
                 ToggleControlPanel();
             _input.SwitchFloorInvoked += (_, _) =>
@@ -323,6 +336,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     /// <summary>切换到指定分辨率预设，重新加载 TOML 配置并刷新叠加层显示。</summary>
     public async Task SetActivePresetAsync(string name)
     {
+        await _viewportConfigurationGate.WaitAsync();
+        try
+        {
         EndAdaptiveMapOpen("resolution preset changed");
         ClearAdaptiveSessionKeys();
         CancelOrbTracking("resolution preset changed");
@@ -348,6 +364,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             $"已切换到分辨率预设：{name}");
 
         StateChanged?.Invoke(this, EventArgs.Empty);
+        Interlocked.Increment(ref _viewportConfigurationRevision);
+        }
+        finally {_viewportConfigurationGate.Release();}
     }
 
     // ════════════════ Public Properties ════════════════

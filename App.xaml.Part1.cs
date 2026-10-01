@@ -251,6 +251,7 @@ namespace IDVBuff
         }
 
         private void ShowMainWindow() => ShowMainWindow(bringToForeground: true);
+        internal void RestoreMainWindowForCalibration() => ShowMainWindow(bringToForeground: true);
 
         private void ShowMainWindow(bool bringToForeground)
         {

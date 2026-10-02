@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using OpenCvSharp;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -70,6 +69,7 @@ internal sealed class ScanExecutionContext : IDisposable
     private static readonly AsyncLocal<ScanExecutionContext?> Ambient = new();
     private readonly ScanExecutionContext? _previous;
     private readonly long _started;
+    private readonly TimeProvider _timeProvider;
     private readonly CancellationToken _cancellation;
     private readonly Func<bool>? _isCurrent;
     private double? _completedMilliseconds;
@@ -93,7 +93,7 @@ internal sealed class ScanExecutionContext : IDisposable
     public int VariantRefinementCount { get; set; }
     public bool Reported { get; set; }
     public double ElapsedMilliseconds => _completedMilliseconds
-        ?? Stopwatch.GetElapsedTime(_started).TotalMilliseconds;
+        ?? _timeProvider.GetElapsedTime(_started).TotalMilliseconds;
     public int RemainingMilliseconds => Math.Max(0,
         Policy.BudgetMilliseconds - (int)Math.Ceiling(ElapsedMilliseconds));
     public bool IsAutomatic => !_completedMilliseconds.HasValue;
@@ -101,9 +101,11 @@ internal sealed class ScanExecutionContext : IDisposable
     public bool Expired => IsAutomatic && (_cancellation.IsCancellationRequested || IsSuperseded || RemainingMilliseconds == 0);
     // Reserve time for the UI-thread commit; never give each candidate a new budget.
     public bool CanCompute => !Expired && (!IsAutomatic || RemainingMilliseconds > 60);
-    private ScanExecutionContext(ScanPerformanceMode mode, CancellationToken cancellation, Func<bool>? isCurrent, long? startedTimestamp)
+    private ScanExecutionContext(ScanPerformanceMode mode, CancellationToken cancellation, Func<bool>? isCurrent,
+        long? startedTimestamp, TimeProvider? timeProvider)
     {
-        _started = startedTimestamp ?? Stopwatch.GetTimestamp();
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _started = startedTimestamp ?? _timeProvider.GetTimestamp();
         Policy = ScanExecutionPolicy.For(mode);
         _cancellation = cancellation;
         _isCurrent = isCurrent;
@@ -111,7 +113,7 @@ internal sealed class ScanExecutionContext : IDisposable
         Ambient.Value = this;
     }
     public static ScanExecutionContext Enter(ScanPerformanceMode mode, CancellationToken cancellation = default, Func<bool>? isCurrent = null,
-        long? startedTimestamp = null) => new(mode, cancellation, isCurrent, startedTimestamp);
+        long? startedTimestamp = null, TimeProvider? timeProvider = null) => new(mode, cancellation, isCurrent, startedTimestamp, timeProvider);
     public static IDisposable Suppress()
     {
         var previous = Ambient.Value;
@@ -129,7 +131,7 @@ internal sealed class ScanExecutionContext : IDisposable
     }
     public void CompleteAutomaticPhase()
     {
-        _completedMilliseconds ??= Stopwatch.GetElapsedTime(_started).TotalMilliseconds;
+        _completedMilliseconds ??= _timeProvider.GetElapsedTime(_started).TotalMilliseconds;
     }
     public IDisposable ConstrainAlignment(ScanStructureIndex index, MapScreenRect viewport)
     {

@@ -210,10 +210,12 @@ internal static class ScanIdentityVerifier
     // Same safety policy in every mode. Distances are measured in screen pixels.
     internal const double SupportTolerancePixels = 5.5;
     internal const double MinimumSupport = .88;
+    internal const double MinimumRefinementSupport = .80;
     internal const double MaximumContinuousConflictPixels = 30;
     internal static bool HasRefinablePose(ScanIdentityEvidence evidence) =>
         evidence.State == ScanIdentityState.Excluded && evidence.TestedPoints >= 80
-        && evidence.SupportedFraction >= .80 && double.IsFinite(evidence.ForwardMeanPixels);
+        && evidence.TestedPoints + evidence.UnknownReferencePoints == evidence.TotalPoints
+        && evidence.SupportedFraction >= MinimumRefinementSupport && double.IsFinite(evidence.ForwardMeanPixels);
 
     internal static bool ShouldAttemptStructureRegistration(ScanIdentityEvidence evidence, ScanPerformanceMode mode) =>
         evidence.State == ScanIdentityState.Supported
@@ -258,12 +260,15 @@ internal static class ScanIdentityVerifier
             distance += d;
             if (d <= SupportTolerancePixels) hits++;
             tested++;
-            // Conservative upper bound: even if every remaining pixel matches this transform cannot pass.
+            // Only stop once even perfect remaining support cannot qualify for
+            // corrective registration. A prefix cannot describe the fit of the
+            // whole frame: using the acceptance threshold here made near-fit
+            // eligibility depend on which wall FindNonZero visited first.
             if (context?.Policy.Mode is not (ScanPerformanceMode.Quality or ScanPerformanceMode.DeepScan)
                 // Do not exclude an identity before enough known reference is
                 // established: remaining points may all lie in its erased anchor.
                 && ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80)
-                && hits + points.Length - tested - unknown < MinimumSupport * (points.Length - unknown))
+                && hits + points.Length - tested - unknown < MinimumRefinementSupport * (points.Length - unknown))
                 return WithPose(new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
                     hits / (double)tested, 0, "unexplained-visible-structure")
                     { UnknownReferencePoints = unknown });
@@ -291,7 +296,8 @@ internal static class ScanIdentityVerifier
         var accepted = support >= MinimumSupport && !spatialConflict && longest < MaximumContinuousConflictPixels;
         return new(accepted ? ScanIdentityState.Supported : ScanIdentityState.Excluded,
             tested, points.Length, distance / tested, support, longest,
-            accepted ? "visible-structure-supported" : spatialConflict ? "spatial-support-conflict" : "visible-contour-conflict")
+            accepted ? "visible-structure-supported" : support < MinimumSupport ? "unexplained-visible-structure"
+                : spatialConflict ? "spatial-support-conflict" : "visible-contour-conflict")
         {
             UnknownReferencePoints = unknown,
             ConflictCell = conflictCell,

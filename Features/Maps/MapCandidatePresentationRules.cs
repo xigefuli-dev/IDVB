@@ -8,13 +8,12 @@ namespace IDVBuff.Features.Maps;
 internal static class MapCandidatePresentationRules
 {
     internal static bool CanPresentChoices(ScanExecutionContext execution,
-        IReadOnlyList<MapRecognitionChoice>? choices, IReadOnlyList<SideEntranceScanCandidate>? candidates)
+        IReadOnlyList<MapRecognitionChoice>? choices)
     {
         if (execution.CancellationToken.IsCancellationRequested || execution.IsSuperseded) return false;
-        if (execution.Policy.Mode == ScanPerformanceMode.DeepScan)
-            return execution.RetrievalCompleted && choices is { Count: > 0 };
-        return execution.CanCompute && choices?.Any(c => !c.IsReferenceOnly) == true
-            && candidates?.Any(c => c.IdentityEvidence.State == ScanIdentityState.Unverified) != true;
+        // The user may explicitly identify a map even when its provisional
+        // pose failed verification. Presentation never grants automatic support.
+        return execution.RetrievalCompleted && choices is { Count: > 0 };
     }
 
     internal const double LivePreviewZoom = 1.20d;

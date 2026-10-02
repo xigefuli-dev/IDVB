@@ -21,7 +21,10 @@ public sealed partial class SideEntranceScanPipeline
         var proposals = new List<(double scale, double x, double y, double support, double distance)>();
         for (var step = -15; step <= 15; step++)
         {
-            if (!context.CanCompute || context.RemainingMilliseconds <= 150) return null;
+            if (!context.CanCompute) return null;
+            // Refinement is optional. Stop adding scales at the reserve, but
+            // validate poses already found before handing time back to alignment.
+            if (context.RemainingMilliseconds <= 150) break;
             var scale = seed.MatchScale * (1 + step * .001);
             if (scale < context.Policy.MinimumScale || scale > context.Policy.MaximumScale) continue;
             var bestSupport = -1d;

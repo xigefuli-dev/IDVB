@@ -55,25 +55,12 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         CancellationToken cancellationToken)
     {
-        if (ScanExecutionContext.Current is { Policy.Mode: ScanPerformanceMode.DeepScan } deepScan
-            && (deepScan.Expired || !deepScan.RetrievalCompleted
-                || deepScan.CatalogRevision?.Equals(_recognition.CatalogRevision) != true))
-        {
-            state.Recognition = null;
-            state.PendingSideEntranceIdentity = null;
-            state.PendingSideEntranceSeed = null;
-            // The deadline invalidates automatic identity/pose publication, but
-            // completed, current-catalog choices may still be shown for manual selection.
-            if (!MapCandidatePresentationRules.CanPresentChoices(deepScan, state.PendingChoices,
-                    state.PendingSideEntranceScan?.Candidates)
-                || deepScan.CatalogRevision?.Equals(_recognition.CatalogRevision) != true)
-                state.PendingChoices = null;
-            state.FailureReason = "DeepScan 已超时、目录已变化或比较未完成，未保存扫描结果。";
-        }
-        var outcome = BackgroundScanRules.ClassifyBackgroundScan(
-            state.Recognition,
-            state.PendingChoices,
-            state.FailureReason);
+        var execution = ScanExecutionContext.Current;
+        var outcome = execution is not null
+            ? BackgroundScanRules.ClassifyAutomaticScan(execution, state.Recognition, state.PendingChoices,
+                state.FailureReason, _recognition.CatalogRevision, _mapRepository.GetCatalogRevision(),
+                _settings!.ScanUncertainAction)
+            : BackgroundScanRules.ClassifyBackgroundScan(state.Recognition, state.PendingChoices, state.FailureReason);
         if (_silentScanActive)
         {
             // A candidate list is ambiguous. Silent mode never guesses or opens UI.
@@ -102,7 +89,7 @@ public sealed partial class SessionOrchestrator
         _pendingBackgroundFailureReason = outcome.FailureReason;
         // 唯一严格验证候选会携带侧门种子；歧义路径种子为 null，但扫描
         // 特征会保留，消费候选确认后可为所选地图重建对应种子。
-        _pendingBackgroundSeed = state.PendingSideEntranceSeed;
+        _pendingBackgroundSeed = outcome.Identity is null ? null : state.PendingSideEntranceSeed;
         // A DeepScan proposal has no gate anchor. After a manual choice, use
         // the selected floor's independent alignment, never a fake side-door seed.
         _pendingBackgroundScan = ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
@@ -182,6 +169,17 @@ public sealed partial class SessionOrchestrator
                     backgroundCandidateFrame.ViewportBounds);
             _pendingBackgroundChoicesAreDisplayReady = true;
             _scanProgressOverlay.Report(0.99d, "候选结果已就绪...");
+        }
+
+        // Preview/model preparation awaits can outlive cancellation or a catalog
+        // change. Recheck before publishing; the scan gate still owns these fields.
+        if (cancellationToken.IsCancellationRequested || execution is not null
+            && !BackgroundScanRules.HasCurrentResultContext(execution,
+                _recognition.CatalogRevision, _mapRepository.GetCatalogRevision()))
+        {
+            ClearPendingBackgroundScan();
+            ActiveOperationTrace?.SetTerminal("superseded", "background-result-context-changed");
+            return;
         }
 
         // 后台扫描不改变游戏地图的物理开关状态。只有已经保存了可消费

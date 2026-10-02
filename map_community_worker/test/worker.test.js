@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import worker, { publicationFormDataForTest, boundedFeedbackRequestForTest } from "../src/index.js";
 
 const nativeFetch = globalThis.fetch;
@@ -592,7 +593,65 @@ test("Android feedback validates content and requires an active rate limiter", a
   env.FEEDBACK_RATE_LIMITER = { limit: async () => ({ success: true }) };
   assert.equal((await submit("一二三四五")).status, 400);
   assert.equal((await submit("a".repeat(4001))).status, 400);
-  assert.equal((await submit("安卓识别问题反馈", { "content-length": String(132 * 1024 * 1024) })).status, 413);
+  assert.equal(env.feedbacks.size, 0);
+  assert.equal((await submit("安卓识别问题反馈", { "content-length": String(132 * 1024 * 1024) })).status, 201);
+});
+
+test("Android feedback stores complete attachments above all former size limits without content-length", async () => {
+  const env = createEnvironment();
+  const logs = new Uint8Array(31 * 1024 * 1024).fill(17);
+  const diagnostics = new Uint8Array(101 * 1024 * 1024).fill(29);
+  const form = new FormData();
+  form.set("description", "安卓大附件完整上传测试");
+  form.set("logs", new Blob([logs], { type: "application/zip" }), "logs.zip");
+  form.set("diagnostics", new Blob([diagnostics], { type: "application/zip" }), "diagnostics.zip");
+  const request = new Request("https://community.idvb.test/api/android/feedback", { method: "POST", body: form });
+  assert.equal(request.headers.has("content-length"), false);
+  const response = await worker.fetch(request, env);
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  assert.equal(result.success, true);
+  const record = env.feedbacks.get(result.feedbackId);
+  assert.equal(record.logs_size, logs.length);
+  assert.equal(record.diagnostics_size, diagnostics.length);
+  assert.equal(env.bucketObjects.size, 2);
+  for (const [key, expected] of [[record.logs_key, logs], [record.diagnostics_key, diagnostics]]) {
+    const stored = env.bucketObjects.get(key);
+    assert.equal(stored.length, expected.length);
+    assert.equal(createHash("sha256").update(stored).digest("hex"), createHash("sha256").update(expected).digest("hex"));
+  }
+});
+
+test("Android feedback validates both attachment types before storing files", async () => {
+  const env = createEnvironment();
+  const form = new FormData();
+  form.set("description", "安卓附件类型验证测试");
+  form.set("logs", new Blob(["PK-logs"]), "logs.zip");
+  form.set("diagnostics", "not a file");
+  const response = await worker.fetch(new Request("https://community.idvb.test/api/android/feedback", {
+    method: "POST", body: form,
+  }), env);
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, "invalid_attachment");
+  assert.equal(env.bucketObjects.size, 0);
+  assert.equal(env.feedbacks.size, 0);
+});
+
+test("authenticated desktop feedback retains its log attachment size limit", async () => {
+  const env = createEnvironment();
+  const registration = await worker.fetch(jsonRequest("/api/auth/register", {
+    email: "desktop-size@idvb.test", displayName: "桌面反馈", password: "Password1234!",
+  }), env);
+  assert.equal(registration.status, 201);
+  const form = new FormData();
+  form.set("description", "桌面大附件限制回归测试");
+  form.set("logs", new Blob([new Uint8Array(31 * 1024 * 1024)]), "logs.zip");
+  const response = await worker.fetch(new Request("https://community.idvb.test/api/feedback", {
+    method: "POST", headers: { cookie: registration.headers.get("set-cookie") }, body: form,
+  }), env);
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, "attachment_too_large");
+  assert.equal(env.bucketObjects.size, 0);
   assert.equal(env.feedbacks.size, 0);
 });
 

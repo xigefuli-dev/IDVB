@@ -23,14 +23,13 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Features.
                     return;
                 }
 
-                // DeepScan may offer provisional choices for explicit human confirmation.
+                // All scan modes honor explicit human selection of provisional choices.
                 // This does not relax automatic identity or deadline validation.
                 _lastCandidateChoices = pendingChoices ?? [];
                 if (_activeCandidateSelector is null
-                    && (!MapCandidatePresentationRules.CanPresentChoices(automaticScan,
-                        pendingChoices, pendingSideEntranceScan?.Candidates)
-                        || (automaticScan.Policy.Mode == ScanPerformanceMode.DeepScan
-                            && automaticScan.CatalogRevision?.Equals(_recognition.CatalogRevision) != true)))
+                    && (!MapCandidatePresentationRules.CanPresentChoices(automaticScan, pendingChoices)
+                        || automaticScan.CatalogRevision?.Equals(_recognition.CatalogRevision) != true
+                        || automaticScan.CatalogRevision.Equals(_mapRepository.GetCatalogRevision()) != true))
                 {
                     _statusMessage = automaticScan.Expired
                         ? "扫描超时，未提交地图；请保持地图打开后重试。"

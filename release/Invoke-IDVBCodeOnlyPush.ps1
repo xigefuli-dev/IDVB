@@ -4,7 +4,11 @@ param(
     # script only prints the exact code-only change set.
     [switch]$Publish,
 
-    [string]$CommitMessage = 'sync: publish IDVB code-only source'
+    [string]$CommitMessage = 'sync: publish IDVB code-only source',
+    [string]$TargetBranch = 'master',
+    [switch]$PreserveSourceWorktree,
+    [switch]$KeepSnapshot,
+    [string]$ExpectedTree
 )
 
 $ErrorActionPreference = 'Stop'
@@ -163,14 +167,26 @@ function Copy-CodeOnlySnapshot([string]$SnapshotRoot, [string]$BaseCommit) {
     }
 }
 
-if ($Publish) {
+& git check-ref-format --branch $TargetBranch | Out-Null
+Assert-Success 'Validate publication branch'
+if ($TargetBranch.StartsWith('-')) { throw 'Invalid publication branch.' }
+$targetRef = if ($TargetBranch -eq 'master') { 'refs/heads/master' } else { "refs/heads/$TargetBranch" }
+
+if ($Publish -and -not $PreserveSourceWorktree) {
     Invoke-LocalCommit
 }
 
 Invoke-FetchOrigin 'Fetch origin before code-only source publication'
-$remoteRef = 'origin/master'
-$baseCommit = (git -C $repositoryRoot rev-parse --verify "$remoteRef^{commit}").Trim()
-Assert-Success "Resolve $remoteRef before code-only source publication"
+$remoteRef = "origin/$TargetBranch"
+$remoteHeads = @(git -C $repositoryRoot ls-remote --heads origin $targetRef)
+Assert-Success 'Inspect publication branch on origin'
+$baseRef = if ($remoteHeads.Count -gt 0) { $remoteRef } else { 'origin/master' }
+$baseCommit = (git -C $repositoryRoot rev-parse --verify "$baseRef^{commit}").Trim()
+Assert-Success "Resolve $baseRef before code-only source publication"
+if ($remoteHeads.Count -gt 0 -and $remoteHeads[0].Split()[0] -ne $baseCommit) {
+    throw 'Remote target changed after fetch. Review and retry.'
+}
+Write-Host "Target: $remoteRef; base: $baseCommit"
 
 $snapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ('IDVB-code-only-' + [Guid]::NewGuid().ToString('N'))
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
@@ -187,9 +203,19 @@ try {
 
     $null = git -C $snapshotRoot add --all
     Assert-Success 'Stage code-only source snapshot'
-    foreach ($path in Get-CodeOnlyWorkingTreePaths) {
-        $null = git -C $snapshotRoot add --force -- $path
-        Assert-Success "Stage code-only source path $path"
+    $sourcePaths = @(Get-CodeOnlyWorkingTreePaths)
+    for ($offset = 0; $offset -lt $sourcePaths.Count; $offset += 50) {
+        $last = [Math]::Min($offset + 49, $sourcePaths.Count - 1)
+        $null = git -C $snapshotRoot add --force -- $sourcePaths[$offset..$last]
+        Assert-Success 'Stage code-only source paths'
+    }
+
+    $snapshotTree = (git -C $snapshotRoot write-tree).Trim()
+    Assert-Success 'Resolve code-only snapshot tree'
+    Write-Host "Snapshot: $snapshotRoot"
+    Write-Host "Snapshot tree: $snapshotTree"
+    if ($ExpectedTree -and $snapshotTree -ne $ExpectedTree) {
+        throw "Source changed after review: expected $ExpectedTree, found $snapshotTree."
     }
 
     $changed = @(git -C $snapshotRoot diff --cached --name-status)
@@ -225,7 +251,7 @@ try {
     $publicCommit = (git -C $snapshotRoot rev-parse --verify HEAD).Trim()
     Assert-Success 'Resolve code-only source commit'
 
-    $null = git -C $snapshotRoot push origin "$($publicCommit):refs/heads/master"
+    $null = git -C $snapshotRoot push origin "$($publicCommit):$targetRef"
     Assert-Success "Push code-only source commit to $remoteRef"
     Invoke-FetchOrigin 'Refresh origin after code-only source push'
     $publishedCommit = (git -C $repositoryRoot rev-parse --verify "$remoteRef^{commit}").Trim()
@@ -235,10 +261,14 @@ try {
     Write-Host "Published code-only source commit: $publicCommit"
 }
 finally {
-    if ($worktreeAdded -and (Test-Path -LiteralPath $snapshotRoot)) {
+    if ($KeepSnapshot) {
+        Write-Host "Preserved snapshot for audit: $snapshotRoot"
+    }
+    elseif ($worktreeAdded -and (Test-Path -LiteralPath $snapshotRoot)) {
         $null = git -C $repositoryRoot worktree remove --force $snapshotRoot
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $snapshotRoot)) {
             [IO.Directory]::Delete($snapshotRoot, $true)
         }
     }
 }
+

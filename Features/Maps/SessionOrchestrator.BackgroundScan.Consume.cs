@@ -187,7 +187,8 @@ public sealed partial class SessionOrchestrator
                     _pendingBackgroundChoicesAreDisplayReady,
                     _pendingBackgroundChoicePreviews,
                     _pendingBackgroundLivePreview,
-                    _pendingBackgroundLearningResult);
+                    _pendingBackgroundLearningResult,
+                    requiresExplicitSelection: true);
             }
             finally
             {

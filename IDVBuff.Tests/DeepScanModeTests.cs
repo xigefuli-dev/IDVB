@@ -8,10 +8,10 @@ public sealed class DeepScanModeTests
 {
     [Theory]
     [InlineData(ScanPerformanceMode.DeepScan, true)]
-    [InlineData(ScanPerformanceMode.Fast, false)]
-    [InlineData(ScanPerformanceMode.Balanced, false)]
-    [InlineData(ScanPerformanceMode.Quality, false)]
-    public void ReferenceChoicesCanBeShownOnlyByDeepScanWithoutBecomingAutomaticIdentity(
+    [InlineData(ScanPerformanceMode.Fast, true)]
+    [InlineData(ScanPerformanceMode.Balanced, true)]
+    [InlineData(ScanPerformanceMode.Quality, true)]
+    public void ReferenceChoicesCanBeShownInEveryModeWithoutBecomingAutomaticIdentity(
         ScanPerformanceMode mode, bool expected)
     {
         using var execution = ScanExecutionContext.Enter(mode);
@@ -21,10 +21,10 @@ public sealed class DeepScanModeTests
             IdentityEvidence = new(ScanIdentityState.Excluded, 100, 100, 12, .6, 30, "spatial-support-conflict")
         };
         MapRecognitionChoice[] choices = [new() { IsReferenceOnly = true }];
-        Assert.Equal(expected, MapCandidatePresentationRules.CanPresentChoices(execution, choices, [candidate]));
+        Assert.Equal(expected, MapCandidatePresentationRules.CanPresentChoices(execution, choices));
         Assert.Null(ScanIdentityVerifier.SelectIdentity([candidate], true, true));
         candidate.IdentityEvidence = ScanIdentityEvidence.Unverified("alignment-not-confirmed");
-        Assert.Equal(expected, MapCandidatePresentationRules.CanPresentChoices(execution, choices, [candidate]));
+        Assert.Equal(expected, MapCandidatePresentationRules.CanPresentChoices(execution, choices));
         Assert.Null(ScanIdentityVerifier.SelectIdentity([candidate], true, true));
     }
 
@@ -35,19 +35,23 @@ public sealed class DeepScanModeTests
         using var cancellation = new CancellationTokenSource();
         using var execution = ScanExecutionContext.Enter(ScanPerformanceMode.DeepScan, cancellation.Token);
         execution.RetrievalCompleted = false;
-        Assert.False(MapCandidatePresentationRules.CanPresentChoices(execution, choices, []));
+        Assert.False(MapCandidatePresentationRules.CanPresentChoices(execution, choices));
         execution.RetrievalCompleted = true;
         cancellation.Cancel();
-        Assert.False(MapCandidatePresentationRules.CanPresentChoices(execution, choices, []));
+        Assert.False(MapCandidatePresentationRules.CanPresentChoices(execution, choices));
     }
 
-    [Fact]
-    public void ExpiredDeepScanCanOfferCompletedChoicesButCannotConfirmAutomatically()
+    [Theory]
+    [InlineData(ScanPerformanceMode.Fast)]
+    [InlineData(ScanPerformanceMode.Balanced)]
+    [InlineData(ScanPerformanceMode.Quality)]
+    [InlineData(ScanPerformanceMode.DeepScan)]
+    public void ExpiredScanCanOfferCompletedChoicesButCannotConfirmAutomatically(ScanPerformanceMode mode)
     {
-        using var execution = ScanExecutionContext.Enter(ScanPerformanceMode.DeepScan,
+        using var execution = ScanExecutionContext.Enter(mode,
             startedTimestamp: System.Diagnostics.Stopwatch.GetTimestamp() - System.Diagnostics.Stopwatch.Frequency * 3);
         Assert.True(execution.Expired);
-        Assert.True(MapCandidatePresentationRules.CanPresentChoices(execution, [new() { IsReferenceOnly = true }], []));
+        Assert.True(MapCandidatePresentationRules.CanPresentChoices(execution, [new() { IsReferenceOnly = true }]));
         Assert.Null(ScanIdentityVerifier.SelectIdentity([], true, execution.CanCompute));
     }
 

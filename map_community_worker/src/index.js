@@ -925,8 +925,7 @@ function calculateWeightedLength(text) {
   return len;
 }
 
-// Shared by both public anonymous intake routes.
-// Limit the actual streamed body before multipart parsing, including chunked uploads.
+// Desktop guest intake limits the actual body before multipart parsing, including chunked uploads.
 async function boundedFeedbackRequest(request, maximum = 20 * 1024 * 1024) {
   if (Number(request.headers.get("content-length")) > maximum) {
     throw new ApiError(413, "feedback_too_large", "反馈附件总大小超出限制。");
@@ -956,8 +955,10 @@ async function submitFeedbackResponse(request, env, anonymousAndroid = false) {
   const hasCredentials = request.headers.has("authorization") || Boolean(getCookie(request, SESSION_COOKIE));
   const user = anonymousAndroid || !hasCredentials ? { id: null } : await requireAuthUser(request, env);
   // Resolve credentials before parsing; an invalid token must not select the authenticated limits.
-  if (!user.id) request = await boundedFeedbackRequest(request);
-  const form = await publicationFormData(request);
+  if (!anonymousAndroid && !user.id) request = await boundedFeedbackRequest(request);
+  // Android emits standard multipart. Its attachments have no application size cap;
+  // use the runtime parser rather than copying the whole request into a JS ArrayBuffer.
+  const form = anonymousAndroid ? await request.formData() : await publicationFormData(request);
   const contactQq = anonymousAndroid ? "" : String(form.get("contactQq") || "").trim();
   if (!anonymousAndroid && (!user.id || contactQq) && !/^[1-9][0-9]{4,11}$/.test(contactQq)) {
     throw new ApiError(400, "invalid_contact_qq", "未登录时请提供联系 QQ 号（5–12 位数字，不能以 0 开头）。");
@@ -980,7 +981,7 @@ async function submitFeedbackResponse(request, env, anonymousAndroid = false) {
     if (file !== null && !(file instanceof File)) {
       throw new ApiError(400, "invalid_attachment", `${name}必须为 ZIP 附件。`);
     }
-    if (file instanceof File && file.size > maximum * 1024 * 1024) {
+    if (!anonymousAndroid && file instanceof File && file.size > maximum * 1024 * 1024) {
       throw new ApiError(400, "attachment_too_large", `${name}压缩包不能超过 ${maximum} MB。`);
     }
   }
@@ -994,13 +995,10 @@ async function submitFeedbackResponse(request, env, anonymousAndroid = false) {
   let logsSize = 0;
 
   if (logs instanceof File && logs.size > 0) {
-    if (logs.size > 30 * 1024 * 1024) {
-      throw new ApiError(400, "logs_too_large", "日志压缩包不能超过 30 MB。");
-    }
     hasLogs = 1;
     logsKey = `feedbacks/${day}/${feedbackId}/logs.zip`;
     logsSize = logs.size;
-    await env.MAP_BUCKET.put(logsKey, await logs.arrayBuffer(), {
+    await env.MAP_BUCKET.put(logsKey, logs, {
       httpMetadata: { contentType: "application/zip", cacheControl: "no-store" },
       customMetadata: { feedbackId, userId: user.id || (anonymousAndroid ? "anonymous-android" : "anonymous-desktop"), clientVersion, type: "logs" },
     });
@@ -1011,13 +1009,10 @@ async function submitFeedbackResponse(request, env, anonymousAndroid = false) {
   let diagnosticsSize = 0;
 
   if (diagnostics instanceof File && diagnostics.size > 0) {
-    if (diagnostics.size > 100 * 1024 * 1024) {
-      throw new ApiError(400, "diagnostics_too_large", "诊断数据压缩包不能超过 100 MB。");
-    }
     hasDiagnostics = 1;
     diagnosticsKey = `feedbacks/${day}/${feedbackId}/diagnostics.zip`;
     diagnosticsSize = diagnostics.size;
-    await env.MAP_BUCKET.put(diagnosticsKey, await diagnostics.arrayBuffer(), {
+    await env.MAP_BUCKET.put(diagnosticsKey, diagnostics, {
       httpMetadata: { contentType: "application/zip", cacheControl: "no-store" },
       customMetadata: { feedbackId, userId: user.id || (anonymousAndroid ? "anonymous-android" : "anonymous-desktop"), clientVersion, type: "diagnostics" },
     });

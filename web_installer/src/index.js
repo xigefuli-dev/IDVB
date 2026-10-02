@@ -2,6 +2,7 @@ const DOWNLOAD_ROUTES = new Map([
   ["/installer", "installer"],
   ["/idvb-setup", "installer"],
   ["/idvm", "idvm"],
+  ["/android", "android"],
 ]);
 
 const DOWNLOAD_PAGE = "https://idvb.xgflee.com/download";
@@ -23,6 +24,7 @@ export default {
         "Identity Vision Bridge download service\n\n" +
           "GET / or /installer  -> latest IDVB-Setup\n" +
           "GET /idvm            -> latest IDVM\n" +
+          "GET /android         -> latest Android APK\n" +
           "GET /api/maps        -> available IDVM map packages\n" +
           "GET /maps/{key}      -> selected IDVM map package\n" +
           "GET /updates/{channel}/{file} -> signed Velopack feed asset\n",
@@ -70,7 +72,7 @@ export default {
       return new Response(
         kind === "installer"
           ? "No IDVB-Setup installer is available."
-          : "No IDVM file is available.",
+          : kind === "android" ? "No Android APK is available." : "No IDVM file is available.",
         {
           status: 404,
           headers: {
@@ -113,7 +115,7 @@ export default {
 
     const headers = new Headers();
     bodyObject.writeHttpMetadata(headers);
-    headers.set("content-type", "application/octet-stream");
+    headers.set("content-type", kind === "android" ? "application/vnd.android.package-archive" : "application/octet-stream");
     headers.set(
       "content-disposition",
       `attachment; filename="${safeFilename(object.key)}"`,
@@ -381,6 +383,9 @@ async function listObjects(bucket) {
 function selectLatest(objects, kind) {
   const matches = objects.filter((object) => {
     const key = object.key.toLowerCase();
+    if (kind === "android") {
+      return /^android\/idvb-android-v\d+\.\d+\.\d+-b\d{2}\.\d+-\d{2}\.\d{2}\.\d{2}\.\d{4}-(?:debug|release)\.apk$/.test(key);
+    }
     if (kind === "installer") {
       // The public download must never promote a test-channel installer just
       // because it was uploaded more recently than stable.
@@ -394,6 +399,11 @@ function selectLatest(objects, kind) {
   });
 
   matches.sort((left, right) => {
+    if (kind === "android") {
+      const buildNumber = (object) => Number(object.key.match(/\.(\d{4})-(?:debug|release)\.apk$/i)[1]);
+      const buildDifference = buildNumber(right) - buildNumber(left);
+      if (buildDifference) return buildDifference;
+    }
     const uploadedDifference = new Date(right.uploaded) - new Date(left.uploaded);
     return uploadedDifference || right.key.localeCompare(left.key);
   });

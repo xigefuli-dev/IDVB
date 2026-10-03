@@ -160,8 +160,9 @@ public static class Vpsg3FastBootstrapSolver
                 var candidate = sc.CandidateBuffer[i];
                 if (SameSeed(candidate, runnerUpCand1) || SameSeed(candidate, runnerUpCand2)) continue;
                 var started = Stopwatch.GetTimestamp();
+                // Competing peaks must obey the same floor scale lock as the primary.
                 var refined = Vpsg3LocalRefiner.Refine(sparsePoints, preparedFloor, estimatedScale,
-                    candidate.OffsetX, candidate.OffsetY, bounds, width, height);
+                    candidate.OffsetX, candidate.OffsetY, bounds, width, height, lockScale);
                 refineMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 if (double.Hypot(refined.RefinedX - rfX1, refined.RefinedY - rfY1) < cfg.MinDistinctDistance)
                     continue;

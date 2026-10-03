@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using IDVBuff.PluginContracts;
+using IDVBuff.PluginHostMessages;
 using IDVBuff.Plugins.AutoClicker;
 using IDVBuff.Plugins.AutoGatling;
 using IDVBuff.Plugins.CustomPhrases;
@@ -13,6 +14,58 @@ namespace IDVBuff.PluginContracts.Tests;
 [SupportedOSPlatform("windows")]
 public sealed class PluginMouseBindingTests
 {
+    [Theory]
+    [InlineData(PluginMouseButton.Left, 0x0202)]
+    [InlineData(PluginMouseButton.Right, 0x0205)]
+    [InlineData(PluginMouseButton.Middle, 0x0208)]
+    [InlineData(PluginMouseButton.XButton1, 0x020C)]
+    [InlineData(PluginMouseButton.XButton2, 0x020C)]
+    public void ClickerHandoffDoesNotClearPhysicalHoldWhenMouseMarkerIsTruncated(
+        PluginMouseButton button, int upMessage)
+    {
+        var service = new AutoClickerService(new AutoClickerOptions());
+        service.ConfigureBindings(PluginInputBinding.Mouse(button), PluginInputBinding.Keyboard(0x46));
+        var type = service.GetType();
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var held = type.GetField("_physicalButtonDown", flags)!;
+        var nativeType = type.GetNestedType("MsLlHookStruct", BindingFlags.NonPublic)!;
+        var mouse = Activator.CreateInstance(nativeType)!;
+        nativeType.GetField("MouseData")!.SetValue(mouse, button switch
+        {
+            PluginMouseButton.XButton1 => 1u << 16,
+            PluginMouseButton.XButton2 => 2u << 16,
+            _ => 0u
+        });
+        nativeType.GetField("Flags")!.SetValue(mouse, 1u);
+        var callback = type.GetMethod("MouseHookCallback", flags)!;
+        var pointer = Marshal.AllocHGlobal(Marshal.SizeOf(nativeType));
+        try
+        {
+            // Keep the service stopped: callbacks cannot install hooks or emit input.
+            foreach (var marker in new[] { InputInjectionMarkers.HostGeneratedInput,
+                InputInjectionMarkers.HostGeneratedMouseInput })
+            {
+                held.SetValue(service, true);
+                nativeType.GetField("ExtraInfo")!.SetValue(mouse, new IntPtr(marker));
+                Marshal.StructureToPtr(mouse, pointer, false);
+                callback.Invoke(service, [0, new IntPtr(upMessage), pointer]);
+                Assert.True((bool)held.GetValue(service)!);
+            }
+            // An unrelated driver-injected release must still end the hold.
+            nativeType.GetField("ExtraInfo")!.SetValue(mouse, new IntPtr(123));
+            Marshal.StructureToPtr(mouse, pointer, false);
+            callback.Invoke(service, [0, new IntPtr(upMessage), pointer]);
+            Assert.False((bool)held.GetValue(service)!);
+            held.SetValue(service, true);
+            nativeType.GetField("Flags")!.SetValue(mouse, 0u);
+            nativeType.GetField("ExtraInfo")!.SetValue(mouse, IntPtr.Zero);
+            Marshal.StructureToPtr(mouse, pointer, false);
+            callback.Invoke(service, [0, new IntPtr(upMessage), pointer]);
+            Assert.False((bool)held.GetValue(service)!);
+        }
+        finally { Marshal.FreeHGlobal(pointer); }
+    }
+
     [Theory]
     [InlineData(PluginMouseButton.Left, 0x0201u, 0x0202u, 0u, 2u, 4u)]
     [InlineData(PluginMouseButton.Right, 0x0204u, 0x0205u, 0u, 8u, 16u)]
@@ -197,11 +250,14 @@ public sealed class PluginMouseBindingTests
             Assert.True((bool)held.GetValue(service)!);
             Assert.Equal(new IntPtr(1), callback.Invoke(service, [0, new IntPtr(0x20C), pointer]));
             Assert.False((bool)held.GetValue(service)!);
-            nativeType.GetField("ExtraInfo")!.SetValue(mouse,
-                new IntPtr(0x4944564255464652L));
-            Marshal.StructureToPtr(mouse, pointer, false);
-            callback.Invoke(service, [0, new IntPtr(0x20B), pointer]);
-            Assert.False((bool)held.GetValue(service)!);
+            foreach (var marker in new[] { InputInjectionMarkers.HostGeneratedInput,
+                InputInjectionMarkers.HostGeneratedMouseInput })
+            {
+                nativeType.GetField("ExtraInfo")!.SetValue(mouse, new IntPtr(marker));
+                Marshal.StructureToPtr(mouse, pointer, false);
+                callback.Invoke(service, [0, new IntPtr(0x20B), pointer]);
+                Assert.False((bool)held.GetValue(service)!);
+            }
         }
         finally { Marshal.FreeHGlobal(pointer); }
     }

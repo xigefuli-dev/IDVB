@@ -45,7 +45,7 @@ public partial class App
             SetMainWindowCloaked(false);
             ShowWindow(
                 WinRT.Interop.WindowNative.GetWindowHandle(window),
-                4); // SW_SHOWNOACTIVATE
+                8); // SW_SHOWNA preserves the restored window size and maximized state.
             WriteStartupTrace(
                 "Main window primed behind startup splash; awaiting initial page readiness.");
         }

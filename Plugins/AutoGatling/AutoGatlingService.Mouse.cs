@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using IDVBuff.PluginContracts;
+using IDVBuff.PluginHostMessages;
 
 namespace IDVBuff.Plugins.AutoGatling;
 
@@ -10,7 +11,7 @@ public sealed partial class AutoGatlingService
         if (code >= 0)
         {
             var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
-            if (mouse.ExtraInfo != InputInjectionMarker
+            if (!InputInjectionMarkers.IsHostGeneratedMouseInput(mouse.ExtraInfo)
                 && PluginMouseInput.TryDecode((uint)wParam.ToInt64(), mouse.MouseData,
                     out var button, out var down))
             {

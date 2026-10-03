@@ -22,9 +22,13 @@ public sealed partial class SessionOrchestrator
         var wallClock = Stopwatch.StartNew();
         var cacheTrustLevel = string.Empty;
 
-        MapRecognitionAttempt StampCacheTrust(MapRecognitionAttempt attempt)
+        MapRecognitionAttempt StampCacheTrust(
+            MapRecognitionAttempt attempt,
+            bool validatedScaleSeed = false)
         {
             attempt.Diagnostics.LowStructureCacheTrustLevel = cacheTrustLevel;
+            attempt.Diagnostics.LowStructureValidatedScaleSeed = validatedScaleSeed
+                && attempt.Diagnostics.LowStructureEnteredCachedFixed;
             return attempt;
         }
 
@@ -46,6 +50,14 @@ public sealed partial class SessionOrchestrator
                 restrictTranslation,
                 LowStructureAlignmentPlan.CachedFixed(scale, config));
 
+        MapRecognitionAttempt RunValidatedFixed(double scale) =>
+            _recognition.TryAlignWithVpsg3(
+                frame, locked.Map, floorKey, identityPriorConfidence,
+                out var fast, out _, knownScaleSeed: scale,
+                hasValidatedFloorScale: true)
+                ? fast
+                : RunFixed(scale, true);
+
         if (TryGetManualFloorScaleLock(
                 match,
                 frame,
@@ -53,12 +65,12 @@ public sealed partial class SessionOrchestrator
                 floorKey,
                 out var manualScale))
         {
-            var local = RunFixed(manualScale, true);
+            var local = RunValidatedFixed(manualScale);
             if (local.Recognition is not null)
-                return StampCacheTrust(local);
+                return StampCacheTrust(local, validatedScaleSeed: true);
             var global = RunFixed(manualScale, false);
             if (global.Recognition is not null)
-                return StampCacheTrust(global);
+                return StampCacheTrust(global, validatedScaleSeed: true);
             return StampCacheTrust(global);
         }
 
@@ -121,12 +133,12 @@ public sealed partial class SessionOrchestrator
             else
             {
                 var cachedScale = cacheEntry.Scale.UniformScale;
-                var local = RunFixed(cachedScale, true);
+                var local = RunValidatedFixed(cachedScale);
                 if (local.Recognition is not null)
                 {
                     return StampCacheTrust(CopyAttempt(
                         local,
-                        MarkUsedCachedScale(local.Recognition)));
+                        MarkUsedCachedScale(local.Recognition)), validatedScaleSeed: true);
                 }
 
                 cachedScaleForGlobalFallback = cachedScale;

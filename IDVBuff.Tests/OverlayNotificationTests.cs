@@ -6,7 +6,7 @@ using Xunit;
 
 namespace IDVBuff.Tests;
 
-public sealed class OverlayNotificationTests
+public sealed partial class OverlayNotificationTests
 {
     [Theory]
     [InlineData(OverlayNotificationType.Error)]

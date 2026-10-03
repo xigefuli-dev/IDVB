@@ -37,7 +37,8 @@ public sealed partial class MapCvRecognitionService
         double identityPriorConfidence,
         [NotNullWhen(true)] out MapRecognitionAttempt? attempt,
         out IdvbStatus status,
-        double? knownScaleSeed = null)
+        double? knownScaleSeed = null,
+        bool hasValidatedFloorScale = false)
     {
         attempt = null;
         if (_disposed)
@@ -51,13 +52,15 @@ public sealed partial class MapCvRecognitionService
             return false;
         }
 
-        if (MapAlignmentChannelRegistry.Resolve(map, floorKey).Channel == MapAlignmentChannel.LowStructure)
+        var channel = MapAlignmentChannelRegistry.Resolve(map, floorKey).Channel;
+        var isLowStructure = channel == MapAlignmentChannel.LowStructure;
+        if (!CanUseVpsg3(channel, knownScaleSeed, hasValidatedFloorScale))
         {
             status = IdvbStatus.ClientError(
                 IdvbHttpCode.FeatureDisabled,
                 IdvbSubCode.Vpsg3FallbackDegraded,
                 "Vpsg3LowStructureUnsupported",
-                "目标楼层为低结构通道，VPSG 3.0 不适用",
+                "低结构楼层尚无独立验证的本楼层尺度",
                 stage: "Vpsg3.ChannelCheck");
             return false;
         }
@@ -126,8 +129,10 @@ public sealed partial class MapCvRecognitionService
 
         using (lease)
         {
-            (knownScaleSeed, var refreshPrior) = ResolveVpsgScaleLock(
-                frame, map, floorKey, knownScaleSeed);
+            double? refreshPrior = null;
+            if (!isLowStructure)
+                (knownScaleSeed, refreshPrior) = ResolveVpsgScaleLock(
+                    frame, map, floorKey, knownScaleSeed);
             var scanFrame = ScanExecutionContext.Current is { IsAutomatic: true } scan ? scan.Frame : null;
             var sharedObservation = ReferenceEquals(scanFrame?.Source, frame.Image) ? scanFrame.Observation : null;
             using var ownedObservation = sharedObservation is null ? Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds) : null;
@@ -169,7 +174,7 @@ public sealed partial class MapCvRecognitionService
                         ["testedScaleCount"] = refreshScaleCount
                     });
             }
-            else if (knownScaleSeed.HasValue
+            else if (!isLowStructure && knownScaleSeed.HasValue
                 && result.IsAccepted
                 && result.Confidence < 0.75d)
             {
@@ -379,7 +384,7 @@ public sealed partial class MapCvRecognitionService
             var diagnostics = MapCvRecognitionDiagnostics.CreateDiagnostics(ReadyMapCount, TotalMapCount);
             diagnostics.ScaleBootstrapAttempted = true;
             diagnostics.ScaleBootstrapSucceeded = true;
-            diagnostics.ScaleBootstrapValidated = true;
+            diagnostics.ScaleBootstrapValidated = !isLowStructure;
             diagnostics.ScaleBootstrapScale = finalScale;
             diagnostics.ScaleBootstrapConfidence = result.Confidence;
             diagnostics.ScaleBootstrapMode = "Vpsg3";
@@ -404,6 +409,13 @@ public sealed partial class MapCvRecognitionService
             diagnostics.StructureRejectionReason = MapStructureRejectionReason.None;
             diagnostics.TotalMilliseconds = totalTime;
             diagnostics.TrackingMode = MapAlignmentTrackingMode.StructureMatched;
+            if (isLowStructure)
+            {
+                diagnostics.LowStructureRoute = nameof(LowStructureAlignmentRoute.CachedFixed);
+                diagnostics.LowStructureValidatedScaleSeed = true;
+                diagnostics.LowStructureVpsgEnabled = true;
+                diagnostics.AlignmentChannel = MapAlignmentChannelRegistry.LowStructure.DiagnosticLabel;
+            }
 
             status = IdvbStatus.Ok(
                 $"VPSG 3.0 快速对齐通过 · floor={floorKey} · scale={finalScale:F5}",
@@ -452,51 +464,4 @@ public sealed partial class MapCvRecognitionService
         }
     }
 
-    internal static Vpsg3ScaleRefreshComparison CompareVpsg3ScaleRefresh(
-        Vpsg3LiveObservation observation,
-        Vpsg3PreparedFloor floor,
-        Vpsg3BootstrapResult fresh,
-        double prior)
-    {
-        Vpsg3BootstrapResult? bestPrior = null;
-        Vpsg3BootstrapResult? baseline = null;
-        var additionalMs = 0d;
-        var testedScaleCount = fresh.TestedScaleHypotheses;
-        foreach (var candidateScale in new[] { prior, prior * 0.995d, prior * 1.005d })
-        {
-            if (candidateScale < Vpsg3TuningConfig.Default.MinSupportedScale
-                || candidateScale > Vpsg3TuningConfig.Default.MaxSupportedScale)
-                continue;
-            var candidate = Vpsg3FastBootstrapSolver.TrySolve(
-                observation, floor, knownScaleSeed: candidateScale);
-            additionalMs += Math.Max(0d,
-                candidate.Timing.TotalMs - observation.ExtractionMilliseconds);
-            testedScaleCount += candidate.TestedScaleHypotheses;
-            if (baseline is null)
-                baseline = candidate;
-            // One sparse weighted hit is 1/450 at 150 points. Require about
-            // seven extra vote units before replacing an accepted incumbent.
-            if (candidate.IsAccepted
-                && (bestPrior is null
-                    || candidate.Confidence > bestPrior.Confidence + 0.015d))
-                bestPrior = candidate;
-        }
-
-        var selectedPrior = bestPrior is not null
-            && (!fresh.IsAccepted
-                || fresh.Confidence <= bestPrior.Confidence + 0.015d);
-        var selected = selectedPrior ? bestPrior! : fresh;
-        additionalMs += fresh.Timing.TotalMs - selected.Timing.TotalMs;
-        return new Vpsg3ScaleRefreshComparison(
-            selected, baseline, bestPrior, selectedPrior,
-            additionalMs, testedScaleCount);
-    }
 }
-
-internal sealed record Vpsg3ScaleRefreshComparison(
-    Vpsg3BootstrapResult Selected,
-    Vpsg3BootstrapResult? Baseline,
-    Vpsg3BootstrapResult? BestPrior,
-    bool SelectedPriorHypothesis,
-    double AdditionalMilliseconds,
-    int TestedScaleCount);

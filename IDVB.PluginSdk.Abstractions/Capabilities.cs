@@ -65,7 +65,19 @@ public interface IPluginStorageCapability : IPluginCapability
 
 public interface IPluginNotificationsCapability : IPluginCapability
 {
+    /// <summary>
+    /// Posts a best-effort notification. The host delivers at most five posts per plugin in a
+    /// rolling minute; excess posts are suppressed without throwing or stopping the plugin.
+    /// Invalid text and cancelled calls still fail.
+    /// </summary>
     ValueTask PostAsync(PluginNotification notification, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Shows the registered red, yellow or green overlay notification, with caller-specified
+    /// content, display duration and optional delay. Uses the same grant and limit as PostAsync.
+    /// </summary>
+    ValueTask NotifyAsync(PluginNotification notification, CancellationToken cancellationToken = default) =>
+        PostAsync(notification, cancellationToken);
 }
 
 public sealed record PluginScreenshotResult
@@ -86,6 +98,15 @@ public sealed record PluginNotification
     public required string Message { get; init; }
 
     public PluginNotificationSeverity Severity { get; init; }
+
+    /// <summary>Time visible after the card enters the overlay. Must be positive; defaults to five seconds.</summary>
+    public TimeSpan Duration { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Delay before posting to the overlay. Defaults to immediate. Delayed posts are scheduled by the
+    /// host and return immediately; stopping the plugin or cancelling the call token cancels delivery.
+    /// </summary>
+    public TimeSpan Delay { get; init; }
 }
 
 public enum PluginNotificationSeverity

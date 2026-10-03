@@ -26,3 +26,11 @@ internal sealed partial record LowStructureAlignmentPlan
         return Math.Max(configuredMinimumScale, minimumFitScale * 1.01d);
     }
 }
+
+internal static partial class LowStructureScaleEvidenceRules
+{
+    public static bool IsIndependentScaleEvidence(
+        MapAlignmentChannel channel,
+        string? route) =>
+        channel != MapAlignmentChannel.LowStructure || IsIndependentScaleRoute(route);
+}

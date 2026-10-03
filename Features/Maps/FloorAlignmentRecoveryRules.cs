@@ -318,3 +318,29 @@ public static class FloorAlignmentRecoveryRules
         };
     }
 }
+
+internal static partial class LowStructureScaleEvidenceRules
+{
+    public static AlignmentEvidence ObserveAlignment(MapRecognitionAttempt attempt)
+    {
+        var accepted = attempt.StructureAccepted
+            && attempt.StructureResult is { Accepted: true, WasForcedBestCandidate: false }
+            && attempt.Recognition is { Result.ReusedLastTransform: false } recognition
+            && recognition.Result.OverlayTransform is { } transform
+            && double.IsFinite(transform.ScaleX) && transform.ScaleX > 0d
+            && double.IsFinite(transform.ScaleY) && transform.ScaleY > 0d
+            && double.IsFinite(transform.OffsetX) && double.IsFinite(transform.OffsetY);
+        var independentlyEstimated = accepted
+            && IsIndependentScaleRoute(attempt.Diagnostics.LowStructureRoute);
+        // Fixed-scale geometry can validate a new translation once its exact
+        // floor/capture seed is reliable. It must never vote for scale trust.
+        var validatedScaleSeed = attempt.Diagnostics.WarmStateHit
+            || attempt.Diagnostics.LowStructureValidatedScaleSeed;
+        return new(
+            accepted,
+            independentlyEstimated ? 1 : 0,
+            accepted && !independentlyEstimated && !validatedScaleSeed);
+    }
+
+    internal readonly record struct AlignmentEvidence(bool Accepted, int Count, bool Pending);
+}

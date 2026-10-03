@@ -135,7 +135,6 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
                     MapRecognitionAttempt? vpsg3Attempt = precomputedVpsg3Attempt;
                     IdvbStatus? steadyVpsgStatus = null;
                     if (vpsg3Attempt is null
-                        && alignmentChannel.Channel != MapAlignmentChannel.LowStructure
                         && _recognition.TryAlignWithVpsg3(
                             frame,
                             locked.Map,
@@ -143,7 +142,8 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
                             alignmentSession.SideEntranceScanPriorConfidence,
                             out var fastVpsgAttempt,
                             out steadyVpsgStatus,
-                            knownScaleSeed: warmSeed.Session.LockedTransform.ScaleX)
+                            knownScaleSeed: warmSeed.Session.LockedTransform.ScaleX,
+                            hasValidatedFloorScale: true)
                         && fastVpsgAttempt.Recognition is not null)
                     {
                         vpsg3Attempt = fastVpsgAttempt;

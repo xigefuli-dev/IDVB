@@ -259,6 +259,8 @@ public sealed class OverlayNotificationQueue
             }
         }
 
+        if (notification is OverlayNotificationItem item)
+            item.StartDisplayLifetime(DateTimeOffset.UtcNow);
         var state = new OverlayNotificationCardState(notification, nextY, now, m);
         _activeCards.Add(state);
     }

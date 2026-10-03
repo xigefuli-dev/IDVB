@@ -5,7 +5,7 @@ using Xunit;
 
 namespace IDVBuff.Tests;
 
-public sealed class AdaptiveScaleInitialStreakTests
+public sealed partial class AdaptiveScaleInitialStreakTests
 {
     [Fact]
     public async Task FifthHighQualityInitialResultIsImmediatelyReliable()

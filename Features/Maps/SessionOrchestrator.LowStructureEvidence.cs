@@ -2,26 +2,8 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
-    private LowStructureEvidenceDecision ObserveLowStructureEvidence(
-        MapRecognitionAttempt attempt)
-    {
-        var accepted = attempt.StructureResult is { Accepted: true }
-            && attempt.Recognition?.Result.OverlayTransform is { } transform
-            && double.IsFinite(transform.ScaleX)
-            && transform.ScaleX > 0d;
-        var independentlyEstimated = accepted
-            && LowStructureScaleEvidenceRules.IsIndependentScaleRoute(
-                attempt.Diagnostics.LowStructureRoute);
-        return new(
-            accepted,
-            independentlyEstimated ? 1 : 0,
-            accepted && !independentlyEstimated);
-    }
-
-    private readonly record struct LowStructureEvidenceDecision(
-        bool Accepted,
-        int Count,
-        bool Pending);
+    private static LowStructureScaleEvidenceRules.AlignmentEvidence ObserveLowStructureEvidence(
+        MapRecognitionAttempt attempt) => LowStructureScaleEvidenceRules.ObserveAlignment(attempt);
 
     private async Task PersistLowStructureScaleAsync(
         RuntimeMapRecognition recognition,

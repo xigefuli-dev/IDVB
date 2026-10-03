@@ -11,10 +11,19 @@
     <ProjectReference Include="..\IDVB.PluginSdk.Abstractions\IDVB.PluginSdk.Abstractions.csproj" />
     <ProjectReference Include="..\IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
     <ProjectReference Include="..\IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
+    <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
     <ProjectReference Include="..\Plugins\Samples\MatchNotifier\IDVB.Sample.MatchNotifier.csproj" />
     <ProjectReference Include="..\Plugins\Samples\MatchShortcuts\IDVB.Sample.MatchShortcuts.csproj" />
     <None Include="..\Plugins\Samples\MatchShortcuts\manifest.json" Link="MatchShortcuts.manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Features\Plugins\V2\ThirdPartyPluginCapabilitySource.cs" Link="Production\ThirdPartyPluginCapabilitySource.cs" />
+    <Compile Include="..\Features\Plugins\V2\ThirdPartyHostEventHub.cs" Link="Production\ThirdPartyHostEventHub.cs" />
+    <Compile Include="..\Features\Plugins\V2\PluginNotificationCenter.cs" Link="Production\PluginNotificationCenter.cs" />
+    <Compile Include="..\Features\Plugins\V2\ThirdPartyPluginNotificationsCapability.cs" Link="Production\ThirdPartyPluginNotificationsCapability.cs" />
+    <Compile Include="..\Features\Notifications\OverlayNotificationItem.cs" Link="Production\OverlayNotificationItem.cs" />
   </ItemGroup>
 
   <ItemGroup>

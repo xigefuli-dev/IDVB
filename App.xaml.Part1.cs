@@ -31,6 +31,7 @@ namespace IDVBuff
             if (shutdownComplete)
                 return;
 
+            SaveMainWindowPlacement();
             args.Cancel = true;
             if (!explicitExitRequested && MainProgramPreferences.Load().MinimizeToTray)
             {
@@ -244,6 +245,10 @@ namespace IDVBuff
 
         private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
         {
+            if (mainWindowHasBeenShown && !shutdownInProgress
+                && (args.DidPositionChange || args.DidSizeChange || args.DidPresenterChange)
+                && sender.Presenter is OverlappedPresenter { State: not OverlappedPresenterState.Minimized })
+                CaptureMainWindowPlacement();
             if (args.DidPresenterChange
                 && sender.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }
                 && MainProgramPreferences.Load().MinimizeToTray)
@@ -263,10 +268,9 @@ namespace IDVBuff
             if (!mainWindowHasBeenShown)
             {
                 SetMainWindowCloaked(false);
-                ShowWindow(hWnd, bringToForeground ? 5 : 4);
+                ShowWindow(hWnd, bringToForeground ? 5 : 8);
                 mainWindowHasBeenShown = true;
-                if (currentWindow.AppWindow.Presenter is OverlappedPresenter initialPresenter)
-                    initialPresenter.Maximize();
+                CaptureMainWindowPlacement();
                 if (bringToForeground)
                 {
                     currentWindow.Activate();
@@ -275,7 +279,7 @@ namespace IDVBuff
                 return;
             }
             SetMainWindowCloaked(false);
-            ShowWindow(hWnd, bringToForeground ? 5 : 4);
+            ShowWindow(hWnd, bringToForeground ? 5 : 8);
             if (currentWindow.AppWindow.Presenter is OverlappedPresenter presenter)
             {
                 if (presenter.State == OverlappedPresenterState.Minimized)
@@ -311,6 +315,7 @@ namespace IDVBuff
 
         private void HideMainWindow()
         {
+            SaveMainWindowPlacement();
             if (window is { } currentWindow)
                 ShowWindow(WindowNative.GetWindowHandle(currentWindow), 0);
         }

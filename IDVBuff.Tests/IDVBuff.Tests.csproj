@@ -52,6 +52,7 @@
     <Compile Include="..\Diagnostics\LocalCacheCleanup*.cs" />
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
+    <Compile Include="..\Lifecycle\MainWindowPlacement.cs" Link="Production\Lifecycle\MainWindowPlacement.cs" />
     <Compile Include="..\Features\Plugins\PluginPreferencesStore.cs" Link="Production\Plugins\PluginPreferencesStore.cs" />
     <Compile Include="..\Features\Windows\WindowCaptureProtectionService.cs" Link="Production\Features\Windows\WindowCaptureProtectionService.cs" />
     <Compile Include="..\Lifecycle\VelopackInstallLayout.cs" Link="Production\VelopackInstallLayout.cs" />

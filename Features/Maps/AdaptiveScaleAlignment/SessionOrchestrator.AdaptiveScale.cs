@@ -129,10 +129,10 @@ public sealed partial class SessionOrchestrator
                         && string.IsNullOrWhiteSpace(
                             diagnostics.StructureHardGateFailure))),
             vpsg,
-            ScaleIndependentlyEstimated: diagnostics is null
-                || string.IsNullOrWhiteSpace(diagnostics.LowStructureRoute)
-                || LowStructureScaleEvidenceRules.IsIndependentScaleRoute(
-                    diagnostics.LowStructureRoute),
+            ScaleIndependentlyEstimated: LowStructureScaleEvidenceRules.IsIndependentScaleEvidence(
+                MapAlignmentChannelRegistry.Resolve(
+                    recognition.Map, recognition.Result.Floor).Channel,
+                diagnostics?.LowStructureRoute),
             ScaleClusterTolerance: diagnostics is { LowStructureScaleResolutionRatio: > 0d }
                 ? LowStructureScaleEvidenceRules.ResolveClusterTolerance(
                     diagnostics.LowStructureScaleResolutionRatio)

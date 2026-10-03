@@ -117,8 +117,7 @@ namespace IDVBuff
                     StartupSplash.SetTargetWindow(WindowNative.GetWindowHandle(window));
                 }
 
-                if (window.AppWindow.Presenter is OverlappedPresenter presenter)
-                    presenter.Maximize();
+                RestoreMainWindowPlacement();
 
                 WriteStartupTrace("Window presentation configured; startup content construction begin.");
                 var rootFrame = new Frame { RequestedTheme = AppThemePreference.Resolve(preferences) };

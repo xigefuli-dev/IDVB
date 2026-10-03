@@ -13,7 +13,7 @@ public sealed class IdvpInstaller
         PluginDirectories directories,
         PluginStateRepository state,
         string hostVersion,
-        string pluginApiVersion = "2.1.0")
+        string pluginApiVersion = "2.2.0")
     {
         _directories = directories;
         _state = state;

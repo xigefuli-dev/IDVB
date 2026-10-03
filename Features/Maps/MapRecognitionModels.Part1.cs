@@ -59,6 +59,8 @@ public sealed partial class MapScanDiagnostics
     }
     public string LowStructureReadinessDecision { get; set; } = string.Empty;
     public string LowStructureCacheTrustLevel { get; set; } = string.Empty;
+    /// <summary>The fixed seed belongs to this floor's reliable session, manual lock or trusted cache.</summary>
+    public bool LowStructureValidatedScaleSeed { get; set; }
     public int LowStructurePlannedScaleCount { get; set; }
     public int LowStructureCompletedScaleCount { get; set; }
     public int LowStructureRecoveryBatch { get; set; }

@@ -125,7 +125,7 @@ public sealed class NoRecoveryDelayService : IDisposable
         if (code >= 0 && _activateBinding.Kind == PluginInputBindingKind.Mouse)
         {
             var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
-            if (mouse.ExtraInfo != InjectionMarker
+            if (!InputInjectionMarkers.IsHostGeneratedMouseInput(mouse.ExtraInfo)
                 && PluginMouseInput.TryDecode((uint)wParam.ToInt64(), mouse.MouseData,
                     out var button, out var down)
                 && button == _activateBinding.MouseButton)

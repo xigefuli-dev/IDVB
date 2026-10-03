@@ -273,6 +273,13 @@ public sealed partial class SessionOrchestrator
         MapCvAlignmentService.PopulateStructureDiagnostics(
             diagnostics,
             structure);
+        if (structureTuning.Channel == MapAlignmentChannel.LowStructure
+            && !allowTrackingScaleSearch)
+        {
+            // Describe the fixed-scale evidence without changing candidate
+            // search/ranking or counting it as a fresh scale estimate.
+            diagnostics.LowStructureRoute = nameof(LowStructureAlignmentRoute.CachedFixed);
+        }
         diagnostics.StructureSearchMilliseconds =
             localStructure.SearchMilliseconds
             + (usedGlobalTranslationRecovery

@@ -6,7 +6,7 @@
     <RootNamespace>IdentityVisionBridge.PluginSdk</RootNamespace>
     <AssemblyName>IdentityVisionBridge.PluginSdk</AssemblyName>
     <PackageId>IdentityVisionBridge.PluginSdk</PackageId>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <Description>Public abstractions for Identity Vision Bridge plugins.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

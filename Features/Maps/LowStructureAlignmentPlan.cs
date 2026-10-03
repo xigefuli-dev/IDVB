@@ -11,7 +11,7 @@ internal enum LowStructureAlignmentRoute
     IncrementalRecovery
 }
 
-internal static class LowStructureScaleEvidenceRules
+internal static partial class LowStructureScaleEvidenceRules
 {
     public const int MinimumIndependentScaleConfirmations = 5;
     public const double MinimumClusterTolerance = 0.003d;

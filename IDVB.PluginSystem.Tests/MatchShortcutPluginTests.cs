@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using IDVB.Sample.MatchShortcuts;
 using IDVBuff.PluginContracts;
+using IDVBuff.Features.Plugins.V2;
 using IdentityVisionBridge.PluginPackaging;
 using IdentityVisionBridge.PluginRuntime;
 using IdentityVisionBridge.PluginSdk;
@@ -79,6 +80,137 @@ public sealed class MatchShortcutPluginTests
         {
             TrustPublisher = true, ApprovedCapabilities = manifest.Capabilities.ToHashSet(StringComparer.Ordinal)
         }));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task RapidSwitchesKeepRunningWithTheProductionNotificationCapability(bool useCommands, bool recoverQuarantine)
+    {
+        using var fixture = new PluginPackageTestFixture(typeof(MatchShortcutsPlugin));
+        var manifest = JsonSerializer.Deserialize<IdvpManifest>(
+            await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "MatchShortcuts.manifest.json")),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var package = Environment.GetEnvironmentVariable("IDVB_MATCH_SHORTCUTS_PACKAGE")
+            ?? await fixture.PackAsync(manifest);
+        var directories = new PluginDirectories(Path.Combine(fixture.Root, "notification-host"), false);
+        var state = new PluginStateRepository(directories);
+        var installer = new IdvpInstaller(directories, state, "1.6.6");
+        await installer.InstallAsync(package, new()
+        {
+            TrustPublisher = true, ApprovedCapabilities = manifest.Capabilities.ToHashSet(StringComparer.Ordinal)
+        });
+        await installer.ApplyStartupChangesAsync();
+        await installer.SetEnabledAsync(manifest.Id, true);
+        if (recoverQuarantine)
+            await state.UpdateCatalogAsync(catalog => catalog with
+            {
+                Plugins = catalog.Plugins.Select(entry => entry.Id == manifest.Id ? entry with
+                {
+                    Enabled = false,
+                    QuarantineReason = "Plugin callback failed: Plugin notification rate limit exceeded."
+                } : entry).ToArray()
+            });
+        try { await ExerciseRapidSwitchesAsync(directories, state, installer, manifest.Id, useCommands, recoverQuarantine); }
+        finally { GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect(); }
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static async Task ExerciseRapidSwitchesAsync(PluginDirectories directories,
+        PluginStateRepository state, IdvpInstaller installer, string pluginId, bool useCommands, bool recoverQuarantine)
+    {
+        var host = new Host();
+        var input = new HostInput();
+        var overlay = new RecordingOverlayNotificationService();
+        var notifications = new PluginNotificationCenter(overlay);
+        var delivered = new ConcurrentQueue<HostedPluginNotification>();
+        notifications.NotificationPosted += (_, item) => delivered.Enqueue(item);
+        var faults = new ConcurrentQueue<string>();
+        var faultTasks = new ConcurrentQueue<Task>();
+        var logs = new ConcurrentQueue<string>();
+        ThirdPartyPluginRuntimeManager? runtime = null;
+        void ReportFault(string id, Exception exception)
+        {
+            faults.Enqueue(exception.Message);
+            faultTasks.Enqueue(runtime!.ReportFaultAsync(id, $"Plugin callback failed: {exception.Message}"));
+        }
+        var source = new ThirdPartyPluginCapabilitySource(new ThirdPartyHostEventHub(), input,
+            new UnusedScreenshots(), notifications, ReportFault,
+            new VisionCapabilityProvider(host, () => throw new InvalidOperationException("No engine needed.")));
+        var contexts = new DefaultThirdPartyPluginContextFactory(source,
+            _ => new DelegatePluginLogger((_, message, _) => logs.Enqueue(message)), ReportFault);
+        await using var runtimeLease = runtime = new(directories, state, installer, contexts);
+        host.Runtime = runtime;
+        try
+        {
+            await runtime.SetMatchActivationAsync(false);
+            await runtime.StartAsync();
+            if (recoverQuarantine)
+            {
+                Assert.Empty(input.Bindings);
+                Assert.Contains(runtime.Statuses, status => status.Id == pluginId && status.State == ThirdPartyPluginState.Quarantined);
+                await runtime.RetryAsync(pluginId);
+            }
+            for (var index = 0; index < 12; index++)
+            {
+                var difficult = index % 2 == 0;
+                if (useCommands)
+                {
+                    var result = await runtime.ExecuteCommandAsync(pluginId, difficult ? "start-difficult" : "start-boss");
+                    Assert.True(result.Status == PluginCommandStatus.Success, result.Message);
+                }
+                else
+                {
+                    input.Raise(pluginId, difficult ? "difficult" : "boss");
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    while (logs.Count(message => message.Contains(" · Applied · ", StringComparison.Ordinal)) < index + 1
+                        && faults.IsEmpty)
+                        await Task.Delay(10, timeout.Token);
+                }
+                Assert.Empty(faults);
+            }
+            Assert.Equal(12, host.EndTransitions);
+            Assert.Equal(5, delivered.Count);
+            Assert.Equal(5, overlay.Items.Count);
+            Assert.All(overlay.Items, item => Assert.Equal(TimeSpan.FromSeconds(5), item.Duration));
+            Assert.All(host.Requests.Select((request, index) => (request, index)), item =>
+                Assert.Equal(item.index % 2 == 0 ? MatchShortcutsPlugin.DifficultClass : MatchShortcutsPlugin.BossClass,
+                    item.request.MapClass));
+            Assert.Contains(runtime.Statuses, status => status.Id == pluginId && status.State == ThirdPartyPluginState.Running);
+            var entry = (await state.ReadCatalogAsync()).Plugins.Single(item => item.Id == pluginId);
+            Assert.True(entry.Enabled);
+            Assert.Null(entry.QuarantineReason);
+            Assert.Equal(2, input.Bindings.Count);
+            await runtime.SetEnabledAsync(pluginId, false);
+            Assert.Empty(input.Bindings);
+        }
+        finally
+        {
+            await Task.WhenAll(faultTasks);
+            await runtime.StopAsync();
+            host.Runtime = null!;
+        }
+    }
+
+    private sealed class HostInput : IPluginInputService
+    {
+        public event EventHandler<PluginInputEventArgs>? BindingInvoked;
+        public readonly ConcurrentDictionary<(string Plugin, string Binding), PluginInputBinding> Bindings = new();
+        public void SetBinding(string pluginId, string key, PluginInputBinding binding) => Bindings[(pluginId, key)] = binding;
+        public void ClearBindings(string pluginId)
+        {
+            foreach (var key in Bindings.Keys.Where(key => key.Plugin == pluginId)) Bindings.TryRemove(key, out _);
+        }
+        public bool IsBindingPressed(string pluginId, string key) => false;
+        public void Raise(string pluginId, string key) => BindingInvoked?.Invoke(this, new(pluginId, key, 0, true));
+    }
+
+    private sealed class UnusedScreenshots : IPluginScreenshotService
+    {
+        public Task<IDVBuff.PluginContracts.PluginScreenshotResult> CaptureAsync(TimeSpan? delay = null,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class Capabilities(Host host) : IPluginCapabilitySource

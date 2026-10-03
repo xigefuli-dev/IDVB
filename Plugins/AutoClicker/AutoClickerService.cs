@@ -247,7 +247,7 @@ public sealed partial class AutoClickerService : IDisposable
         {
             var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
             // 注入的连点信号（本服务 SendInput 产生）：透传给目标程序。
-            if (mouse.ExtraInfo != InputInjectionMarker
+            if (!InputInjectionMarkers.IsHostGeneratedMouseInput(mouse.ExtraInfo)
                 && TryGetMouseButton(
                     (uint)wParam.ToInt64(),
                     lParam,

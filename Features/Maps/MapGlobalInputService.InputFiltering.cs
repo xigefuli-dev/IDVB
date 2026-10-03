@@ -8,7 +8,7 @@ public sealed partial class MapGlobalInputService
     private static bool IsMarkedInjectedMouse(MsLlHookStruct mouse)
     {
         return (mouse.Flags & 0x00000001) != 0
-            && mouse.ExtraInfo == new IntPtr(InputInjectionMarkers.HostGeneratedInput);
+            && InputInjectionMarkers.IsHostGeneratedMouseInput(mouse.ExtraInfo);
     }
 }
 /*

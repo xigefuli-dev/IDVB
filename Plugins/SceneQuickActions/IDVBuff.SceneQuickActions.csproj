@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>IDVBuff.Plugins.SceneQuickActions</RootNamespace>
+    <AssemblyName>IDVB.SceneQuickActions</AssemblyName>
+    <PackageId>IdentityVisionBridge.SceneQuickActions</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 只取托管封装；原生 OpenCvSharpExtern.dll 由主程序输出目录提供。 -->
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 场景识别模板（由用户提供的游戏截图裁剪）。 -->
+    <EmbeddedResource Include="Templates\*.png" />
+  </ItemGroup>
+</Project>

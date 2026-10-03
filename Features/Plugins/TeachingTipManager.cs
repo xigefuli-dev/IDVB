@@ -435,6 +435,9 @@ public sealed partial class TeachingTipManager
         var numericEditors = new List<(NumberBox Input, Action Commit)>();
         var textEditors = new List<Action>();
         var settingRows = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
+        // 声明了 Group 的设置项收进默认收起的折叠区（按首次出现顺序落位）；
+        // 未声明 Group 的仍平铺在最外层，这样插件只把「要收起来的东西」分组即可。
+        var groups = new List<(string Title, StackPanel Rows)>();
         Action endNumericEditing = () => { }, refreshVisibility = () => RefreshSettingVisibility(provider, settingRows);
         foreach (var setting in provider.Settings)
         {
@@ -443,11 +446,24 @@ public sealed partial class TeachingTipManager
                 var row = BuildSettingRow(provider, pluginId, setting, numericEditors,
                     textEditors,
                     () => endNumericEditing(), refreshVisibility);
-                if (row is not null)
+                if (row is null)
+                    continue;
+
+                var target = rows;
+                if (!string.IsNullOrWhiteSpace(setting.Group))
                 {
-                    rows.Children.Add(row);
-                    settingRows[setting.Key] = row;
+                    var title = setting.Group;
+                    var slot = groups.FindIndex(
+                        group => string.Equals(group.Title, title, StringComparison.Ordinal));
+                    if (slot < 0)
+                    {
+                        groups.Add((title, new StackPanel { Spacing = 12 }));
+                        slot = groups.Count - 1;
+                    }
+                    target = groups[slot].Rows;
                 }
+                target.Children.Add(row);
+                settingRows[setting.Key] = row;
             }
             catch (Exception exception)
             {
@@ -455,6 +471,17 @@ public sealed partial class TeachingTipManager
                 System.Diagnostics.Debug.WriteLine(
                     $"TTM 构建设置行失败 {setting.Key}: {exception}");
             }
+        }
+        foreach (var (title, groupRows) in groups)
+        {
+            // 默认收起：Expander 的 IsExpanded 默认即 false，这里不再显式赋值。
+            rows.Children.Add(new Expander
+            {
+                Header = title,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content = groupRows
+            });
         }
         refreshVisibility();
         var scrollViewer = new ScrollViewer

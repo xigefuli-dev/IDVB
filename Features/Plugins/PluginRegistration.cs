@@ -24,5 +24,7 @@ public static class PluginRegistration
             host.Register(new IDVBuff.Plugins.LiveMode.LiveModePlugin());
         using (StartupTimeline.Measure("Built-in construct and register: IDVBuff.Plugins.CustomPhrases.CustomPhrasePlugin"))
             host.Register(new IDVBuff.Plugins.CustomPhrases.CustomPhrasePlugin());
+        using (StartupTimeline.Measure("Built-in construct and register: IDVBuff.Plugins.SceneQuickActions.SceneQuickActionsPlugin"))
+            host.Register(new IDVBuff.Plugins.SceneQuickActions.SceneQuickActionsPlugin());
     }
 }

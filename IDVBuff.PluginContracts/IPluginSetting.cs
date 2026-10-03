@@ -20,6 +20,12 @@ public interface IPluginSetting
 
     /// <summary>来源设置等于此值时显示；未指定来源键时始终显示。</summary>
     string? VisibleWhenValue { get; }
+
+    /// <summary>
+    /// 可选的可折叠分组标题。同一插件里 <see cref="Group"/> 相同的连续设置项会被
+    /// 收进同一个默认收起的折叠区（宿主按此渲染）；为空表示直接平铺在设置页上。
+    /// </summary>
+    string? Group { get; }
 }
 
 /// <summary>开关设置项。</summary>
@@ -34,6 +40,8 @@ public sealed class PluginToggleSetting : IPluginSetting
     public string? VisibleWhenKey { get; init; }
 
     public string? VisibleWhenValue { get; init; }
+
+    public string? Group { get; init; }
 
     public bool DefaultValue { get; init; }
 }
@@ -51,6 +59,8 @@ public sealed class PluginSliderSetting : IPluginSetting
     public string? VisibleWhenKey { get; init; }
 
     public string? VisibleWhenValue { get; init; }
+
+    public string? Group { get; init; }
 
     public double Minimum
     {
@@ -84,6 +94,8 @@ public sealed class PluginChoiceSetting : IPluginSetting
 
     public string? VisibleWhenValue { get; init; }
 
+    public string? Group { get; init; }
+
     public required string[] Options { get; init; }
 
     public int DefaultIndex { get; init; }
@@ -110,6 +122,8 @@ public sealed class PluginKeyBindingSetting : IPluginSetting
 
     public string? VisibleWhenValue { get; init; }
 
+    public string? Group { get; init; }
+
     /// <summary>默认绑定的 PluginInputBinding.StorageValue。</summary>
     public required string DefaultValue { get; init; }
 
@@ -130,6 +144,8 @@ public sealed class PluginTextSetting : IPluginSetting
     public string? VisibleWhenKey { get; init; }
 
     public string? VisibleWhenValue { get; init; }
+
+    public string? Group { get; init; }
 
     public string DefaultValue { get; init; } = string.Empty;
 

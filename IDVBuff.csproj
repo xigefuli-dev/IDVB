@@ -93,6 +93,7 @@
         <ProjectReference Include="Plugins\DynamicMiniMapZoom\IDVBuff.DynamicMiniMapZoom.csproj" />
         <ProjectReference Include="Plugins\LiveMode\IDVBuff.LiveMode.csproj" />
         <ProjectReference Include="Plugins\CustomPhrases\IDVBuff.CustomPhrases.csproj" />
+        <ProjectReference Include="Plugins\SceneQuickActions\IDVBuff.SceneQuickActions.csproj" />
 
         <Content Include="Assets\SplashScreen.scale-200.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\LockScreenLogo.scale-200.png" CopyToOutputDirectory="PreserveNewest" />

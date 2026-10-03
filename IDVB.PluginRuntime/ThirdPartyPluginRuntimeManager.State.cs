@@ -6,6 +6,19 @@ namespace IdentityVisionBridge.PluginRuntime;
 
 public sealed partial class ThirdPartyPluginRuntimeManager
 {
+    private static bool RunsBetweenMatches(PluginCatalogEntry entry) => entry.GrantedCapabilities.Any(capability =>
+        capability is PluginCapabilityIds.HostMatchControl or PluginCapabilityIds.HostStateRead
+            or PluginCapabilityIds.HostSettingsControl or PluginCapabilityIds.VisionMapsRead
+            or PluginCapabilityIds.VisionScan or PluginCapabilityIds.VisionAlign);
+
+    private Task RefreshSessionMarkerAsync(CancellationToken token)
+    {
+        if (_loaded.Count > 0) return WriteJsonAsync(_directories.SessionMarkerPath,
+            new PluginSessionMarker { EnabledPluginIds = _loaded.Keys.ToArray() }, token);
+        TryDeleteFile(_directories.SessionMarkerPath);
+        return Task.CompletedTask;
+    }
+
     private async Task RecoverStartupStateAsync(CancellationToken cancellationToken)
     {
         string? suspectedPluginId = null;

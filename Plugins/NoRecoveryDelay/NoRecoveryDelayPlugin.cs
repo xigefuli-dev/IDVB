@@ -30,10 +30,10 @@ public sealed class NoRecoveryDelayPlugin : PluginBase, IPluginSettingsProvider
             StepFrequency = 1, DefaultValue = 1, VisibleWhenKey = "loop-mode", VisibleWhenValue = "轮次循环" },
         new PluginKeyBindingSetting { Key = "inventory-binding", DisplayName = "背包按键",
             Description = "打开或关闭背包的游戏内按键，默认为 Tab。", DefaultValue = "keyboard:9:0",
-            AllowedKinds = PluginInputBindingKinds.Keyboard },
+            AllowedKinds = PluginInputBindingKinds.All },
         new PluginKeyBindingSetting { Key = "activate-binding", DisplayName = "激活无后摇",
             Description = "按住循环或触发指定轮次，默认为 T。", DefaultValue = "keyboard:54:0",
-            AllowedKinds = PluginInputBindingKinds.Keyboard },
+            AllowedKinds = PluginInputBindingKinds.All },
         Delay("standard-delay-ms", "通用延迟（毫秒）", 50, 1),
         Delay("key-press-delay-ms", "按键保持（毫秒）", 10, 10),
         Delay("drag-delay-ms", "拖动时长（毫秒）", 50, 25),
@@ -75,7 +75,7 @@ public sealed class NoRecoveryDelayPlugin : PluginBase, IPluginSettingsProvider
             else if (key == "inventory-slot-1" && int.TryParse(text, out var first) && first != _options.InventorySlot2) _options.InventorySlot1 = Math.Clamp(first, 1, 6);
             else if (key == "inventory-slot-2" && int.TryParse(text, out var second) && second != _options.InventorySlot1) _options.InventorySlot2 = Math.Clamp(second, 1, 6);
             else if (key == "loop-mode" && Array.IndexOf(LoopModes, text) is var mode && mode >= 0) _options.LoopMode = (NoRecoveryDelayLoopMode)mode;
-            else if (PluginInputBinding.TryParse(text, PluginInputBindingKinds.Keyboard, out var binding))
+            else if (PluginInputBinding.TryParse(text, PluginInputBindingKinds.All, out var binding))
             {
                 if (key == "inventory-binding") _inventoryBinding = binding;
                 else if (key == "activate-binding") _activateBinding = binding;

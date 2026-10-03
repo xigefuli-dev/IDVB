@@ -44,7 +44,7 @@ public sealed partial class SideEntranceScanPipeline
                 {
                     var rx = (p.X - x) / scale;
                     var ry = (p.Y - y) / scale;
-                    if (index.IsUnknown(rx, ry)) continue;
+                    if (index.IsUnknownWithinSupport(rx, ry, scale)) continue;
                     var d = index.Distance(rx, ry, scale);
                     if (d <= ScanIdentityVerifier.SupportTolerancePixels) hits++;
                     distance += d;

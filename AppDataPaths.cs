@@ -3,7 +3,11 @@ namespace IDVBuff;
 /// <summary>Separates manual test builds from the user's production data.</summary>
 public static class AppDataPaths
 {
-#if IDVBUFF_TEST_BUILD
+#if IDVB_EMBEDDED
+    public const bool IsTestBuild = false;
+    public const string ProductDirectoryName = "IDVB-Embedded";
+    public const string DisplayName = "Identity Vision Bridge";
+#elif IDVBUFF_TEST_BUILD
     public const bool IsTestBuild = true;
     public const string ProductDirectoryName = "IDVB-Test";
     private const string LegacyProductDirectoryName = "IDVBuff-Test";
@@ -20,7 +24,10 @@ public static class AppDataPaths
 
     private static string ResolveRootDirectory()
     {
-#if IDVB_UNIT_TEST
+#if IDVB_EMBEDDED
+        // Embedded processing must never migrate or share the desktop application's data.
+        return Path.Combine(Path.GetTempPath(), "IDVB-Embedded", Environment.ProcessId.ToString());
+#elif IDVB_UNIT_TEST
         // Unit tests must never migrate or write the user's installed data.
         return Path.Combine(Path.GetTempPath(), $"IDVB-UnitTests-{Environment.ProcessId}");
 #else

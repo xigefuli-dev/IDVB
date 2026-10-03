@@ -152,13 +152,16 @@ public sealed partial class PluginsPage
                             choice.SelectedItem as string ?? definition.Options[0].Value);
                         break;
                     case "keyBinding":
-                        var binding = new TextBox
-                        {
-                            Text = value.ValueKind == JsonValueKind.String ? value.GetString() : "none",
-                            PlaceholderText = "keyboard:70:0 / mouse:0 / none"
-                        };
-                        panel.Children.Add(binding);
-                        readers[definition.Key] = () => JsonSerializer.SerializeToElement(binding.Text);
+                        var bindingValue = value.ValueKind == JsonValueKind.String
+                            ? value.GetString() : "none";
+                        panel.Children.Add(TeachingTipManager.CreateInputBindingControl(
+                            bindingValue,
+                            definition.Default.ValueKind == JsonValueKind.String
+                                ? definition.Default.GetString() : "none",
+                            IDVBuff.PluginContracts.PluginInputBindingKinds.All,
+                            DispatcherQueue,
+                            next => bindingValue = next.StorageValue));
+                        readers[definition.Key] = () => JsonSerializer.SerializeToElement(bindingValue);
                         break;
                 }
             }

@@ -7,6 +7,16 @@ public static class PluginCapabilityIds
     public const string CaptureScreenshot = "capture.screenshot";
     public const string StoragePrivate = "storage.private";
     public const string NotificationsPost = "notifications.post";
+    public const string HostStateRead = "host.state.read";
+    public const string HostScanRun = "host.scan.run";
+    public const string HostAlignmentRun = "host.alignment.run";
+    public const string VisionMapsRead = "vision.maps.read";
+    public const string VisionScan = "vision.scan";
+    public const string VisionAlign = "vision.align";
+    public const string HostMatchControl = "host.match.control";
+    public const string HostMapControl = "host.map.control";
+    public const string HostOverlayControl = "host.overlay.control";
+    public const string HostSettingsControl = "host.settings.control";
 
     public static IReadOnlySet<string> PublicV1 { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -14,7 +24,17 @@ public static class PluginCapabilityIds
         InputBindings,
         CaptureScreenshot,
         StoragePrivate,
-        NotificationsPost
+        NotificationsPost,
+        HostStateRead,
+        HostScanRun,
+        HostAlignmentRun,
+        VisionMapsRead,
+        VisionScan,
+        VisionAlign,
+        HostMatchControl,
+        HostMapControl,
+        HostOverlayControl,
+        HostSettingsControl
     };
 }
 

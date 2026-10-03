@@ -56,6 +56,16 @@ public sealed partial class AutoGatlingService
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct MsLlHookStruct
+    {
+        public NativePoint Point;
+        public uint MouseData;
+        public uint Flags;
+        public uint Time;
+        public IntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct KbdLlHookStruct
     {
         public uint VirtualKey;

@@ -30,7 +30,6 @@ public sealed partial class AutoClickerService : IDisposable
     private const uint WmXButtonUp = 0x020C;
     private const uint WmQuit = 0x0012;
     private const uint PmNoRemove = 0x0000;
-    private const uint LlmhfInjected = 0x00000001;
     private const uint InputKeyboard = 1;
     private const uint InputMouse = 0;
     private const uint KeyeventfKeyup = 0x0002;
@@ -49,8 +48,8 @@ public sealed partial class AutoClickerService : IDisposable
     private readonly AutoClickerOptions _options;
     private PluginInputBinding _triggerBinding =
         PluginInputBinding.Mouse(PluginMouseButton.Right);
-    private ushort _outputVirtualKey = 0x46;
-    private bool _outputVirtualKeyConfigured = true;
+    private PluginInputBinding _outputBinding = PluginInputBinding.Keyboard(0x46);
+    private bool _outputBindingConfigured = true;
     private IntPtr _hook;
     private IntPtr _keyboardHook;
     private Thread? _hookThread;
@@ -62,10 +61,14 @@ public sealed partial class AutoClickerService : IDisposable
     private bool _outputSessionActive;
     private int _pressGeneration;
     private bool _started;
+    private readonly Action<string>? _trace;
 
-    public AutoClickerService(AutoClickerOptions options)
+    public AutoClickerService(AutoClickerOptions options) : this(options, null) { }
+
+    public AutoClickerService(AutoClickerOptions options, Action<string>? trace)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _trace = trace;
         _mouseProc = MouseHookCallback;
         _keyboardProc = KeyboardHookCallback;
     }
@@ -82,16 +85,13 @@ public sealed partial class AutoClickerService : IDisposable
         ArgumentNullException.ThrowIfNull(triggerBinding);
         ArgumentNullException.ThrowIfNull(outputBinding);
         if (outputBinding.IsConfigured
-            && (outputBinding.Kind != PluginInputBindingKind.Keyboard
-                || outputBinding.VirtualKey == 0))
+            && !PluginInputBinding.TryParse(outputBinding.StorageValue, out _))
         {
-            throw new ArgumentException("连点器按键绑定无效。", nameof(triggerBinding));
+            throw new ArgumentException("连点器按键绑定无效。", nameof(outputBinding));
         }
 
         var nextTriggerBinding = triggerBinding.Clone();
-        var nextOutputVirtualKey = outputBinding.IsConfigured
-            ? checked((ushort)outputBinding.VirtualKey)
-            : (ushort)0;
+        var nextOutputBinding = outputBinding.Clone();
         bool restart;
         lock (_sync)
             restart = _started;
@@ -105,9 +105,9 @@ public sealed partial class AutoClickerService : IDisposable
         lock (_sync)
         {
             _triggerBinding = nextTriggerBinding;
-            _outputVirtualKeyConfigured = outputBinding.IsConfigured;
+            _outputBindingConfigured = outputBinding.IsConfigured;
             if (outputBinding.IsConfigured)
-                _outputVirtualKey = nextOutputVirtualKey;
+                _outputBinding = nextOutputBinding;
         }
 
         if (restart)
@@ -120,13 +120,14 @@ public sealed partial class AutoClickerService : IDisposable
         {
             if (_started)
                 return;
-            if (!_triggerBinding.IsConfigured || !_outputVirtualKeyConfigured)
+            if (!_triggerBinding.IsConfigured || !_outputBindingConfigured)
                 return;
             _started = true;
         }
         try
         {
             StartHookThread();
+            TraceInput($"hooks-ready trigger={_triggerBinding.StorageValue} output={_outputBinding.StorageValue} mouseHook={_hook != IntPtr.Zero} keyboardHook={_keyboardHook != IntPtr.Zero}");
         }
         catch
         {
@@ -246,7 +247,7 @@ public sealed partial class AutoClickerService : IDisposable
         {
             var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
             // 注入的连点信号（本服务 SendInput 产生）：透传给目标程序。
-            if ((mouse.Flags & LlmhfInjected) == 0
+            if (mouse.ExtraInfo != InputInjectionMarker
                 && TryGetMouseButton(
                     (uint)wParam.ToInt64(),
                     lParam,
@@ -262,6 +263,7 @@ public sealed partial class AutoClickerService : IDisposable
                     var swallow = isDown
                         ? HandlePhysicalButtonDown()
                         : HandlePhysicalButtonUp();
+                    TraceInput($"mouse-trigger button={button} down={isDown} flags={mouse.Flags} swallowed={swallow}");
                     if (swallow)
                         return new IntPtr(1);
                 }
@@ -275,7 +277,7 @@ public sealed partial class AutoClickerService : IDisposable
         if (code >= 0)
         {
             var keyboard = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
-            if ((keyboard.Flags & 0x00000010) == 0)
+            if (keyboard.ExtraInfo != InputInjectionMarker)
             {
                 var message = (uint)wParam.ToInt64();
                 var isDown = message is WmKeyDown or WmSysKeyDown;
@@ -408,7 +410,10 @@ public sealed partial class AutoClickerService : IDisposable
                     // 在 SendInput 成功前不吞掉物理右键抬起，否则注入失败会
                     // 把目标程序永久留在“右键按下”状态。
                     if (!SendTriggerUp())
+                    {
+                        TraceInput("handoff-failed; worker stopped before output");
                         break;
+                    }
                     lock (_sync)
                     {
                         if (!_started
@@ -420,6 +425,7 @@ public sealed partial class AutoClickerService : IDisposable
                         _clicking = true;
                         _outputSessionActive = true;
                     }
+                    TraceInput($"handoff-accepted generation={sessionGeneration} heldMs={heldMs:F1}");
                     nextClickAt = Stopwatch.GetTimestamp();
                     continue;
                 }
@@ -433,11 +439,17 @@ public sealed partial class AutoClickerService : IDisposable
                 var periodTicks = _options.PeriodTicks(tickRate)
                     + MillisecondsToTicks(keyDownRandomDelay + upRandomDelay, tickRate);
                 if (!SendKeyDown(sessionGeneration))
+                {
+                    TraceInput($"output-down-stopped generation={sessionGeneration}");
                     break;
+                }
                 var downSentAt = Stopwatch.GetTimestamp();
                 WaitUntil(downSentAt + keyDownTicks);
                 if (!SendKeyUp(sessionGeneration))
+                {
+                    TraceInput($"output-up-stopped generation={sessionGeneration}");
                     break;
+                }
                 nextClickAt += periodTicks;
                 var now = Stopwatch.GetTimestamp();
                 if (nextClickAt <= now)
@@ -467,7 +479,21 @@ public sealed partial class AutoClickerService : IDisposable
             }
             if (releaseOutputs)
                 SendReleaseSignals();
+            TraceInput($"worker-ended generation={sessionGeneration} released={releaseOutputs}");
             timeEndPeriod(1);
         }
+    }
+
+    private void TraceInput(string message)
+    {
+        if (_trace is not { } trace)
+            return;
+        var timestamp = Stopwatch.GetTimestamp();
+        // The hook gates OS input delivery. Never acquire the shared log lock here.
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try { trace($"[AutoClicker/Input] ticks={timestamp} {message}"); }
+            catch { /* Diagnostic failures must not affect input delivery. */ }
+        });
     }
 }

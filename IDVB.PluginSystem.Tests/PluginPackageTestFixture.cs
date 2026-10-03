@@ -6,12 +6,12 @@ namespace IDVB.PluginSystem.Tests;
 
 internal sealed class PluginPackageTestFixture : IDisposable
 {
-    public PluginPackageTestFixture()
+    public PluginPackageTestFixture(Type? pluginType = null)
     {
         Root = Path.Combine(Path.GetTempPath(), "idvb-plugin-tests", Guid.NewGuid().ToString("N"));
         Source = Path.Combine(Root, "source");
         Directory.CreateDirectory(Source);
-        var assemblyPath = typeof(MatchNotifierPlugin).Assembly.Location;
+        var assemblyPath = (pluginType ?? typeof(MatchNotifierPlugin)).Assembly.Location;
         File.Copy(assemblyPath, Path.Combine(Source, Path.GetFileName(assemblyPath)));
         var depsPath = Path.ChangeExtension(assemblyPath, ".deps.json");
         var destinationDepsPath = Path.Combine(Source, Path.GetFileName(depsPath));

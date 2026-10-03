@@ -9,7 +9,7 @@ public sealed partial class SessionOrchestrator
         lock (_quickScanCancellationGate)
         {
             _quickScanCancellation?.Cancel();
-            var scope = CancellationTokenSource.CreateLinkedTokenSource(CurrentMatchCancellationToken);
+            var scope = CancellationTokenSource.CreateLinkedTokenSource(CurrentMatchCancellationToken, ExternalOperationCancellation.Value);
             _quickScanCancellation = scope;
             return scope;
         }
@@ -53,6 +53,7 @@ public sealed partial class SessionOrchestrator
                 ["searchHypotheses"] = execution.TestedHypotheses,
                 ["variantRefinements"] = execution.VariantRefinementCount,
                 ["retrievalComplete"] = execution.RetrievalCompleted,
+                ["comparedIdentities"] = execution.ComparedIdentityCount,
                 ["verifiedCandidates"] = execution.VerifiedCandidateCount
             });
     }

@@ -12,6 +12,8 @@
     <ProjectReference Include="..\IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
     <ProjectReference Include="..\IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
     <ProjectReference Include="..\Plugins\Samples\MatchNotifier\IDVB.Sample.MatchNotifier.csproj" />
+    <ProjectReference Include="..\Plugins\Samples\MatchShortcuts\IDVB.Sample.MatchShortcuts.csproj" />
+    <None Include="..\Plugins\Samples\MatchShortcuts\manifest.json" Link="MatchShortcuts.manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />
   </ItemGroup>
 

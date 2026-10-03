@@ -185,6 +185,12 @@ internal static class BackgroundScanRules
         RuntimeMapRecognition identity,
         string floorKey)
     {
+        // Choosing an identity does not validate its earlier retrieval pose.
+        // Verified structure scales are recovered separately below; an identity-
+        // only user choice must start independent alignment of its own floor.
+        if (identity.Result.Source == MapRecognitionSource.UserConfirmed
+            && identity.Result.OverlayTransform is null)
+            return null;
         if (seed is null)
             return null;
         if (seed.MapId != identity.Map.Id)

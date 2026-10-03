@@ -113,7 +113,7 @@ public sealed partial class SessionOrchestrator
             // below remain the independent commit guard.
             _mapOpenCancellation?.Cancel();
             var scope = CancellationTokenSource.CreateLinkedTokenSource(
-                CurrentMatchCancellationToken);
+                CurrentMatchCancellationToken, ExternalOperationCancellation.Value);
             _mapOpenCancellation = scope;
             return scope;
         }
@@ -288,8 +288,12 @@ public sealed partial class SessionOrchestrator
         ObjectDisposedException.ThrowIf(_disposed, this);
         await EnsureMapCacheSynchronizedAsync();
         await _matchLifecycleGate.WaitAsync();
-        try
-        {
+        try { await BeginMatchCoreAsync(mapClass); }
+        finally { _matchLifecycleGate.Release(); }
+    }
+
+    private async Task BeginMatchCoreAsync(string mapClass)
+    {
             if (_disposed)
                 return;
             if (_matchSession.Snapshot.IsStarted)
@@ -311,11 +315,6 @@ public sealed partial class SessionOrchestrator
             // Native capture is acquired by its actual consumers. Starting a WGC
             // session here records every game frame even when heading is disabled
             // and recognition is using GDI, until the match is reset.
-        }
-        finally
-        {
-            _matchLifecycleGate.Release();
-        }
     }
 
     [Obsolete("Player slots are no longer used. Call BeginMatchAsync(mapClass).")]

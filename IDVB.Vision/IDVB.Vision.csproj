@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <DefineConstants>$(DefineConstants);IDVB_EMBEDDED</DefineConstants>
+    <UseSystemDrawing>true</UseSystemDrawing>
+    <AssemblyName>IdentityVisionBridge.Vision</AssemblyName>
+    <PackageId>IdentityVisionBridge.Vision</PackageId>
+    <Version>1.0.0</Version>
+    <Description>Embeddable IDVB production scan and alignment engine, without WinUI or capture hooks.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\Infrastructure\IDVBuff.Infrastructure.csproj" />
+    <ProjectReference Include="..\Pipeline\IDVBuff.Pipeline.csproj" />
+    <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
+    <ProjectReference Include="..\Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
+  </ItemGroup>
+  <!-- Compile the existing production algorithms, not forks or test implementations.
+       The desktop shell retains its own types; its reference uses an extern alias. -->
+  <ItemGroup>
+    <Compile Include="..\Features\Maps\**\*.cs"
+      Exclude="..\Features\Maps\**\SessionOrchestrator*.cs;..\Features\Maps\Adapters\**;..\Features\Maps\*Window*.cs;..\Features\Maps\WinUi*.cs;..\Features\Maps\MapGlobalInputService*.cs;..\Features\Maps\DwrGame*.cs;..\Features\Maps\GameFrameStream*.cs;..\Features\Maps\CaptureStream*.cs;..\Features\Maps\FloorIndicatorCaptureService.cs;..\Features\Maps\MapDiagnosticModeCapture.cs;..\Features\Maps\GameProcessIntegrityService.cs;..\Features\Maps\MapCandidateLearningEngine*.cs;..\Features\Maps\MapLearningPreprocessor.Torch.cs;..\Features\Maps\MapLearningRepository.Models.cs;..\Features\Maps\SiameseMapNetwork.cs;..\Features\Maps\TorchRuntimeConfiguration.cs;..\Features\Maps\MapGpuTrainingSidecar*.cs;..\Features\Maps\MapPublicationService.cs;..\Features\Maps\MapPublisherCredentialStore.cs;..\Features\Maps\MapSubscriptionService.cs;..\Features\Maps\RealtimeMapTransformPublisher.cs"
+      Link="Production\Maps\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Diagnostics\OutputLog*.cs" Link="Production\Diagnostics\%(Filename)%(Extension)" />
+    <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
+    <Compile Include="..\Diagnostics\StartupTimeline.cs" Link="Production\Diagnostics\StartupTimeline.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="..\Features\Maps\ExperimentalAlgorithmRegistry.cs;..\Features\Maps\MapFloorRecognitionWorker.cs;..\Features\Maps\MapOverlayStatusCoordinator.cs" />
+    <Compile Include="..\Features\Maps\MapSessionModels.WindowSignature.cs" Link="Production\Maps\MapSessionModels.WindowSignature.cs" />
+    <Compile Include="..\Features\Maps\MapDiagnosticModeCapture.cs" Link="Production\Maps\MapDiagnosticModeCapture.cs" />
+    <None Include="..\Assets\Gate.png" Link="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles\any\any\Assets" />
+    <None Include="..\Assets\Algorithms\*.idva" Link="Assets\Algorithms\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

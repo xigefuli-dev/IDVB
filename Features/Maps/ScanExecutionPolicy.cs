@@ -86,6 +86,7 @@ internal sealed class ScanExecutionContext : IDisposable
     public ScanFrameEvidence? Frame { get; private set; }
     public bool RetrievalCompleted { get; set; } = true;
     public int EligibleIdentities { get; set; }
+    public int? ComparedIdentityCount { get; set; }
     public int? VerifiedCandidateCount { get; set; }
     public object? CatalogRevision { get; set; }
     public int TestedHypotheses;

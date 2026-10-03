@@ -17,6 +17,7 @@ public sealed record ScanIdentityEvidence(ScanIdentityState State, int TestedPoi
     double LongestConflictPixels, string Reason)
 {
     public int UnknownReferencePoints { get; init; }
+    public int StrongTestedPoints { get; init; }
     public int ConflictCell { get; init; } = -1;
     public int ConflictCellPoints { get; init; }
     public int ConflictCellHits { get; init; }
@@ -70,6 +71,17 @@ internal sealed class ScanStructureIndex
     internal bool IsUnknown(double x, double y) => _unknownBounds.Width > 0 && _unknownBounds.Height > 0
         && x >= _unknownBounds.X && y >= _unknownBounds.Y
         && x < _unknownBounds.Right && y < _unknownBounds.Bottom;
+    internal bool IsUnknownWithinSupport(double x, double y, double scale)
+    {
+        if (_unknownBounds.Width <= 0 || _unknownBounds.Height <= 0) return false;
+        // A live point may legitimately match any reference pixel within the
+        // support disk. Erasing that possible match cannot prove a contradiction,
+        // even when the point's inverse projection is just outside the rectangle.
+        var dx = Math.Max(0, Math.Max(_unknownBounds.X - x, x - (_unknownBounds.Right - 1)));
+        var dy = Math.Max(0, Math.Max(_unknownBounds.Y - y, y - (_unknownBounds.Bottom - 1)));
+        var radius = ScanIdentityVerifier.SupportTolerancePixels / scale;
+        return dx * dx + dy * dy <= radius * radius;
+    }
     internal static bool HasEnoughKnownPoints(int known, int total, int minimum) =>
         known >= minimum && known >= total * .65;
     private ScanStructureIndex(Mat line)
@@ -146,7 +158,7 @@ internal sealed class ScanStructureIndex
             var p = points[i];
             var rx = (p.X - x) / scale;
             var ry = (p.Y - y) / scale;
-            if (IsUnknown(rx, ry)) continue;
+            if (IsUnknownWithinSupport(rx, ry, scale)) continue;
             // The shared byte decoder preserves the exact distance bands, while
             // the span avoids allocating an interface enumerator for every pose.
             var d = DeepScanDistance(rx, ry, scale);
@@ -240,10 +252,14 @@ internal static class ScanIdentityVerifier
             return WithPose(ScanIdentityEvidence.Unverified("insufficient-visible-structure"));
         var deep = policy.Mode == ScanPerformanceMode.DeepScan;
         double SampleDistance(double x, double y) => deep ? index.DeepScanDistance(x, y, scale) : index.Distance(x, y, scale);
-        bool Unknown(Point p) => index.IsUnknown((p.X - tx) / scale, (p.Y - ty) / scale);
-        // Unknown breaks a conflict run, but is never counted as a supporting hit.
-        double Distance(Point p) => Unknown(p) ? 0 : SampleDistance((p.X - tx) / scale, (p.Y - ty) / scale);
-        var hits = 0; var tested = 0; var unknown = 0; var distance = 0d;
+        bool Unknown(Point p) => index.IsUnknownWithinSupport((p.X - tx) / scale, (p.Y - ty) / scale, scale);
+        // Weak photometric recovery remains useful positive/global evidence, but
+        // cannot establish a local contradiction on its own. In fog its boundary
+        // is less reliable than the strong semantic edge stream. Unknown/weak
+        // pixels break a hard conflict run without adding supporting hits.
+        bool Strong(Point p) => frame.Observation.ProposalEdges.At<byte>(p.Y, p.X) != 0;
+        double Distance(Point p) => Unknown(p) || !Strong(p) ? 0 : SampleDistance((p.X - tx) / scale, (p.Y - ty) / scale);
+        var hits = 0; var tested = 0; var unknown = 0; var strongTested = 0; var distance = 0d;
         Span<int> cellTotals = stackalloc int[16];
         Span<int> cellHits = stackalloc int[16];
         foreach (var p in points)
@@ -252,11 +268,15 @@ internal static class ScanIdentityVerifier
                 return WithPose(ScanIdentityEvidence.Unverified("deadline"));
             var rx = (p.X - tx) / scale;
             var ry = (p.Y - ty) / scale;
-            if (index.IsUnknown(rx, ry)) { unknown++; continue; }
+            if (index.IsUnknownWithinSupport(rx, ry, scale)) { unknown++; continue; }
             var d = SampleDistance(rx, ry);
-            var cell = Math.Min(3, p.X * 4 / frame.Source.Width) + 4 * Math.Min(3, p.Y * 4 / frame.Source.Height);
-            cellTotals[cell]++;
-            if (d <= SupportTolerancePixels) cellHits[cell]++;
+            if (Strong(p))
+            {
+                strongTested++;
+                var cell = Math.Min(3, p.X * 4 / frame.Source.Width) + 4 * Math.Min(3, p.Y * 4 / frame.Source.Height);
+                cellTotals[cell]++;
+                if (d <= SupportTolerancePixels) cellHits[cell]++;
+            }
             distance += d;
             if (d <= SupportTolerancePixels) hits++;
             tested++;
@@ -271,11 +291,17 @@ internal static class ScanIdentityVerifier
                 && hits + points.Length - tested - unknown < MinimumRefinementSupport * (points.Length - unknown))
                 return WithPose(new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
                     hits / (double)tested, 0, "unexplained-visible-structure")
-                    { UnknownReferencePoints = unknown });
+                    { UnknownReferencePoints = unknown, StrongTestedPoints = strongTested });
         }
         if (!ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80))
             return WithPose(ScanIdentityEvidence.Unverified("insufficient-unmasked-reference-structure")
                 with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown });
+        // An all-weak observation cannot establish identity by merely avoiding
+        // the conflict checks. Wait for enough known strong structure instead.
+        if (strongTested < 80)
+            return WithPose(ScanIdentityEvidence.Unverified("insufficient-strong-visible-structure")
+                with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown,
+                    StrongTestedPoints = strongTested });
         var longest = 0d;
         Point? conflictStart = null, conflictEnd = null;
         var prepared = deep ? frame.PreparedConflictContours : null;
@@ -300,6 +326,7 @@ internal static class ScanIdentityVerifier
                 : spatialConflict ? "spatial-support-conflict" : "visible-contour-conflict")
         {
             UnknownReferencePoints = unknown,
+            StrongTestedPoints = strongTested,
             ConflictCell = conflictCell,
             ConflictCellPoints = conflictCell < 0 ? 0 : cellTotals[conflictCell],
             ConflictCellHits = conflictCell < 0 ? 0 : cellHits[conflictCell],

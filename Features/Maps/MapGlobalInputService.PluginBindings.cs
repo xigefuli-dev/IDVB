@@ -5,6 +5,30 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class MapGlobalInputService
 {
+    private readonly Dictionary<(string PluginId, string BindingKey), MapKeyboardChordLatch> _pluginChordLatches = new();
+
+    private void CollectPluginKeyboardEdges(uint key, bool isDown,
+        ref List<(string PluginId, string BindingKey, MapInputBinding Binding, bool IsDown)>? matches)
+    {
+        foreach (var (pluginId, bindings) in _pluginBindings)
+        foreach (var (bindingKey, binding) in bindings)
+        {
+            if (binding.Kind != MapInputBindingKind.Keyboard) continue;
+            if (!binding.NormalizedCompanionVirtualKeys().Any())
+            {
+                if (binding.VirtualKey == key && (!isDown || IsKeyboardBindingActive(binding)))
+                    (matches ??= []).Add((pluginId, bindingKey, binding, isDown));
+                continue;
+            }
+            if (key != binding.VirtualKey && !binding.NormalizedCompanionVirtualKeys().Contains(key)
+                && key is not (0x10 or 0x11 or 0x12 or 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5 or 0x5B or 0x5C)) continue;
+            var id = (pluginId, bindingKey);
+            if (!_pluginChordLatches.TryGetValue(id, out var latch))
+                _pluginChordLatches[id] = latch = new MapKeyboardChordLatch();
+            var edge = latch.Observe(binding, candidate => candidate == key ? isDown : IsKeyDown(candidate));
+            if (edge is { } pressed) (matches ??= []).Add((pluginId, bindingKey, binding, pressed));
+        }
+    }
     private void DispatchPluginMouseInput(
         MapMouseButton button,
         long timestamp,

@@ -182,7 +182,7 @@ internal static class DeepScanPipeline
         {
             var rx = (p.X - x) * inverseScale;
             var ry = (p.Y - y) * inverseScale;
-            if (index.IsUnknown(rx, ry)) continue;
+            if (index.IsUnknownWithinSupport(rx, ry, scale)) continue;
             known++;
             sum += Math.Min(10, index.DeepScanDistance(rx, ry, scale));
             // Exact lower bound: remaining distances cannot be negative. Pruning

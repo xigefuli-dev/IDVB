@@ -15,19 +15,22 @@ public sealed class ThirdPartyPluginCapabilitySource : IPluginCapabilitySource
     private readonly LegacyScreenshotService _screenshots;
     private readonly PluginNotificationCenter _notifications;
     private readonly Action<string, Exception>? _reportFault;
+    private readonly VisionCapabilityProvider? _vision;
 
     public ThirdPartyPluginCapabilitySource(
         ThirdPartyHostEventHub events,
         IPluginInputService input,
         LegacyScreenshotService screenshots,
         PluginNotificationCenter notifications,
-        Action<string, Exception>? reportFault = null)
+        Action<string, Exception>? reportFault = null,
+        VisionCapabilityProvider? vision = null)
     {
         _events = events;
         _input = input;
         _screenshots = screenshots;
         _notifications = notifications;
         _reportFault = reportFault;
+        _vision = vision;
     }
 
     public ValueTask<IReadOnlyDictionary<Type, IPluginCapability>> CreateAsync(
@@ -39,6 +42,7 @@ public sealed class ThirdPartyPluginCapabilitySource : IPluginCapabilitySource
         CancellationToken cancellationToken)
     {
         var capabilities = new Dictionary<Type, IPluginCapability>();
+        _vision?.AddCapabilities(capabilities, grantedCapabilities, pluginLifetime);
         if (grantedCapabilities.Contains(PluginCapabilityIds.HostEventsRead))
             capabilities[typeof(IHostEventsCapability)] = _events.CreateCapability(
                 manifest.Id, pluginLifetime, _reportFault);

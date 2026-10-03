@@ -46,7 +46,12 @@ public sealed partial class AutoClickerService : IDisposable
                 }
         };
         lock (_sendInputSync)
-            return SendInput(1, [input], Marshal.SizeOf<NativeInput>()) == 1;
+        {
+            var sent = SendInput(1, [input], Marshal.SizeOf<NativeInput>());
+            var error = Marshal.GetLastWin32Error();
+            TraceInput($"handoff-send trigger={trigger.StorageValue} sent={sent}/1 win32Error={error}");
+            return sent == 1;
+        }
     }
 
     /// <summary>一次连点中的 F↓。</summary>
@@ -64,22 +69,7 @@ public sealed partial class AutoClickerService : IDisposable
     /// </summary>
     private bool SendKey(int sessionGeneration, bool keyUp)
     {
-        var input = new[]
-        {
-            new NativeInput
-            {
-                Type = InputKeyboard,
-                Data = new NativeInputUnion
-                {
-                    Keyboard = new KeyboardInput
-                    {
-                        VirtualKey = _outputVirtualKey,
-                        Flags = keyUp ? KeyeventfKeyup : 0,
-                        ExtraInfo = InputInjectionMarker
-                    }
-                }
-            },
-        };
+        var input = new[] { CreateOutputInput(keyUp) };
         lock (_sendInputSync)
         {
             lock (_sync)
@@ -92,8 +82,10 @@ public sealed partial class AutoClickerService : IDisposable
                     return false;
                 }
             }
-            return SendInput((uint)input.Length, input, Marshal.SizeOf<NativeInput>())
-                == (uint)input.Length;
+            var sent = SendInput((uint)input.Length, input, Marshal.SizeOf<NativeInput>());
+            if (sent != (uint)input.Length)
+                TraceInput($"output-send-failed up={keyUp} sent={sent}/{input.Length} win32Error={Marshal.GetLastWin32Error()}");
+            return sent == (uint)input.Length;
         }
     }
 
@@ -103,24 +95,42 @@ public sealed partial class AutoClickerService : IDisposable
     /// </summary>
     private void SendReleaseSignals()
     {
-        var inputs = new[]
+        var inputs = new[] { CreateOutputInput(keyUp: true) };
+        lock (_sendInputSync)
+            _ = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeInput>());
+    }
+
+    private NativeInput CreateOutputInput(bool keyUp)
+    {
+        if (_outputBinding.Kind == PluginInputBindingKind.Mouse)
         {
-            new NativeInput
+            var encoded = PluginMouseInput.Encode(_outputBinding.MouseButton, !keyUp);
+            return new NativeInput
             {
-                Type = InputKeyboard,
+                Type = InputMouse,
                 Data = new NativeInputUnion
                 {
-                    Keyboard = new KeyboardInput
+                    Mouse = new MouseInput
                     {
-                        VirtualKey = _outputVirtualKey,
-                        Flags = KeyeventfKeyup,
+                        Flags = encoded.Flags, MouseData = encoded.Data,
                         ExtraInfo = InputInjectionMarker
                     }
                 }
-            },
+            };
+        }
+        return new NativeInput
+        {
+            Type = InputKeyboard,
+            Data = new NativeInputUnion
+            {
+                Keyboard = new KeyboardInput
+                {
+                    VirtualKey = (ushort)_outputBinding.VirtualKey,
+                    Flags = keyUp ? KeyeventfKeyup : 0,
+                    ExtraInfo = InputInjectionMarker
+                }
+            }
         };
-        lock (_sendInputSync)
-            _ = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeInput>());
     }
 
     private static void WaitUntil(long targetTicks)
@@ -137,56 +147,16 @@ public sealed partial class AutoClickerService : IDisposable
     }
 
     private static bool TryGetMouseButton(
-        uint message,
-        IntPtr lParam,
-        out PluginMouseButton button,
-        out bool isDown)
-    {
-        button = PluginMouseButton.Left;
-        isDown = true;
-        switch (message)
-        {
-            case WmLButtonDown: button = PluginMouseButton.Left; return true;
-            case WmLButtonUp: button = PluginMouseButton.Left; isDown = false; return true;
-            case WmRButtonDown: button = PluginMouseButton.Right; return true;
-            case WmRButtonUp: button = PluginMouseButton.Right; isDown = false; return true;
-            case WmMButtonDown: button = PluginMouseButton.Middle; return true;
-            case WmMButtonUp: button = PluginMouseButton.Middle; isDown = false; return true;
-            case WmXButtonDown:
-                button = ReadXButton(lParam);
-                return true;
-            case WmXButtonUp:
-                button = ReadXButton(lParam);
-                isDown = false;
-                return true;
-            default:
-                return false;
-        }
-    }
+        uint message, IntPtr lParam, out PluginMouseButton button, out bool isDown) =>
+        PluginMouseInput.TryDecode(message,
+            Marshal.PtrToStructure<MsLlHookStruct>(lParam).MouseData,
+            out button, out isDown);
 
-    private static PluginMouseButton ReadXButton(IntPtr lParam)
-    {
-        var data = Marshal.PtrToStructure<MsLlHookStruct>(lParam).MouseData;
-        return ((data >> 16) & 0xFFFF) == 2
-            ? PluginMouseButton.XButton2
-            : PluginMouseButton.XButton1;
-    }
+    private static uint GetMouseUpFlags(PluginMouseButton button) =>
+        PluginMouseInput.Encode(button, false).Flags;
 
-    private static uint GetMouseUpFlags(PluginMouseButton button) => button switch
-    {
-        PluginMouseButton.Left => MouseeventfLeftup,
-        PluginMouseButton.Right => MouseeventfRightup,
-        PluginMouseButton.Middle => MouseeventfMiddleup,
-        PluginMouseButton.XButton1 or PluginMouseButton.XButton2 => MouseeventfXup,
-        _ => MouseeventfLeftup
-    };
-
-    private static uint GetMouseData(PluginMouseButton button) => button switch
-    {
-        PluginMouseButton.XButton1 => 1u << 16,
-        PluginMouseButton.XButton2 => 2u << 16,
-        _ => 0
-    };
+    private static uint GetMouseData(PluginMouseButton button) =>
+        PluginMouseInput.Encode(button, false).Data;
 
     private static bool AreRequiredModifiersDown(PluginInputModifiers modifiers)
     {

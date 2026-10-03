@@ -6,6 +6,26 @@ namespace IDVBuff.Tests;
 public sealed partial class BackgroundScanTests
 {
     [Fact]
+    public void ExplicitIdentityChoiceCannotReviveUnverifiedRetrievalScale()
+    {
+        var map = CreateMap();
+        var seed = CreateSideEntranceSeed(map, prior: .99);
+        var identity = new RuntimeMapRecognition
+        {
+            Map = map,
+            Result = new MapRecognitionResult
+            {
+                MapId = map.Id, Floor = "1f", IdentityConfidence = 1,
+                Source = MapRecognitionSource.UserConfirmed
+            }
+        };
+        Assert.Null(BackgroundScanRules.PickSideEntranceSeed(seed, identity, "1f"));
+        Assert.Null(BackgroundScanRules.BuildValidatedStructureScaleSeed(identity, seed, "1f"));
+        Assert.Equal(1, identity.Result.IdentityConfidence);
+        Assert.Null(identity.Result.OverlayTransform);
+    }
+
+    [Fact]
     public void VerifiedBackgroundStructurePreservesContentScaleAndSidePrior()
     {
         var map = CreateMap();

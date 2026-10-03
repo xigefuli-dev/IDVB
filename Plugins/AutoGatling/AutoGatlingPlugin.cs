@@ -73,7 +73,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
             DisplayName = "背包按键",
             Description = "打开或关闭背包的游戏内按键，默认为 Tab。",
             DefaultValue = "keyboard:9:0",
-            AllowedKinds = PluginInputBindingKinds.Keyboard
+            AllowedKinds = PluginInputBindingKinds.All
         },
         new PluginKeyBindingSetting
         {
@@ -81,7 +81,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
             DisplayName = "激活加特林一次",
             Description = "按所选装备方案和循环次数执行开火；支持组合快捷键，默认为 T。",
             DefaultValue = "keyboard:54:0",
-            AllowedKinds = PluginInputBindingKinds.Keyboard
+            AllowedKinds = PluginInputBindingKinds.All
         },
         new PluginKeyBindingSetting
         {
@@ -89,7 +89,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
             DisplayName = "重新装弹",
             Description = "依次为所选装备方案中的全部加特林装弹；支持组合快捷键，默认为 Y。",
             DefaultValue = "keyboard:59:0",
-            AllowedKinds = PluginInputBindingKinds.Keyboard
+            AllowedKinds = PluginInputBindingKinds.All
         },
         CreateDelaySetting(StandardDelayKey, "通用延迟（毫秒）",
             "背包切换、定位、拖放和开火步骤之间的基础等待。", 50),
@@ -175,7 +175,7 @@ public sealed class AutoGatlingPlugin : PluginBase, IPluginSettingsProvider
         if (value is not string text
             || !PluginInputBinding.TryParse(
                 text,
-                PluginInputBindingKinds.Keyboard,
+                PluginInputBindingKinds.All,
                 out var binding))
         {
             return;

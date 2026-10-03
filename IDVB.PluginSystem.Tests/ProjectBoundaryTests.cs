@@ -9,12 +9,15 @@ public sealed class ProjectBoundaryTests
         var projects = new[]
         {
             "IDVB.PluginSdk.Abstractions/IDVB.PluginSdk.Abstractions.csproj",
+            "IDVB.Vision.Contracts/IDVB.Vision.Contracts.csproj",
+            "IDVB.Vision/IDVB.Vision.csproj",
             "IDVB.PluginPackaging/IDVB.PluginPackaging.csproj",
             "IDVB.PluginRuntime/IDVB.PluginRuntime.csproj",
             "IDVBuff.PluginContracts/IDVBuff.PluginContracts.csproj",
             "IDVB.PluginTool/IDVB.PluginTool.csproj",
             "IDVB.PluginTestHost/IDVB.PluginTestHost.csproj",
-            "Plugins/Samples/MatchNotifier/IDVB.Sample.MatchNotifier.csproj"
+            "Plugins/Samples/MatchNotifier/IDVB.Sample.MatchNotifier.csproj",
+            "Plugins/Samples/MatchShortcuts/IDVB.Sample.MatchShortcuts.csproj"
         };
 
         foreach (var project in projects)

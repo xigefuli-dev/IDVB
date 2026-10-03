@@ -6,6 +6,12 @@ namespace IDVBuff.Features.Plugins;
 
 public sealed partial class TeachingTipManager
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
+    private static bool IsRecordingMouseKeyDown(int virtualKey) =>
+        (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
     private static void RefreshSettingVisibility(
         IPluginSettingsProvider provider,
         IReadOnlyDictionary<string, FrameworkElement> rows)

@@ -83,11 +83,11 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
             TraceStartup("Runtime catalog read complete; status population begin.");
             PopulateInitialStatuses(catalog);
             var enabled = catalog.Plugins
-                .Where(static plugin => plugin.Enabled && plugin.ActiveVersion is not null &&
+                .Where(plugin => (_matchActivationAllowed || RunsBetweenMatches(plugin)) && plugin.Enabled && plugin.ActiveVersion is not null &&
                                         plugin.QuarantineReason is null && !plugin.CapabilityApprovalRequired)
                 .ToArray();
 
-            if (SafeMode.IsActive || !_matchActivationAllowed || enabled.Length == 0)
+            if (SafeMode.IsActive || enabled.Length == 0)
             {
                 TraceStartup($"Runtime startup complete without plugin activation: safeMode={SafeMode.IsActive}; activationAllowed={_matchActivationAllowed}; enabledCount={enabled.Length}.");
                 _started = true;
@@ -104,6 +104,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 await TryLoadAsync(entry, cancellationToken);
             }
+            await RefreshSessionMarkerAsync(cancellationToken);
 
             _started = true;
         }
@@ -172,17 +173,20 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
             {
                 if (_loaded.Remove(pluginId, out var loaded))
                     await StopOneAsync(loaded, cancellationToken);
+                await RefreshSessionMarkerAsync(cancellationToken);
                 return;
             }
 
-            if (SafeMode.IsActive || !_matchActivationAllowed || _loaded.ContainsKey(pluginId))
+            if (SafeMode.IsActive || _loaded.ContainsKey(pluginId))
                 return;
             var catalog = await _state.ReadCatalogAsync(cancellationToken);
             var entry = catalog.Plugins.SingleOrDefault(plugin => plugin.Id == pluginId);
             if (entry is { Enabled: true, ActiveVersion: not null, PendingVersion: null,
                     QuarantineReason: null, CapabilityApprovalRequired: false })
             {
-                await TryLoadAsync(entry, cancellationToken);
+                if (_matchActivationAllowed || RunsBetweenMatches(entry))
+                    await TryLoadAsync(entry, cancellationToken);
+                await RefreshSessionMarkerAsync(cancellationToken);
             }
         }
         finally
@@ -192,9 +196,8 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// Starts the primary-enabled plugins only for an active match, or stops
-    /// every loaded plugin when that match gate closes. Catalog preferences are
-    /// deliberately left unchanged.
+    /// Ordinary plugins run during matches. Approved standalone vision and
+    /// application control capabilities also run between matches.
     /// </summary>
     public async Task SetMatchActivationAsync(
         bool active,
@@ -208,10 +211,14 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
 
             if (!active)
             {
-                foreach (var loaded in _loaded.Values.Reverse().ToArray())
+                foreach (var loaded in _loaded.Values.Where(plugin => !RunsBetweenMatches(plugin.CatalogEntry)).Reverse().ToArray())
+                {
+                    _loaded.Remove(loaded.Manifest.Id);
                     await StopOneAsync(loaded, cancellationToken);
-                _loaded.Clear();
-                TryDeleteFile(_directories.SessionMarkerPath);
+                }
+                if (_loaded.Count == 0) TryDeleteFile(_directories.SessionMarkerPath);
+                else await WriteJsonAsync(_directories.SessionMarkerPath,
+                    new PluginSessionMarker { EnabledPluginIds = _loaded.Keys.ToArray() }, cancellationToken);
                 _matchActivationAllowed = false;
                 return;
             }
@@ -220,7 +227,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
             if (!_started || SafeMode.IsActive)
                 return;
             var catalog = await _state.ReadCatalogAsync(cancellationToken);
-            var enabled = catalog.Plugins.Where(static plugin => plugin.Enabled
+            var enabled = catalog.Plugins.Where(plugin => !_loaded.ContainsKey(plugin.Id) && plugin.Enabled
                 && plugin.ActiveVersion is not null
                 && plugin.QuarantineReason is null
                 && !plugin.CapabilityApprovalRequired).ToArray();
@@ -228,10 +235,11 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
                 return;
             await WriteJsonAsync(
                 _directories.SessionMarkerPath,
-                new PluginSessionMarker { EnabledPluginIds = enabled.Select(static plugin => plugin.Id).ToArray() },
+                new PluginSessionMarker { EnabledPluginIds = _loaded.Keys.Concat(enabled.Select(static plugin => plugin.Id)).ToArray() },
                 cancellationToken);
             foreach (var entry in enabled)
                 await TryLoadAsync(entry, cancellationToken);
+            await RefreshSessionMarkerAsync(cancellationToken);
         }
         finally
         {
@@ -254,6 +262,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
             foreach (var loaded in _loaded.Values.Reverse().ToArray())
                 await StopOneAsync(loaded, cancellationToken);
             _loaded.Clear();
+            await RefreshSessionMarkerAsync(cancellationToken);
         }
         finally
         {
@@ -277,6 +286,7 @@ public sealed partial class ThirdPartyPluginRuntimeManager : IAsyncDisposable
             }
 
             await QuarantineAsync(pluginId, reason, cancellationToken);
+            await RefreshSessionMarkerAsync(cancellationToken);
             entry ??= (await _state.ReadCatalogAsync(cancellationToken)).Plugins
                 .SingleOrDefault(plugin => plugin.Id == pluginId);
             if (entry is not null)

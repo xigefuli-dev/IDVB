@@ -62,6 +62,10 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Models; using IDVBuff.Features.
             if (pendingSideEntranceScan is not null                 && recognition is not null                 && pendingSideEntranceSeed is null)             {                 var selectedCandidate = pendingSideEntranceScan.Candidates
                     .FirstOrDefault(candidate => candidate.Map.Id == recognition.Map.Id);
                 if (selectedCandidate is null
+                    // Explicit selection locks identity, not the scan's rejected pose.
+                    // Re-estimate this floor exactly as the successful DeepScan
+                    // selection route does, regardless of the retrieval mode.
+                    || recognition.Result.Source == MapRecognitionSource.UserConfirmed
                     || ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan)
                 {
                     _logCollector.Append(

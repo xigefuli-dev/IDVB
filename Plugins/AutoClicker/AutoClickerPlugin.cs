@@ -30,7 +30,8 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
 
     public AutoClickerPlugin()
     {
-        _service = new AutoClickerService(_options);
+        _service = new AutoClickerService(_options,
+            message => Context?.Logger.Info(message));
     }
 
     public override string Id => "auto-clicker";
@@ -92,9 +93,9 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
         {
             Key = OutputBindingKey,
             DisplayName = "发送按键",
-            Description = "连点器循环发送的键盘按键。",
+            Description = "连点器循环发送的键盘或鼠标按键。",
             DefaultValue = "keyboard:46:0",
-            AllowedKinds = PluginInputBindingKinds.Keyboard
+            AllowedKinds = PluginInputBindingKinds.All
         }
     ];
 
@@ -165,7 +166,7 @@ public sealed class AutoClickerPlugin : PluginBase, IPluginSettingsProvider
             && value is string outputText
             && PluginInputBinding.TryParse(
                 outputText,
-                PluginInputBindingKinds.Keyboard,
+                PluginInputBindingKinds.All,
                 out var output))
         {
             _outputBinding = output;

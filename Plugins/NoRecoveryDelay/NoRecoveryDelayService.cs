@@ -10,7 +10,7 @@ public sealed class NoRecoveryDelayService : IDisposable
 {
     private const int WhKeyboardLl = 13;
     private const uint WmKeyDown = 0x0100, WmKeyUp = 0x0101, WmSysKeyDown = 0x0104, WmSysKeyUp = 0x0105;
-    private const uint WmQuit = 0x0012, PmNoRemove = 0, LlkhfInjected = 0x10;
+    private const uint WmQuit = 0x0012, PmNoRemove = 0;
     private const uint InputMouse = 0, InputKeyboard = 1, KeyeventfKeyup = 2;
     private const uint MouseeventfLeftdown = 2, MouseeventfLeftup = 4;
     private static readonly IntPtr InjectionMarker = new(InputInjectionMarkers.HostGeneratedInput);
@@ -18,6 +18,8 @@ public sealed class NoRecoveryDelayService : IDisposable
     private readonly NoRecoveryDelayOptions _options;
     private readonly Action<string> _log;
     private readonly LowLevelKeyboardProc _keyboardProc;
+    private readonly LowLevelKeyboardProc _mouseProc;
+    private IntPtr _mouseHook;
     private PluginInputBinding _inventoryBinding = new(), _activateBinding = new();
     private IntPtr _keyboardHook;
     private Thread? _hookThread, _operationThread;
@@ -27,7 +29,7 @@ public sealed class NoRecoveryDelayService : IDisposable
     private bool _started, _disposed;
 
     public NoRecoveryDelayService(NoRecoveryDelayOptions options, Action<string> log)
-    { _options = options; _log = log; _keyboardProc = KeyboardHookCallback; }
+    { _options = options; _log = log; _keyboardProc = KeyboardHookCallback; _mouseProc = MouseHookCallback; }
 
     public void ConfigureBindings(PluginInputBinding inventory, PluginInputBinding activate)
     {
@@ -80,11 +82,13 @@ public sealed class NoRecoveryDelayService : IDisposable
                 _hookThreadId = GetCurrentThreadId(); PeekMessage(out _, IntPtr.Zero, 0, 0, PmNoRemove);
                 _keyboardHook = SetWindowsHookEx(WhKeyboardLl, _keyboardProc, GetModuleHandle(null), 0);
                 if (_keyboardHook == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注册无后摇信仰键盘钩子。");
+                _mouseHook = SetWindowsHookEx(14, _mouseProc, GetModuleHandle(null), 0);
+                if (_mouseHook == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注册无后摇信仰鼠标钩子。");
                 ready.Set();
                 while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0) { TranslateMessage(ref message); DispatchMessage(ref message); }
             }
             catch (Exception ex) { error = ex; ready.Set(); }
-            finally { if (_keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHook); _keyboardHook = IntPtr.Zero; _hookThreadId = 0; }
+            finally { if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; if (_keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(_keyboardHook); _keyboardHook = IntPtr.Zero; _hookThreadId = 0; }
         }) { IsBackground = true, Name = "IDVB no-recovery-delay hook" };
         lock (_sync) _hookThread = thread;
         thread.Start();
@@ -97,7 +101,7 @@ public sealed class NoRecoveryDelayService : IDisposable
         if (code >= 0)
         {
             var data = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
-            if ((data.Flags & LlkhfInjected) == 0 && data.VirtualKey == _activateBinding.VirtualKey)
+            if (data.ExtraInfo != InjectionMarker && _activateBinding.Kind == PluginInputBindingKind.Keyboard && data.VirtualKey == _activateBinding.VirtualKey)
             {
                 var message = (uint)wParam.ToInt64();
                 if (message is WmKeyDown or WmSysKeyDown)
@@ -114,6 +118,27 @@ public sealed class NoRecoveryDelayService : IDisposable
             }
         }
         return CallNextHookEx(_keyboardHook, code, wParam, lParam);
+    }
+
+    private IntPtr MouseHookCallback(int code, IntPtr wParam, IntPtr lParam)
+    {
+        if (code >= 0 && _activateBinding.Kind == PluginInputBindingKind.Mouse)
+        {
+            var mouse = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
+            if (mouse.ExtraInfo != InjectionMarker
+                && PluginMouseInput.TryDecode((uint)wParam.ToInt64(), mouse.MouseData,
+                    out var button, out var down)
+                && button == _activateBinding.MouseButton)
+            {
+                if (!down && !_activateKeyDown)
+                    return CallNextHookEx(_mouseHook, code, wParam, lParam);
+                var firstDown = down && !_activateKeyDown;
+                _activateKeyDown = down;
+                if (firstDown) StartOperation();
+                return new IntPtr(1);
+            }
+        }
+        return CallNextHookEx(_mouseHook, code, wParam, lParam);
     }
 
     private void StartOperation()
@@ -197,6 +222,13 @@ public sealed class NoRecoveryDelayService : IDisposable
     { SendLeftButton(true); try { await DelayAsync(_options.KeyPressDelayMilliseconds, token).ConfigureAwait(false); } finally { SendLeftButton(false); } }
     private async Task PressBindingAsync(PluginInputBinding binding, CancellationToken token)
     {
+        if (binding.Kind == PluginInputBindingKind.Mouse)
+        {
+            SendMouseButton(binding.MouseButton, true);
+            try { await DelayAsync(_options.KeyPressDelayMilliseconds, token).ConfigureAwait(false); }
+            finally { SendMouseButton(binding.MouseButton, false); }
+            return;
+        }
         var modifiers = ModifierKeys(binding.Modifiers).ToArray(); foreach (var key in modifiers) SendKey(key, false);
         try { SendKey(binding.VirtualKey, false); try { await DelayAsync(_options.KeyPressDelayMilliseconds, token).ConfigureAwait(false); } finally { SendKey(binding.VirtualKey, true); } }
         finally { for (var i = modifiers.Length - 1; i >= 0; i--) SendKey(modifiers[i], true); }
@@ -223,13 +255,24 @@ public sealed class NoRecoveryDelayService : IDisposable
         var input = new NativeInput { Type = InputKeyboard, Data = new NativeInputUnion { Keyboard = new KeyboardInput { VirtualKey = (ushort)key, Flags = up ? KeyeventfKeyup : 0, ExtraInfo = InjectionMarker } } };
         lock (typeof(NoRecoveryDelayService)) if (SendInput(1, [input], Marshal.SizeOf<NativeInput>()) != 1) throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注入键盘输入。");
     }
+    private static void SendMouseButton(PluginMouseButton button, bool down)
+    {
+        var encoded = PluginMouseInput.Encode(button, down);
+        var input = new NativeInput { Type = InputMouse, Data = new NativeInputUnion
+        {
+            Mouse = new MouseInput { Flags = encoded.Flags, MouseData = encoded.Data, ExtraInfo = InjectionMarker }
+        }};
+        lock (typeof(NoRecoveryDelayService))
+            if (SendInput(1, [input], Marshal.SizeOf<NativeInput>()) != 1)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注入鼠标输入。");
+    }
     private static void SendLeftButton(bool down)
     {
         var input = new NativeInput { Type = InputMouse, Data = new NativeInputUnion { Mouse = new MouseInput { Flags = down ? MouseeventfLeftdown : MouseeventfLeftup, ExtraInfo = InjectionMarker } } };
         lock (typeof(NoRecoveryDelayService)) _ = SendInput(1, [input], Marshal.SizeOf<NativeInput>());
     }
     private static void ValidateBinding(PluginInputBinding binding, string name)
-    { if (binding.IsConfigured && (binding.Kind != PluginInputBindingKind.Keyboard || binding.VirtualKey == 0 || binding.VirtualKey > ushort.MaxValue)) throw new ArgumentException("无后摇信仰只支持有效的键盘按键绑定。", name); }
+    { if (binding.IsConfigured && !PluginInputBinding.TryParse(binding.StorageValue, out _)) throw new ArgumentException("无后摇信仰按键绑定无效。", name); }
     private static IEnumerable<uint> ModifierKeys(PluginInputModifiers modifiers)
     { if (modifiers.HasFlag(PluginInputModifiers.Control)) yield return 0x11; if (modifiers.HasFlag(PluginInputModifiers.Alt)) yield return 0x12; if (modifiers.HasFlag(PluginInputModifiers.Shift)) yield return 0x10; if (modifiers.HasFlag(PluginInputModifiers.Windows)) yield return 0x5B; }
     private static bool RequiredModifiersDown(PluginInputModifiers modifiers) =>
@@ -244,6 +287,7 @@ public sealed class NoRecoveryDelayService : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct MouseInput { public int X, Y; public uint MouseData, Flags, Time; public IntPtr ExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] private struct MsLlHookStruct { public NativePoint Point; public uint MouseData, Flags, Time; public IntPtr ExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] private struct KbdLlHookStruct { public uint VirtualKey, ScanCode, Flags, Time; public IntPtr ExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeMessage { public IntPtr Window; public uint Message; public IntPtr WParam, LParam; public uint Time; public NativePoint Point; public uint Private; }
     private delegate IntPtr LowLevelKeyboardProc(int code, IntPtr wParam, IntPtr lParam);

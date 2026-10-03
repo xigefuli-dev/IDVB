@@ -175,6 +175,44 @@ public sealed class PluginInstallerTests
         }
     }
 
+    [Fact]
+    public async Task IndependentVisionPluginRunsWithoutAMatchButDisableStillRemovesItsSessionMarker()
+    {
+        using var fixture = new PluginPackageTestFixture();
+        var path = await fixture.PackAsync(fixture.CreateManifest(capabilities: [PluginCapabilityIds.VisionScan]));
+        var directories = new PluginDirectories(Path.Combine(fixture.Root, "vision-host"), false);
+        var state = new PluginStateRepository(directories);
+        var installer = new IdvpInstaller(directories, state, "1.6.6");
+        await installer.InstallAsync(path, new()
+        {
+            TrustPublisher = true, ApprovedCapabilities = new HashSet<string> { PluginCapabilityIds.VisionScan }
+        });
+        await installer.ApplyStartupChangesAsync();
+        await ExerciseIndependentVisionLifetimeAsync(directories, state, installer);
+        // Collect after the helper's async state machine has released plugin locals.
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static async Task ExerciseIndependentVisionLifetimeAsync(PluginDirectories directories,
+        PluginStateRepository state, IdvpInstaller installer)
+    {
+        var contexts = new DefaultThirdPartyPluginContextFactory(new EmptyCapabilitySource(),
+            _ => new DelegatePluginLogger((_, _, _) => { }));
+        await using var runtime = new ThirdPartyPluginRuntimeManager(directories, state, installer, contexts);
+        await runtime.SetMatchActivationAsync(false);
+        await runtime.StartAsync();
+        await runtime.SetEnabledAsync("tests.match-notifier", true);
+        Assert.Contains(runtime.Statuses, status => status.State == ThirdPartyPluginState.Running);
+        Assert.True(File.Exists(directories.SessionMarkerPath));
+        await runtime.SetMatchActivationAsync(true);
+        await runtime.SetMatchActivationAsync(false);
+        Assert.Contains(runtime.Statuses, status => status.State == ThirdPartyPluginState.Running);
+        await runtime.SetEnabledAsync("tests.match-notifier", false);
+        Assert.False(File.Exists(directories.SessionMarkerPath));
+        await runtime.StopAsync();
+    }
+
     private sealed class EmptyCapabilitySource : IPluginCapabilitySource
     {
         public ValueTask<IReadOnlyDictionary<Type, IPluginCapability>> CreateAsync(

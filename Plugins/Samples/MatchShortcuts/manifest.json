@@ -1,0 +1,30 @@
+{
+  "format": "idvb-plugin",
+  "formatVersion": 1,
+  "id": "idvb.sample.match-shortcuts",
+  "displayName": "厄运之女 · 对局快捷切换",
+  "version": "1.0.0",
+  "description": "Alt + F + C 切换到困难；Alt + F + B 切换到困难（总裁）。先结束当前对局，再选择模式并开始对局。",
+  "publisher": { "id": "local.idvb.match-shortcuts", "name": "本地构建 · 对局快捷切换" },
+  "entryPoint": {
+    "assembly": "IDVB.Sample.MatchShortcuts.dll",
+    "type": "IDVB.Sample.MatchShortcuts.MatchShortcutsPlugin"
+  },
+  "compatibility": {
+    "pluginApi": ">=2.1.0 <3.0.0",
+    "host": ">=1.5.0 <2.0.0",
+    "targetFramework": "net10.0",
+    "runtimeIdentifier": "win-x64"
+  },
+  "capabilities": [ "input.bindings", "host.match.control", "notifications.post" ],
+  "risks": { "nativeCode": false, "networkAccess": false, "externalFileAccess": false, "inputAutomation": false },
+  "settings": [
+    { "key": "difficult", "type": "keyBinding", "displayName": "困难 · 结束并开始对局", "default": "keyboard:43:2:46" },
+    { "key": "boss", "type": "keyBinding", "displayName": "困难（总裁）· 结束并开始对局", "default": "keyboard:42:2:46" }
+  ],
+  "commands": [
+    { "id": "start-difficult", "displayName": "开始困难对局" },
+    { "id": "start-boss", "displayName": "开始困难（总裁）对局" }
+  ],
+  "files": []
+}

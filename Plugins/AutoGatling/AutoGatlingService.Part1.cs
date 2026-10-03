@@ -38,6 +38,17 @@ public sealed partial class AutoGatlingService : IDisposable
         PluginInputBinding binding,
         CancellationToken cancellationToken)
     {
+        if (binding.Kind == PluginInputBindingKind.Mouse)
+        {
+            SendMouseButton(binding.MouseButton, true);
+            try
+            {
+                await JitteredDelayAsync(_options.KeyPressDelayMilliseconds, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            finally { SendMouseButton(binding.MouseButton, false); }
+            return;
+        }
         var modifierKeys = GetModifierVirtualKeys(binding.Modifiers).ToArray();
         foreach (var modifierKey in modifierKeys)
             SendKey(modifierKey, keyUp: false);
@@ -160,6 +171,27 @@ public sealed partial class AutoGatlingService : IDisposable
         }
     }
 
+    private static void SendMouseButton(PluginMouseButton button, bool down)
+    {
+        var encoded = PluginMouseInput.Encode(button, down);
+        var input = new NativeInput
+        {
+            Type = InputMouse,
+            Data = new NativeInputUnion
+            {
+                Mouse = new MouseInput
+                {
+                    Flags = encoded.Flags,
+                    MouseData = encoded.Data,
+                    ExtraInfo = InputInjectionMarker
+                }
+            }
+        };
+        lock (typeof(AutoGatlingService))
+            if (SendInput(1, [input], Marshal.SizeOf<NativeInput>()) != 1)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注入鼠标输入。");
+    }
+
     private static void SendLeftButton(bool down)
     {
         var input = new NativeInput
@@ -227,11 +259,9 @@ public sealed partial class AutoGatlingService : IDisposable
     private static void ValidateBinding(PluginInputBinding binding, string parameterName)
     {
         if (binding.IsConfigured
-            && (binding.Kind != PluginInputBindingKind.Keyboard
-                || binding.VirtualKey == 0
-                || binding.VirtualKey > ushort.MaxValue))
+            && !PluginInputBinding.TryParse(binding.StorageValue, out _))
         {
-            throw new ArgumentException("自动加特林只支持有效的键盘按键绑定。", parameterName);
+            throw new ArgumentException("自动加特林按键绑定无效。", parameterName);
         }
     }
 

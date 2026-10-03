@@ -259,6 +259,15 @@ public sealed partial class MapGlobalInputService : IDisposable
             InitializePressedKey(_hideAlignmentResult);
             foreach (var binding in _pluginBindings.Values.SelectMany(bindings => bindings.Values))
                 InitializePressedKey(binding);
+            _pluginChordLatches.Clear();
+            foreach (var (pluginId, bindings) in _pluginBindings)
+            foreach (var (bindingKey, binding) in bindings)
+            {
+                if (binding.Kind != MapInputBindingKind.Keyboard || !binding.NormalizedCompanionVirtualKeys().Any()) continue;
+                var latch = new MapKeyboardChordLatch();
+                latch.Initialize(binding, IsKeyDown);
+                _pluginChordLatches[(pluginId, bindingKey)] = latch;
+            }
             var generation = ++_keyboardPollGeneration;
             _keyboardPoller = new Timer(
                 PollKeyboardBindings,
@@ -306,7 +315,9 @@ public sealed partial class MapGlobalInputService : IDisposable
             }
             .Concat(_pluginBindings.Values.SelectMany(bindings => bindings.Values))
             .Where(binding => binding.Kind == MapInputBindingKind.Keyboard)
-            .Select(binding => binding.VirtualKey)
+            .SelectMany(binding => new[] { binding.VirtualKey }.Concat(binding.NormalizedCompanionVirtualKeys())
+                .Concat(binding.NormalizedCompanionVirtualKeys().Any()
+                    ? new uint[] { 0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C } : []))
             .Where(key => key != 0)
             .Distinct()
             .ToArray();
@@ -329,7 +340,7 @@ public sealed partial class MapGlobalInputService : IDisposable
         var invokeMatchStateToggle = false;
         var invokeHideAlignmentResult = false;
         var invokeAlt = false;
-        List<(string PluginId, string BindingKey, MapInputBinding Binding)>? pluginMatches = null;
+        List<(string PluginId, string BindingKey, MapInputBinding Binding, bool IsDown)>? pluginMatches = null;
         lock (_keyboardStateLock)
         {
             if (!_keyboardBindingsActive
@@ -345,17 +356,7 @@ public sealed partial class MapGlobalInputService : IDisposable
                 return;
             if (!isDown)
             {
-                foreach (var (pluginId, bindings) in _pluginBindings)
-                {
-                    foreach (var (bindingKey, binding) in bindings)
-                    {
-                        if (binding.Kind == MapInputBindingKind.Keyboard
-                            && binding.VirtualKey == key)
-                        {
-                            (pluginMatches ??= []).Add((pluginId, bindingKey, binding));
-                        }
-                    }
-                }
+                CollectPluginKeyboardEdges(key, isDown, ref pluginMatches);
                 goto Dispatch;
             }
             invokeQuickScan = _quickScan.Kind == MapInputBindingKind.Keyboard
@@ -392,18 +393,7 @@ public sealed partial class MapGlobalInputService : IDisposable
                 && IsKeyboardBindingActive(_hideAlignmentResult);
             invokeAlt = key is 0x12 or 0xA4 or 0xA5;
 
-            foreach (var (pluginId, bindings) in _pluginBindings)
-            {
-                foreach (var (bindingKey, binding) in bindings)
-                {
-                    if (binding.Kind == MapInputBindingKind.Keyboard
-                        && binding.VirtualKey == key
-                        && IsKeyboardBindingActive(binding))
-                    {
-                        (pluginMatches ??= []).Add((pluginId, bindingKey, binding));
-                    }
-                }
-            }
+            CollectPluginKeyboardEdges(key, isDown, ref pluginMatches);
         }
 
     Dispatch:
@@ -453,7 +443,7 @@ public sealed partial class MapGlobalInputService : IDisposable
                     match.PluginId,
                     match.BindingKey,
                     invoked.Timestamp,
-                    isDown);
+                    match.IsDown);
                 DispatchPluginInput(pluginEvent);
             }
         }

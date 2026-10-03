@@ -85,6 +85,7 @@ internal static class IdvpAssemblyInspector
 
         var assemblyName = metadata.GetString(metadata.GetAssemblyDefinition().Name);
         if (assemblyName.Equals(SdkAssemblyName, StringComparison.OrdinalIgnoreCase) ||
+            assemblyName.Equals("IdentityVisionBridge.Vision.Contracts", StringComparison.OrdinalIgnoreCase) ||
             IsForbiddenHostReference(assemblyName) || IsForbiddenUiReference(assemblyName))
         {
             throw new IdvpPackageException($"The package carries a reserved assembly: {assemblyName}");

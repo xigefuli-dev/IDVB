@@ -144,7 +144,9 @@ public sealed class IdvpPackageWriter
 
             var relativePath = Path.GetRelativePath(sourceDirectory, fullPath).Replace('\\', '/');
             relativePath = IdvpPathRules.ValidateArchivePath(relativePath);
-            if (relativePath is "manifest.json" or "signature.json")
+            if (relativePath is "manifest.json" or "signature.json"
+                or "IdentityVisionBridge.Vision.Contracts.dll" or "IdentityVisionBridge.Vision.Contracts.xml"
+                or "IdentityVisionBridge.Vision.Contracts.pdb")
             {
                 continue;
             }

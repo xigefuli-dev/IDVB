@@ -31,15 +31,25 @@ public sealed partial class TeachingTipManager
         string pluginId,
         PluginKeyBindingSetting setting)
     {
-        var current = ReadProviderValue(provider, setting) as string;
+        return CreateInputBindingControl(
+            ReadProviderValue(provider, setting) as string,
+            setting.DefaultValue, setting.AllowedKinds, _dispatcher,
+            next => PersistSetting(provider, pluginId, setting.Key,
+                JsonSerializer.SerializeToElement(next.StorageValue)));
+    }
+
+    internal static FrameworkElement CreateInputBindingControl(
+        string? current, string? defaultValue, PluginInputBindingKinds allowedKinds,
+        DispatcherQueue dispatcher, Action<PluginInputBinding> save)
+    {
         if (!PluginInputBinding.TryParse(
                 current,
-                setting.AllowedKinds,
+                allowedKinds,
                 out var binding))
         {
             PluginInputBinding.TryParse(
-                setting.DefaultValue,
-                setting.AllowedKinds,
+                defaultValue,
+                allowedKinds,
                 out binding);
         }
 
@@ -50,7 +60,7 @@ public sealed partial class TeachingTipManager
         var ignoreNextClick = false;
         var xButton1WasDown = false;
         var xButton2WasDown = false;
-        var sideButtonPoller = _dispatcher.CreateTimer();
+        var sideButtonPoller = dispatcher.CreateTimer();
         sideButtonPoller.Interval = TimeSpan.FromMilliseconds(15);
         var host = new Grid
         {
@@ -73,6 +83,13 @@ public sealed partial class TeachingTipManager
         var control = new StackPanel { Spacing = 6 };
         control.Children.Add(bindingDescription);
         control.Children.Add(host);
+        control.Children.Add(new TextBlock
+        {
+            Text = "支持鼠标左键、右键、中键及侧键 1 / 2。G502 等鼠标的额外功能键，请先在驱动中分配为键盘键（如 F13–F24），再点击设置按键录入。",
+            FontSize = 12,
+            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            TextWrapping = TextWrapping.Wrap
+        });
 
         void RefreshButton()
         {
@@ -100,11 +117,7 @@ public sealed partial class TeachingTipManager
             recordingHeldKeys.Clear();
             recordingTriggerKey = 0;
             binding = next;
-            PersistSetting(
-                provider,
-                pluginId,
-                setting.Key,
-                JsonSerializer.SerializeToElement(binding.StorageValue));
+            save(binding);
             RefreshButton();
             await Task.CompletedTask;
         }
@@ -127,8 +140,8 @@ public sealed partial class TeachingTipManager
             recording = true;
             recordingHeldKeys.Clear();
             recordingTriggerKey = 0;
-            xButton1WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
-            xButton2WasDown = IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
+            xButton1WasDown = IsRecordingMouseKeyDown(0x05);
+            xButton2WasDown = IsRecordingMouseKeyDown(0x06);
             sideButtonPoller.Start();
             RefreshButton();
             host.Focus(FocusState.Programmatic);
@@ -137,15 +150,15 @@ public sealed partial class TeachingTipManager
         sideButtonPoller.Tick += async (_, _) =>
         {
             if (!recording
-                || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
+                || (allowedKinds & PluginInputBindingKinds.Mouse) == 0)
             {
                 return;
             }
 
             var xButton1IsDown =
-                IsCurrentKeyDown((Windows.System.VirtualKey)0x05);
+                IsRecordingMouseKeyDown(0x05);
             var xButton2IsDown =
-                IsCurrentKeyDown((Windows.System.VirtualKey)0x06);
+                IsRecordingMouseKeyDown(0x06);
             if (xButton1IsDown && !xButton1WasDown)
             {
                 await SaveBinding(
@@ -161,7 +174,11 @@ public sealed partial class TeachingTipManager
             xButton1WasDown = xButton1IsDown;
             xButton2WasDown = xButton2IsDown;
         };
-        host.Unloaded += (_, _) => sideButtonPoller.Stop();
+        host.Unloaded += (_, _) =>
+        {
+            recording = false;
+            sideButtonPoller.Stop();
+        };
 
         host.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(async (_, args) =>
         {
@@ -184,7 +201,7 @@ public sealed partial class TeachingTipManager
             var key = (uint)args.Key;
             if (!recordingHeldKeys.Contains(key))
                 return;
-            if ((setting.AllowedKinds & PluginInputBindingKinds.Keyboard) != 0)
+            if ((allowedKinds & PluginInputBindingKinds.Keyboard) != 0)
             {
                 await SaveBinding(CreatePluginKeyboardBinding(
                     recordingTriggerKey,
@@ -195,7 +212,7 @@ public sealed partial class TeachingTipManager
         host.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(async (_, args) =>
         {
             if (!recording
-                || (setting.AllowedKinds & PluginInputBindingKinds.Mouse) == 0)
+                || (allowedKinds & PluginInputBindingKinds.Mouse) == 0)
             {
                 return;
             }

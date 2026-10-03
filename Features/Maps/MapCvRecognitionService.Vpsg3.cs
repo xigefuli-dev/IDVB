@@ -10,6 +10,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
 
     private readonly Vpsg3PreparedIndexRegistry _vpsg3Registry = new();
     private readonly CancellationTokenSource _vpsg3RebuildCts = new();
+    private Task _vpsg3Preparation = Task.CompletedTask;
+    internal Task WaitForVpsg3PreparationAsync(CancellationToken token) => _vpsg3Preparation.WaitAsync(token);
     private int _vpsg3ShadowRunning;
 
     /// <summary>
@@ -240,7 +242,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
             return;
 
         // Dispatch background bounded parallel execution (3 workers)
-        _ = Task.Run(async () =>
+        var rebuild = Task.Run(async () =>
         {
             // Yield startup CPU priority to initial UI presentation
             try { await Task.Delay(1500, token); }
@@ -376,6 +378,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 // Service being disposed or rebuild cancelled
             }
         }, token);
+        _vpsg3Preparation = Task.WhenAll(_vpsg3Preparation, rebuild);
     }
 
     private bool TryGetEligiblePrebuiltPath(

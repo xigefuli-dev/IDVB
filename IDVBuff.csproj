@@ -63,6 +63,7 @@
     <ItemGroup>
         <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
         <ProjectReference Include="Core\IDVBuff.Core.csproj" />
+        <ProjectReference Include="IDVB.Vision\IDVB.Vision.csproj" Aliases="VisionEngine" />
         <ProjectReference Include="Infrastructure\IDVBuff.Infrastructure.csproj" />
         <ProjectReference Include="Services\IDVBuff.Services.csproj" />
         <ProjectReference Include="Pipeline\IDVBuff.Pipeline.csproj" />
@@ -137,6 +138,9 @@
 
     <ItemGroup>
         <Compile Remove="Core\**\*.cs" />
+        <Compile Remove="IDVB.Vision.Contracts\**\*.cs" />
+        <Compile Remove="IDVB.Vision\**\*.cs" />
+        <Compile Remove="IDVB.Vision.Tests\**\*.cs" />
         <Compile Remove="Infrastructure\**\*.cs" />
         <Compile Remove="Services\**\*.cs" />
         <Compile Remove="Pipeline\**\*.cs" />

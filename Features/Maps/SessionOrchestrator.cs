@@ -142,7 +142,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         // Create internal concrete services
         _mapRepository = new MapRepository();
         _rtSettingsRepo = new MapRuntimeSettingsRepository();
-        _recognition = new MapCvRecognitionService(_mapRepository);
+        _recognition = new MapCvRecognitionService(_mapRepository, MapOverlayBitmapRenderer.InvalidateImageCache);
         _playerMarkerDetector = new MapPlayerMarkerDetector();
         _researchCollector = researchCollector;
         _logCollector = new MapLogCollector();

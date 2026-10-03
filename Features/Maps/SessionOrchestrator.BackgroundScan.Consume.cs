@@ -236,6 +236,7 @@ public sealed partial class SessionOrchestrator
         // KEEP-1.0 兜底（prior=0）后消费对齐会走双门路径而失败。
         // 确定性单候选路径 seed 已由扫描产出，无需重建。
         if (_pendingBackgroundSeed is null
+            && locked.Result.Source != MapRecognitionSource.UserConfirmed
             && _pendingBackgroundScan is { } pendingScan
             && candidateFrame is not null)
         {

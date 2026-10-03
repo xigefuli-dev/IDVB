@@ -21,6 +21,8 @@ internal sealed class PluginLoadContext : AssemblyLoadContext
         {
             return typeof(IIdvbPlugin).Assembly;
         }
+        if (assemblyName.Name == typeof(IdentityVisionBridge.Vision.IIdvbVisionEngine).Assembly.GetName().Name)
+            return typeof(IdentityVisionBridge.Vision.IIdvbVisionEngine).Assembly;
 
         var path = _resolver.ResolveAssemblyToPath(assemblyName);
         return path is null ? null : LoadFromAssemblyPath(path);

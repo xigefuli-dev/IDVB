@@ -210,16 +210,12 @@ public sealed class CustomPhraseAutomation
             yield return 0x5B;
     }
 
-    private static (uint Down, uint Up, uint Data) GetMouseFlags(PluginMouseButton button) =>
-        button switch
-        {
-            PluginMouseButton.Left => (MouseeventfLeftdown, MouseeventfLeftup, 0),
-            PluginMouseButton.Right => (MouseeventfRightdown, MouseeventfRightup, 0),
-            PluginMouseButton.Middle => (MouseeventfMiddledown, MouseeventfMiddleup, 0),
-            PluginMouseButton.XButton1 => (MouseeventfXdown, MouseeventfXup, 1u << 16),
-            PluginMouseButton.XButton2 => (MouseeventfXdown, MouseeventfXup, 2u << 16),
-            _ => throw new ArgumentOutOfRangeException(nameof(button))
-        };
+    private static (uint Down, uint Up, uint Data) GetMouseFlags(PluginMouseButton button)
+    {
+        var down = PluginMouseInput.Encode(button, true);
+        var up = PluginMouseInput.Encode(button, false);
+        return (down.Flags, up.Flags, down.Data);
+    }
 
     private static void MoveCursor(int x, int y)
     {

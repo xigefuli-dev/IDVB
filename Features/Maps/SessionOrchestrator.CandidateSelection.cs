@@ -31,10 +31,18 @@ public sealed partial class SessionOrchestrator
         // fresh opportunity for model/headless top-one selection.
         requiresExplicitSelection |= selectionExecution is not null;
         var selectionRequest = ScanRequestDiagnostics.Current;
+        if (selectionExecution is not null)
+        {
+            // The automatic decision is over. Preview decoding, model ranking and
+            // waiting for the chooser are manual-selection work, not scan compute.
+            // Keep the scope for cancellation/generation checks and the explicit
+            // selection guard above; completing it must never auto-pick a result.
+            LogScanCheckpoint("candidate-preparation", capturedRequest: selectionRequest);
+            FinishScanExecution(selectionExecution);
+        }
         Action? onPresented = selectionExecution is null ? null : () =>
         {
             LogScanCheckpoint("candidate-presented", capturedRequest: selectionRequest);
-            FinishScanExecution(selectionExecution);
         };
         var scopedCandidates = candidates
             .Where(candidate => string.Equals(
@@ -380,6 +388,13 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition selected,
         CapturedGameFrame frame,
         bool userConfirmed)
+        => LockSelectedMapIdentity(selected, frame.ClientBounds, frame.WindowHandle, userConfirmed);
+
+    private RuntimeMapRecognition LockSelectedMapIdentity(
+        RuntimeMapRecognition selected,
+        MapScreenRect clientBounds,
+        IntPtr windowHandle,
+        bool userConfirmed)
     {
         CancelMapObservation(clearPreview: true);
         InvalidateActiveMapOpenOperation("candidate-identity-committed");
@@ -416,8 +431,8 @@ public sealed partial class SessionOrchestrator
             floorKey,
             identityLock.Result.IdentityConfidence);
         _currentFloorKey = floorKey;
-        _lastGameBounds = frame.ClientBounds;
-        _lastGameWindowHandle = frame.WindowHandle;
+        _lastGameBounds = clientBounds;
+        _lastGameWindowHandle = windowHandle;
         _statusMessage =
             $"已锁定所选地图：{identityLock.Map.DisplayName} · "
             + $"{floorKey.ToUpperInvariant()}；正在首次对齐……";

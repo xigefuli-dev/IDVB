@@ -409,7 +409,7 @@ public sealed class ScanIdentitySafetyTests
             {
                 var x = (p.X - offset) / scale;
                 var y = (p.Y + offset) / scale;
-                if (index.IsUnknown(x, y)) continue;
+                if (index.IsUnknownWithinSupport(x, y, scale)) continue;
                 var distance = index.Distance(x, y, scale);
                 sum += distance <= .8 ? 1 : distance <= 2.5 ? .7 : distance <= 5.5 ? .4 : 0;
                 known++;

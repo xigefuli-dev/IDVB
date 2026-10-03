@@ -36,7 +36,8 @@ public sealed class Vpsg3LiveObservation : IDisposable
     private Mat? _observedEdges;
     private Mat? _validMask;
     private Mat? _proposalEdges;
-    /// <summary>Strong semantic contours for scale proposals; all observed edges still participate in final distance verification.</summary>
+    /// <summary>Strong semantic contours for scale proposals and local identity contradictions.
+    /// All observed edges, including weak recovery, still participate in global distance verification.</summary>
     public Mat ProposalEdges => _proposalEdges ?? ObservedEdges;
     private int _disposed;
 

@@ -15,6 +15,12 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private async Task EndMatchAsync(bool saveAutomaticMapCache)
     {
         await _matchLifecycleGate.WaitAsync();
+        try { await EndMatchCoreAsync(saveAutomaticMapCache); }
+        finally { _matchLifecycleGate.Release(); }
+    }
+
+    private async Task EndMatchCoreAsync(bool saveAutomaticMapCache)
+    {
         try
         {
             if (_disposed)
@@ -83,7 +89,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         finally
         {
             Volatile.Write(ref _matchEnding, 0);
-            _matchLifecycleGate.Release();
         }
     }
 

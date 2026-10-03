@@ -19,7 +19,6 @@ public sealed partial class AutoGatlingService : IDisposable
     private const uint WmSysKeyUp = 0x0105;
     private const uint WmQuit = 0x0012;
     private const uint PmNoRemove = 0x0000;
-    private const uint LlkhfInjected = 0x00000010;
     private const uint InputMouse = 0;
     private const uint InputKeyboard = 1;
     private const uint KeyeventfKeyup = 0x0002;
@@ -30,6 +29,8 @@ public sealed partial class AutoGatlingService : IDisposable
 
     private readonly object _sync = new();
     private readonly LowLevelKeyboardProc _keyboardProc;
+    private readonly LowLevelKeyboardProc _mouseProc;
+    private IntPtr _mouseHook;
     private readonly Action<string> _log;
     private readonly AutoGatlingOptions _options;
     private PluginInputBinding _inventoryBinding = new();
@@ -50,6 +51,7 @@ public sealed partial class AutoGatlingService : IDisposable
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _keyboardProc = KeyboardHookCallback;
+        _mouseProc = MouseHookCallback;
     }
 
     public bool IsStarted
@@ -182,6 +184,9 @@ public sealed partial class AutoGatlingService : IDisposable
                         "无法注册自动加特林键盘钩子。");
                 }
 
+                _mouseHook = SetWindowsHookEx(14, _mouseProc, module, 0);
+                if (_mouseHook == IntPtr.Zero)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注册自动加特林鼠标钩子。");
                 started.Set();
                 while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
                 {
@@ -198,6 +203,9 @@ public sealed partial class AutoGatlingService : IDisposable
             {
                 if (_keyboardHook != IntPtr.Zero)
                     UnhookWindowsHookEx(_keyboardHook);
+                if (_mouseHook != IntPtr.Zero)
+                    UnhookWindowsHookEx(_mouseHook);
+                _mouseHook = IntPtr.Zero;
                 _keyboardHook = IntPtr.Zero;
                 _hookThreadId = 0;
             }
@@ -226,7 +234,7 @@ public sealed partial class AutoGatlingService : IDisposable
         if (code >= 0)
         {
             var keyboard = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
-            if ((keyboard.Flags & LlkhfInjected) == 0)
+            if (keyboard.ExtraInfo != InputInjectionMarker)
             {
                 var message = (uint)wParam.ToInt64();
                 var isDown = message is WmKeyDown or WmSysKeyDown;
@@ -269,7 +277,7 @@ public sealed partial class AutoGatlingService : IDisposable
         bool isUp,
         bool activate)
     {
-        if (!binding.IsConfigured || binding.VirtualKey != virtualKey)
+        if (binding.Kind != PluginInputBindingKind.Keyboard || binding.VirtualKey != virtualKey)
             return false;
 
         if (isDown)

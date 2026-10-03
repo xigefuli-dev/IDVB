@@ -159,6 +159,12 @@ public sealed partial class SessionOrchestrator
                             _ => MapLocationMethod.Manual
                         },
                         aligned.Result.LocalizationConfidence);
+                    if (ExternalAlignmentReceipt.Value is { } receipt)
+                    {
+                        receipt.Revision = SessionSnapshot.AlignmentRevision;
+                        receipt.MapId = aligned.Map.Id;
+                        receipt.FloorKey = aligned.Result.Floor;
+                    }
                 }
                 _currentFloorKey = aligned.Result.Floor;
                 _lastRecognition = aligned;

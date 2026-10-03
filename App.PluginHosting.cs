@@ -1,3 +1,5 @@
+extern alias VisionEngine;
+
 using IDVBuff.Diagnostics;
 using IDVBuff.Features.Plugins.V2;
 using IDVBuff.PluginContracts;
@@ -59,7 +61,11 @@ public partial class App
             serviceProvider.GetRequiredService<IPluginInputService>(),
             serviceProvider.GetRequiredService<IPluginScreenshotService>(),
             _pluginNotificationCenter,
-            QueueThirdPartyPluginFault);
+            QueueThirdPartyPluginFault,
+            new VisionCapabilityProvider(
+                new DesktopPluginVisionHost(serviceProvider.GetRequiredService<Features.Maps.SessionOrchestrator>()),
+                () => new VisionEngine::IdentityVisionBridge.Vision.IdvbVisionEngine(
+                    Path.Combine(AppDataPaths.RootDirectory, "Maps"))));
         WriteStartupTrace("Third-party capability services resolved; context and manager construction begin.");
         var contextFactory = new DefaultThirdPartyPluginContextFactory(
             capabilitySource,

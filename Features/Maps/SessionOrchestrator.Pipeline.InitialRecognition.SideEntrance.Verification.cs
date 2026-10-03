@@ -130,7 +130,18 @@ public sealed partial class SessionOrchestrator
                 if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
                 // Rejection of the moved transform does not disprove the original
                 // supported identity; registration has not confirmed a usable pose.
-                if (evidence.State != ScanIdentityState.Supported) { complete = false; continue; }
+                if (evidence.State != ScanIdentityState.Supported)
+                {
+                    _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,
+                        "扫描最终对齐结构复核未通过", details: new()
+                        {
+                            ["mapId"] = candidate.Map.Id, ["floor"] = candidate.FloorKey,
+                            ["scanId"] = context.ScanId, ["finalEvidence"] = evidence,
+                            ["finalTransform"] = finalTransform
+                        });
+                    complete = false;
+                    continue;
+                }
                 hypothesis.VerifiedTransform = finalTransform;
                 hypothesis.IdentityEvidence = evidence;
                 if (bestEvidence is null || evidence.ForwardMeanPixels < bestEvidence.ForwardMeanPixels)
@@ -174,6 +185,8 @@ public sealed partial class SessionOrchestrator
                     ["mapId"] = candidate.Map.Id, ["mode"] = context.Policy.Mode.ToString(),
                     ["testedPoints"] = candidate.IdentityEvidence.TestedPoints,
                     ["totalPoints"] = candidate.IdentityEvidence.TotalPoints,
+                    ["strongTestedPoints"] = candidate.IdentityEvidence.StrongTestedPoints,
+                    ["localConflictEvidence"] = "strong-semantic-edges",
                     ["support"] = candidate.IdentityEvidence.SupportedFraction,
                     ["forwardMeanPixels"] = double.IsFinite(candidate.IdentityEvidence.ForwardMeanPixels) ? candidate.IdentityEvidence.ForwardMeanPixels : null,
                     ["longestConflictPixels"] = candidate.IdentityEvidence.LongestConflictPixels,
@@ -198,7 +211,8 @@ public sealed partial class SessionOrchestrator
         timings["scan_verification"] = timer.Elapsed.TotalMilliseconds;
         _lastDiagnostics!.ScanCandidateCount = candidates.Count;
         _lastDiagnostics.ScanVerificationCandidateCount = candidates.Count;
-        context!.VerifiedCandidateCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
+        context!.ComparedIdentityCount = candidates.Count(c => c.IdentityEvidence.State != ScanIdentityState.Unverified);
+        context.VerifiedCandidateCount = reliable.Count;
         _lastDiagnostics.ScanVerifiedCandidateCount = context.VerifiedCandidateCount.Value;
         _lastDiagnostics.ScanVerificationTimedOut = !context!.CanCompute;
         _lastDiagnostics.ScanEarlyExited = false;
@@ -210,7 +224,7 @@ public sealed partial class SessionOrchestrator
             "扫描分阶段验证完成",
             details: new()
             {
-                ["comparedIdentities"] = _lastDiagnostics.ScanVerifiedCandidateCount,
+                ["comparedIdentities"] = context.ComparedIdentityCount,
                 ["formalAlignments"] = formal,
                 ["verifiedMembers"] = reliable.Count,
                 ["skippedSiblingAlignments"] = reusedFamily,

@@ -49,12 +49,14 @@ public sealed partial class MainPage
 
     private void StartScanAccentTransition(Color target, bool animate)
     {
+        // One palette refresh starts transitions on the shared brushes. Intermediate
+        // ambient frames never resolve a palette or notify all theme owners again.
+        ThemeService.SetScanModeAccent(target, animate && _scanVisualUiSettings.AnimationsEnabled);
+        if (animate && _scanAccentAnimationRunning && _scanAccentTarget.Equals(target))
+            return;
         var now = Stopwatch.GetTimestamp();
         if (_scanAccentAnimationRunning)
             UpdateScanAccentFrame(now);
-
-        if (_scanAccentAnimationRunning && _scanAccentTarget.Equals(target))
-            return;
 
         if (!animate || !_scanVisualUiSettings.AnimationsEnabled)
         {
@@ -101,7 +103,6 @@ public sealed partial class MainPage
     private void ApplyScanAccent(Color color)
     {
         _scanVisualHomePage?.SetAmbientAccent(color);
-        ThemeService.SetScanModeAccent(color);
     }
 
     private void StopScanAccentAnimation()

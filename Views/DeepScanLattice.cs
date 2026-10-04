@@ -16,6 +16,7 @@ internal sealed class DeepScanLattice : UserControl
     private InsetClip? _fillClip;
     private double _fillBoundary;
     private bool _running;
+    private CompositionPropertySet? _selectionGeometry;
 
     public DeepScanLattice()
     {
@@ -37,6 +38,15 @@ internal sealed class DeepScanLattice : UserControl
         _fillBoundary = leadingEdge;
         if (_fillClip is not null)
             _fillClip.RightInset = (float)ScanModeVisualRules.FillRightInset(ActualWidth, leadingEdge);
+    }
+
+    internal void BindFillBoundary(CompositionPropertySet geometry)
+    {
+        _selectionGeometry = geometry;
+        if (_fillClip is null) return;
+        using var boundary = geometry.Compositor.CreateExpressionAnimation("pose.Width - pose.SelectionX");
+        boundary.SetReferenceParameter("pose", geometry);
+        _fillClip.StartAnimation("RightInset", boundary);
     }
 
     private void Release()
@@ -67,6 +77,7 @@ internal sealed class DeepScanLattice : UserControl
         _fillClip = compositor.CreateInsetClip();
         _root.Clip = _fillClip;
         SetFillBoundary(_fillBoundary);
+        if (_selectionGeometry is not null) BindFillBoundary(_selectionGeometry);
         _flow = compositor.CreatePropertySet();
         _flow.InsertScalar("Phase", 0);
         var columns = Math.Max(2, (int)((ActualWidth - 20) / 5));

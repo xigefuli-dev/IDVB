@@ -70,17 +70,19 @@ public sealed class DeepScanVisualRulesTests
     }
 
     [Fact]
-    public void SameHeldDragCanReachQualityThenNewDeepScanSegment()
+    public void FourPersistentSlotsCanBeSelectedDirectlyAtEverySupportedWidth()
     {
-        const double width = 348;
-        Assert.Equal(2, ScanModeVisualRules.HitTest(244, width, 0, 3));
-        Assert.Equal(2, ScanModeVisualRules.HitTest(244, width, .5, 4));
-        Assert.Equal(3, ScanModeVisualRules.HitTest(330, width, .5, 4));
-        Assert.Equal(3, ScanModeVisualRules.HitTest(330, width, 1, 4));
-        // Expanding below a stationary held pointer must also reveal/select DeepScan.
-        Assert.Equal(2, ScanModeVisualRules.HitTest(330, width, 0, 3));
-        Assert.Equal(3, ScanModeVisualRules.HitTest(330, width, 1, 4));
-        Assert.Equal(0, ScanModeVisualRules.HitTest(-20, width, 1, 4));
-        Assert.Equal(3, ScanModeVisualRules.HitTest(400, width, 1, 4));
+        foreach (var width in new[] { 240d, 348d, 520d })
+        {
+            for (var mode = 0; mode < 4; mode++)
+            {
+                var center = width * (mode + .5) / 4;
+                Assert.Equal(mode, ScanModeVisualRules.HitTest(center, width, 1, 4));
+                Assert.Equal(mode, ScanModeVisualRules.PointerIndex(center, width, 1, 4));
+                Assert.Equal(mode, ScanModeVisualRules.HitTest(width * mode / 4, width, 1, 4));
+            }
+            Assert.Equal(0, ScanModeVisualRules.HitTest(-20, width, 1, 4));
+            Assert.Equal(3, ScanModeVisualRules.HitTest(width + 20, width, 1, 4));
+        }
     }
 }

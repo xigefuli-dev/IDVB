@@ -45,11 +45,13 @@ internal sealed class ThemeScope : IDisposable
         else Root.DispatcherQueue.TryEnqueue(() => { if (!IsDisposed) action(); });
     }
 
-    internal void Apply(ThemeSnapshot snapshot, long revision)
+    internal void Apply(ThemeSnapshot snapshot, long revision, bool animateAccent = false)
     {
         if (IsDisposed || revision < Resources.Revision) return;
         if (_backdropFailed) snapshot = snapshot with { EffectiveMaterial = ThemeMaterial.Solid, FallbackReason = "BackdropFailure" };
-        Resources.Apply(snapshot, revision);
+        Resources.Apply(snapshot, revision, animateAccent);
+        // Accent-only updates leave window materials, title bars and theme layout alone.
+        if (animateAccent) return;
         Root.RequestedTheme = snapshot.IsDark ? ElementTheme.Dark : ElementTheme.Light;
         _windowBrush.Color = ThemeResources.ToColor(snapshot[ThemeToken.Window]);
         if (_window is null) return;

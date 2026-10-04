@@ -90,14 +90,57 @@ public sealed class ApplicationUsageTrackerTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, "0 分 0 秒")]
-    [InlineData(59, "0 分 59 秒")]
-    [InlineData(60, "1 分 0 秒")]
-    [InlineData(3599, "59 分 59 秒")]
-    [InlineData(3600, "1 小时 0 分")]
-    [InlineData(90061, "1 天 1 小时")]
+    [InlineData(0, "0.0 h")]
+    [InlineData(245, "0.1 h")]
+    [InlineData(3600, "1.0 h")]
+    [InlineData(90061, "25.0 h")]
+    [InlineData(1082880, "300.8 h")]
     public void DisplayHandlesTimeUnitBoundaries(int seconds, string expected) =>
         Assert.Equal(expected, ApplicationUsageTracker.FormatDuration(TimeSpan.FromSeconds(seconds)));
+
+    [Fact]
+    public void ExistingFourMinuteHistoryKeepsGrowingAcrossLongSessionsAndRestart()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(StatisticsPath, "{\"SchemaVersion\":1,\"TotalTicks\":2454236846}");
+        var elapsed = TimeSpan.Zero;
+        using (var tracker = new ApplicationUsageTracker(StatisticsPath, () => elapsed, false))
+        {
+            tracker.Start();
+            elapsed = TimeSpan.FromSeconds(246);
+            tracker.SaveCheckpoint();
+            Assert.True(tracker.GetSnapshot().Total > TimeSpan.FromSeconds(491));
+            elapsed = TimeSpan.FromHours(300.8);
+            tracker.SaveCheckpoint();
+            tracker.SaveCheckpoint();
+            Assert.Equal("300.9 h", ApplicationUsageTracker.FormatDuration(tracker.GetSnapshot().Total!.Value));
+        }
+        using var restarted = new ApplicationUsageTracker(StatisticsPath, periodicSave: false);
+        Assert.Equal(TimeSpan.FromTicks(2454236846) + elapsed, restarted.GetSnapshot().Total);
+    }
+
+    [Fact]
+    public void CoexistingGuiTrackersMergeIntervalsWithoutOverwritingOrDoubleCounting()
+    {
+        var firstElapsed = TimeSpan.Zero;
+        var secondElapsed = TimeSpan.Zero;
+        using (var first = new ApplicationUsageTracker(StatisticsPath, () => firstElapsed, false))
+        using (var second = new ApplicationUsageTracker(StatisticsPath, () => secondElapsed, false))
+        {
+            first.Start();
+            second.Start();
+            firstElapsed = TimeSpan.FromSeconds(300);
+            secondElapsed = TimeSpan.FromSeconds(400);
+            Parallel.Invoke(first.SaveCheckpoint, second.SaveCheckpoint);
+            firstElapsed = TimeSpan.FromSeconds(500);
+            secondElapsed = TimeSpan.FromSeconds(600);
+            Parallel.Invoke(second.SaveCheckpoint, first.SaveCheckpoint);
+            first.SaveCheckpoint();
+            Assert.Equal(TimeSpan.FromSeconds(1100), first.GetSnapshot().Total);
+        }
+        using var reloaded = new ApplicationUsageTracker(StatisticsPath, periodicSave: false);
+        Assert.Equal(TimeSpan.FromSeconds(1100), reloaded.GetSnapshot().Total);
+    }
 
     public void Dispose()
     {

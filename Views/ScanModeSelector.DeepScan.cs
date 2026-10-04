@@ -28,14 +28,13 @@ public sealed partial class ScanModeSelector
         CornerRadius = new CornerRadius(28), IsHitTestVisible = false, Opacity = 0,
         Background = DeepGradient((0xF21B102B, 0), (0xDD25113E, .65), (0xD03F205F, 1))
     };
-    private int _visibleSegments = 3;
+    private const int _visibleSegments = 4;
     private uint? _dragPointer;
     private double? _dragTrackX;
     private double _dragGrabOffset;
     private double _pointerPressX;
     private bool _isPointerDragging;
     private bool _pointerNeedsSettle;
-    private bool _expandedForGesture;
     private ScanPerformanceMode _lastAppearanceMode = ScanPerformanceMode.Balanced;
     private bool _deepMotionRunning;
     private bool _deepEffectsVisible;
@@ -58,23 +57,20 @@ public sealed partial class ScanModeSelector
         return _deepLightHost;
     }
 
-    private void UpdateSegmentCount()
-    {
-        var qualityOrDeep = Mode is ScanPerformanceMode.Quality or ScanPerformanceMode.DeepScan;
-        if (_dragPointer.HasValue) _expandedForGesture |= qualityOrDeep;
-        _visibleSegments = qualityOrDeep || (_dragPointer.HasValue && _expandedForGesture) ? 4 : 3;
-        _input.Maximum = _visibleSegments - 1;
-    }
-
     private void SelectAtPointer(PointerRoutedEventArgs args)
     {
         var x = args.GetCurrentPoint(_track).Position.X;
+        SelectAtTrackPosition(x);
+    }
+
+    private void SelectAtTrackPosition(double x)
+    {
         _dragTrackX = x;
-        // Hit testing follows animated widths; no release is needed for DeepScan.
+        UpdateGeometryPointer();
+        if (_appearanceAnimating) AdvanceAppearance();
+        // All four slots have fixed widths, including during a drag.
         _input.Value = ScanModeVisualRules.HitTest(x - _dragGrabOffset, _track.ActualWidth,
             _appearanceFrame.Expansion, _visibleSegments);
-        // Pointer pose is consumed synchronously, even inside the same segment;
-        // only the background/shape runs on the short easing clock.
         RenderAppearanceFrame();
     }
 
@@ -88,7 +84,7 @@ public sealed partial class ScanModeSelector
             if (Math.Abs(args.GetCurrentPoint(_track).Position.X - _pointerPressX) < 3) return;
             _isPointerDragging = true;
         }
-        SelectAtPointer(args);
+        SelectAtTrackPosition(args.GetCurrentPoint(_track).Position.X);
         args.Handled = true;
     }
 
@@ -100,21 +96,23 @@ public sealed partial class ScanModeSelector
         _dragTrackX = null;
         _pointerNeedsSettle = _isPointerDragging;
         _isPointerDragging = false;
-        _expandedForGesture = false;
         _track.ReleasePointerCapture(args.Pointer);
         UpdateAppearance(true);
+        CommitMode();
         args.Handled = true;
     }
 
     private void TrackPointerCaptureLost(object sender, PointerRoutedEventArgs args)
     {
         if (!_dragPointer.HasValue) return;
+        if (_isPointerDragging && _dragTrackX.HasValue && _track.ActualWidth > 0)
+            SelectAtTrackPosition(_dragTrackX.Value);
         _dragPointer = null;
         _dragTrackX = null;
         _pointerNeedsSettle = _isPointerDragging;
         _isPointerDragging = false;
-        _expandedForGesture = false;
         UpdateAppearance(true);
+        CommitMode();
     }
 
     private static LinearGradientBrush DeepGradient(params (uint Color, double Offset)[] stops)
@@ -133,9 +131,9 @@ public sealed partial class ScanModeSelector
 
     private void UpdateDeepMotion()
     {
-        var active = Mode == ScanPerformanceMode.DeepScan || _appearanceFrame.Deep > .001;
+        var active = AllowsGlass(FluentTheme.Snapshot(this))
+            && (Mode == ScanPerformanceMode.DeepScan || _appearanceFrame.Deep > .001);
         var moving = active && CanAnimate();
-        if (Mode != ScanPerformanceMode.DeepScan) StopDeepImpact();
         if (_deepMotionRunning == moving && _deepEffectsVisible == active) return;
         _deepMotionRunning = moving;
         _deepEffectsVisible = active;

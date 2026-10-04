@@ -11,6 +11,7 @@ namespace IDVBuff.Views;
 
 public sealed partial class ScanModeSelector
 {
+    private (ScanPerformanceMode Mode, bool Animate, bool Glass)? _motionState;
     private bool CanAnimate() => IsLoaded
         && Visibility == Visibility.Visible
         && _ui.AnimationsEnabled
@@ -21,8 +22,12 @@ public sealed partial class ScanModeSelector
 
     private void UpdateMotion()
     {
-        if (!CanAnimate()) FinishAppearanceTransition();
+        var animate = CanAnimate();
+        if (!animate) FinishAppearanceTransition();
         UpdateDeepMotion();
+        var state = (Mode, animate, AllowsGlass(FluentTheme.Snapshot(this)));
+        if (_motionState == state) return;
+        _motionState = state;
         StopEffectAnimations();
         SetQualityEffectVisibility(Visibility.Collapsed);
         _fastGlow.Visibility = Visibility.Collapsed;
@@ -82,7 +87,7 @@ public sealed partial class ScanModeSelector
         float maximumScale, float minimumOpacity, float maximumOpacity,
         int durationMilliseconds)
     {
-        var scale = visual.Compositor.CreateVector3KeyFrameAnimation();
+        using var scale = visual.Compositor.CreateVector3KeyFrameAnimation();
         scale.InsertKeyFrame(0, new Vector3(minimumScale, minimumScale, 1));
         scale.InsertKeyFrame(.5f, new Vector3(maximumScale, maximumScale, 1));
         scale.InsertKeyFrame(1, new Vector3(minimumScale, minimumScale, 1));
@@ -90,7 +95,7 @@ public sealed partial class ScanModeSelector
         scale.IterationBehavior = AnimationIterationBehavior.Forever;
         visual.StartAnimation("Scale", scale);
 
-        var opacity = visual.Compositor.CreateScalarKeyFrameAnimation();
+        using var opacity = visual.Compositor.CreateScalarKeyFrameAnimation();
         opacity.InsertKeyFrame(0, minimumOpacity);
         opacity.InsertKeyFrame(.5f, maximumOpacity);
         opacity.InsertKeyFrame(1, minimumOpacity);
@@ -105,14 +110,14 @@ public sealed partial class ScanModeSelector
         {
             var line = _speedLines[index];
             var visual = ElementCompositionPreview.GetElementVisual(line);
-            var travel = visual.Compositor.CreateScalarKeyFrameAnimation();
+            using var travel = visual.Compositor.CreateScalarKeyFrameAnimation();
             travel.InsertKeyFrame(0, (float)(-line.Width - index * 11));
             travel.InsertKeyFrame(1, (float)(_segmentWidth + line.Width));
             travel.Duration = TimeSpan.FromMilliseconds(430 + index * 115);
             travel.IterationBehavior = AnimationIterationBehavior.Forever;
             visual.StartAnimation("Translation.X", travel);
 
-            var flash = visual.Compositor.CreateScalarKeyFrameAnimation();
+            using var flash = visual.Compositor.CreateScalarKeyFrameAnimation();
             flash.InsertKeyFrame(0, 0);
             flash.InsertKeyFrame(.18f, .8f);
             flash.InsertKeyFrame(.68f, .62f);
@@ -204,7 +209,6 @@ public sealed partial class ScanModeSelector
         _dragTrackX = null;
         _isPointerDragging = false;
         _pointerNeedsSettle = false;
-        _expandedForGesture = false;
         _track.ReleasePointerCaptures();
         UpdateAppearance(false);
     }

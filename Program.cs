@@ -83,9 +83,9 @@ public static class Program
             _guiInstance.StartListening();
         }
 
-        // Lifecycle hooks and secondary processes have already exited. Only the primary
-        // normal GUI owns usage accounting; CLI and isolated diagnostics do not contribute.
-        using var usage = !isCli && !isIsolatedDevelopmentInstance
+        // Each primary GUI is real application usage, including the development launcher.
+        // The tracker merges concurrent lifetimes; lifecycle hooks, secondaries and CLI exit earlier.
+        using var usage = !isCli
             ? ApplicationUsageTracker.Current
             : null;
         usage?.Start();

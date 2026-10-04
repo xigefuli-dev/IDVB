@@ -11,6 +11,34 @@ public sealed class AppearanceThemeTests
     [Theory]
     [InlineData(AppearanceMode.Light)]
     [InlineData(AppearanceMode.Dark)]
+    public void ScanAccentTransitionsKeepTextReadableAndSemanticColorsStable(AppearanceMode mode)
+    {
+        var preferences = new AppearancePreferences { Mode = mode, AccentFollowsScanMode = true };
+        var system = new SystemAppearance(false, RgbColor.Parse("#245DD8"));
+        var modes = new[] { "#32DA89", "#3097FF", "#B65BF2", "#D099FF" }
+            .Select(color => ThemeResolver.Resolve(preferences, system, scanModeAccent: RgbColor.Parse(color))).ToArray();
+        foreach (var from in modes)
+        foreach (var to in modes)
+        {
+            Assert.Equal(from[ThemeToken.SuccessFill], to[ThemeToken.SuccessFill]);
+            Assert.Equal(from[ThemeToken.ErrorFill], to[ThemeToken.ErrorFill]);
+            for (var frame = 0; frame <= 100; frame++)
+            {
+                RgbColor Color(ThemeToken token) => RgbColor.Mix(from[token], to[token], frame / 100d);
+                Assert.True(RgbColor.Contrast(Color(ThemeToken.OnAccent), Color(ThemeToken.Accent)) >= 4.5);
+                var selectionText = ThemeColorTransition.KeepReadable(Color(ThemeToken.SelectionText),
+                    Color(ThemeToken.Selection), mode == AppearanceMode.Dark);
+                selectionText = ThemeColorTransition.KeepReadable(selectionText,
+                    Color(ThemeToken.SelectionHover), mode == AppearanceMode.Dark);
+                Assert.True(RgbColor.Contrast(selectionText, Color(ThemeToken.Selection)) >= 4.5);
+                Assert.True(RgbColor.Contrast(selectionText, Color(ThemeToken.SelectionHover)) >= 4.5);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(AppearanceMode.Light)]
+    [InlineData(AppearanceMode.Dark)]
     public void VariantCardsRetainAllTwelveFillsAfterSelectionAndAccentChanges(AppearanceMode mode)
     {
         var preferences = new AppearancePreferences { Mode = mode, AccentSource = AccentSource.Custom, CustomAccent = "#FFFF00" };

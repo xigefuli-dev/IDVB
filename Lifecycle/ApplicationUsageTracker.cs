@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace IDVBuff.Lifecycle;
@@ -15,7 +18,9 @@ internal sealed class ApplicationUsageTracker : IDisposable
     private readonly Stopwatch _stopwatch = new();
     private readonly Func<TimeSpan> _getElapsed;
     private readonly bool _periodicSave;
-    private readonly long _previousTicks;
+    private long _persistedTicks;
+    private long _checkpointedSessionTicks;
+    private readonly string _mutexName;
     private readonly bool _historyReadable;
     private Timer? _saveTimer;
     private TimeSpan _stoppedElapsed;
@@ -31,17 +36,13 @@ internal sealed class ApplicationUsageTracker : IDisposable
         bool periodicSave = true)
     {
         _path = path;
+        _mutexName = "Local\\IDVB.ApplicationUsage." + Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToUpperInvariant())));
         _getElapsed = getElapsed ?? (() => _stopwatch.Elapsed);
         _periodicSave = periodicSave;
         try
         {
-            if (File.Exists(path))
-            {
-                var statistics = JsonSerializer.Deserialize<Statistics>(File.ReadAllText(path));
-                if (statistics is null || statistics.SchemaVersion != 1 || statistics.TotalTicks < 0)
-                    throw new InvalidDataException("Unsupported application usage statistics.");
-                _previousTicks = statistics.TotalTicks;
-            }
+            _persistedTicks = ReadPersistedTicks();
             _historyReadable = true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
@@ -49,6 +50,15 @@ internal sealed class ApplicationUsageTracker : IDisposable
             // Preserve unreadable history rather than silently replacing it with zero.
             Debug.WriteLine($"[ApplicationUsage] History unavailable: {exception.Message}");
         }
+    }
+
+    private long ReadPersistedTicks()
+    {
+        if (!File.Exists(_path)) return 0;
+        var statistics = JsonSerializer.Deserialize<Statistics>(File.ReadAllText(_path));
+        if (statistics is null || statistics.SchemaVersion != 1 || statistics.TotalTicks < 0)
+            throw new InvalidDataException("Unsupported application usage statistics.");
+        return statistics.TotalTicks;
     }
 
     internal void Start()
@@ -75,8 +85,9 @@ internal sealed class ApplicationUsageTracker : IDisposable
     private ApplicationUsageSnapshot GetSnapshotCore()
     {
         var session = !_started ? TimeSpan.Zero : _disposed ? _stoppedElapsed : _getElapsed();
+        var delta = Math.Max(0, session.Ticks - _checkpointedSessionTicks);
         var total = _historyReadable
-            ? TimeSpan.FromTicks(_previousTicks + Math.Min(session.Ticks, long.MaxValue - _previousTicks))
+            ? TimeSpan.FromTicks(_persistedTicks + Math.Min(delta, long.MaxValue - _persistedTicks))
             : (TimeSpan?)null;
         return new ApplicationUsageSnapshot(total, session);
     }
@@ -89,29 +100,47 @@ internal sealed class ApplicationUsageTracker : IDisposable
             lock (_gate)
             {
                 if (!_started || _disposed) return;
-                ticks = GetSnapshotCore().Total?.Ticks;
+                ticks = _historyReadable ? GetSnapshotCore().Session.Ticks : null;
             }
             SaveCore(ticks);
         }
     }
 
-    private void SaveCore(long? totalTicks)
+    private void SaveCore(long? sessionTicks)
     {
-        if (totalTicks is null) return;
+        if (sessionTicks is null) return;
+        using var mutex = new Mutex(false, _mutexName);
+        var acquired = false;
         try
         {
+            try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(2)); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired) return;
+            long delta;
+            lock (_gate) delta = Math.Max(0, sessionTicks.Value - _checkpointedSessionTicks);
+            // Development and installed GUIs may coexist. Merge only this process's
+            // unsaved interval under a cross-process mutex, never overwrite another lifetime.
+            var stored = ReadPersistedTicks();
+            var totalTicks = stored + Math.Min(delta, long.MaxValue - stored);
             var directory = Path.GetDirectoryName(_path);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            // Each checkpoint stores the same session baseline plus elapsed time; it never adds
-            // a previously checkpointed session twice. Replacement prevents partial JSON reads.
             var temporaryPath = _path + ".tmp";
             File.WriteAllText(temporaryPath, JsonSerializer.Serialize(
-                new Statistics(1, totalTicks.Value)));
+                new Statistics(1, totalTicks)));
             File.Move(temporaryPath, _path, overwrite: true);
+            lock (_gate)
+            {
+                _persistedTicks = totalTicks;
+                _checkpointedSessionTicks = sessionTicks.Value;
+            }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
         {
             Debug.WriteLine($"[ApplicationUsage] Checkpoint unavailable: {exception.Message}");
+        }
+        finally
+        {
+            if (acquired) mutex.ReleaseMutex();
         }
     }
 
@@ -131,15 +160,12 @@ internal sealed class ApplicationUsageTracker : IDisposable
                 AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
                 _saveTimer?.Dispose();
                 _saveTimer = null;
-                ticks = _started ? GetSnapshotCore().Total?.Ticks : null;
+                ticks = _started && _historyReadable ? _stoppedElapsed.Ticks : null;
             }
             SaveCore(ticks);
         }
     }
 
-    internal static string FormatDuration(TimeSpan duration) => duration.Days > 0
-        ? $"{duration.Days} 天 {duration.Hours} 小时"
-        : duration.TotalHours >= 1
-            ? $"{(long)duration.TotalHours} 小时 {duration.Minutes} 分"
-            : $"{duration.Minutes} 分 {duration.Seconds} 秒";
+    internal static string FormatDuration(TimeSpan duration) =>
+        duration.TotalHours.ToString("F1", CultureInfo.InvariantCulture) + " h";
 }

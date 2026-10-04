@@ -26,12 +26,13 @@ internal static class ThemeService
     private static ThemeResources? _applicationResources;
     private static long _revision;
     private static int _systemRefreshPending;
+    private static readonly Dictionary<ThemeProfile, ThemeSnapshot> ResolvedSnapshots = [];
 
     public static AppearancePreferences Preferences => _preferences;
     internal static ThemeResources ApplicationResources =>
         _applicationResources ??= new(Resolve(ThemeProfile.Application));
 
-    public static void SetScanModeAccent(Color color)
+    public static void SetScanModeAccent(Color color, bool animate = false)
     {
         if (_dispatcher?.HasThreadAccess != true)
             throw new InvalidOperationException("扫描模式强调色必须在主 UI 线程应用。");
@@ -39,7 +40,7 @@ internal static class ThemeService
         if (_scanModeAccent == accent) return;
         _scanModeAccent = accent;
         if (_preferences.AccentFollowsScanMode)
-            Refresh("ScanModeAccentChanged", log: false);
+            Refresh("ScanModeAccentChanged", log: false, animateAccent: animate);
     }
 
     public static void Initialize(AppearancePreferences preferences, DispatcherQueue dispatcher)
@@ -53,6 +54,7 @@ internal static class ThemeService
             _preferences = new();
             OutputLog.Write("WARN", "THEME", "Invalid appearance; using the complete default palette without overwriting preferences.", exception);
         }
+        lock (Gate) ResolvedSnapshots.Clear();
         _applicationResources ??= new(Resolve(ThemeProfile.Application));
         _applicationResources.Apply(Resolve(ThemeProfile.Application), Interlocked.Increment(ref _revision));
         Application.Current.Resources.MergedDictionaries.Add(_applicationResources.Dictionary);
@@ -141,8 +143,16 @@ internal static class ThemeService
         return resources;
     }).Resources;
 
-    private static ThemeSnapshot Resolve(ThemeProfile profile) =>
-        ThemeResolver.Resolve(_preferences, _system, profile, scanModeAccent: _scanModeAccent);
+    private static ThemeSnapshot Resolve(ThemeProfile profile)
+    {
+        lock (Gate)
+        {
+            if (!ResolvedSnapshots.TryGetValue(profile, out var snapshot))
+                ResolvedSnapshots[profile] = snapshot = ThemeResolver.Resolve(_preferences, _system,
+                    profile, scanModeAccent: _scanModeAccent);
+            return snapshot;
+        }
+    }
 
     private static ThemeSnapshot ResolveFor(FrameworkElement owner)
         => FindScope(owner)?.Resources.Snapshot ?? Resolve(ThemeProfile.Application);
@@ -165,10 +175,11 @@ internal static class ThemeService
         return null;
     }
 
-    private static void Refresh(string reason, bool log = true)
+    private static void Refresh(string reason, bool log = true, bool animateAccent = false)
     {
+        lock (Gate) ResolvedSnapshots.Clear();
         var revision = Interlocked.Increment(ref _revision);
-        _applicationResources?.Apply(Resolve(ThemeProfile.Application), revision);
+        _applicationResources?.Apply(Resolve(ThemeProfile.Application), revision, animateAccent);
         ThemeScope[] scopes;
         lock (Gate)
         {
@@ -178,14 +189,14 @@ internal static class ThemeService
         foreach (var scope in scopes)
         {
             var snapshot = Resolve(scope.Profile);
-            scope.Dispatch(() => scope.Apply(snapshot, revision));
+            scope.Dispatch(() => scope.Apply(snapshot, revision, animateAccent));
         }
-        RefreshOwners();
+        RefreshOwners(animateAccent);
         if (log)
             OutputLog.Write("INFO", "THEME", $"revision={revision}; reason={reason}; mode={_preferences.Mode}; material={_preferences.Material}; windowsOrRegions={scopes.Length}");
     }
 
-    internal static void RefreshOwners()
+    internal static void RefreshOwners(bool animateAccent = false)
     {
         OwnerResources[] owners;
         lock (Gate)
@@ -193,7 +204,7 @@ internal static class ThemeService
             LiveOwners.RemoveAll(reference => !reference.TryGetTarget(out _));
             owners = LiveOwners.Select(reference => reference.TryGetTarget(out var owner) ? owner : null).OfType<OwnerResources>().ToArray();
         }
-        foreach (var owner in owners) owner.Refresh();
+        foreach (var owner in owners) owner.Refresh(animateAccent);
     }
 
     private static SystemAppearance ReadSystem()
@@ -227,10 +238,10 @@ internal static class ThemeService
             owner.Loaded += (_, _) => Refresh();
             owner.ActualThemeChanged += (_, _) => Refresh();
         }
-        public void Refresh()
+        public void Refresh(bool animateAccent = false)
         {
             if (!_owner.TryGetTarget(out var owner)) return;
-            void Update() => Resources.Apply(ResolveFor(owner), Volatile.Read(ref _revision));
+            void Update() => Resources.Apply(ResolveFor(owner), Volatile.Read(ref _revision), animateAccent);
             if (owner.DispatcherQueue.HasThreadAccess) Update();
             else owner.DispatcherQueue.TryEnqueue(Update);
         }

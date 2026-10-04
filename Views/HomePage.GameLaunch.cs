@@ -8,6 +8,9 @@ namespace IDVBuff.Views;
 
 public sealed partial class HomePage
 {
+    private bool _gameStatusUpdating;
+    private bool? _gameRunning;
+    private int _gameStatusGeneration;
     private Button CreateLaunchGameButton()
     {
         var content = new StackPanel
@@ -34,7 +37,7 @@ public sealed partial class HomePage
 
     private async void LaunchGameButton_Click(object sender, RoutedEventArgs e)
     {
-        if (IsGameRunning())
+        if (await Task.Run(IsGameRunning))
             return;
 
         if (!FeverGamesGameLauncher.TryLaunch(out var failureReason))
@@ -52,17 +55,35 @@ public sealed partial class HomePage
         UpdateGameStatus();
     }
 
-    private void UpdateGameStatus()
+    private async void UpdateGameStatus()
     {
-        var running = IsGameRunning();
-        _launchGameLabel.Text = running ? "···游戏中" : "启动游戏";
-        _launchGameIcon.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        _launchGameButton.Background = FluentTheme.Brush(this, running
-            ? "ControlFillColorDisabledBrush"
-            : "AccentFillColorDefaultBrush");
-        _launchGameButton.Opacity = running ? 0.72 : 1;
+        if (_gameStatusUpdating) return;
+        _gameStatusUpdating = true;
+        var generation = _gameStatusGeneration;
+        try
+        {
+            var running = await Task.Run(IsGameRunning);
+            if (!IsLoaded || generation != _gameStatusGeneration || _gameRunning == running) return;
+            _gameRunning = running;
+            _launchGameLabel.Text = running ? "···游戏中" : "启动游戏";
+            _launchGameIcon.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+            _launchGameButton.Background = FluentTheme.Brush(this, running
+                ? "ControlFillColorDisabledBrush"
+                : "AccentFillColorDefaultBrush");
+            _launchGameButton.Opacity = running ? 0.72 : 1;
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Debug.WriteLine($"[HomePage] 游戏状态查询失败: {exception.Message}");
+        }
+        finally { _gameStatusUpdating = false; }
     }
 
-    private static bool IsGameRunning() => Process.GetProcessesByName("dwrg").Length > 0;
+    private static bool IsGameRunning()
+    {
+        var processes = Process.GetProcessesByName("dwrg");
+        try { return processes.Length > 0; }
+        finally { foreach (var process in processes) process.Dispose(); }
+    }
 
 }

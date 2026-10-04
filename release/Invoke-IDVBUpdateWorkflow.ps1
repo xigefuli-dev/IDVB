@@ -1,4 +1,4 @@
-﻿<#
+<#
 ================================================================================
 【重要！发布前 Agent 必读：发布准备度核查清单与实战避坑规范】
 ================================================================================
@@ -391,8 +391,25 @@ function Invoke-CodeOnlyReleasePreparation {
     return (Invoke-PublicCodeOnlyCommit)
 }
 
+function Test-PowerShellDotnetHost([string]$CommandLine) {
+    # The terminal can itself be dotnet.exe hosting pwsh.dll. Match only that
+    # entry assembly, never a later command argument mentioning pwsh.dll.
+    return $CommandLine -match '(?i)^\s*(?:"(?:[^"]*\\)?dotnet(?:\.exe)?"|(?:\S*\\)?dotnet(?:\.exe)?)\s+(?:exec\s+)?(?:"[^"]*\\pwsh\.dll"|(?:\S*\\)?pwsh\.dll)(?:\s|$)'
+}
+
 function Get-RemainingBuildProcesses {
-    @(Get-Process -Name dotnet,MSBuild,VBCSCompiler -ErrorAction SilentlyContinue)
+    foreach ($process in @(Get-Process -Name dotnet,MSBuild,VBCSCompiler -ErrorAction SilentlyContinue)) {
+        if ($process.ProcessName -eq 'dotnet') {
+            try {
+                $hostInfo = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $($process.Id)" -ErrorAction Stop
+                if (Test-PowerShellDotnetHost $hostInfo.CommandLine) { continue }
+            }
+            catch {
+                # Unreadable hosts remain blocking; do not assume they are safe.
+            }
+        }
+        $process
+    }
 }
 
 function Show-RemainingBuildProcesses($Processes) {
@@ -430,7 +447,7 @@ function Assert-BuildProcessesClosed {
             throw 'Cannot start the release build because .NET/MSBuild processes remain after graceful cleanup. No process was force-killed.'
         }
     }
-    Write-Host 'Verified that no dotnet, MSBuild, or VBCSCompiler processes remain.'
+    Write-Host 'Verified that no .NET build hosts remain.'
 }
 
 function Assert-Publishable($Manifest) {

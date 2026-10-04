@@ -83,13 +83,8 @@ public sealed partial class TeachingTipManager
         var control = new StackPanel { Spacing = 6 };
         control.Children.Add(bindingDescription);
         control.Children.Add(host);
-        control.Children.Add(new TextBlock
-        {
-            Text = "支持鼠标左键、右键、中键及侧键 1 / 2。G502 等鼠标的额外功能键，请先在驱动中分配为键盘键（如 F13–F24），再点击设置按键录入。",
-            FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
-            TextWrapping = TextWrapping.Wrap
-        });
+        // 键位行不再显示说明文字（设置页太臃肿）；这条 G502 提示改成按钮的悬停提示。
+        ToolTipService.SetToolTip(button, "G502 等鼠标的额外键，请先在驱动里映射为 F13–F24 再录。");
 
         void RefreshButton()
         {

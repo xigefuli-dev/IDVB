@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>IDVBuff.Plugins.MatchHotkeys</RootNamespace>
+    <AssemblyName>IDVB.MatchHotkeys</AssemblyName>
+    <PackageId>IdentityVisionBridge.MatchHotkeys</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
+    <ProjectReference Include="..\..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
+    <!-- IsMatchStarted / CurrentMatchId 等会话只读状态（Core 契约，插件不解析 Features 具体类型）。 -->
+    <ProjectReference Include="..\..\Core\IDVBuff.Core.csproj" />
+  </ItemGroup>
+</Project>

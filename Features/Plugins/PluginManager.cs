@@ -78,12 +78,25 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
 
     public void Start()
     {
-        foreach (var plugin in _host.Plugins)
+        // 设置回填挂在「插件上下文建立之后、启用之前」这个点上（PluginHost.ContextInitialized）：
+        // 插件在 OnLoad 里已经拿到宿主服务，所以回填时能读到地图库这类需要宿主的数据。
+        // 若放在这之前（旧写法：先循环 RestoreSettings 再 _host.Start()），
+        // 「候选来自宿主」的下拉类设置会因为候选为空而被宿主回退成默认项，
+        // 用户保存的选择等于每次都丢。
+        _host.ContextInitialized = plugin =>
         {
-            if (plugin is IPluginSettingsProvider provider)
+            if (plugin is not IPluginSettingsProvider provider)
+                return;
+            try
+            {
                 using (StartupTimeline.Measure($"Built-in restore settings: {plugin.Id}"))
                     _preferences.RestoreSettings(provider, plugin.Id);
-        }
+            }
+            catch
+            {
+                // 单个插件的坏设置不能挡住宿主启动。
+            }
+        };
         using (StartupTimeline.Measure("Built-in host Start (lifecycle callbacks)"))
             _host.Start();
         using (StartupTimeline.Measure("Built-in dispatcher timer Start"))

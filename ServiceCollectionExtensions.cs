@@ -19,6 +19,7 @@ using IDVBuff.Survey.Fusion.OpenCv;
 using IDVBuff.Survey.Idvm;
 using IDVBuff.PluginContracts;
 using IDVBuff.Features.Notifications;
+using IdentityVisionBridge.PluginSdk;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 
@@ -128,6 +129,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGameWindowCapture, GameWindowCaptureAdapter>();
         services.AddSingleton<IPluginScreenshotService, PluginScreenshotService>();
         services.AddSingleton<IPluginGameWindowService, PluginGameWindowService>();
+        // 游戏内浮层提示通道（插件用它给「已进入对局 / 已结束对局」这类动作一个可见反馈）。
+        services.AddSingleton<IGameOverlayToast, GameOverlayToast>();
         services.AddSingleton<IGlobalInput>(_ =>
             new GlobalInputAdapter(dispatcher));
 
@@ -220,6 +223,10 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ICaptureProtectionService>(),
                 headless: headless));
         services.AddSingleton<ISessionOrchestrator>(sp =>
+            sp.GetRequiredService<SessionOrchestrator>());
+        // 插件对局控制能力：内置插件与第三方插件共用同一套语义
+        // （实现见 Features\Maps\SessionOrchestrator.HostMatchCapability.cs，只做转发）。
+        services.AddSingleton<IHostMatchCapability>(sp =>
             sp.GetRequiredService<SessionOrchestrator>());
 
         return services;

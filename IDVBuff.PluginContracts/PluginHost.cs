@@ -23,6 +23,15 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         _contextFactory = contextFactory ?? throw new ArgumentNullException(nameof(contextFactory));
     }
 
+    /// <summary>
+    /// 在插件上下文建立之后、启用之前回调（每个插件一次）。宿主用它把持久化设置
+    /// 回填给插件：此时 <see cref="IPlugin.OnLoad"/> 已经跑过——插件已经能拿到宿主
+    /// 服务（例如地图库），因此「候选来自宿主」的下拉类设置不会因为候选为空而被
+    /// 回退成默认项——而 <see cref="IPlugin.OnEnable"/> 还没跑，插件启用时看到的
+    /// 就是用户保存的值。
+    /// </summary>
+    public Action<IPlugin>? ContextInitialized { get; set; }
+
     public IReadOnlyList<IPlugin> Plugins =>
         _registrations.Select(r => r.Plugin).ToList();
 
@@ -268,6 +277,7 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             () => Unsubscribe(registration));
         registration.Adapter.InitializeAsync(registration.SdkContext, CancellationToken.None)
             .AsTask().GetAwaiter().GetResult();
+        ContextInitialized?.Invoke(registration.Plugin);
     }
 
     private void DisableRegistration(Registration registration)

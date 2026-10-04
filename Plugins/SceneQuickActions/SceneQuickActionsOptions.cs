@@ -70,6 +70,28 @@ public sealed record SceneQuickActionsOptions
     public const string PollIntervalKey = "poll-interval-ms";
     public const string ThresholdKey = "match-threshold-percent";
     public const string CooldownKey = "cooldown-ms";
+    public const string MinimumRandomDelayKey = "minimum-random-delay-ms";
+    public const string MaximumRandomDelayKey = "maximum-random-delay-ms";
+    public const int MaximumRandomDelayMillisecondsAllowed = 10000;
+
+    public int MinimumRandomDelayMilliseconds { get; init; } = 30;
+    public int MaximumRandomDelayMilliseconds { get; init; } = 50;
+
+    public (int Minimum, int Maximum) GetOrderedRandomDelayRange()
+    {
+        var lower = Math.Clamp(MinimumRandomDelayMilliseconds,
+            PluginRandomDelayPolicy.GetMinimum(30), MaximumRandomDelayMillisecondsAllowed);
+        var upper = Math.Clamp(MaximumRandomDelayMilliseconds,
+            PluginRandomDelayPolicy.GetMinimum(50), MaximumRandomDelayMillisecondsAllowed);
+        return (Math.Min(lower, upper), Math.Max(lower, upper));
+    }
+
+    /// <summary>每段动作后保留原有等待，再独立追加一次随机延迟。</summary>
+    public int GetDelayAfterStep(int baseMilliseconds = 0)
+    {
+        var (minimum, maximum) = GetOrderedRandomDelayRange();
+        return Math.Clamp(baseMilliseconds, 0, 10000) + Random.Shared.Next(minimum, maximum + 1);
+    }
 
     /// <summary>插件绑定存储层里表示「未设置」的稳定字符串。</summary>
     public const string NoBindingStorageValue = "none";

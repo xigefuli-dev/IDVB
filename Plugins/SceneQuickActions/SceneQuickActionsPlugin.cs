@@ -156,6 +156,30 @@ public sealed class SceneQuickActionsPlugin
             StepFrequency = 5,
             DefaultValue = 30
         },
+        new PluginSliderSetting
+        {
+            Key = SceneQuickActionsOptions.MinimumRandomDelayKey,
+            DisplayName = "随机延迟下限（毫秒）",
+            Description = "每段开关背包、移动、按键、点击及拖拽操作后追加的随机等待下限。",
+            Group = SceneQuickActionsOptions.TimingGroupTitle,
+            Minimum = 30,
+            MinimumWhenUnsafe = 0,
+            Maximum = SceneQuickActionsOptions.MaximumRandomDelayMillisecondsAllowed,
+            StepFrequency = 1,
+            DefaultValue = 30
+        },
+        new PluginSliderSetting
+        {
+            Key = SceneQuickActionsOptions.MaximumRandomDelayKey,
+            DisplayName = "随机延迟上限（毫秒）",
+            Description = "每段操作后从下限至上限中独立随机取值，追加在原有等待之后。",
+            Group = SceneQuickActionsOptions.TimingGroupTitle,
+            Minimum = 50,
+            MinimumWhenUnsafe = 0,
+            Maximum = SceneQuickActionsOptions.MaximumRandomDelayMillisecondsAllowed,
+            StepFrequency = 1,
+            DefaultValue = 50
+        },
         new PluginChoiceSetting
         {
             Key = SceneQuickActionsOptions.DropSpeedKey,
@@ -253,6 +277,8 @@ public sealed class SceneQuickActionsPlugin
         SceneQuickActionsOptions.PollIntervalKey => (double)_options.PollIntervalMilliseconds,
         SceneQuickActionsOptions.ThresholdKey => (double)_options.MatchThresholdPercent,
         SceneQuickActionsOptions.CooldownKey => (double)_options.CooldownMilliseconds,
+        SceneQuickActionsOptions.MinimumRandomDelayKey => (double)_options.MinimumRandomDelayMilliseconds,
+        SceneQuickActionsOptions.MaximumRandomDelayKey => (double)_options.MaximumRandomDelayMilliseconds,
         SceneQuickActionsOptions.DropBagHotkeyKey => _options.DropBagHotkey.StorageValue,
         SceneQuickActionsOptions.DropHotbarHotkeyKey => _options.DropHotbarHotkey.StorageValue,
         SceneQuickActionsOptions.DropSilenceKey => (double)_options.DropSilenceSeconds,
@@ -357,6 +383,20 @@ public sealed class SceneQuickActionsPlugin
                 };
             case SceneQuickActionsOptions.DropSpeedKey when value is string dropSpeed:
                 return _options with { DropSpeedIndex = SceneQuickActionsOptions.ParseDropSpeed(dropSpeed) };
+            case SceneQuickActionsOptions.MinimumRandomDelayKey:
+                return _options with
+                {
+                    MinimumRandomDelayMilliseconds = SceneQuickActionsOptions.FromDouble(value,
+                        _options.MinimumRandomDelayMilliseconds, PluginRandomDelayPolicy.GetMinimum(30),
+                        SceneQuickActionsOptions.MaximumRandomDelayMillisecondsAllowed)
+                };
+            case SceneQuickActionsOptions.MaximumRandomDelayKey:
+                return _options with
+                {
+                    MaximumRandomDelayMilliseconds = SceneQuickActionsOptions.FromDouble(value,
+                        _options.MaximumRandomDelayMilliseconds, PluginRandomDelayPolicy.GetMinimum(50),
+                        SceneQuickActionsOptions.MaximumRandomDelayMillisecondsAllowed)
+                };
             default:
                 return _options;
         }

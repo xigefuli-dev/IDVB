@@ -94,7 +94,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
     private IReadOnlyList<MapClassDiagnostic> _mapClassDiagnostics = [];
     private IReadOnlyList<MapClassDiagnostic> _renderedMapClassDiagnostics = [];
     private MapMatchSnapshot _snapshot;
-    private IntPtr _gameWindowHandle;
+
     private bool _isVisible;
     private bool _updatingSurveyToggle;
     private bool _suppressClassSelectionChanged;
@@ -150,7 +150,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         if (!gameBounds.IsValid || gameWindowHandle == IntPtr.Zero)
             throw new ArgumentException("Game window bounds are unavailable.");
 
-        _gameWindowHandle = gameWindowHandle;
+
         _snapshot = snapshot;
         _mapClasses = (await _getMapClasses())
             .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -196,7 +196,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
             (int)Math.Round(gameBounds.Y) + margin,
             width,
             height));
-        _window.Activate();
+        GameInputPreservingWindow.Show(WindowNative.GetWindowHandle(_window));
         RegisterCaptureProtection();
         _isVisible = true;
     }
@@ -276,13 +276,11 @@ public sealed partial class MapControlPanelWindow : IDisposable
         Refresh(snapshot);
     }
 
-    public void Hide(bool restoreGameFocus = true)
+    public void Hide()
     {
         if (_window is not null)
-            _window.AppWindow.Hide();
+            GameInputPreservingWindow.Hide(WindowNative.GetWindowHandle(_window));
         _isVisible = false;
-        if (restoreGameFocus && _gameWindowHandle != IntPtr.Zero)
-            SetForegroundWindow(_gameWindowHandle);
     }
 
     private void EnsureWindow()
@@ -307,8 +305,6 @@ public sealed partial class MapControlPanelWindow : IDisposable
             _captureProtectionRegistration = null;
             _window = null;
             _isVisible = false;
-            if (_gameWindowHandle != IntPtr.Zero)
-                SetForegroundWindow(_gameWindowHandle);
         };
         if (_window.AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -321,6 +317,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_window);
         BorderlessWindowHelper.Apply(hwnd);
+        GameInputPreservingWindow.Apply(hwnd);
     }
 
     private void RefreshVariantOptions(MapMatchSnapshot snapshot)

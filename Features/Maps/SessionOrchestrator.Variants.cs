@@ -2,6 +2,41 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private long _selectedVariantNotificationVersion;
+
+    private async Task NotifySelectedVariantAsync(Guid mapId, long notificationVersion)
+    {
+        var match = _matchSession.Snapshot;
+        var cancellationToken = CurrentMatchCancellationToken;
+        try
+        {
+            await Task.Delay(500, cancellationToken);
+            if (!IsCurrentMatchOperation(match)
+                || notificationVersion != Volatile.Read(ref _selectedVariantNotificationVersion)
+                || _mapLease.MapId != mapId)
+                return;
+
+            var context = await GetCurrentVariantContextAsync();
+            if (context is null
+                || cancellationToken.IsCancellationRequested
+                || !IsCurrentMatchOperation(match)
+                || notificationVersion != Volatile.Read(ref _selectedVariantNotificationVersion)
+                || _mapLease.MapId != mapId)
+                return;
+
+            IDVBuff.Features.Notifications.OverlayNotificationCenter.Notice(
+                "你选择了一张变体地图，如果对齐贴合异常请在对局控件中快速切换。");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logCollector.Append(MapLogCategory.Session, MapLogLevel.Warning,
+                $"变体地图选择提示失败：{exception.Message}");
+        }
+    }
+
     private async Task<MapVariantSelectionContext?> GetCurrentVariantContextAsync()
     {
         var match = _matchSession.Snapshot;

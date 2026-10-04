@@ -129,10 +129,6 @@ public sealed partial class MapControlPanelWindow : IDisposable
     }
 
     [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetForegroundWindow(IntPtr window);
-
-    [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr window);
 
     private async void EndButton_Click(object sender, RoutedEventArgs e)
@@ -144,7 +140,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
                 && _isAutomaticMapCacheEnabled()
                 && await ConfirmAutomaticMapCacheSaveAsync();
             _variantContext = null;
-            // 确认退出后立即隐藏面板并将焦点还给游戏，耗时的排空与落盘在后台异步执行
+            // 确认退出后立即隐藏面板并保持游戏焦点，耗时的排空与落盘在后台异步执行
             Hide();
             await _endMatch(saveAutomaticMapCache);
         }

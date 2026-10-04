@@ -18,5 +18,7 @@
   <ItemGroup>
     <!-- 场景识别模板（由用户提供的游戏截图裁剪）。 -->
     <EmbeddedResource Include="Templates\*.png" />
+    <EmbeddedResource Include="Resources\InventoryCoordinates.json"
+                      LogicalName="IDVB.SceneQuickActions.InventoryCoordinates.json" />
   </ItemGroup>
 </Project>

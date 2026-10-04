@@ -1,0 +1,98 @@
+{
+  "name": "Inventory Slots",
+  "units": "normalized",
+  "origin": "top-left",
+  "yAxis": "down",
+  "profiles": {
+    "16:9": {
+      "sourceImage": "28835c5a-68de-4afa-9c0a-aeff000ff167.png",
+      "sourceSize": {
+        "width": 1917,
+        "height": 1078
+      },
+      "targetSize": {
+        "width": 1920,
+        "height": 1080
+      },
+      "firstThree": [
+        {
+          "slot": 1,
+          "x": 0.2248,
+          "y": 0.2597
+        },
+        {
+          "slot": 2,
+          "x": 0.2953,
+          "y": 0.2579
+        },
+        {
+          "slot": 3,
+          "x": 0.3657,
+          "y": 0.2597
+        }
+      ],
+      "lastThree": [
+        {
+          "slot": 4,
+          "x": 0.2238,
+          "y": 0.4137
+        },
+        {
+          "slot": 5,
+          "x": 0.2942,
+          "y": 0.4156
+        },
+        {
+          "slot": 6,
+          "x": 0.3688,
+          "y": 0.4137
+        }
+      ]
+    },
+    "16:10": {
+      "sourceImage": "dc4a49ac-55a4-4aa3-b034-d98b91868def.png",
+      "sourceSize": {
+        "width": 2559,
+        "height": 1599
+      },
+      "targetSize": {
+        "width": 2560,
+        "height": 1600
+      },
+      "firstThree": [
+        {
+          "slot": 1,
+          "x": 0.2216,
+          "y": 0.329
+        },
+        {
+          "slot": 2,
+          "x": 0.2931,
+          "y": 0.334
+        },
+        {
+          "slot": 3,
+          "x": 0.3646,
+          "y": 0.3358
+        }
+      ],
+      "lastThree": [
+        {
+          "slot": 4,
+          "x": 0.2216,
+          "y": 0.474
+        },
+        {
+          "slot": 5,
+          "x": 0.3001,
+          "y": 0.474
+        },
+        {
+          "slot": 6,
+          "x": 0.3728,
+          "y": 0.4659
+        }
+      ]
+    }
+  }
+}

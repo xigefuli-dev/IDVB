@@ -504,6 +504,16 @@ function Assert-PublishPayload([string]$PublishDirectory) {
     }
 }
 
+function ConvertTo-MSBuildEscapedPath([string]$Path) {
+    # SDK publish targets place PublishDir inside single-quoted item transforms.
+    # Escape MSBuild reserved characters so paths such as m'r remain literal.
+    $escaped = $Path.Replace('%', '%25')
+    foreach ($character in @('$', '@', "'", ';', '?', '*', '(', ')')) {
+        $escaped = $escaped.Replace($character, ('%{0:X2}' -f [int][char]$character))
+    }
+    return $escaped
+}
+
 function Invoke-BuildPayload($Manifest, $Context) {
     [void](Assert-SourceReady $Manifest $Context)
     if (Test-Path -LiteralPath $Context.Source) {
@@ -596,7 +606,7 @@ function Invoke-BuildPayload($Manifest, $Context) {
         'true'
         '--nologo'
         '-o'
-        $Context.UpdaterPublish
+        (ConvertTo-MSBuildEscapedPath $Context.UpdaterPublish)
         '-p:PublishSingleFile=false'
         '-p:PublishTrimmed=false'
         '-p:DebugSymbols=false'
@@ -614,7 +624,7 @@ function Invoke-BuildPayload($Manifest, $Context) {
         'true'
         '--nologo'
         '-o'
-        $Context.MainPublish
+        (ConvertTo-MSBuildEscapedPath $Context.MainPublish)
         '-p:Platform=x64'
         '-p:PublishSingleFile=false'
         '-p:PublishTrimmed=false'

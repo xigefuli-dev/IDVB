@@ -11,6 +11,17 @@
   <Target Name="VerifyReferencedWindowsAppSdkComponentVersions"
           Condition="'$(MSBuildProjectName)' == 'IDVBuff.Survey.Editor.WinUI'" />
 
+  <!-- Keep self-contained WinUI payload paths below Windows' legacy MAX_PATH.
+       The framework hash and configuration/architecture folders keep builds isolated. -->
+  <Target Name="UseShortWindowsAppSdkIntermediatePath"
+          BeforeTargets="GetNewAppManifestValues;GetExtractMicrosoftWindowsAppSDKMsixFilesInputs"
+          Condition="'$(UseWinUI)' == 'true' And '$(WindowsAppSDKSelfContained)' == 'true'">
+    <PropertyGroup>
+      <_IDVBWindowsAppSdkFrameworkKey>$([MSBuild]::StableStringHash('$(TargetFramework)'))</_IDVBWindowsAppSdkFrameworkKey>
+      <SelfContainedIntermediateOutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'obj\wasdk\$(Configuration)\$(Platform)\$(_IDVBWindowsAppSdkFrameworkKey)\$(RuntimeIdentifier)'))</SelfContainedIntermediateOutputPath>
+    </PropertyGroup>
+  </Target>
+
   <!-- ============================================================
        IDVB Remaster — Line Count Enforcement
 

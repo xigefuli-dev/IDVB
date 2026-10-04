@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI;
@@ -167,6 +167,7 @@ public sealed partial class MainSettingsPage : Page
             Margin = new Thickness(0, 12, 0, 4)
         });
         content.Children.Add(CreateAppearanceSettings());
+        content.Children.Add(CreateSponsorCard());
 
         return new Border
         {

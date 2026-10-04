@@ -45,7 +45,7 @@ public sealed partial class SettingsPage
                 NavigateUri = new Uri("https://github.com/xigefuli-dev/IDVB"),
                 Padding = new Thickness(0, 2, 0, 2)
             });
-            actions.Children.Add(new HyperlinkButton
+            var sponsorLink = new HyperlinkButton
             {
                 Content = new TextBlock
                 {
@@ -54,7 +54,19 @@ public sealed partial class SettingsPage
                     TextDecorations = Windows.UI.Text.TextDecorations.Underline
                 },
                 Padding = new Thickness(0, 2, 0, 2)
-            });
+            };
+            var sponsorship = new SponsorshipAction(
+                async uri => await Windows.System.Launcher.LaunchUriAsync(uri),
+                enabled => sponsorLink.IsEnabled = enabled,
+                async () => await new ContentDialog
+                {
+                    XamlRoot = XamlRoot,
+                    Title = "链接未打开",
+                    Content = "无法打开浏览器，请稍后重试。",
+                    CloseButtonText = "知道了"
+                }.ShowAsync());
+            sponsorLink.Click += async (_, _) => await sponsorship.ClickAsync();
+            actions.Children.Add(sponsorLink);
             content.Children.Add(actions);
         }
         return new Border

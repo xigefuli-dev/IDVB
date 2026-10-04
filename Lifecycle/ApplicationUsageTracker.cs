@@ -59,6 +59,8 @@ internal sealed class ApplicationUsageTracker : IDisposable
             if (_started) return;
             _stopwatch.Start();
             _started = true;
+            // The desktop shutdown path uses Environment.Exit, which bypasses Program's finally.
+            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             if (_periodicSave)
                 _saveTimer = new Timer(_ => SaveCheckpoint(), null,
                     TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -113,6 +115,8 @@ internal sealed class ApplicationUsageTracker : IDisposable
         }
     }
 
+    private void OnProcessExit(object? sender, EventArgs args) => Dispose();
+
     public void Dispose()
     {
         lock (_saveGate)
@@ -124,6 +128,7 @@ internal sealed class ApplicationUsageTracker : IDisposable
                 _stoppedElapsed = _started ? _getElapsed() : TimeSpan.Zero;
                 _stopwatch.Stop();
                 _disposed = true;
+                AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
                 _saveTimer?.Dispose();
                 _saveTimer = null;
                 ticks = _started ? GetSnapshotCore().Total?.Ticks : null;

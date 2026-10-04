@@ -149,10 +149,12 @@ public sealed partial class TeachingTipManager
             ShouldConstrainToRootBounds = true,
             PreferredPlacement = TeachingTipPlacementMode.Bottom,
             TailVisibility = TeachingTipTailVisibility.Collapsed,
-            MinWidth = TipMinWidth,
-            MinHeight = TipMinHeight,
-            MaxHeight = TipMaxHeight
+            MinWidth = TipMinWidth
         };
+        // 默认模板将实际弹出内容移入 Popup，并通过资源约束尺寸；
+        // TeachingTip 自身的 MinHeight/MaxHeight 不会约束这个弹出内容。
+        tip.Resources["TeachingTipMinHeight"] = TipMinHeight;
+        tip.Resources["TeachingTipMaxHeight"] = TipMaxHeight;
         AttachBlankAreaEditingHandler(tip, content);
 
         _tip = tip;
@@ -381,11 +383,20 @@ public sealed partial class TeachingTipManager
         var scrollViewer = new ScrollViewer
         {
             Content = rows,
+            Width = TipMinWidth - 40,
             MaxHeight = ContentMaxHeight,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             IsTabStop = false,
             Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
+        };
+        // 挂入 XamlRoot、应用主题和模板后固定首次布局的视口；不能在脱离树时
+        // Measure，否则 Expander 等控件尚未获得模板，测得的高度会不完整。
+        // 展开只增加滚动范围，不再让 TeachingTip 因尺寸变化突然翻到上方。
+        scrollViewer.Loaded += (_, _) =>
+        {
+            if (double.IsNaN(scrollViewer.Height) && scrollViewer.ActualHeight > 0)
+                scrollViewer.Height = scrollViewer.ActualHeight;
         };
         endNumericEditing = () =>
             scrollViewer.Focus(FocusState.Programmatic);

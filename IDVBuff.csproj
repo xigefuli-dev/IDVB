@@ -72,7 +72,7 @@
         <ProjectReference Include="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
         <ProjectReference Include="UpdateCore\IDVBuff.UpdateCore.csproj" />
         <ProjectReference Include="Updater\IDVBuff.Updater.csproj"
-                          ReferenceOutputAssembly="false" />
+                          ReferenceOutputAssembly="false" Private="false" />
         <ProjectReference Include="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
         <ProjectReference Include="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
         <ProjectReference Include="Survey\Application\IDVBuff.Survey.Application.csproj" />

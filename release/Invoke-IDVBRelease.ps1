@@ -467,9 +467,20 @@ function Invoke-Validate($Manifest, $Context) {
     })
 }
 
+function Assert-ExecutableLayout([string[]]$Paths) {
+    $main = @($Paths | Where-Object { [IO.Path]::GetFileName($_) -eq 'IDVB.exe' })
+    $updater = @($Paths | Where-Object { [IO.Path]::GetFileName($_) -eq 'IDVB.Updater.exe' })
+    if ($main.Count -ne 1 -or $updater.Count -ne 1 -or
+        $updater[0] -notmatch '[\\/]Updater[\\/]IDVB\.Updater\.exe$') {
+        throw 'Payload must contain exactly one main executable and one updater at Updater/IDVB.Updater.exe.'
+    }
+}
+
 function Assert-PublishPayload([string]$PublishDirectory) {
     $forbiddenNames = @('settings.json', 'maps.json', 'recognition-statistics.json', 'attempts.jsonl', 'startup.log')
-    foreach ($file in Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File) {
+    $publishedFiles = @(Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File)
+    Assert-ExecutableLayout @($publishedFiles.FullName)
+    foreach ($file in $publishedFiles) {
         if ($forbiddenNames -contains $file.Name -or $file.FullName -match '\\(Logs|MapRuntime|AlignmentResearch)\\') {
             throw "Published payload contains user or diagnostic data: $($file.FullName)"
         }
@@ -943,29 +954,26 @@ function Invoke-Verify($Manifest, $Context, [string]$Channel, [string]$OutputDir
     if ($setupHash -ne $payload.installer.sha256) {
         throw 'Versioned installer SHA-256 mismatch.'
     }
+    $fullPackage = @($feed.Assets | Where-Object { $_.Type -eq 'Full' -and $_.Version -eq $Context.Version })
+    if ($fullPackage.Count -ne 1) {
+        if ($Stable) { throw 'Stable feed must contain exactly one target-version full package.' }
+        throw 'Test feed must contain exactly one target-version full package.'
+    }
     if ($Stable) {
-        $fullPackage = @($feed.Assets | Where-Object { $_.Type -eq 'Full' -and $_.Version -eq $Context.Version })
-        if ($fullPackage.Count -ne 1) {
-            throw 'Stable feed must contain exactly one target-version full package.'
-        }
         $targetDeltas = @($feed.Assets | Where-Object { $_.Type -eq 'Delta' -and $_.Version -eq $Context.Version })
         $packReceipt = [IO.File]::ReadAllText((Join-Path $Context.Receipts "pack-$Channel.json"), [Text.Encoding]::UTF8) | ConvertFrom-Json
         if ($null -ne $packReceipt.deltaBaseFile -and $targetDeltas.Count -eq 0) {
             throw 'A signed delta base was restored but vpk did not produce a target-version delta package.'
         }
-        $packagePath = Join-Path $OutputDirectory $fullPackage[0].FileName
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
-        try {
-            $mainEntry = @($archive.Entries | Where-Object { $_.FullName -match '(^|/)IDVB\.exe$' })
-            $updaterEntry = @($archive.Entries | Where-Object { $_.FullName -match '(^|/)Updater/IDVB\.Updater\.exe$' })
-            if ($mainEntry.Count -ne 1 -or $updaterEntry.Count -ne 1) {
-                throw 'Stable package does not contain exactly one main executable and updater executable.'
-            }
-        }
-        finally {
-            $archive.Dispose()
-        }
+    }
+    $packagePath = Join-Path $OutputDirectory $fullPackage[0].FileName
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
+    try {
+        Assert-ExecutableLayout @($archive.Entries.FullName)
+    }
+    finally {
+        $archive.Dispose()
     }
     $setupHashPath = "$setupPath.sha256"
     Write-Utf8WithoutBom $setupHashPath "$($setupHash.ToLowerInvariant())  $([IO.Path]::GetFileName($setupPath))"

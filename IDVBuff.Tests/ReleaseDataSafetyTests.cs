@@ -65,6 +65,9 @@ public sealed class ReleaseDataSafetyTests
         settings.GameMapToggleBinding,
         settings.ControlPanelToggleBinding,
         settings.ManualRecognitionBinding,
-        settings.SwitchFloorBinding
+        settings.SwitchFloorBinding,
+        settings.SaveMapCacheBinding,
+        settings.RestMapDisplayBinding,
+        settings.MatchStateToggleBinding
     ];
 }

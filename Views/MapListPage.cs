@@ -38,24 +38,7 @@ public sealed partial class MapListPage : UserControl
     private static readonly Color OptionalAnchorOrange = Color.FromArgb(255, 236, 150, 61);
     private static readonly Color RecognitionRegionOrange = Color.FromArgb(255, 239, 103, 42);
     private static readonly Color RecognitionRegionRed = Color.FromArgb(255, 235, 55, 55);
-    private static readonly Color DeleteRed = Color.FromArgb(255, 222, 45, 50);
     private static readonly Color DisabledGray = Color.FromArgb(255, 210, 210, 210);
-    private static readonly (Color LightFill, Color LightOutline, Color DarkFill, Color DarkOutline)[]
-        VariantPalette =
-    [
-        (Hex("EFCBD4"), Hex("B4234D"), Hex("3A1722"), Hex("FF809F")),
-        (Hex("EFD0C7"), Hex("B13A21"), Hex("3A1C16"), Hex("FF9275")),
-        (Hex("EED8BB"), Hex("A85B00"), Hex("382414"), Hex("FFB45B")),
-        (Hex("E9DCAD"), Hex("8A6800"), Hex("32290E"), Hex("E8C84E")),
-        (Hex("DDE2B9"), Hex("6C7300"), Hex("282B12"), Hex("C6D35C")),
-        (Hex("CBE4D4"), Hex("1F7A3F"), Hex("143021"), Hex("65D58B")),
-        (Hex("C7E4DC"), Hex("147363"), Hex("12302B"), Hex("5ED0B9")),
-        (Hex("DDD2EF"), Hex("6842A6"), Hex("261B3A"), Hex("B69AE9")),
-        (Hex("E4CDEE"), Hex("8038A5"), Hex("2D1738"), Hex("D899EF")),
-        (Hex("EECBDD"), Hex("9B2D70"), Hex("35162B"), Hex("E58AC0")),
-        (Hex("EDCACD"), Hex("9E3941"), Hex("34191C"), Hex("E68D94")),
-        (Hex("E1D3C7"), Hex("7C5234"), Hex("2E2119"), Hex("D1A27E"))
-    ];
     private static readonly Color[] AnnotationColors =
     [
         Color.FromArgb(255, 255, 59, 48),   // 0: 红
@@ -157,16 +140,11 @@ public sealed partial class MapListPage : UserControl
         Loaded += MapListPage_Loaded;
         Unloaded += OnUnloaded;
         ActualThemeChanged += (_, _) => UpdateSelectedCardVisuals();
+        FluentTheme.Observe(this, _ => UpdateSelectedCardVisuals());
         KeyDown += MapListPage_KeyDown;
     }
 
     private bool HasSelection => _selectedMapIds.Count > 0;
-
-    private static Color Hex(string value) => Color.FromArgb(
-        255,
-        Convert.ToByte(value[..2], 16),
-        Convert.ToByte(value.Substring(2, 2), 16),
-        Convert.ToByte(value.Substring(4, 2), 16));
 
     private bool IsBatchOperation => _batchQueue is { Count: > 0 };
 
@@ -232,7 +210,7 @@ public sealed partial class MapListPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
         {
             ResetBatchOperation();
             return;

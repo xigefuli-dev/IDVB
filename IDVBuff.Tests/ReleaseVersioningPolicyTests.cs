@@ -89,11 +89,11 @@ public sealed class ReleaseVersioningPolicyTests
 
         var productVersion = System.Text.RegularExpressions.Regex.Match(
             project, @"<IDVBProductVersion>([^<]+)</IDVBProductVersion>").Groups[1].Value;
-        Assert.StartsWith("1.6.", productVersion);
+        Assert.StartsWith("1.7.", productVersion);
         var numericVersion = productVersion.Split('-')[0] + ".0";
         Assert.Contains($"<AssemblyVersion>{numericVersion}</AssemblyVersion>", project);
-        Assert.Contains("<IDVBReleaseLine>b01.6</IDVBReleaseLine>", project);
-        Assert.Contains("b01.6", installer);
+        Assert.Contains("<IDVBReleaseLine>b01.7</IDVBReleaseLine>", project);
+        Assert.Contains("b01.7", installer);
         Assert.Contains($"#define NumericVersion \"{numericVersion}\"", installer);
         Assert.Contains("ConvertTo-IDVBNumericVersion", build);
         Assert.Contains("BuildVersionInfo.ProductVersion", about);

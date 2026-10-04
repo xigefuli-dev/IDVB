@@ -116,20 +116,6 @@ public sealed partial class MapListPage : UserControl
         return tip;
     }
 
-    private static TeachingTip CreatePackageActionTeachingTip(
-        Button target,
-        string title,
-        string subtitle,
-        UIElement content) => new()
-    {
-        Target = target,
-        Title = title,
-        Subtitle = subtitle,
-        Content = content,
-        IsLightDismissEnabled = true,
-        PreferredPlacement = TeachingTipPlacementMode.Bottom
-    };
-
     private async Task ImportIdvmPackageAsync(Button importButton, Button exportButton)
     {
         var packagePath = await PickIdvmPackageAsync();
@@ -280,7 +266,7 @@ public sealed partial class MapListPage : UserControl
             Content = message,
             CloseButtonText = "确定"
         };
-        await dialog.ShowAsync();
+        await dialog.ShowThemedAsync(this);
     }
 
     private FloorRecognitionProfile GetActiveFloorProfile()
@@ -438,20 +424,5 @@ public sealed partial class MapListPage : UserControl
         TextAlignment = TextAlignment.Left
     };
 
-    private static Button CreateActionButton(string text, Color color)
-    {
-        var button = new Button
-        {
-            Content = text,
-            Background = new SolidColorBrush(color),
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)),
-            FontSize = 14,
-            MinWidth = 108,
-            MinHeight = 45,
-            Padding = new Thickness(20, 7, 20, 7),
-            CornerRadius = new CornerRadius(8)
-        };
-        AttachHoverFeedback(button);
-        return button;
-    }
+
 }

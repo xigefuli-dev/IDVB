@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using IDVBuff.PluginContracts;
 
@@ -11,18 +12,38 @@ internal sealed partial class SceneQuickActionsRunner
     /// <summary>接入宿主的插件输入通道：热键的按键监听、注入过滤都由宿主负责。</summary>
     public void AttachHotkeys(IPluginInputService? input, string pluginId)
     {
-        if (_hotkeyService is not null)
-            _hotkeyService.BindingInvoked -= OnHotkeyInvoked;
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (ReferenceEquals(_hotkeyService, input)
+                && string.Equals(_pluginId, pluginId, StringComparison.Ordinal))
+                return;
 
-        _hotkeyService = input;
-        _pluginId = pluginId;
-        if (_hotkeyService is not null)
-            _hotkeyService.BindingInvoked += OnHotkeyInvoked;
+            StopHotkeys();
+            _hotkeyService = input;
+            _pluginId = pluginId;
+            if (_cancellation is not null)
+                StartHotkeys();
+        }
     }
 
     private string _pluginId = "scene-quick-actions";
+    private long _hotkeyBindingsUpdatedAt;
 
     private void OnHotkeyInvoked(object? sender, PluginInputEventArgs args)
+    {
+        lock (_sync)
+        {
+            if (_disposed || _cancellation is null
+                || !ReferenceEquals(sender, _hotkeyService)
+                || args.Timestamp < _hotkeyBindingsUpdatedAt)
+                return;
+
+            HandleHotkeyInvoked(args, _cancellation.Token);
+        }
+    }
+
+    private void HandleHotkeyInvoked(PluginInputEventArgs args, CancellationToken token)
     {
         if (!args.IsDown
             || !string.Equals(args.PluginId, _pluginId, StringComparison.OrdinalIgnoreCase))
@@ -57,13 +78,6 @@ internal sealed partial class SceneQuickActionsRunner
             }
 
             var window = GetForegroundWindow();
-            CancellationToken token;
-            lock (_sync)
-            {
-                if (_cancellation is null)
-                    return;
-                token = _cancellation.Token;
-            }
 
             // 暂停「拾取相关」：默认 30 秒，免得把刚丢出来的东西又捡回去。
             var silence = Math.Clamp(
@@ -118,15 +132,39 @@ internal sealed partial class SceneQuickActionsRunner
     /// <summary>把热键绑定注册到宿主（键位改动后要重新注册）。</summary>
     private void RegisterHotkeys()
     {
+        lock (_sync)
+        {
+            if (_disposed || _cancellation is null || _hotkeyService is null)
+                return;
+
+            var options = Volatile.Read(ref _options);
+            _hotkeyService.SetBinding(_pluginId, SceneQuickActionsOptions.DropBagHotkeyKey, options.DropBagHotkey);
+            _hotkeyService.SetBinding(_pluginId, SceneQuickActionsOptions.DropHotbarHotkeyKey, options.DropHotbarHotkey);
+            // 宿主事件使用 Stopwatch 时间戳，可能仍在 UI 队列中等待分发。
+            _hotkeyBindingsUpdatedAt = Stopwatch.GetTimestamp();
+            _logger.Info(
+                $"热键已注册：丢光背包 {options.DropBagHotkey.DisplayName}，"
+                + $"逐个丢道具栏 {options.DropHotbarHotkey.DisplayName}。");
+        }
+    }
+
+    private void StartHotkeys()
+    {
         if (_hotkeyService is null)
             return;
 
-        var options = Volatile.Read(ref _options);
-        _hotkeyService.SetBinding(_pluginId, SceneQuickActionsOptions.DropBagHotkeyKey, options.DropBagHotkey);
-        _hotkeyService.SetBinding(_pluginId, SceneQuickActionsOptions.DropHotbarHotkeyKey, options.DropHotbarHotkey);
-        _logger.Info(
-            $"热键已注册：丢光背包 {options.DropBagHotkey.DisplayName}，"
-            + $"逐个丢道具栏 {options.DropHotbarHotkey.DisplayName}。");
+        _hotkeyService.BindingInvoked -= OnHotkeyInvoked;
+        _hotkeyService.BindingInvoked += OnHotkeyInvoked;
+        RegisterHotkeys();
+    }
+
+    private void StopHotkeys()
+    {
+        if (_hotkeyService is null)
+            return;
+
+        _hotkeyService.BindingInvoked -= OnHotkeyInvoked;
+        _hotkeyService.ClearBindings(_pluginId);
     }
 
     /// <summary>丢光背包：上排 3 格 + 中排 3 格，逐个拖到屏幕正中心松手。</summary>

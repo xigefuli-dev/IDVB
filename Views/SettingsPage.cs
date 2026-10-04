@@ -12,11 +12,10 @@ namespace IDVBuff.Views;
 /// <summary>Product, licensing, privacy, and attribution information.</summary>
 public sealed partial class SettingsPage : Page
 {
-    private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
-    private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
-    private static Brush CardBorderBrush => FluentTheme.Brush("CardStrokeColorDefaultBrush");
-    private static Brush AccentBrush => FluentTheme.Brush("AccentFillColorDefaultBrush");
-    private static Brush AccentContainerBrush => FluentTheme.Brush("AccentFillColorTertiaryBrush");
+    private Brush PrimaryTextBrush => FluentTheme.Brush(this, "TextFillColorPrimaryBrush");
+    private Brush SecondaryTextBrush => FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
+    private Brush CardBorderBrush => FluentTheme.Brush(this, "CardStrokeColorDefaultBrush");
+    private Brush AccentContainerBrush => FluentTheme.Brush(this, "AccentFillColorTertiaryBrush");
 
     public SettingsPage() => Content = CreateContent();
 
@@ -112,7 +111,7 @@ public sealed partial class SettingsPage : Page
         {
             Margin = new Thickness(0, 4, 0, 0),
             Padding = new Thickness(16, 13, 16, 13),
-            Background = FluentTheme.Brush("SystemFillColorCautionBackgroundBrush"),
+            Background = FluentTheme.Brush(this, "SystemFillColorCautionBackgroundBrush"),
             CornerRadius = new CornerRadius(8),
             Child = new TextBlock
             {
@@ -136,7 +135,7 @@ public sealed partial class SettingsPage : Page
         return root;
     }
 
-    private static Border CreateHero()
+    private Border CreateHero()
     {
         var identity = new StackPanel { Spacing = 6 };
         identity.Children.Add(new TextBlock
@@ -184,7 +183,7 @@ public sealed partial class SettingsPage : Page
         return new Border
         {
             Padding = new Thickness(22),
-            Background = FluentTheme.CardBrush(),
+            Background = FluentTheme.CardBrush(this),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -192,7 +191,7 @@ public sealed partial class SettingsPage : Page
         };
     }
 
-    private static StackPanel CreateSectionHeading(string title, string description)
+    private StackPanel CreateSectionHeading(string title, string description)
     {
         var panel = new StackPanel { Spacing = 6 };
         panel.Children.Add(new TextBlock
@@ -249,12 +248,9 @@ public sealed partial class SettingsPage : Page
             Content = enablePreview ? "加入预览计划" : "退出预览计划",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Center,
-            MinWidth = 180,
-            Foreground = new SolidColorBrush(Colors.White),
-            Background = enablePreview
-                ? AccentBrush
-                : new SolidColorBrush(Colors.Firebrick)
+            MinWidth = 180
         };
+        if (enablePreview) tipAction.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         var flyoutContent = new StackPanel
         {
             Spacing = 10,
@@ -299,7 +295,7 @@ public sealed partial class SettingsPage : Page
                     Title = "无法保存更新通道",
                     Content = exception.Message,
                     CloseButtonText = "知道了"
-                }.ShowAsync();
+                }.ShowThemedAsync();
             }
         };
 
@@ -319,7 +315,7 @@ public sealed partial class SettingsPage : Page
         return new Border
         {
             Padding = new Thickness(18),
-            Background = FluentTheme.CardBrush(),
+            Background = FluentTheme.CardBrush(this),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
@@ -359,7 +355,7 @@ public sealed partial class SettingsPage : Page
             Title = "更新程序不可用",
             Content = "当前运行的是开发输出，或安装内容不完整。请使用正式安装版本中的更新功能。",
             CloseButtonText = "知道了"
-        }.ShowAsync();
+        }.ShowThemedAsync();
     }
 
     private Button CreateSpecificationCard(
@@ -399,7 +395,7 @@ public sealed partial class SettingsPage : Page
             VerticalAlignment = VerticalAlignment.Top,
             Child = new SymbolIcon(icon)
             {
-                Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush")
+                Foreground = FluentTheme.Brush(this, "TextOnAccentFillColorPrimaryBrush")
             }
         });
         Grid.SetColumn(text, 1);
@@ -409,7 +405,7 @@ public sealed partial class SettingsPage : Page
         {
             MinHeight = 32,
             Padding = new Thickness(12, 5, 12, 5),
-            Background = FluentTheme.Brush("SubtleFillColorSecondaryBrush"),
+            Background = FluentTheme.Brush(this, "SubtleFillColorSecondaryBrush"),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
@@ -430,7 +426,7 @@ public sealed partial class SettingsPage : Page
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(18, 16, 18, 16),
-            Background = FluentTheme.CardBrush(),
+            Background = FluentTheme.CardBrush(this),
             BorderBrush = CardBorderBrush,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),

@@ -73,6 +73,8 @@ public sealed partial class AnnouncementWindow
     private List<AnnouncementItem> _allAnnouncements = [];
     private List<AnnouncementItem> _filteredAnnouncements = [];
     private AnnouncementItem? _selectedItem;
+    private readonly Border _themeRoot = new();
+    private IDVBuff.Presentation.Theming.ThemeScope? _themeScope;
 
     private AnnouncementWindow()
     {
@@ -139,7 +141,7 @@ public sealed partial class AnnouncementWindow
         {
             Text = "暂无消息通知",
             FontSize = 14,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(_themeRoot, "TextFillColorSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
@@ -150,14 +152,14 @@ public sealed partial class AnnouncementWindow
             FontSize = 23,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(_themeRoot, "TextFillColorPrimaryBrush"),
         };
 
         _detailMetaBlock = new TextBlock
         {
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(_themeRoot, "TextFillColorSecondaryBrush"),
         };
 
         _categoryBadgeText = new TextBlock
@@ -171,12 +173,13 @@ public sealed partial class AnnouncementWindow
         {
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(6, 2, 6, 2),
-            Background = FluentTheme.Brush("AccentFillColorDefaultBrush"),
+            Background = FluentTheme.Brush(_themeRoot, "AccentFillColorDefaultBrush"),
             Child = _categoryBadgeText,
             VerticalAlignment = VerticalAlignment.Center,
         };
 
         _window.Content = BuildLayout();
+        _themeScope = IDVBuff.Presentation.Theming.ThemeService.AttachWindow(_window, _themeRoot);
         _window.Closed += (_, _) =>
         {
             RemoveWindowSubclass(hWnd, NonMovableWindowProcedure, NonMovableWindowSubclassId);

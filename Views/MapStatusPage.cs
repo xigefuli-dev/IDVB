@@ -41,6 +41,7 @@ public sealed partial class MapStatusPage : UserControl
             AttachMapLearningPanel();
             ApplySimplifiedOptions();
             _viewBuilt = true;
+            TryRefresh("initial-state");
         }
         catch (Exception exception)
         {

@@ -25,7 +25,7 @@ public sealed partial class MapStatusPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
-        if (await prompt.ShowAsync() != ContentDialogResult.Primary)
+        if (await prompt.ShowThemedAsync() != ContentDialogResult.Primary)
             return;
 
         _status.Text = "请切换到游戏，3 秒后捕获完整地图……";
@@ -73,7 +73,7 @@ public sealed partial class MapStatusPage : UserControl
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
-        if (await prompt.ShowAsync() != ContentDialogResult.Primary)
+        if (await prompt.ShowThemedAsync() != ContentDialogResult.Primary)
             return;
 
         _status.Text = "请切换到游戏，3 秒后捕获楼层显示区……";
@@ -146,7 +146,7 @@ public sealed partial class MapStatusPage : UserControl
                 Title = "暂时无法开启",
                 Content = exception.Message,
                 CloseButtonText = "知道了"
-            }.ShowAsync();
+            }.ShowThemedAsync();
         }
         finally
         {

@@ -21,8 +21,7 @@ public sealed class HelpPage : Page
             MinWidth = 132,
             MinHeight = 40,
             HorizontalAlignment = HorizontalAlignment.Left,
-            Background = FluentTheme.Brush("AccentFillColorDefaultBrush"),
-            Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush"),
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"],
             CornerRadius = new CornerRadius(7)
         };
         startTutorialButton.Click += (_, _) => ActivateGuideRequested?.Invoke(this, EventArgs.Empty);
@@ -52,7 +51,7 @@ public sealed class HelpPage : Page
                     Text = "新手教程",
                     FontSize = 20,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
                 },
                 new TextBlock
                 {
@@ -60,7 +59,7 @@ public sealed class HelpPage : Page
                         ? "了解如何导入或选择地图，并以普通窗口形式展示。关闭安全模式后可使用完整的新手教程。"
                         : "从按键绑定开始，依次完成游戏地图、外置控件层、快捷扫描、楼层切换和地图缓存的配置。",
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
                 },
                 startTutorialButton
             }
@@ -69,8 +68,8 @@ public sealed class HelpPage : Page
 
         var tutorialCard = new Border
         {
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(24),
@@ -88,11 +87,11 @@ public sealed class HelpPage : Page
                         Width = 48,
                         Height = 48,
                         CornerRadius = new CornerRadius(24),
-                        Background = FluentTheme.Brush("AccentFillColorSecondaryBrush"),
+                        Background = FluentTheme.Brush(this, "AccentFillColorSecondaryBrush"),
                         Child = new SymbolIcon
                         {
                             Symbol = Symbol.Play,
-                            Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush")
+                            Foreground = FluentTheme.Brush(this, "TextOnAccentFillColorPrimaryBrush")
                         }
                     },
                     tutorialContent
@@ -113,20 +112,20 @@ public sealed class HelpPage : Page
                     Text = "教程",
                     FontSize = 32,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
                 },
                 new TextBlock
                 {
                     Text = "按自己的节奏学习 Identity Vision Bridge。每个教程都可以随时重新开始。",
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
                 },
                 new TextBlock
                 {
                     Text = "开始学习",
                     FontSize = 16,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
                 },
                 tutorialCard,
                 new TextBlock
@@ -135,7 +134,7 @@ public sealed class HelpPage : Page
                     Margin = new Thickness(0, 16, 0, 0),
                     FontSize = 16,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
                 },
                 CreateCompactTutorialCard(subscribeTutorialButton),
                 new TextBlock
@@ -144,7 +143,7 @@ public sealed class HelpPage : Page
                     Margin = new Thickness(0, 16, 0, 0),
                     FontSize = 16,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
                 },
                 CreateCompactTutorialCard(calibrationVideoButton, "校准显示区域", "框选完整的游戏地图画布，让 IDVB 正确识别地图区域。", Symbol.Video),
                 CreateCompactTutorialCard(startMatchVideoButton, "如何开始对局", "打开外置控件层、选择本局地图并开始对局。", Symbol.Video),
@@ -154,11 +153,11 @@ public sealed class HelpPage : Page
                 {
                     Padding = new Thickness(24, 20, 24, 20),
                     CornerRadius = new CornerRadius(10),
-                    Background = FluentTheme.Brush("ControlFillColorSecondaryBrush"),
+                    Background = FluentTheme.Brush(this, "ControlFillColorSecondaryBrush"),
                     Child = new TextBlock
                     {
                         Text = "更多地图操作和功能教程将在这里陆续加入。",
-                        Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+                        Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
                     }
                 }
             }
@@ -188,10 +187,10 @@ public sealed class HelpPage : Page
         return button;
     }
 
-    private static Border CreateCompactTutorialCard(Button button) =>
+    private Border CreateCompactTutorialCard(Button button) =>
         CreateCompactTutorialCard(button, "订阅地图", "从地图社区选择地图包，并在 IDVB 中添加订阅。", Symbol.Download);
 
-    private static Border CreateCompactTutorialCard(Button button, string title, string description, Symbol icon)
+    private Border CreateCompactTutorialCard(Button button, string title, string description, Symbol icon)
     {
         var text = new StackPanel
         {
@@ -203,7 +202,7 @@ public sealed class HelpPage : Page
                 {
                     Text = description,
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
                 }
             }
         };
@@ -211,8 +210,8 @@ public sealed class HelpPage : Page
         Grid.SetColumn(button, 2);
         return new Border
         {
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(16, 12, 16, 12),
@@ -231,8 +230,8 @@ public sealed class HelpPage : Page
                     {
                         Width = 36, Height = 36, CornerRadius = new CornerRadius(18),
                         VerticalAlignment = VerticalAlignment.Center,
-                        Background = FluentTheme.Brush("AccentFillColorSecondaryBrush"),
-                        Child = new SymbolIcon { Symbol = icon, Foreground = FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush") }
+                        Background = FluentTheme.Brush(this, "AccentFillColorSecondaryBrush"),
+                        Child = new SymbolIcon { Symbol = icon, Foreground = FluentTheme.Brush(this, "TextOnAccentFillColorPrimaryBrush") }
                     },
                     text,
                     button

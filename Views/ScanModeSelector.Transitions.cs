@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using IDVBuff.Appearance;
+using IDVBuff.Presentation.Theming;
 using IDVBuff.Features.Maps;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -103,7 +105,10 @@ public sealed partial class ScanModeSelector
                     _track.ActualWidth, _appearanceFrame.Expansion, _visibleSegments)
             };
         var frame = _appearanceFrame;
-        var d = frame.Deep;
+        var theme = FluentTheme.Snapshot(this);
+        var d = AllowsGlass(theme) ? frame.Deep : 0;
+        var railFill = ThemeResources.ToColor(theme[ThemeToken.ControlFill]);
+        var railStroke = ThemeResources.ToColor(theme[ThemeToken.ControlBorder]);
         _segmentLabels.ColumnDefinitions[3].Width = frame.Expansion <= 0
             ? new GridLength(0) : new GridLength(frame.Expansion, GridUnitType.Star);
         _labels[3].Visibility = frame.Expansion > .001 ? Visibility.Visible : Visibility.Collapsed;
@@ -113,34 +118,43 @@ public sealed partial class ScanModeSelector
         _deepTrack.Opacity = d;
         _trackSurface.Background = _railFill;
         _trackSurface.BorderBrush = _railStroke;
-        _railFill.GradientStops[0].Color = MixColor(Argb(0x3E808080), Argb(0xFF070510), d);
-        _railFill.GradientStops[1].Color = MixColor(Argb(0x3E808080), Argb(0xFF10091C), d);
-        _railFill.GradientStops[2].Color = MixColor(Argb(0x3E808080), Argb(0xFF1D112D), d);
-        _railStroke.GradientStops[0].Color = MixColor(Argb(0x2A808080), Argb(0x405B3585), d);
-        _railStroke.GradientStops[1].Color = MixColor(Argb(0x2A808080), Argb(0xA0D1A3FF), d);
-        _railStroke.GradientStops[2].Color = MixColor(Argb(0x2A808080), Argb(0xFFFFEAFF), d);
+        _railFill.GradientStops[0].Color = MixColor(railFill, Argb(0xFF070510), d);
+        _railFill.GradientStops[1].Color = MixColor(railFill, Argb(0xFF10091C), d);
+        _railFill.GradientStops[2].Color = MixColor(railFill, Argb(0xFF1D112D), d);
+        _railStroke.GradientStops[0].Color = MixColor(railStroke, Argb(0x405B3585), d);
+        _railStroke.GradientStops[1].Color = MixColor(railStroke, Argb(0xA0D1A3FF), d);
+        _railStroke.GradientStops[2].Color = MixColor(railStroke, Argb(0xFFFFEAFF), d);
         _trackSurface.CornerRadius = new CornerRadius(Mix(29, 16, d));
         _selection.CornerRadius = new CornerRadius(Mix(23, 12, d));
         _selection.Background = _pillFill;
         _selection.BorderBrush = _pillStroke;
-        _pillFill.GradientStops[0].Color = MixColor(Shade(frame.Accent, .66, 226), Argb(0xFFEEDAFF), d);
-        _pillFill.GradientStops[1].Color = MixColor(Shade(frame.Accent, .84, 234), Argb(0xFFD6B7FF), d);
-        _pillFill.GradientStops[2].Color = MixColor(Shade(frame.Accent, 1.03, 242), Argb(0xFFF9F0FF), d);
+        _pillFill.GradientStops[0].Color = MixColor(SelectionStop(frame.Accent, .66, 226), Argb(0xFFEEDAFF), d);
+        _pillFill.GradientStops[1].Color = MixColor(SelectionStop(frame.Accent, .84, 234), Argb(0xFFD6B7FF), d);
+        _pillFill.GradientStops[2].Color = MixColor(SelectionStop(frame.Accent, 1.03, 242), Argb(0xFFF9F0FF), d);
         _pillStroke.Color = MixColor(WithAlpha(frame.Accent, 205), Argb(0xFFFFF1FF), d);
 
-        var text = ActualTheme == ElementTheme.Light ? Argb(0xFF202020) : Argb(0xFFF3F3F3);
+        if (theme.IsHighContrast)
+        {
+            foreach (var stop in _pillFill.GradientStops)
+                stop.Color = ThemeResources.ToColor(theme[ThemeToken.Selection]);
+            _pillStroke.Color = ThemeResources.ToColor(theme[ThemeToken.SelectionBorder]);
+        }
+        var text = ThemeResources.ToColor(theme[ThemeToken.Text]);
+        var secondaryText = ThemeResources.ToColor(theme[ThemeToken.TextSecondary]);
+        var selectionText = theme.IsHighContrast
+            ? ThemeResources.ToColor(theme[ThemeToken.SelectionText]) : Microsoft.UI.Colors.White;
         _title.Text = d >= .5 ? "DeepScan" : "扫描模式";
         _title.FontWeight = d >= .5 ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
         _title.CharacterSpacing = (int)(100 * d);
         _title.Opacity = Math.Abs(2 * d - 1);
         _titleBrush.Color = MixColor(text, Argb(0xFFF0DBFF), d);
         _title.Foreground = _titleBrush;
-        _hintBrush.Color = MixColor(text, Argb(0xFFE0C5FA), d);
+        _hintBrush.Color = MixColor(secondaryText, Argb(0xFFE0C5FA), d);
         _hint.Foreground = _hintBrush;
         for (var i = 0; i < _labels.Length; i++)
         {
             var weight = Math.Max(0, 1 - Math.Abs(i - frame.Index));
-            var foreground = MixColor(text, Microsoft.UI.Colors.White, weight);
+            var foreground = MixColor(text, selectionText, weight);
             _labelBrushes[i].Color = MixColor(foreground, i == 3 ? Argb(0xFF2C0F48) : Argb(0xFFDEC7F8), d);
             _labels[i].Foreground = _labelBrushes[i];
             _labels[i].Opacity = (.58 + .42 * weight) * (i == 3 ? frame.Expansion : 1);

@@ -12,11 +12,12 @@ namespace IDVBuff;
 /// 系统 Desktop Acrylic 的模糊半径固定且偏小，桌面/后方窗口的高对比内容
 /// 会以软边补丁的形式透出来，产生"块状破碎感"；这里改用自定义合成背景：
 /// GaussianBlurEffect 作用于窗口背后内容（CreateHostBackdropBrush），把
-/// 一切均匀打散成连续的模糊。色调仍由 XAML 窗口背景（FluentTheme.WindowBrush）
+/// 一切均匀打散成连续的模糊。色调仍由 XAML 窗口背景（ThemeScope.WindowBrush）
 /// 叠加，跟随当前主题。
 /// </summary>
 internal sealed class GaussianBlurBackdrop : SystemBackdrop
 {
+    public event Action? Failed;
     // ── 可调旋钮 ──────────────────────────────────────────────
     // BlurAmount 是高斯模糊半径（DIP，设备无关像素）：
     //   20 左右 → 轻度柔焦，仍能看出轮廓
@@ -96,7 +97,7 @@ internal sealed class GaussianBlurBackdrop : SystemBackdrop
         }
         catch (Exception exception)
         {
-            // 模糊不可用时退化为纯色——XAML 窗口背景（FluentTheme.WindowBrush）
+            // 模糊不可用时退化为纯色——XAML 窗口背景（ThemeScope.WindowBrush）
             // 依然存在，不会白屏。
             OutputLog.Write(
                 "ERROR",
@@ -107,6 +108,7 @@ internal sealed class GaussianBlurBackdrop : SystemBackdrop
             _backdrop = null;
             _compositor?.Dispose();
             _compositor = null;
+            Failed?.Invoke();
         }
     }
 

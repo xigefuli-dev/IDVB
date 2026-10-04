@@ -16,7 +16,7 @@ public sealed partial class PluginsPage
         {
             Height = 1,
             Margin = new Thickness(0, 8, 0, 0),
-            Background = FluentTheme.Brush("DividerStrokeColorDefaultBrush")
+            Background = FluentTheme.Brush(this, "DividerStrokeColorDefaultBrush")
         });
 
         var header = new Grid();
@@ -184,7 +184,7 @@ public sealed partial class PluginsPage
                 }
             }
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await dialog.ShowThemedAsync() == ContentDialogResult.Primary;
     }
 
     private async Task RefreshThirdPartyPluginsAsync()
@@ -248,7 +248,7 @@ public sealed partial class PluginsPage
         {
             Text = BuildPluginStateText(entry),
             FontSize = 12,
-            Foreground = entry.QuarantineReason is null ? SecondaryTextBrush : FluentTheme.Brush("SystemFillColorCriticalBrush"),
+            Foreground = entry.QuarantineReason is null ? SecondaryTextBrush : FluentTheme.Brush(this, "SystemFillColorCriticalBrush"),
             TextWrapping = TextWrapping.Wrap
         });
         root.Children.Add(body);
@@ -373,8 +373,8 @@ public sealed partial class PluginsPage
         return new Border
         {
             Padding = new Thickness(18),
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Child = root

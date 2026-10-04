@@ -11,13 +11,11 @@ public sealed partial class AnnouncementWindow
     private FrameworkElement BuildLayout()
     {
         // 最外层 Border：带有细边框与微圆角，绝对无任何原生或自制标题栏
-        var rootBorder = new Border
-        {
-            Background = FluentTheme.Brush("LayerFillColorDefaultBrush"),
-            BorderBrush = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 55, 55, 55)),
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(8),
-        };
+        var rootBorder = _themeRoot;
+        rootBorder.Background = FluentTheme.CardBrush(_themeRoot);
+        rootBorder.BorderBrush = FluentTheme.Brush(_themeRoot, "CardStrokeColorDefaultBrush");
+        rootBorder.BorderThickness = new Thickness(0);
+        rootBorder.CornerRadius = new CornerRadius(8);
 
         // 纯粹左右分栏：直接顶到窗口最顶端，没有任何多余的标题栏行
         var contentGrid = new Grid();
@@ -28,7 +26,7 @@ public sealed partial class AnnouncementWindow
         // -------------------- 左侧栏 --------------------
         var leftPanel = new Grid
         {
-            Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
+            Background = FluentTheme.Brush(_themeRoot, "CardBackgroundFillColorDefaultBrush"),
             BorderBrush = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 55, 55, 55)),
             BorderThickness = new Thickness(0, 0, 1, 0),
         };
@@ -49,7 +47,7 @@ public sealed partial class AnnouncementWindow
             Text = "消息",
             FontSize = 20,
             FontWeight = FontWeights.SemiBold,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(_themeRoot, "TextFillColorPrimaryBrush"),
         });
 
         Grid.SetRow(categoryBar, 0);
@@ -141,7 +139,7 @@ public sealed partial class AnnouncementWindow
             Width = 7,
             Height = 7,
             CornerRadius = new CornerRadius(4),
-            Background = FluentTheme.Brush("AccentFillColorDefaultBrush"),
+            Background = FluentTheme.Brush(_themeRoot, "AccentFillColorDefaultBrush"),
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(0, 6, 0, 0),
             Visibility = item.IsRead ? Visibility.Collapsed : Visibility.Visible,
@@ -158,7 +156,7 @@ public sealed partial class AnnouncementWindow
             FontWeight = item.IsRead ? FontWeights.Normal : FontWeights.SemiBold,
             TextWrapping = TextWrapping.NoWrap,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(_themeRoot, "TextFillColorPrimaryBrush"),
         };
         contentStack.Children.Add(titleBlock);
 
@@ -166,7 +164,7 @@ public sealed partial class AnnouncementWindow
         {
             Text = FormatDate(item.PublishAt),
             FontSize = 11,
-            Foreground = FluentTheme.Brush("TextFillColorTertiaryBrush"),
+            Foreground = FluentTheme.Brush(_themeRoot, "TextFillColorTertiaryBrush"),
         });
 
         Grid.SetColumn(contentStack, 1);

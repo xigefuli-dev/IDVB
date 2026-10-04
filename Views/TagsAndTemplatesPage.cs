@@ -29,7 +29,6 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = BuildPage()
         };
-        Loaded += async (_, _) => await ReloadAsync();
         SizeChanged += (_, _) => UpdateResponsiveColumns();
     }
 
@@ -41,7 +40,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
         {
             Text = "用标签整理地图特征，用模板快速建立楼层。",
             Margin = new Thickness(0, 18, 0, 30),
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         });
         root.Children.Add(CreateSectionHeader("标签系统", "新建标签组", AddGroupAsync));
         _groupsGrid.Margin = new Thickness(0, 18, 0, 30);
@@ -71,6 +70,8 @@ public sealed partial class TagsAndTemplatesPage : UserControl
         header.Children.Add(button);
         return header;
     }
+
+    internal Task PrepareAsync() => ReloadAsync();
 
     private async Task ReloadAsync()
     {
@@ -190,7 +191,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             classList.Children.Add(new TextBlock
             {
                 Text = "暂无 Class",
-                Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+                Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
                 Margin = new Thickness(4, 0, 4, 2)
             });
         }
@@ -255,7 +256,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             {
                 Height = 38, Padding = new Thickness(11, 0, 5, 0),
                 MinWidth = 105, MaxWidth = 280,
-                Background = FluentTheme.Brush("ControlFillColorSecondaryBrush"),
+                Background = FluentTheme.Brush(this, "ControlFillColorSecondaryBrush"),
                 CornerRadius = new CornerRadius(7)
             };
             chip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -282,8 +283,8 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             Content = "+  新建标签", Height = 38,
             MinWidth = 132,
             HorizontalContentAlignment = HorizontalAlignment.Center,
-            Background = FluentTheme.Brush("ControlFillColorSecondaryBrush"),
-            BorderBrush = FluentTheme.Brush("ControlStrokeColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "ControlFillColorSecondaryBrush"),
+            BorderBrush = FluentTheme.Brush(this, "ControlStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7)
         };
         addTile.Click += async (_, _) => await AddTagAsync(group);
@@ -329,12 +330,12 @@ public sealed partial class TagsAndTemplatesPage : UserControl
                 new TextBlock
                 {
                     Text = string.Join("，", template.Floors.Select(floor => $"{floor.Key} / {floor.DisplayName}")),
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis
+                    Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"), TextTrimming = TextTrimming.CharacterEllipsis
                 },
                 new TextBlock
                 {
                     Text = builtIn ? "内置模板" : "自定义模板", FontSize = 12,
-                    Foreground = FluentTheme.Brush("TextFillColorTertiaryBrush")
+                    Foreground = FluentTheme.Brush(this, "TextFillColorTertiaryBrush")
                 }
             }
         };
@@ -358,11 +359,11 @@ public sealed partial class TagsAndTemplatesPage : UserControl
         return CreateSurface(button, 108);
     }
 
-    private static Border CreateSurface(UIElement content, double minimumHeight) => new()
+    private Border CreateSurface(UIElement content, double minimumHeight) => new()
     {
         MinHeight = minimumHeight, Padding = new Thickness(18), CornerRadius = new CornerRadius(9),
-        Background = FluentTheme.Brush("CardBackgroundFillColorDefaultBrush"),
-        BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+        Background = FluentTheme.Brush(this, "CardBackgroundFillColorDefaultBrush"),
+        BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
         BorderThickness = new Thickness(1), Child = content
     };
 
@@ -393,7 +394,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             XamlRoot = XamlRoot, Title = "新建标签组", Content = box,
             PrimaryButtonText = "创建", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await dialog.ShowThemedAsync() != ContentDialogResult.Primary) return;
         var name = box.Text.Trim();
         if (name.Length == 0 || _groups.Any(group => string.Equals(group.Name, name, StringComparison.OrdinalIgnoreCase))) return;
         _groups.Add(new MapTagGroup { Name = name });
@@ -409,7 +410,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             XamlRoot = XamlRoot, Title = $"添加到“{group.Name}”", Content = box,
             PrimaryButtonText = "添加", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await dialog.ShowThemedAsync() != ContentDialogResult.Primary) return;
         var value = box.Text.Trim();
         if (value.Length == 0 || group.Tags.Contains(value, StringComparer.OrdinalIgnoreCase)) return;
         group.Tags.Add(value);
@@ -427,7 +428,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
                 Content = $"仍有 {usage} 组地图使用“{tag}”。删除后地图数据会保留该值，但不会再作为可选标签显示。",
                 PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close
             };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            if (await dialog.ShowThemedAsync() != ContentDialogResult.Primary) return;
         }
         group.Tags.RemoveAll(value => string.Equals(value, tag, StringComparison.OrdinalIgnoreCase));
         await _tagStore.SaveAsync(_groups, _maps, _classes);

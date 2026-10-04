@@ -10,8 +10,8 @@ namespace IDVBuff.Views;
 
 public sealed partial class MapStatusPage : UserControl
 {
-    private static Brush PrimaryTextBrush => FluentTheme.Brush("TextFillColorPrimaryBrush");
-    private static Brush SecondaryTextBrush => FluentTheme.Brush("TextFillColorSecondaryBrush");
+    private Brush PrimaryTextBrush => FluentTheme.Brush(this, "TextFillColorPrimaryBrush");
+    private Brush SecondaryTextBrush => FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
 
     private FrameworkElement CreatePageFailureView(Exception exception) =>
         new StackPanel

@@ -1,4 +1,6 @@
 using System.Numerics;
+using IDVBuff.Appearance;
+using IDVBuff.Presentation.Theming;
 using IDVBuff.Features.Maps;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
@@ -176,29 +178,13 @@ public sealed partial class ScanModeSelector : UserControl
         root.Children.Add(BuildDeepLightHost());
         root.Children.Add(_card);
         root.Children.Add(_deepCardSurface);
-        root.Children.Add(new Border
-        {
-            Width = 354,
-            Height = 74,
-            Margin = new Thickness(0, 7, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Top,
-            CornerRadius = new CornerRadius(23),
-            IsHitTestVisible = false,
-            Background = new LinearGradientBrush
-            {
-                StartPoint = new Windows.Foundation.Point(0, 0),
-                EndPoint = new Windows.Foundation.Point(0, 1),
-                GradientStops =
-                {
-                    new GradientStop { Color = Color.FromArgb(30, 255, 255, 255), Offset = 0 },
-                    new GradientStop { Color = Color.FromArgb(8, 255, 255, 255), Offset = .45 },
-                    new GradientStop { Color = Color.FromArgb(0, 255, 255, 255), Offset = 1 }
-                }
-            }
-        });
+        root.Children.Add(_sheen);
         root.Children.Add(layout);
         Content = root;
+        FluentTheme.Observe(this, theme =>
+        {
+            if (NeedsAppearanceRefresh(theme)) UpdateAppearance(false);
+        });
 
         foreach (var element in EnumerateTranslatedElements())
             ElementCompositionPreview.SetIsTranslationEnabled(element, true);
@@ -362,6 +348,7 @@ public sealed partial class ScanModeSelector : UserControl
 
     private void UpdateAppearance(bool animate)
     {
+        UpdateGlassSurface(FluentTheme.Snapshot(this));
         var index = Math.Clamp((int)Mode, 0, 3);
         var enterDeepScan = animate && index == 3 && _lastAppearanceMode != ScanPerformanceMode.DeepScan;
         _lastAppearanceMode = Mode;

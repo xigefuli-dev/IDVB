@@ -9,18 +9,15 @@ internal sealed class SurveyStatusCard : UserControl
 {
     private readonly TextBlock _title = new()
     {
-        FontSize = 17,
-        Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+        FontSize = 17
     };
     private readonly TextBlock _state = new()
     {
-        FontSize = 13,
-        Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+        FontSize = 13
     };
     private readonly TextBlock _counts = new()
     {
-        FontSize = 13,
-        Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+        FontSize = 13
     };
     private readonly TextBlock _detail = new()
     {
@@ -32,6 +29,9 @@ internal sealed class SurveyStatusCard : UserControl
 
     public SurveyStatusCard()
     {
+        _title.Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush");
+        _state.Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
+        _counts.Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
         Margin = new Thickness(0, 8, 0, 4);
         var content = new Grid { RowSpacing = 6 };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -56,8 +56,8 @@ internal sealed class SurveyStatusCard : UserControl
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(10),
             BorderThickness = new Thickness(1),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
-            Background = FluentTheme.CardBrush(),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
             Child = content
         };
         Update(SurveyStatusSnapshot.Inactive);
@@ -84,8 +84,8 @@ internal sealed class SurveyStatusCard : UserControl
                 ? $"{status.LastErrorCode}：{status.LastMessage} · 诊断 {status.DiagnosticId}"
                 : status.LastMessage ?? "状态已同步。";
         _detail.Foreground = status.LastErrorCode == SurveyErrorCode.None
-            ? FluentTheme.Brush("TextFillColorSecondaryBrush")
-            : FluentTheme.Brush("SystemFillColorCriticalBrush");
+            ? FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
+            : FluentTheme.Brush(this, "SystemFillColorCriticalBrush");
         _isPaused = status.RuntimeState == SurveyRuntimeState.Paused;
         _pause.Content = _isPaused ? "继续测绘" : "暂停测绘";
         _pause.IsEnabled = status.ProjectId is not null

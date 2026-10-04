@@ -76,7 +76,7 @@ public sealed partial class TeachingTipManager
         var bindingDescription = new TextBlock
         {
             FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(host, "TextFillColorSecondaryBrush"),
             TextWrapping = TextWrapping.Wrap
         };
         host.Children.Add(button);

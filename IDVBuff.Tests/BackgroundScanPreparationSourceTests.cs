@@ -147,12 +147,18 @@ public sealed class BackgroundScanPreparationSourceTests
             root, "Features", "Maps",
             "SessionOrchestrator.ResolutionTuning.cs"));
         Assert.Contains(
-            "tuning.EnableScanCheapReject = false;",
+            "=> MapScanVerificationRules.CreateTuning(source);",
             tuningSource,
+            StringComparison.Ordinal);
+        var verificationRulesSource = File.ReadAllText(Path.Combine(
+            root, "Features", "Maps", "MapScanVerificationRules.cs"));
+        Assert.Contains(
+            "tuning.EnableScanCheapReject = false;",
+            verificationRulesSource,
             StringComparison.Ordinal);
         Assert.Contains(
             "tuning.EnableScanCheapRejectShadowCollection = true;",
-            tuningSource,
+            verificationRulesSource,
             StringComparison.Ordinal);
 
         var sideEntranceSource = File.ReadAllText(Path.Combine(

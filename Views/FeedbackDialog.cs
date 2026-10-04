@@ -111,7 +111,7 @@ public sealed class FeedbackDialog : ContentDialog
         {
             Text = "当前字数：0（至少 11 字）",
             FontSize = 12,
-            Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Brush
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         };
         rootPanel.Children.Add(_counterBlock);
 
@@ -210,12 +210,12 @@ public sealed class FeedbackDialog : ContentDialog
         if (isValid)
         {
             _counterBlock.Text = $"当前字数：{count}";
-            _counterBlock.Foreground = Application.Current.Resources["TextFillColorPrimaryBrush"] as Brush;
+            _counterBlock.Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush");
         }
         else
         {
             _counterBlock.Text = $"当前字数：{count}（至少 11 字）";
-            _counterBlock.Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Brush;
+            _counterBlock.Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush");
         }
     }
 

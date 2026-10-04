@@ -19,7 +19,7 @@ public sealed partial class MapListPage
         {
             Text = "测绘项目",
             FontSize = 20,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         });
         var collapseButton = new Button
@@ -49,7 +49,7 @@ public sealed partial class MapListPage
             {
                 Margin = new Thickness(0, 0, 0, 18),
                 Padding = new Thickness(18, 12, 18, 12),
-                Background = FluentTheme.Brush("LayerFillColorDefaultBrush"),
+                Background = FluentTheme.Brush(this, "LayerFillColorDefaultBrush"),
                 CornerRadius = new CornerRadius(14),
                 Child = body
             };
@@ -60,13 +60,13 @@ public sealed partial class MapListPage
             body.Children.Add(new Border
             {
                 MinHeight = 92,
-                Background = FluentTheme.CardBrush(),
+                Background = FluentTheme.CardBrush(this),
                 CornerRadius = new CornerRadius(10),
                 Child = new TextBlock
                 {
                     Text = "暂无测绘项目。开始快捷扫描后，可从候选窗口进入测绘模式。",
                     FontSize = 14,
-                    Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+                    Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     TextWrapping = TextWrapping.Wrap,
@@ -86,7 +86,7 @@ public sealed partial class MapListPage
         {
             Margin = new Thickness(0, 0, 0, 18),
             Padding = new Thickness(18),
-            Background = FluentTheme.Brush("LayerFillColorDefaultBrush"),
+            Background = FluentTheme.Brush(this, "LayerFillColorDefaultBrush"),
             CornerRadius = new CornerRadius(14),
             Child = body
         };
@@ -98,7 +98,7 @@ public sealed partial class MapListPage
         {
             Padding = new Thickness(14, 11, 12, 11),
             ColumnSpacing = 16,
-            Background = FluentTheme.CardBrush()
+            Background = FluentTheme.CardBrush(this)
         };
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -108,7 +108,7 @@ public sealed partial class MapListPage
         {
             Text = project.Name,
             FontSize = 15,
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         info.Children.Add(new TextBlock
@@ -117,7 +117,7 @@ public sealed partial class MapListPage
                 + $"{project.ActiveLayerCount} 个图层 · {project.UnregisteredCount} 个未对齐 · "
                 + project.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
             FontSize = 12,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         root.Children.Add(info);
@@ -144,7 +144,7 @@ public sealed partial class MapListPage
 
         return new Border
         {
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(9),
             Child = root
@@ -176,7 +176,7 @@ public sealed partial class MapListPage
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
         if (string.IsNullOrWhiteSpace(name.Text))
         {
@@ -205,7 +205,7 @@ public sealed partial class MapListPage
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
         var result = await App.Session.DeleteSurveyProjectAsync(
             new SurveyProjectDeleteRequest(

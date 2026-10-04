@@ -87,79 +87,12 @@ public sealed partial class MapStatusPage
         var isConfigured = GetBinding(target).IsConfigured;
         var showReset = !isRecording && isConfigured
             && _bindingButtonHovered.GetValueOrDefault(target);
-        var background = isRecording
-            ? new SolidColorBrush(Color.FromArgb(255, 22, 62, 115))
-            : !isConfigured
-                ? new SolidColorBrush(Color.FromArgb(255, 46, 132, 225))
-            : showReset
-                ? new SolidColorBrush(Color.FromArgb(255, 196, 55, 55))
-                : new SolidColorBrush(Color.FromArgb(255, 242, 242, 242));
-        var foreground = isRecording || !isConfigured || showReset
-            ? new SolidColorBrush(Color.FromArgb(255, 255, 255, 255))
-            : new SolidColorBrush(Color.FromArgb(255, 32, 32, 32));
-        var border = isRecording
-            ? new SolidColorBrush(Color.FromArgb(255, 14, 43, 82))
-            : !isConfigured
-                ? new SolidColorBrush(Color.FromArgb(255, 30, 105, 180))
-            : showReset
-                ? new SolidColorBrush(Color.FromArgb(255, 160, 35, 35))
-                : new SolidColorBrush(Color.FromArgb(255, 218, 218, 218));
-
         button.Content = isRecording
             ? "请按按键…"
             : showReset ? "重置按键" : "设置按键";
-        button.Background = background;
-        button.Foreground = foreground;
-        button.BorderBrush = border;
-
-        // WinUI's default Button template replaces these properties in its
-        // PointerOver/Pressed visual states. Override the local resources as
-        // well so the reset state remains visibly red.
-        button.Resources["ButtonBackground"] = background;
-        button.Resources["ButtonBackgroundPointerOver"] = background;
-        button.Resources["ButtonBackgroundPressed"] = background;
-        button.Resources["ButtonBorderBrush"] = border;
-        button.Resources["ButtonBorderBrushPointerOver"] = border;
-        button.Resources["ButtonBorderBrushPressed"] = border;
-        button.Resources["ButtonForeground"] = foreground;
-        button.Resources["ButtonForegroundPointerOver"] = foreground;
-        button.Resources["ButtonForegroundPressed"] = foreground;
-
-        // The default WinUI template animates the inner ContentPresenter,
-        // which can run after PointerEntered and overwrite Button.Background.
-        // Apply the same colors after that visual-state transition as well.
-        button.ApplyTemplate();
-        button.DispatcherQueue.TryEnqueue(
-            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () => ApplyButtonContentPresenterColors(button, background, border, foreground));
-    }
-
-    private static void ApplyButtonContentPresenterColors(
-        Button button,
-        SolidColorBrush background,
-        SolidColorBrush border,
-        SolidColorBrush foreground)
-    {
-        if (FindContentPresenter(button) is not { } presenter)
-            return;
-
-        presenter.Background = background;
-        presenter.BorderBrush = border;
-        presenter.Foreground = foreground;
-    }
-
-    private static ContentPresenter? FindContentPresenter(DependencyObject root)
-    {
-        if (root is ContentPresenter presenter)
-            return presenter;
-
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
-        {
-            if (FindContentPresenter(VisualTreeHelper.GetChild(root, index)) is { } child)
-                return child;
-        }
-
-        return null;
+        ThemeButton.Apply(button, showReset ? IDVBuff.Appearance.ThemeButtonRole.Danger
+            : isRecording || !isConfigured ? IDVBuff.Appearance.ThemeButtonRole.Accent
+            : IDVBuff.Appearance.ThemeButtonRole.Standard);
     }
 
     private static bool TryGetModifier(uint key, out MapInputModifiers modifier)

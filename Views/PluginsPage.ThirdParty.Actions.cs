@@ -191,7 +191,7 @@ public sealed partial class PluginsPage
                         await editor.Commit();
                 }
             }), handledEventsToo: true);
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            if (await dialog.ShowThemedAsync() != ContentDialogResult.Primary) return;
             foreach (var (key, read) in readers)
                 await settings.UpdateAsync(key, read());
             ShowThirdPartyNotice(InfoBarSeverity.Success, "设置已保存", manifest.DisplayName);
@@ -258,7 +258,7 @@ public sealed partial class PluginsPage
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        var result = await dialog.ShowAsync();
+        var result = await dialog.ShowThemedAsync();
         if (result == ContentDialogResult.None) return;
         button.IsEnabled = false;
         try

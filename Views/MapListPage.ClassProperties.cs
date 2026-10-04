@@ -21,14 +21,14 @@ public sealed partial class MapListPage : UserControl
             IsOn = current.RemoveBackground,
             OffContent = "关闭",
             OnContent = "开启",
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorPrimaryBrush")
         };
         var intensityValue = new TextBlock
         {
             VerticalAlignment = VerticalAlignment.Center,
             Text = MapBackgroundProcessor.ClampBackgroundRemovalIntensity(
                 current.BackgroundRemovalIntensity).ToString(),
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         };
         var intensitySlider = new Slider
         {
@@ -129,7 +129,7 @@ public sealed partial class MapListPage : UserControl
         {
             Text = "该设置会重建此类的全部地图和楼层。人工遮瑕层始终保留。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         });
         content.Children.Add(toggle);
         var intensityPanel = new Grid { ColumnSpacing = 12 };
@@ -143,21 +143,21 @@ public sealed partial class MapListPage : UserControl
         {
             Text = "数值越高，越宽的颜色范围会被认定为背景。此强度仅保存在本机地图类设置中，不会写入 IDVM 数据包。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         });
         content.Children.Add(downsampleCombo);
         content.Children.Add(new TextBlock
         {
             Text = "先缩小整张原图，再按映射后的归一化坐标裁剪。原图始终保留在本机，可随时切换为其他倍数或恢复为 0；原图与该设置不会写入 IDVM。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         });
         content.Children.Add(scanFloorCombo);
         content.Children.Add(new TextBlock
         {
             Text = "默认主楼层使用大门与侧门；其他楼层必须标记可选的“次要门特征”。楼层 ID 忽略大小写，并且必须覆盖此地图类的每张地图。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush")
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush")
         });
         var dialog = new ContentDialog
         {
@@ -173,7 +173,7 @@ public sealed partial class MapListPage : UserControl
         scanFloorCombo.SelectionChanged += (_, _) =>
             dialog.IsPrimaryButtonEnabled = scanFloorCombo.SelectedItem
                 is ComboBoxItem { IsEnabled: true };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
 
         var selectedScanFloor = MapScanFloorRules.NormalizeFloorIdentity(
@@ -237,7 +237,7 @@ public sealed partial class MapListPage : UserControl
                 },
                 CloseButtonText = "关闭"
             };
-            await failure.ShowAsync();
+            await failure.ShowThemedAsync(this);
         }
         finally
         {

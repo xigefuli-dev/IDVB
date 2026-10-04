@@ -19,25 +19,6 @@ namespace IDVBuff.Views;
 public sealed partial class MapListPage : UserControl
 {
 
-    private static Button CreateSecondaryButton(string text)
-    {
-        var button = new Button
-        {
-            Content = text,
-            Background = FluentTheme.Brush("ControlFillColorDefaultBrush"),
-            Foreground = FluentTheme.Brush("TextFillColorPrimaryBrush"),
-            BorderBrush = FluentTheme.Brush("ControlStrokeColorDefaultBrush"),
-            BorderThickness = new Thickness(1),
-            FontSize = 13,
-            MinWidth = 98,
-            MinHeight = 38,
-            Padding = new Thickness(16, 6, 16, 6),
-            CornerRadius = new CornerRadius(7)
-        };
-        AttachHoverFeedback(button);
-        return button;
-    }
-
     private static BitmapImage CreateBitmap(string path, int? decodePixelWidth = null) => new()
     {
         CreateOptions = BitmapCreateOptions.None,
@@ -198,7 +179,7 @@ public sealed partial class MapListPage : UserControl
             dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(textBox.Text) && !string.Equals(textBox.Text, currentClass, StringComparison.OrdinalIgnoreCase);
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
 
         var newName = textBox.Text.Trim();
@@ -228,7 +209,7 @@ public sealed partial class MapListPage : UserControl
             CloseButtonText = "取消"
         };
 
-        if (await confirm.ShowAsync() != ContentDialogResult.Primary)
+        if (await confirm.ShowThemedAsync(this) != ContentDialogResult.Primary)
             return;
 
         await _repository.ReorderClassAsync(_selectedClass);

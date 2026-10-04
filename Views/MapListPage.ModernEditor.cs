@@ -39,8 +39,7 @@ public sealed partial class MapListPage : UserControl
 
     private bool _modernEditorActive;
     private bool _recentColorsLoaded;
-    private FrameworkElement? _editorThemeRoot;
-    private ElementTheme _editorPreviousTheme;
+    private IDVBuff.Presentation.Theming.ThemeScope? _editorThemeScope;
     private ScrollMode _editorPreviousVerticalScrollMode;
     private ScrollMode _editorPreviousHorizontalScrollMode;
     private ScrollBarVisibility _editorPreviousVerticalBarVisibility;
@@ -349,9 +348,8 @@ public sealed partial class MapListPage : UserControl
         // Scope the temporary theme to this control. XamlRoot.Content can be a
         // different host (Frame/Grid) depending on how the page was navigated,
         // which made the old save/restore path a no-op in some editor flows.
-        _editorThemeRoot = this;
-        _editorPreviousTheme = RequestedTheme;
-        RequestedTheme = ElementTheme.Dark;
+        _editorThemeScope = IDVBuff.Presentation.Theming.ThemeService.AttachRegion(
+            this, IDVBuff.Appearance.ThemeProfile.EditorDark);
         if (ParentScrollViewer is not null)
         {
             _editorPreviousVerticalScrollMode = ParentScrollViewer.VerticalScrollMode;
@@ -389,9 +387,8 @@ public sealed partial class MapListPage : UserControl
             _workflowHost.Content = null;
         _modernEditorActive = false;
         NavigationCompactStateChanged?.Invoke(false);
-        if (_editorThemeRoot is not null)
-            _editorThemeRoot.RequestedTheme = _editorPreviousTheme;
-        _editorThemeRoot = null;
+        _editorThemeScope?.Dispose();
+        _editorThemeScope = null;
         if (ParentScrollViewer is not null)
         {
             ParentScrollViewer.SizeChanged -= ModernParentViewport_SizeChanged;

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using IDVBuff.Appearance;
 
 namespace IDVBuff.Lifecycle;
 
@@ -18,6 +20,10 @@ public sealed class MainProgramPreferences
     public bool UseLegacyTheme { get; set; }
     public bool FollowSystemTheme { get; set; } = true;
     public bool UseDarkTheme { get; set; }
+    public AppearancePreferences? Appearance { get; set; }
+
+    public AppearancePreferences GetAppearance() => Appearance
+        ?? AppearancePreferences.FromLegacy(FollowSystemTheme, UseDarkTheme, UseLegacyTheme);
     public bool AllowUnsafePluginRandomDelayMinimums { get; set; }
     public bool AllowSurveyMode { get; set; }
     public bool DeveloperMode { get; set; }
@@ -55,8 +61,44 @@ public sealed class MainProgramPreferences
         {
             Directory.CreateDirectory(AppDataPaths.RootDirectory);
             var temporaryPath = FilePath + ".tmp";
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(this, JsonOptions));
+            var existing = File.Exists(FilePath) ? File.ReadAllText(FilePath) : "{}";
+            File.WriteAllText(temporaryPath, MergeGeneralPreferencesJson(existing, this));
             File.Move(temporaryPath, FilePath, true);
         }
+    }
+
+    internal static string MergeGeneralPreferencesJson(string json, MainProgramPreferences preferences)
+    {
+        var document = JsonNode.Parse(json)?.AsObject()
+            ?? throw new JsonException("主程序偏好文件不是有效对象。");
+        // Preserve fields from newer versions and the appearance service's latest write.
+        foreach (var (key, value) in JsonSerializer.SerializeToNode(preferences, JsonOptions)!.AsObject())
+        {
+            if (key == nameof(Appearance) && document[key] is not null) continue;
+            document[key] = value?.DeepClone();
+        }
+        return document.ToJsonString(JsonOptions);
+    }
+
+    public static void SaveAppearance(AppearancePreferences appearance)
+    {
+        appearance.Validate();
+        lock (SyncRoot)
+        {
+            var json = File.Exists(FilePath) ? File.ReadAllText(FilePath)
+                : JsonSerializer.Serialize(new MainProgramPreferences(), JsonOptions);
+            Directory.CreateDirectory(AppDataPaths.RootDirectory);
+            File.WriteAllText(FilePath + ".tmp", MergeAppearanceJson(json, appearance));
+            File.Move(FilePath + ".tmp", FilePath, true);
+        }
+    }
+
+    internal static string MergeAppearanceJson(string json, AppearancePreferences appearance)
+    {
+        appearance.Validate();
+        var document = JsonNode.Parse(json)?.AsObject()
+            ?? throw new JsonException("主程序偏好文件不是有效对象。");
+        document["Appearance"] = JsonSerializer.SerializeToNode(appearance, JsonOptions);
+        return document.ToJsonString(JsonOptions);
     }
 }

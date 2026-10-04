@@ -72,7 +72,7 @@ public sealed partial class MapListPage
                 ? ContentDialogButton.Primary
                 : ContentDialogButton.Secondary
         };
-        var result = await dialog.ShowAsync();
+        var result = await dialog.ShowThemedAsync(this);
         if (result == ContentDialogResult.None)
             return;
         await ExportIdvmAsync(
@@ -130,7 +130,7 @@ public sealed partial class MapListPage
                 TextWrapping = TextWrapping.Wrap
             });
             if (!string.IsNullOrEmpty(validationMessage))
-                content.Children.Add(new TextBlock { Text = validationMessage, Foreground = FluentTheme.Brush("SystemFillColorCriticalBrush") });
+                content.Children.Add(new TextBlock { Text = validationMessage, Foreground = FluentTheme.Brush(this, "SystemFillColorCriticalBrush") });
             var dialog = new ContentDialog
             {
                 XamlRoot = XamlRoot,
@@ -141,7 +141,7 @@ public sealed partial class MapListPage
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary
             };
-            var result = await dialog.ShowAsync();
+            var result = await dialog.ShowThemedAsync(this);
             packageNameText = packageName.Text.Trim();
             if (scope.SelectedItem is ComboBoxItem { Tag: IdvmExportScope value }) selectedScope = value;
             if (result == ContentDialogResult.None) return;
@@ -181,14 +181,6 @@ public sealed partial class MapListPage
         _ = await Task.WhenAny(completion.Task, Task.Delay(600));
         tip.Closed -= Complete;
     }
-
-    private static Button CreateTeachingTipChoiceButton(string text) => new()
-    {
-        Content = text,
-        HorizontalAlignment = HorizontalAlignment.Stretch,
-        HorizontalContentAlignment = HorizontalAlignment.Center,
-        MinWidth = 150
-    };
 
     private async Task ExportIdvmAsync(
         IdvmExportScope scope,

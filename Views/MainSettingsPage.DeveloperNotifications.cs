@@ -26,7 +26,7 @@ public sealed partial class MainSettingsPage
         {
             Text = "在一栏内触发三类通知，测试红色（错误）、橙色（警告）、绿色（通知）三种配色、换行高度（要点A）、蓝色进度条与队列平滑位移（默认5秒自动消失）",
             FontSize = 14,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             TextWrapping = TextWrapping.Wrap
         });
         layout.Children.Add(labels);
@@ -43,14 +43,12 @@ public sealed partial class MainSettingsPage
         var errorButton = new Button
         {
             Content = "错误 (红)",
-            Background = new SolidColorBrush(Color.FromArgb(255, 196, 43, 28)),
-            Foreground = new SolidColorBrush(Colors.White),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 255, 170, 170)),
             BorderThickness = new Thickness(1.2),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(14, 7, 14, 7),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         };
+        ThemeButton.Apply(errorButton, IDVBuff.Appearance.ThemeButtonRole.Danger);
         errorButton.Click += (_, _) =>
         {
             try { DeveloperNotificationTrigger.TriggerError(); }
@@ -62,14 +60,12 @@ public sealed partial class MainSettingsPage
         var warningButton = new Button
         {
             Content = "警告 (橙)",
-            Background = new SolidColorBrush(Color.FromArgb(255, 217, 119, 6)),
-            Foreground = new SolidColorBrush(Colors.White),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 255, 224, 130)),
             BorderThickness = new Thickness(1.2),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(14, 7, 14, 7),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         };
+        ThemeButton.Apply(warningButton, IDVBuff.Appearance.ThemeButtonRole.Warning);
         warningButton.Click += (_, _) =>
         {
             try { DeveloperNotificationTrigger.TriggerWarning(); }
@@ -81,14 +77,12 @@ public sealed partial class MainSettingsPage
         var noticeButton = new Button
         {
             Content = "通知 (绿)",
-            Background = new SolidColorBrush(Color.FromArgb(255, 16, 124, 65)),
-            Foreground = new SolidColorBrush(Colors.White),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 134, 239, 172)),
             BorderThickness = new Thickness(1.2),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(14, 7, 14, 7),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         };
+        ThemeButton.Apply(noticeButton, IDVBuff.Appearance.ThemeButtonRole.Success);
         noticeButton.Click += (_, _) =>
         {
             try { DeveloperNotificationTrigger.TriggerNotice(); }
@@ -101,8 +95,8 @@ public sealed partial class MainSettingsPage
 
         return new Border
         {
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Child = layout

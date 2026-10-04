@@ -205,7 +205,7 @@ public sealed partial class MapListPage
                 catch { }
             }
         };
-        await dialog.ShowAsync();
+        await dialog.ShowThemedAsync(this);
         if (refreshListAfterDialog)
             await ShowListAsync();
     }

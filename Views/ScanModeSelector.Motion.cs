@@ -27,7 +27,7 @@ public sealed partial class ScanModeSelector
         SetQualityEffectVisibility(Visibility.Collapsed);
         _fastGlow.Visibility = Visibility.Collapsed;
         _speedField.Visibility = Visibility.Collapsed;
-        if (Mode == ScanPerformanceMode.DeepScan)
+        if (Mode == ScanPerformanceMode.DeepScan || !AllowsGlass(FluentTheme.Snapshot(this)))
             return;
 
         // Balanced is intentionally still: the blue selection pill is the only

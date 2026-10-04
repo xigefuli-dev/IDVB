@@ -34,6 +34,6 @@ public sealed partial class SettingsPage : Page
             },
             CloseButtonText = "知道了",
             DefaultButton = ContentDialogButton.Close
-        }.ShowAsync();
+        }.ShowThemedAsync();
     }
 }

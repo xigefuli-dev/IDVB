@@ -7,24 +7,9 @@
 
     <Page.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="FeedbackButtonBackgroundBrush" Color="#7C3AED" />
-                    <SolidColorBrush x:Key="FeedbackButtonPointerOverBackgroundBrush" Color="#6D28D9" />
-                    <SolidColorBrush x:Key="FeedbackButtonPressedBackgroundBrush" Color="#5B21B6" />
-                    <SolidColorBrush x:Key="FeedbackButtonForegroundBrush" Color="#FFFFFF" />
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="FeedbackButtonBackgroundBrush" Color="#8B5CF6" />
-                    <SolidColorBrush x:Key="FeedbackButtonPointerOverBackgroundBrush" Color="#9D4EDD" />
-                    <SolidColorBrush x:Key="FeedbackButtonPressedBackgroundBrush" Color="#7C3AED" />
-                    <SolidColorBrush x:Key="FeedbackButtonForegroundBrush" Color="#FFFFFF" />
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
 
-        <Style x:Key="PurpleFeedbackButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="{ThemeResource FeedbackButtonBackgroundBrush}" />
-            <Setter Property="Foreground" Value="{ThemeResource FeedbackButtonForegroundBrush}" />
+
+        <Style x:Key="FeedbackButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
@@ -42,7 +27,7 @@
             <Setter Property="Margin" Value="4,2" />
             <Setter Property="MinHeight" Value="40" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Foreground" Value="{ThemeResource IdvbTextBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Template">
@@ -87,19 +72,19 @@
                         <SymbolIcon Grid.Column="0"
                                     Symbol="{Binding Icon}"
                                     Visibility="{Binding SymbolIconVisibility}"
-                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                    Foreground="{ThemeResource IdvbTextBrush}"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center" />
                         <FontIcon Grid.Column="0"
                                   Glyph="{Binding IconGlyph}"
                                   Visibility="{Binding FontIconVisibility}"
                                   FontFamily="{StaticResource SymbolThemeFontFamily}"
-                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                  Foreground="{ThemeResource IdvbTextBrush}"
                                   HorizontalAlignment="Center"
                                   VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1"
                                    Text="{Binding DisplayName}"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                   Foreground="{ThemeResource IdvbTextBrush}"
                                    Style="{StaticResource BodyTextBlockStyle}"
                                    TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
@@ -111,7 +96,7 @@
                                    Height="24"
                                    Margin="0,0,16,0"
                                    FontSize="18"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Foreground="{ThemeResource IdvbTextSecondaryBrush}"
                                    TextAlignment="Center"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center"
@@ -138,7 +123,7 @@
                                     <Grid Height="40" Margin="38,0,0,0">
                                     <TextBlock Text="{Binding DisplayName}"
                                                Margin="24,0,0,0"
-                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                               Foreground="{ThemeResource IdvbTextBrush}"
                                                Style="{StaticResource BodyTextBlockStyle}"
                                                VerticalAlignment="Center" />
                                 </Grid>
@@ -157,7 +142,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent" BorderBrush="{ThemeResource IdvbDividerBrush}" BorderThickness="0,0,0,1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="330" />
                 <ColumnDefinition Width="*" />
@@ -178,13 +163,13 @@
             <AutoSuggestBox Grid.Column="1" PlaceholderText="Search modules..." Width="480" HorizontalAlignment="Center" VerticalAlignment="Center" QueryIcon="Find" />
             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="8" Margin="0,0,12,0">
                 <Button x:Name="FeedbackButton"
-                        Style="{StaticResource PurpleFeedbackButtonStyle}"
+                        Style="{StaticResource FeedbackButtonStyle}"
                         ToolTipService.ToolTip="反馈问题"
                         AutomationProperties.Name="反馈问题"
                         Click="FeedbackButton_Click">
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xED15;" FontSize="14" FontFamily="{StaticResource SymbolThemeFontFamily}" Foreground="{ThemeResource FeedbackButtonForegroundBrush}" />
-                        <TextBlock Text="反馈问题" FontSize="13" VerticalAlignment="Center" Foreground="{ThemeResource FeedbackButtonForegroundBrush}" />
+                        <FontIcon Glyph="&#xED15;" FontSize="14" FontFamily="{StaticResource SymbolThemeFontFamily}" Foreground="{ThemeResource IdvbOnAccentBrush}" />
+                        <TextBlock Text="反馈问题" FontSize="13" VerticalAlignment="Center" Foreground="{ThemeResource IdvbOnAccentBrush}" />
                     </StackPanel>
                 </Button>
                 <Button x:Name="NotificationButton"
@@ -227,21 +212,23 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Grid x:Name="NavigationSurface" Grid.Column="0" Background="Transparent" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0" LayoutUpdated="NavigationSurface_LayoutUpdated">
-                <Border x:Name="NavigationSelectionIndicator"
-                        Height="40"
-                        Margin="4,16,4,0"
-                        VerticalAlignment="Top"
-                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                        CornerRadius="4"
-                        IsHitTestVisible="False" />
+            <Grid x:Name="NavigationSurface" Grid.Column="0" Background="Transparent" BorderBrush="{ThemeResource IdvbDividerBrush}" BorderThickness="0,0,1,0" LayoutUpdated="NavigationSurface_LayoutUpdated">
                 <Border x:Name="NavigationHoverIndicator"
                         Height="40"
                         Margin="4,16,4,0"
                         VerticalAlignment="Top"
-                        Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                        Background="{ThemeResource IdvbControlHoverBrush}"
                         CornerRadius="4"
                         Opacity="0"
+                        IsHitTestVisible="False" />
+                <Border x:Name="NavigationSelectionIndicator"
+                        Height="40"
+                        Margin="4,16,4,0"
+                        VerticalAlignment="Top"
+                        Background="{ThemeResource IdvbSelectionBrush}"
+                        BorderBrush="{ThemeResource IdvbSelectionBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4"
                         IsHitTestVisible="False" />
                 <Grid>
                     <Grid.RowDefinitions>

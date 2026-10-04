@@ -96,25 +96,29 @@ public sealed class SceneQuickActionsHotkeyLifecycleTests
         AssertDelivered(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(G)));
         AssertDelivered(fixture.Runner, () => fixture.Input.Press(sideButton));
 
-        fixture.Plugin.SetSettingValue(SceneQuickActionsOptions.DropBagHotkeyKey, "none");
+        fixture.Plugin.SetSettingValue(SceneQuickActionsOptions.DropBagHotkeyKey,
+            PluginInputBinding.Keyboard(H).StorageValue);
         AssertIgnored(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(G)));
-        AssertIgnored(fixture.Runner, () => fixture.Input.Deliver(
-            Event(fixture.Plugin.Id, SceneQuickActionsOptions.DropBagHotkeyKey)));
+        AssertDelivered(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(H)));
         AssertDelivered(fixture.Runner, () => fixture.Input.Press(sideButton));
 
         fixture.Host.SetEnabled(fixture.Plugin.Id, false);
+        var otherSideButton = PluginInputBinding.Mouse(PluginMouseButton.XButton2);
         fixture.Plugin.SetSettingValue(SceneQuickActionsOptions.DropBagHotkeyKey,
-            PluginInputBinding.Keyboard(H).StorageValue);
-        fixture.Plugin.SetSettingValue(SceneQuickActionsOptions.DropHotbarHotkeyKey, "none");
+            otherSideButton.StorageValue);
+        fixture.Plugin.SetSettingValue(SceneQuickActionsOptions.DropHotbarHotkeyKey,
+            PluginInputBinding.Keyboard(G).StorageValue);
         fixture.Plugin.RefreshHotkeys();
         Assert.Empty(fixture.Input.Bindings);
         fixture.Host.SetEnabled(fixture.Plugin.Id, true);
-        Assert.Equal(PluginInputBinding.Keyboard(H), fixture.Input.Binding(fixture.Plugin.Id,
+        Assert.Equal(otherSideButton, fixture.Input.Binding(fixture.Plugin.Id,
             SceneQuickActionsOptions.DropBagHotkeyKey));
-        Assert.False(fixture.Input.Binding(fixture.Plugin.Id,
-            SceneQuickActionsOptions.DropHotbarHotkeyKey).IsConfigured);
+        Assert.Equal(PluginInputBinding.Keyboard(G), fixture.Input.Binding(fixture.Plugin.Id,
+            SceneQuickActionsOptions.DropHotbarHotkeyKey));
         AssertIgnored(fixture.Runner, () => fixture.Input.Press(sideButton));
-        AssertDelivered(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(H)));
+        AssertIgnored(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(H)));
+        AssertDelivered(fixture.Runner, () => fixture.Input.Press(otherSideButton));
+        AssertDelivered(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(G)));
     }
 
     [Fact]
@@ -203,6 +207,18 @@ public sealed class SceneQuickActionsHotkeyLifecycleTests
         AssertIgnored(fixture.Runner, () => fixture.Input.Deliver(
             Event("other-plugin", SceneQuickActionsOptions.DropBagHotkeyKey)));
         AssertIgnored(fixture.Runner, () => fixture.Input.Deliver(Event(fixture.Plugin.Id, "other-key")));
+        Invoke(fixture.Runner, "SetOptions", new SceneQuickActionsOptions
+        {
+            InviteEnabled = false,
+            PickupEnabled = false,
+            DropBagHotkey = new PluginInputBinding()
+        });
+        fixture.Plugin.RefreshHotkeys();
+        Assert.False(fixture.Input.Binding(fixture.Plugin.Id,
+            SceneQuickActionsOptions.DropBagHotkeyKey).IsConfigured);
+        AssertIgnored(fixture.Runner, () => fixture.Input.Deliver(
+            Event(fixture.Plugin.Id, SceneQuickActionsOptions.DropBagHotkeyKey)));
+        AssertDelivered(fixture.Runner, () => fixture.Input.Press(PluginInputBinding.Keyboard(F6)));
     }
 
     private static PluginInputEventArgs Event(string pluginId, string key) =>

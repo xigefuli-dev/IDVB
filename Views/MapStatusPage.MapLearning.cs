@@ -205,7 +205,7 @@ public sealed partial class MapStatusPage
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await dialog.ShowThemedAsync() != ContentDialogResult.Primary)
             return;
         await RunMapLearningActionAsync(() =>
             _runtime.ClearMapTrainingSamplesAsync());
@@ -241,7 +241,7 @@ public sealed partial class MapStatusPage
                 DefaultButton = ContentDialogButton.Close,
                 IsPrimaryButtonEnabled = versions.Count > 0
             };
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary
+            if (await dialog.ShowThemedAsync() == ContentDialogResult.Primary
                 && selector.SelectedItem is MapModelVersionInfo version)
             {
                 await _runtime.SetMapModelVersionPinnedAsync(

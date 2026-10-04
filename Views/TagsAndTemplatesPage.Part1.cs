@@ -23,7 +23,7 @@ public sealed partial class TagsAndTemplatesPage : UserControl
             XamlRoot = XamlRoot, Title = "新建模板", Content = panel,
             PrimaryButtonText = "创建", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary
         };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (await dialog.ShowThemedAsync() != ContentDialogResult.Primary) return;
         var name = nameBox.Text.Trim();
         var floors = floorsBox.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Split('/', 2, StringSplitOptions.TrimEntries))

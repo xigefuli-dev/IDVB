@@ -33,6 +33,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="..\Features\Maps\ExperimentalAlgorithmRegistry.cs;..\Features\Maps\MapFloorRecognitionWorker.cs;..\Features\Maps\MapOverlayStatusCoordinator.cs" />
+    <!-- Contact-sheet rendering belongs to the desktop shell and its theme palette. -->
+    <Compile Remove="..\Features\Maps\MapClassOverviewExporter.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.WindowSignature.cs" Link="Production\Maps\MapSessionModels.WindowSignature.cs" />
     <Compile Include="..\Features\Maps\MapDiagnosticModeCapture.cs" Link="Production\Maps\MapDiagnosticModeCapture.cs" />
     <None Include="..\Assets\Gate.png" Link="Assets\Gate.png" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles\any\any\Assets" />

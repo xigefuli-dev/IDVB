@@ -10,6 +10,7 @@
     <Project Path="IDVB.Vision.Contracts\IDVB.Vision.Contracts.csproj" />
     <Project Path="IDVB.Vision\IDVB.Vision.csproj" />
     <Project Path="IDVB.Vision.Tests\IDVB.Vision.Tests.csproj" />
+    <Project Path="IDVBuff.Appearance\IDVBuff.Appearance.csproj" />
     <Project Path="Infrastructure\IDVBuff.Infrastructure.csproj" />
     <Project Path="Services\IDVBuff.Services.csproj" />
     <Project Path="Pipeline\IDVBuff.Pipeline.csproj" />

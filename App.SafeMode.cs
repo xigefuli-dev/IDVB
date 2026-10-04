@@ -66,7 +66,7 @@ public partial class App
             Content = "IDVB 是免费的开源软件，绝对不存在任何收费行为。如果你是花钱购买的，说明你被骗了。",
             CloseButtonText = "知道了",
             DefaultButton = ContentDialogButton.Close
-        }.ShowAsync();
+        }.ShowThemedAsync();
 
         var choice = await ShowSafeModeChoiceAsync(xamlRoot);
         preferences.SafeModeFirstRunIntroductionCompleted = true;
@@ -85,7 +85,7 @@ public partial class App
             Content = "已关闭，接下来需要你以管理员权限重新启动此软件。",
             CloseButtonText = "好的",
             DefaultButton = ContentDialogButton.Close
-        }.ShowAsync();
+        }.ShowThemedAsync();
         RequestApplicationExit();
     }
 
@@ -129,7 +129,7 @@ public partial class App
         var waitHint = new TextBlock
         {
             Text = "请阅读说明，5 秒后可选择。",
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(dialog, "TextFillColorSecondaryBrush"),
             FontSize = 13
         };
         var actions = new Grid { ColumnSpacing = 12 };
@@ -175,7 +175,7 @@ public partial class App
         timer.Start();
         try
         {
-            await dialog.ShowAsync();
+            await dialog.ShowThemedAsync();
         }
         finally
         {
@@ -186,27 +186,14 @@ public partial class App
 
     private static Button CreateSafeModeChoiceButton(string text, bool isPrimary)
     {
-        var background = isPrimary
-            ? FluentTheme.Brush("AccentFillColorDefaultBrush")
-            : FluentTheme.Brush("ControlFillColorDefaultBrush");
-        var foreground = isPrimary
-            ? FluentTheme.Brush("TextOnAccentFillColorPrimaryBrush")
-            : FluentTheme.Brush("TextFillColorPrimaryBrush");
         var button = new Button
         {
             Content = text,
             MinHeight = 40,
             Padding = new Thickness(16, 8, 16, 8),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Background = background,
-            Foreground = foreground
+            HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        button.Resources["ButtonBackground"] = background;
-        button.Resources["ButtonBackgroundPointerOver"] = background;
-        button.Resources["ButtonBackgroundPressed"] = background;
-        button.Resources["ButtonForeground"] = foreground;
-        button.Resources["ButtonForegroundPointerOver"] = foreground;
-        button.Resources["ButtonForegroundPressed"] = foreground;
+        if (isPrimary) button.Style = (Style)Current.Resources["AccentButtonStyle"];
         return button;
     }
 
@@ -264,6 +251,6 @@ public partial class App
             Content = "当前 Identity Vision Bridge 正以管理员权限运行。安全模式不需要管理员权限，建议退出后以普通用户权限重新启动；你也可以关闭此提示并继续使用。",
             CloseButtonText = "继续使用",
             DefaultButton = ContentDialogButton.Close
-        }.ShowAsync();
+        }.ShowThemedAsync();
     }
 }

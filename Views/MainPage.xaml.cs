@@ -54,8 +54,6 @@ public sealed partial class MainPage : Page
         InitializeScanModeVisuals();
         DisplaySkeletonPreviewHost.Children.Add(_displaySkeletonPreview);
         PrepareDisplayPreviewMotion();
-        FluentTheme.RegisterThemeRoot(this);
-        RootSurface.Background = FluentTheme.WindowBrush();
         foreach (var entry in NavigationEntry.CreateRoots(_navigationNodes)) NavigationItems.Add(entry);
         TutorialNavigationItem = CreateFooterNavigationEntry("教程", Symbol.Help, "help");
         MainSettingsNavigationItem = CreateFooterNavigationEntry("主设置", Symbol.Setting, "main-settings");
@@ -81,7 +79,7 @@ public sealed partial class MainPage : Page
     {
         try
         {
-            NavigateTo("home", NavigationItems.First(entry => entry.ModuleId == "home"));
+            await NavigateToAsync("home", NavigationItems.First(entry => entry.ModuleId == "home"));
             // With the access gate disabled, persisted credentials still need validation.
             // When enabled, the gate owns validation, including its offline policy.
             if (!VersionAccessClient.Enabled)
@@ -113,7 +111,7 @@ public sealed partial class MainPage : Page
                 {
                     Text = "退出登录",
                     Icon = new SymbolIcon(Symbol.LeaveChat),
-                    Foreground = FluentTheme.Brush("SystemFillColorCriticalBrush")
+                    Foreground = FluentTheme.Brush(this, "SystemFillColorCriticalBrush")
                 };
                 logout.Click += async (_, _) => await AccountSession.LogoutAsync();
                 new MenuFlyout { Items = { logout } }.ShowAt(button);
@@ -130,7 +128,7 @@ public sealed partial class MainPage : Page
                         Title = "账户登录失败",
                         Content = exception.Message,
                         CloseButtonText = "确定"
-                    }.ShowAsync();
+                    }.ShowThemedAsync();
                 }
             }
             return;

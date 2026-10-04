@@ -111,7 +111,7 @@ internal sealed class MapViewportCalibrationDialog
         };
         _dialog.Resources["ContentDialogMaxWidth"] = dialogWidth;
         _dialog.Resources["ContentDialogMaxHeight"] = dialogHeight;
-        var result = await _dialog.ShowAsync();
+        var result = await _dialog.ShowThemedAsync();
         return result == ContentDialogResult.Primary && _region?.IsValid is true
             ? _region.Clone()
             : null;

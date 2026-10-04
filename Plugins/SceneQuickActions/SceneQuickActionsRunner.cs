@@ -85,9 +85,9 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
 
     public void Start()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         lock (_sync)
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (_worker is { IsAlive: true })
                 return;
             _cancellation = new CancellationTokenSource();
@@ -98,20 +98,15 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
                 Name = "IDVB scene-quick-actions"
             };
             _worker.Start();
+            _lastHotkeyAt = DateTime.MinValue;
+            StartHotkeys();
         }
 
         _logger.Info($"背包辅助已启动（抓帧路径：{(_grabber.HasFastPath ? "宿主快速抓帧" : "PNG 截图")}）。");
-        RegisterHotkeys();
     }
 
     public void Stop()
     {
-        if (_hotkeyService is not null)
-        {
-            _hotkeyService.BindingInvoked -= OnHotkeyInvoked;
-            _hotkeyService = null;
-        }
-
         Thread? worker;
         CancellationTokenSource? cancellation;
         lock (_sync)
@@ -120,6 +115,7 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
             cancellation = _cancellation;
             _worker = null;
             _cancellation = null;
+            StopHotkeys();
         }
 
         try
@@ -140,10 +136,15 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
-        _disposed = true;
+        lock (_sync)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+        }
         Stop();
+        lock (_sync)
+            _hotkeyService = null;
     }
 
     private void Run(CancellationToken token)

@@ -1,6 +1,7 @@
 using IDVBuff.Features.Maps;
 using IDVBuff.Features.Announcements;
 using IDVBuff.Features.GameLaunch;
+using IDVBuff.Lifecycle;
 using System.Diagnostics;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -22,6 +23,8 @@ public sealed partial class HomePage : Page
     private readonly TextBlock _mapCountValue = CreateMetricValue();
     private readonly TextBlock _successRateValue = CreateMetricValue();
     private readonly TextBlock _successRateDetail = CreateMetricDetail();
+    private readonly TextBlock _usageDurationValue = CreateMetricValue();
+    private readonly TextBlock _usageDurationDetail = CreateMetricDetail();
     private readonly Button _launchGameButton;
     private readonly SymbolIcon _launchGameIcon;
     private readonly TextBlock _launchGameLabel;
@@ -44,7 +47,11 @@ public sealed partial class HomePage : Page
         _launchGameLabel = new TextBlock { FontSize = 16, FontWeight = FontWeights.SemiBold };
         _launchGameButton = CreateLaunchGameButton();
         _gameStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _gameStatusTimer.Tick += (_, _) => UpdateGameStatus();
+        _gameStatusTimer.Tick += (_, _) =>
+        {
+            UpdateGameStatus();
+            UpdateUsageDuration();
+        };
         _scanModeSaveError = new TextBlock
         {
             FontSize = 12,
@@ -158,6 +165,12 @@ public sealed partial class HomePage : Page
             Symbol.Accept,
             _successRateValue,
             _successRateDetail));
+        cards.Children.Add(CreateMetricCard(
+            "使用时长",
+            "累计运行 IDVB 的时间",
+            Symbol.Clock,
+            _usageDurationValue,
+            _usageDurationDetail));
 
         var section = new StackPanel { Spacing = 14 };
         section.Children.Add(new TextBlock
@@ -288,6 +301,7 @@ public sealed partial class HomePage : Page
         try
         {
             UpdateGameStatus();
+            UpdateUsageDuration();
             _gameStatusTimer.Start();
             _mapCountValue.Text = "…";
             _successRateValue.Text = "…";
@@ -336,6 +350,17 @@ public sealed partial class HomePage : Page
         {
             _initialReady.TrySetResult();
         }
+    }
+
+    private void UpdateUsageDuration()
+    {
+        var usage = ApplicationUsageTracker.Current.GetSnapshot();
+        _usageDurationValue.Text = usage.Total is { } total
+            ? ApplicationUsageTracker.FormatDuration(total)
+            : "—";
+        _usageDurationDetail.Text = $"本次 {ApplicationUsageTracker.FormatDuration(usage.Session)}";
+        if (usage.Total is null)
+            _usageDurationDetail.Text += " · 累计记录暂不可用";
     }
 
     private static TextBlock CreateMetricValue()

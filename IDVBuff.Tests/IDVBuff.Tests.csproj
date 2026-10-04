@@ -37,6 +37,7 @@
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
     <Compile Include="..\Lifecycle\UsageNotice.cs" Link="Production\Lifecycle\UsageNotice.cs" />
+    <Compile Include="..\Lifecycle\ApplicationUsageTracker.cs" Link="Production\Lifecycle\ApplicationUsageTracker.cs" />
     <Compile Include="..\Features\Feedback\FeedbackTextValidator.cs" Link="Production\Feedback\FeedbackTextValidator.cs" />
     <Compile Include="..\Features\Feedback\FeedbackModels.cs" Link="Production\Feedback\FeedbackModels.cs" />
     <Compile Include="..\Features\Feedback\IFeedbackService.cs" Link="Production\Feedback\IFeedbackService.cs" />

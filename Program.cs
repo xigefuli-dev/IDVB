@@ -83,6 +83,13 @@ public static class Program
             _guiInstance.StartListening();
         }
 
+        // Lifecycle hooks and secondary processes have already exited. Only the primary
+        // normal GUI owns usage accounting; CLI and isolated diagnostics do not contribute.
+        using var usage = !isCli && !isIsolatedDevelopmentInstance
+            ? ApplicationUsageTracker.Current
+            : null;
+        usage?.Start();
+
         StartupTimeline.Write($"Launch mode: cli={isCli}; isolatedDevelopment={isIsolatedDevelopmentInstance}.");
         if (!isCli)
         {
@@ -99,6 +106,8 @@ public static class Program
         {
             StartupTimeline.StopSampling();
             StartupSplash.Close();
+            // Commit usage before releasing the primary mutex to the next process.
+            usage?.Dispose();
             _guiInstance?.Dispose();
         }
     }

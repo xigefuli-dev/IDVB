@@ -42,6 +42,8 @@ internal static class UpdateLifecycleState
                 return false;
             if (VelopackLocator.Current.CurrentlyInstalledVersion is not null)
                 return false;
+            if (!VelopackInstallLayout.IsLegacyInnoInstallDirectory(AppContext.BaseDirectory))
+                return false;
             var markerPath = Path.Combine(AppDataPaths.RootDirectory, MarkerFileName);
             if (!File.Exists(markerPath))
                 return false;

@@ -315,19 +315,6 @@ function Invoke-DotnetWithLockDiagnostics(
     }
 }
 
-function Get-InnoCompiler {
-    foreach ($candidate in @(
-        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
-        'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-        'C:\Program Files\Inno Setup 6\ISCC.exe'
-    )) {
-        if (Test-Path -LiteralPath $candidate) {
-            return $candidate
-        }
-    }
-    throw 'Inno Setup 6 compiler ISCC.exe was not found. It is required to build the install-location chooser.'
-}
-
 function Write-Utf8WithoutBom([string]$Path, [string]$Value) {
     # Signed payload bytes are immutable. Always choose an explicit encoding so
     # Windows PowerShell 5 and PowerShell 7 produce identical signatures.
@@ -662,7 +649,7 @@ function Invoke-ReleaseTests($Manifest, $Context) {
     }
 
     # Release tests intentionally run after package construction and verification.
-    # If they pass, no compiler, publisher, Velopack packer, Inno compiler, or
+    # If they pass, no compiler, publisher, Velopack packer, or
     # signing step remains before the external publication gate.
     Invoke-DotnetWithLockDiagnostics 'test' 'Run release tests' @(
         (Join-Path $Context.Source 'IDVBuff.Tests\IDVBuff.Tests.csproj')
@@ -897,15 +884,14 @@ function Invoke-Pack($Manifest, $Context, [string]$Channel, [string]$OutputDirec
         throw "Velopack did not produce Setup.exe for $Channel."
     }
     $versionedSetup = Join-Path $OutputDirectory "IDVB-Setup-$($Manifest.PublicVersion)-x64.exe"
-    $bootstrapScript = Join-Path $Context.Source 'installer\VelopackBootstrap.iss'
-    if (-not (Test-Path -LiteralPath $bootstrapScript)) {
-        throw "Velopack bootstrapper script not found: $bootstrapScript"
+    # Deliver vpk's native Setup byte-for-byte; do not wrap it in Inno.
+    if (Test-Path -LiteralPath $versionedSetup) {
+        throw "Versioned native Setup already exists: $versionedSetup"
     }
-    $iscc = Get-InnoCompiler
-    & $iscc "/DEmbeddedSetup=$($setup.FullName)" "/DReleaseOutput=$OutputDirectory" "/DPublicVersion=$($Manifest.PublicVersion)" $bootstrapScript
-    Assert-Success "Build install-location chooser for $Channel"
-    if (-not (Test-Path -LiteralPath $versionedSetup)) {
-        throw "Install-location chooser was not produced: $versionedSetup"
+    Copy-Item -LiteralPath $setup.FullName -Destination $versionedSetup
+    if ((Get-FileHash -LiteralPath $setup.FullName -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $versionedSetup -Algorithm SHA256).Hash) {
+        throw 'Versioned Setup does not match the native Velopack installer.'
     }
     New-SignedEnvelope $Manifest $Context $Channel $OutputDirectory $versionedSetup
     Write-Receipt $Context "pack-$Channel" ([ordered]@{

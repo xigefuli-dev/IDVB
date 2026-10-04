@@ -73,10 +73,7 @@ internal static class AutomaticUpdateLauncher
         // The former Inno installation is intentionally allowed to open the
         // migration updater. A loose build directory is neither an installed
         // version nor a migration source and must never be labelled "旧版安装".
-        return Directory.EnumerateFiles(
-            AppContext.BaseDirectory,
-            "unins*.exe",
-            SearchOption.TopDirectoryOnly).Any();
+        return VelopackInstallLayout.IsLegacyInnoInstallDirectory(AppContext.BaseDirectory);
     }
 
     private sealed record UpdateCheckState(DateTimeOffset LastAttemptUtc, string? Channel);

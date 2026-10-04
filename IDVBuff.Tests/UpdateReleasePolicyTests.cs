@@ -24,8 +24,10 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("feed-envelope.json", script);
         Assert.Contains("signed pointer", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("update-channel.txt", script);
-        Assert.Contains("installer\\VelopackBootstrap.iss", script);
-        Assert.Contains("Build install-location chooser", script);
+        Assert.DoesNotContain("VelopackBootstrap.iss", script);
+        Assert.DoesNotContain("Get-InnoCompiler", script);
+        Assert.Contains("Copy-Item -LiteralPath $setup.FullName -Destination $versionedSetup", script);
+        Assert.Contains("Versioned Setup does not match the native Velopack installer.", script);
         Assert.Contains("git -C $repositoryRoot archive --format=zip --output=$archive $Context.SourceCommit", script);
         Assert.Contains("'Infrastructure\\Configuration'", script);
         Assert.Contains("'Directory.Build.targets'", script);
@@ -34,17 +36,18 @@ public sealed class UpdateReleasePolicyTests
     }
 
     [Fact]
-    public void PublicInstallerLetsTheUserChooseTheVelopackInstallDirectory()
+    public void PublicInstallerUsesNativeVelopackSetupWithoutInno()
     {
-        var bootstrapper = Read("installer", "VelopackBootstrap.iss");
+        var releaseRunner = Read("release", "Invoke-IDVBRelease.ps1");
         var lifecycle = Read("Lifecycle", "UpdateLifecycleState.cs");
         var layout = Read("Lifecycle", "VelopackInstallLayout.cs");
 
-        Assert.Contains("DisableDirPage=no", bootstrapper);
-        Assert.Contains("--silent --installto \"\"{app}\"\"", bootstrapper);
-        Assert.Contains("Uninstallable=no", bootstrapper);
+        Assert.Contains("'tool', 'run', 'vpk', '--', 'pack'", releaseRunner);
+        Assert.Contains("Copy-Item -LiteralPath $setup.FullName -Destination $versionedSetup", releaseRunner);
+        Assert.DoesNotContain("VelopackBootstrap.iss", releaseRunner);
+        Assert.DoesNotContain("Get-InnoCompiler", releaseRunner);
         Assert.Contains("sq.version", layout);
-        Assert.DoesNotContain("Path.Combine(localAppData, \"IdentityVisionBridge\")", lifecycle);
+        Assert.Contains("IsLegacyInnoInstallDirectory(AppContext.BaseDirectory)", lifecycle);
     }
 
     [Fact]
@@ -164,7 +167,8 @@ public sealed class UpdateReleasePolicyTests
         Assert.Contains("--from-main-pid", launcher);
         Assert.Contains("UpdateChannelPolicy.Resolve()", launcher);
         Assert.Contains("VelopackLocator.Current.CurrentlyInstalledVersion", launcher);
-        Assert.Contains("unins*.exe", launcher);
+        Assert.Contains("VelopackInstallLayout.IsLegacyInnoInstallDirectory(AppContext.BaseDirectory)", launcher);
+        Assert.Contains("unins*.exe", Read("Lifecycle", "VelopackInstallLayout.cs"));
     }
 
     [Fact]

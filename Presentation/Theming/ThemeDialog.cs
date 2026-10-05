@@ -6,8 +6,10 @@ namespace IDVBuff.Presentation.Theming;
 
 internal static class ThemeDialog
 {
-    public static async Task<ContentDialogResult> ShowThemedAsync(this ContentDialog dialog, FrameworkElement? owner = null)
+    public static async Task<ContentDialogResult> ShowThemedAsync(
+        this ContentDialog dialog, FrameworkElement? owner = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         owner ??= dialog.XamlRoot?.Content as FrameworkElement
             ?? throw new InvalidOperationException("主题对话框需要所属窗口的 XamlRoot。");
         using var scope = ThemeService.AttachRegion(dialog, ThemeService.ProfileFor(owner));
@@ -16,6 +18,11 @@ internal static class ThemeDialog
         dialog.Background = scope.Resources[ThemeToken.Dialog];
         dialog.Foreground = scope.Resources[ThemeToken.Text];
         dialog.BorderBrush = scope.Resources[ThemeToken.SurfaceBorder];
-        return await dialog.ShowAsync();
+        var dispatcher = dialog.DispatcherQueue;
+        using var cancellation = cancellationToken.Register(() =>
+            dispatcher.TryEnqueue(() => dialog.Hide()));
+        var result = await dialog.ShowAsync();
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
     }
 }

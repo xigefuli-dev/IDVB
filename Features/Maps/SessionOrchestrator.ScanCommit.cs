@@ -4,6 +4,15 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private bool HasActiveQuickScan
+    {
+        get
+        {
+            lock (_quickScanCancellationGate)
+                return _quickScanCancellation is { IsCancellationRequested: false };
+        }
+    }
+
     private CancellationTokenSource BeginQuickScanCancellationScope()
     {
         lock (_quickScanCancellationGate)
@@ -25,6 +34,16 @@ public sealed partial class SessionOrchestrator
     private void CancelQuickScan()
     {
         lock (_quickScanCancellationGate) _quickScanCancellation?.Cancel();
+    }
+
+    private bool CompleteScanWhileMapClosed(double progress)
+    {
+        if (_gameMapToggleState.IsOpen) return false;
+        EndAdaptiveMapOpen("scan completed while map closed");
+        RefreshMiniMapForCurrentFloor();
+        _scanProgressOverlay.Report(progress, "对齐完成，等待开图...");
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        return true;
     }
 
     private void FinishScanExecution(ScanExecutionContext execution)
@@ -130,9 +149,11 @@ public sealed partial class SessionOrchestrator
         _lastGameBounds = frame.ClientBounds;
         _lastGameWindowHandle = frame.WindowHandle;
         _hasCompletedQuickScanAlignment = true;
-        if (!_gameMapToggleState.IsOpen) _gameMapToggleState.MarkOpen();
-        _overlay.UpdateMap(recognition, frame.ClientBounds, frame.WindowHandle, _settings!.ShowOverlayStatus);
-        _overlay.Show();
+        if (_gameMapToggleState.IsOpen)
+        {
+            _overlay.UpdateMap(recognition, frame.ClientBounds, frame.WindowHandle, _settings!.ShowOverlayStatus);
+            _overlay.Show();
+        }
         RefreshMiniMapForCurrentFloor();
         _statusMessage = $"已确认 {recognition.Map.DisplayName} · 结构支持 {final.SupportedFraction:P0}";
         _logCollector.Append(MapLogCategory.ScanLifecycle, MapLogLevel.Info,

@@ -32,8 +32,13 @@ public sealed partial class MapCvRecognitionService
                     .ThenByDescending(item => item.State == ScanIdentityState.Unverified)
                     .ThenBy(ScanIdentityVerifier.FitCost).First();
             }
-            foreach (var candidate in scan.Candidates)
+            foreach (var candidate in scan.Candidates.OrderBy(c => ScanIdentityVerifier.FitCost(c.IdentityEvidence)))
             {
+                if (execution.VariantGroups.Any(group => group.Contains(candidate.Map.Id)
+                    && verified.Keys.Any(group.Contains))) continue;
+                if (ScanIdentityVerifier.SelectIdentity(scan.Candidates, execution.RetrievalCompleted,
+                    execution.CanCompute, execution.VariantGroups, ScanIdentitySelectionPolicy.AllowDominantSupport)
+                    is { } selectedMap && selectedMap != candidate.Map.Id) continue;
                 foreach (var hypothesis in Hypotheses(candidate).OrderBy(item => ScanIdentityVerifier.FitCost(item.IdentityEvidence)))
                 {
                     if (!execution.CanCompute) break;
@@ -88,7 +93,7 @@ public sealed partial class MapCvRecognitionService
         cancellationToken.ThrowIfCancellationRequested();
         var complete = execution.RetrievalCompleted && scan.Candidates.Count == scan.EligibleMapCount;
         var selected = ScanIdentityVerifier.SelectIdentity(scan.Candidates, complete, execution.CanCompute,
-            execution.VariantGroups, ScanIdentitySelectionPolicy.RequireUniqueSupport);
+            execution.VariantGroups, ScanIdentitySelectionPolicy.AllowDominantSupport);
         var winner = selected is { } id && verified.TryGetValue(id, out var recognition) ? recognition : null;
         // Publication rechecks the exact frame, current catalog and final transform under the original deadline.
         if (winner is not null && (execution.Frame is not { } evidence || !verifiedIndexes.TryGetValue(winner.Map.Id, out var finalIndex)

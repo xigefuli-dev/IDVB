@@ -76,8 +76,11 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
         }
     }
 
-    public void Start()
+    public void Start() => Start(CancellationToken.None);
+
+    public void Start(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         // 设置回填挂在「插件上下文建立之后、启用之前」这个点上（PluginHost.ContextInitialized）：
         // 插件在 OnLoad 里已经拿到宿主服务，所以回填时能读到地图库这类需要宿主的数据。
         // 若放在这之前（旧写法：先循环 RestoreSettings 再 _host.Start()），
@@ -98,7 +101,8 @@ public sealed class PluginManager : IPluginHost, IPluginRegistry, IDisposable
             }
         };
         using (StartupTimeline.Measure("Built-in host Start (lifecycle callbacks)"))
-            _host.Start();
+            _host.Start(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         using (StartupTimeline.Measure("Built-in dispatcher timer Start"))
             _tickTimer.Start();
     }

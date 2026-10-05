@@ -40,6 +40,14 @@ internal sealed class MainSettingsModule : IAppModule
     public object CreateView() => new IDVBuff.Views.MainSettingsPage();
 }
 
+internal sealed class SponsorshipModule : IAppModule
+{
+    public string Id => "sponsorship";
+    public string DisplayName => "赞助支持";
+    public string IconKey => nameof(Symbol.Like);
+    public object CreateView() => new IDVBuff.Views.SponsorshipPage();
+}
+
 internal sealed class HelpModule : IAppModule
 {
     public string Id => "help";

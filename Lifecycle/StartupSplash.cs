@@ -2,7 +2,6 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
 using System.Numerics;
-using System.Runtime.InteropServices;
 using IDVBuff.Diagnostics;
 using Forms = System.Windows.Forms;
 
@@ -11,9 +10,7 @@ namespace IDVBuff.Lifecycle;
 /// <summary>A small independent message loop keeps startup feedback alive while WinUI loads.</summary>
 internal static class StartupSplash
 {
-    private static IntPtr _targetWindow;
-
-    public static void SetTargetWindow(IntPtr windowHandle) => Volatile.Write(ref _targetWindow, windowHandle);
+    internal static StartupFocusSnapshot? LaunchFocus { get; private set; }
 
     [Flags]
     internal enum Stage { Interface = 1, Window = 2, Services = 4, Maps = 8, Extensions = 16, Catalog = 32, Ready = 64 }
@@ -57,6 +54,7 @@ internal static class StartupSplash
     {
         if (Interlocked.Exchange(ref _started, 1) != 0)
             return;
+        LaunchFocus = StartupFocusSnapshot.Capture();
         var thread = new Thread(() =>
         {
             try
@@ -91,18 +89,6 @@ internal static class StartupSplash
         }
     }
 
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    private static readonly IntPtr HwndTopMost = new(-1);
-    private const uint SwpNoSize = 0x0001;
-    private const uint SwpNoMove = 0x0002;
-    private const uint SwpNoActivate = 0x0010;
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter,
-        int x, int y, int width, int height, uint flags);
-
     private sealed class SplashForm : Forms.Form
     {
         private readonly Forms.Timer _timer = new() { Interval = 16 };
@@ -110,8 +96,18 @@ internal static class StartupSplash
         private readonly Font _statusFont = new("Segoe UI", 13, FontStyle.Regular, GraphicsUnit.Pixel);
         private Bitmap? _logo;
         private bool _paintRecorded;
-        private long _lastTopmostRefresh;
-        private bool _topmostFailureRecorded;
+
+        protected override bool ShowWithoutActivation => true;
+
+        protected override Forms.CreateParams CreateParams
+        {
+            get
+            {
+                var parameters = base.CreateParams;
+                parameters.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE from the first Show.
+                return parameters;
+            }
+        }
 
         public SplashForm()
         {
@@ -120,8 +116,7 @@ internal static class StartupSplash
             StartPosition = Forms.FormStartPosition.Manual;
             ShowInTaskbar = false;
             MaximizeBox = MinimizeBox = false;
-            // The splash has its own UI thread and must remain visible while WinUI is loading.
-            // Waiting until the handoff leaves it behind whichever window activated meanwhile.
+            // Assign once; do not continually reorder the user's topmost window band.
             TopMost = true;
             // One scale for layout, fonts and logo; avoid automatic DPI plus manual scaling twice.
             AutoScaleMode = Forms.AutoScaleMode.None;
@@ -141,11 +136,6 @@ internal static class StartupSplash
             _timer.Tick += (_, _) =>
             {
                 if (Volatile.Read(ref _closed) != 0) { Close(); return; }
-                // Other topmost windows (including overlays created during WinUI startup)
-                // can enter above this form after its one-time TopMost assignment.
-                // Keep the splash at the front of that band without taking keyboard focus.
-                if (Stopwatch.GetElapsedTime(_lastTopmostRefresh).TotalMilliseconds >= 100)
-                    RefreshTopmost();
                 if (Volatile.Read(ref _transition) != 0)
                 {
                     TransitionReady.TrySetResult();
@@ -165,19 +155,17 @@ internal static class StartupSplash
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            RefreshTopmost();
+            StartupTimeline.Write(StartupWindowDiagnostics.Describe("splash-shown", Handle));
         }
 
-        private void RefreshTopmost()
+        protected override void WndProc(ref Forms.Message message)
         {
-            _lastTopmostRefresh = Stopwatch.GetTimestamp();
-            if (SetWindowPos(Handle, HwndTopMost, 0, 0, 0, 0,
-                    SwpNoMove | SwpNoSize | SwpNoActivate))
+            if (message.Msg == 0x0021) // WM_MOUSEACTIVATE
+            {
+                message.Result = new IntPtr(3); // MA_NOACTIVATE
                 return;
-            if (_topmostFailureRecorded)
-                return;
-            _topmostFailureRecorded = true;
-            StartupTimeline.Write($"Startup splash topmost refresh failed: Win32 error {Marshal.GetLastWin32Error()}.");
+            }
+            base.WndProc(ref message);
         }
 
         internal static Rectangle CalculateBounds(Rectangle workArea, int dpi)
@@ -241,12 +229,7 @@ internal static class StartupSplash
         protected override void OnFormClosing(Forms.FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
-            TopMost = false;
-            var target = Volatile.Read(ref _targetWindow);
-            if (target != IntPtr.Zero)
-            {
-                SetForegroundWindow(target);
-            }
+            StartupTimeline.Write(StartupWindowDiagnostics.Describe("splash-closing", Handle));
         }
 
         protected override void Dispose(bool disposing)

@@ -15,6 +15,9 @@ public partial class App
 {
     private bool _startupPresentationPending;
     private bool _startupTransitionComplete;
+    private StartupWindowInteractionGuard? _startupWindowInteractionGuard;
+    private StartupFocusSnapshot _startupLaunchFocus;
+    private readonly CancellationTokenSource _startupPresentationCancellation = new();
     private readonly TaskCompletionSource _mainWindowPresentationCompleted =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -27,6 +30,8 @@ public partial class App
 
     private async Task CompleteStartupPresentationAsync(bool startMinimized)
     {
+        if (IsApplicationStopping)
+            return;
         var page = _mainFrame?.Content as MainPage;
         var visual = _mainFrame is null ? null
             : Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_mainFrame);
@@ -48,24 +53,27 @@ public partial class App
                 8); // SW_SHOWNA preserves the restored window size and maximized state.
             WriteStartupTrace(
                 "Main window primed behind startup splash; awaiting initial page readiness.");
+            WriteStartupWindowState("main-primed");
         }
 
         if (page is not null && !startMinimized)
-            await page.InitialReady;
+            await page.InitialReady.WaitAsync(_startupPresentationCancellation.Token);
+        if (IsApplicationStopping)
+            return;
         if (_startupTransitionComplete)
         {
-            if (!startMinimized && !explicitExitRequested) ShowMainWindow();
+            if (!startMinimized) ShowMainWindow(bringToForeground: false);
             return;
         }
         _startupTransitionComplete = true;
         StartupSplash.Complete(StartupSplash.Stage.Ready);
         StartupSplash.Report("准备就绪");
-        if (!startMinimized && !explicitExitRequested)
+        if (!startMinimized && !IsApplicationStopping)
         {
             if (visual is not null && _mainFrame is not null)
             {
                 await StartupSplash.PrepareTransitionAsync();
-                if (explicitExitRequested || window is null) { StartupSplash.Close(); return; }
+                if (IsApplicationStopping || window is null) { StartupSplash.Close(); return; }
 
                 Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetIsTranslationEnabled(_mainFrame, true);
                 visual.StopAnimation("Opacity");
@@ -109,6 +117,7 @@ public partial class App
             else
             {
                 await StartupSplash.PrepareTransitionAsync();
+                if (IsApplicationStopping || window is null) { StartupSplash.Close(); return; }
                 _startupPresentationPending = false;
                 ShowMainWindow(bringToForeground: false);
                 await Task.WhenAll(StartupSplash.FadeOutAsync(), Task.Delay(380));
@@ -116,13 +125,77 @@ public partial class App
         }
         _startupPresentationPending = false;
         await StartupSplash.CloseAsync();
-        if (!startMinimized && !explicitExitRequested)
+        ReleaseStartupWindowInteractionGuard();
+        if (IsApplicationStopping)
+            return;
+        if (!startMinimized && !IsApplicationStopping)
         {
-            ShowMainWindow(bringToForeground: true);
+            ShowMainWindow(bringToForeground: MayActivateStartupMainWindow());
         }
+        WriteStartupWindowState("main-after-handoff");
         _mainWindowPresentationCompleted.TrySetResult();
         WriteStartupTrace("Startup presentation complete; main page ready.");
         StartupTimeline.StopSampling();
+    }
+
+    private void BeginStartupWindowInteractionGuard()
+    {
+        if (window is null)
+            return;
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        var wasForeground = StartupFocusSnapshot.Capture().ForegroundWindow == handle;
+        _startupWindowInteractionGuard = new StartupWindowInteractionGuard(handle);
+        // A foreground consent/access dialog is a direct interaction with IDVB.
+        // Rebase only that case; otherwise preserve the snapshot from splash Show.
+        if (wasForeground)
+            _startupLaunchFocus = StartupFocusSnapshot.Capture();
+        WriteStartupWindowState("main-input-guard-installed");
+    }
+
+    private void ReleaseStartupWindowInteractionGuard()
+    {
+        if (_startupWindowInteractionGuard is not { } guard)
+            return;
+        _startupWindowInteractionGuard = null;
+        try
+        {
+            guard.Dispose();
+        }
+        catch (Exception exception)
+        {
+            WriteStartupTrace("Unable to restore startup window interaction state.", exception);
+        }
+        WriteStartupWindowState("main-input-guard-released");
+    }
+
+    private bool MayActivateStartupMainWindow()
+    {
+        var current = StartupFocusSnapshot.Capture();
+        var handle = window is null ? IntPtr.Zero
+            : WinRT.Interop.WindowNative.GetWindowHandle(window);
+        var activate = _startupLaunchFocus.MayActivateMainWindow(current, handle);
+        WriteStartupTrace($"Startup foreground handoff: requested={activate}; "
+            + $"launchForeground=0x{_startupLaunchFocus.ForegroundWindow.ToInt64():X}; "
+            + $"currentForeground=0x{current.ForegroundWindow.ToInt64():X}; "
+            + $"launchInput={_startupLaunchFocus.LastInputTick}; currentInput={current.LastInputTick}.");
+        WriteStartupWindowState("main-before-handoff");
+        return activate;
+    }
+
+    private void WriteStartupWindowState(string stage)
+    {
+        if (window is not null)
+            WriteStartupTrace(StartupWindowDiagnostics.Describe(stage,
+                WinRT.Interop.WindowNative.GetWindowHandle(window)));
+    }
+
+    private void StopStartupPresentation()
+    {
+        _servicesReadyTcs.TrySetCanceled();
+        _startupPresentationCancellation.Cancel();
+        _mainWindowPresentationCompleted.TrySetCanceled();
+        ReleaseStartupWindowInteractionGuard();
+        StartupSplash.Close();
     }
 
     private FrameworkElement? _startupPlaceholder;
@@ -146,14 +219,17 @@ public partial class App
             WriteStartupTrace("Map catalog preload begin.");
             var repository = new MapRepository();
             var catalog = await repository.GetCatalogSnapshotAsync();
+            if (IsApplicationStopping) return;
             WriteStartupTrace("Map catalog loaded; tag filters begin.");
             var filters = (await new MapTagStore().LoadAsync(catalog.Maps, catalog.Classes))
                 .Where(group => group.IsEnabled)
                 .ToArray();
+            if (IsApplicationStopping) return;
             WriteStartupTrace("Tag filters loaded; survey projects begin.");
             IReadOnlyList<SurveyProjectSummary> projects = session is null
                 ? []
                 : await session.GetSurveyProjectsAsync();
+            if (IsApplicationStopping) return;
             WriteStartupTrace("Survey projects loaded; catalog data prepared.");
             var previews = new Dictionary<string, BitmapImage>(StringComparer.OrdinalIgnoreCase);
             _mapListStartupData = new MapListStartupData(

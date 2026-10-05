@@ -31,6 +31,13 @@ public sealed class MapGameToggleState
         _openPipelineVersion = Version;
     }
 
+    /// <summary>A captured open map cannot override newer player input.</summary>
+    public void MarkOpenFromCapture(int captureVersion)
+    {
+        if (!IsOpen && Version == captureVersion)
+            MarkOpen();
+    }
+
     /// <summary>
     /// Synchronizes the runtime state with an externally controlled game map.
     /// This is used by the real CLI after overlay_game has sent the same

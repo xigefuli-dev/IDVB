@@ -17,7 +17,6 @@ public sealed partial class SessionOrchestrator
         public RuntimeMapRecognition? Recognition;
         public bool ObserveUntilConfirmed;
         public ScanIdentitySelectionPolicy IdentitySelectionPolicy => ObserveUntilConfirmed
-            || ScanExecutionContext.Current?.Policy.Mode == ScanPerformanceMode.DeepScan
             ? ScanIdentitySelectionPolicy.RequireUniqueSupport
             : ScanIdentitySelectionPolicy.AllowDominantSupport;
         public Guid? PreviousPreviewMapId;

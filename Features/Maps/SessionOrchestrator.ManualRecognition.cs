@@ -93,6 +93,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         MapMatchSnapshot operationMatch,
         CancellationToken cancellationToken)
     {
+        var isCurrent = CaptureRecognitionContinuationGuard(operationMatch, cancellationToken);
         // 冻结画面：捕获整个客户区，让玩家在拖框窗口内框选双门
         var manualCapture = MapOperationTraceAmbient.StartTopLevel(
             "manual_capture",
@@ -187,7 +188,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 manualDispatch.Complete();
             }
             cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentMatchOperation(operationMatch))
+            if (!CanPublishRecognition(isCurrent, cancellationToken))
             {
                 ActiveOperationTrace?.SetTerminal(
                     "superseded",
@@ -284,7 +285,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentMatchOperation(operationMatch))
+            if (!CanPublishRecognition(isCurrent, cancellationToken))
             {
                 ActiveOperationTrace?.SetTerminal(
                     "superseded",
@@ -314,6 +315,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             // identity did not change.
             CancelOrbTracking("manual recognition result replacing alignment");
             await DrainOrbTrackingAsync();
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             EndAdaptiveMapOpen("manual recognition result replacing alignment");
             ClearAdaptiveSessionKeys();
             _mapLease.Bind(_matchSession.Snapshot, recognition.Map.Id);
@@ -325,10 +327,11 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                 attempt,
                 "manual-recognition",
                 recognitionOverride: recognition);
-            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
+            var adaptiveDecision = await EvaluateRecognitionAdaptiveAsync(
                 recognition,
                 frame,
-                attempt.Diagnostics);
+                attempt.Diagnostics, isCurrent, cancellationToken);
+            if (adaptiveDecision is null || !CanPublishRecognition(isCurrent, cancellationToken)) return;
             recognition = adaptiveDecision.RecognitionToRender;
             // 与仅对齐/首次识别一致：参考签名写入不受 AllowLegacyCacheWrite 门控，
             // 否则 provisional 时不记录，下次开图「仅对齐」就绪判定缺 reference 走
@@ -348,6 +351,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                         frame,
                         attempt.Diagnostics);
             }
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             using (MapOperationTraceAmbient.StartTopLevel(
                        "session_commit",
                        MapOperationWaitKind.Compute,
@@ -425,6 +429,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                         floorKey: recognition.Result.Floor);
                     await StartOrbTrackingAsync(recognition, frame);
                 }
+                if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
                 using var miniMap = MapOperationTraceAmbient.StartChild(
                     "mini_map_publish",
                     MapOperationWaitKind.Compute,

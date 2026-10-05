@@ -27,7 +27,7 @@ public sealed partial class SessionOrchestrator
         }
 
         // 如果地图当前处于打开状态，用户按下切换键必然是希望立即关图。
-        // 关图享受最高优先级零延迟短路：不检查前台失焦、不等待分辨率预设解析，1ms 内立即关图并取消后台对齐！
+        // 立即关闭显示和实时跟踪；已经取得截图的扫描仍独立完成计算。
         if (_gameMapToggleState.IsOpen)
         {
             _gameMapToggleState.Toggle();
@@ -51,6 +51,15 @@ public sealed partial class SessionOrchestrator
         {
             await EndMapDisplayAsync("game map closed");
             ReportInputDecision("game-map-toggle", "applied", "map-closed-after-preset");
+            return;
+        }
+        if (HasActiveQuickScan && (!_hasCompletedQuickScanAlignment
+            || _lastRecognition?.Result.OverlayTransform is null))
+        {
+            // The scan owns its captured frame and will publish according to
+            // the latest display state. Do not start a competing alignment.
+            ReportInputDecision("game-map-toggle", "applied", "scan-still-running");
+            StateChanged?.Invoke(this, EventArgs.Empty);
             return;
         }
         var route = _matchSession.Snapshot.Mode == MapRunMode.Survey ? "survey"
@@ -103,6 +112,7 @@ public sealed partial class SessionOrchestrator
             : _currentFloorKey ?? identity.Result.Floor
                 ?? MapFloorRules.GetPrimaryFloorKey(identity.Map);
         _gameMapToggleState.SetOpenForExternalController(false);
+        CancelQuickScan();
         await EndMapDisplayAsync("manual REST requested");
         if (identity is not null && !string.IsNullOrWhiteSpace(floorKey))
             await ResetLockedMapAlignmentEvidenceAsync(identity, floorKey);
@@ -111,7 +121,6 @@ public sealed partial class SessionOrchestrator
     private async Task EndMapDisplayAsync(string reason)
     {
         CancelMapObservation();
-        CancelQuickScan();
         ClearOptimisticPresentation();
         CancelMapOpenAlignment();
         EndAdaptiveMapOpen(reason);

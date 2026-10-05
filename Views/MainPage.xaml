@@ -248,6 +248,9 @@
                                 Margin="0,0,0,14"
                                 PointerMoved="Navigation_PointerMoved"
                                 PointerExited="Navigation_PointerExited">
+                        <Button Tag="{x:Bind SupportNavigationItem}" AutomationProperties.Name="支持开发" UseSystemFocusVisuals="True" ToolTipService.ToolTip="支持开发" Style="{StaticResource NavigationButtonStyle}" Click="Navigation_ParentClick" Loaded="NavigationRow_Loaded" Unloaded="NavigationRow_Unloaded">
+                            <Grid Height="40"><Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/><ColumnDefinition Width="34"/></Grid.ColumnDefinitions><FontIcon x:Name="SupportHeart" Grid.Column="0" Glyph="&#xEB51;" Foreground="{ThemeResource IdvbTextBrush}" HorizontalAlignment="Center"/><TextBlock Grid.Column="1" Text="支持开发" VerticalAlignment="Center"/></Grid>
+                        </Button>
                         <Button Tag="{x:Bind TutorialNavigationItem}" ToolTipService.ToolTip="教程" Style="{StaticResource NavigationButtonStyle}" Click="Navigation_ParentClick" Loaded="NavigationRow_Loaded" Unloaded="NavigationRow_Unloaded">
                             <Grid Height="40"><Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/><ColumnDefinition Width="34"/></Grid.ColumnDefinitions><SymbolIcon Grid.Column="0" Symbol="Help" HorizontalAlignment="Center"/><TextBlock Grid.Column="1" Text="教程" VerticalAlignment="Center"/></Grid>
                         </Button>

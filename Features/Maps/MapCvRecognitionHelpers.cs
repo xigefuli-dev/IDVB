@@ -11,10 +11,13 @@ internal static class MapCvRecognitionHelpers
         return copy;
     }
 
-    internal static double GeometryMargin(IReadOnlyList<MapGeometryCandidate> ranked) =>
-        ranked.Count > 1
-            ? ranked[1].VectorError - ranked[0].VectorError
-            : double.PositiveInfinity;
+    internal static double GeometryMargin(IReadOnlyList<MapGeometryCandidate> ranked,
+        IReadOnlyList<Guid[]>? variantGroups = null)
+    {
+        var competitor = ScanIdentityVerifier.FirstCompetingMap(ranked,
+            candidate => candidate.Fingerprint.Map.Id, variantGroups);
+        return competitor is null ? double.PositiveInfinity : competitor.VectorError - ranked[0].VectorError;
+    }
 
     internal static double ConfirmCandidate(
         MapGeometryCandidate candidate,

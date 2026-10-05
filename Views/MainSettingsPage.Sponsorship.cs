@@ -1,12 +1,12 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.System;
 
 namespace IDVBuff.Views;
 
 public sealed partial class MainSettingsPage
 {
     internal const string SponsorshipUrl = SponsorshipAction.Url;
+    public event EventHandler? SponsorshipRequested;
 
     private Border CreateSponsorCard()
     {
@@ -23,45 +23,30 @@ public sealed partial class MainSettingsPage
         });
         labels.Children.Add(new TextBlock
         {
-            Text = "完全自愿；点击后在默认浏览器打开爱发电。",
+            Text = "让探索继续。微信、支付宝与爱发电，支持方式由你选择。",
             FontSize = 14,
-            Foreground = FluentTheme.Brush("TextFillColorSecondaryBrush"),
+            Foreground = FluentTheme.Brush(this, "TextFillColorSecondaryBrush"),
             TextWrapping = TextWrapping.Wrap
         });
         layout.Children.Add(labels);
 
         var button = new Button
         {
-            Content = "前往爱发电",
+            Content = "赞助支持",
             MinWidth = 110,
             VerticalAlignment = VerticalAlignment.Center
         };
-        var action = new SponsorshipAction(
-            async uri => await Launcher.LaunchUriAsync(uri),
-            enabled => button.IsEnabled = enabled,
-            ShowSponsorLinkErrorAsync);
-        button.Click += async (_, _) => await action.ClickAsync();
+        button.Click += (_, _) => SponsorshipRequested?.Invoke(this, EventArgs.Empty);
         Grid.SetColumn(button, 1);
         layout.Children.Add(button);
 
         return new Border
         {
-            Background = FluentTheme.CardBrush(),
-            BorderBrush = FluentTheme.Brush("CardStrokeColorDefaultBrush"),
+            Background = FluentTheme.CardBrush(this),
+            BorderBrush = FluentTheme.Brush(this, "CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Child = layout
         };
-    }
-
-    private async Task ShowSponsorLinkErrorAsync()
-    {
-        await new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = "链接未打开",
-            Content = "无法打开浏览器，请稍后重试。",
-            CloseButtonText = "知道了"
-        }.ShowAsync();
     }
 }

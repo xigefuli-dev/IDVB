@@ -8,6 +8,7 @@ using Windows.UI;
 using IDVBuff.Survey.Domain;
 using XamlWindow = Microsoft.UI.Xaml.Window;
 using IDVBuff.Core.Contracts;
+using IDVBuff.Presentation.Theming;
 using WinRT.Interop;
 
 namespace IDVBuff.Features.Maps;
@@ -60,7 +61,8 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
     private async Task<bool> ConfirmAutomaticMapCacheSaveAsync()
     {
-        var xamlRoot = (_window?.Content as FrameworkElement)?.XamlRoot;
+        var owner = _window?.Content as FrameworkElement;
+        var xamlRoot = owner?.XamlRoot;
         if (xamlRoot is null)
             return false;
 
@@ -74,7 +76,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
             CloseButtonText = "不保存并退出",
             DefaultButton = ContentDialogButton.Primary
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await dialog.ShowThemedAsync(owner) == ContentDialogResult.Primary;
     }
 
     private void SetActionsEnabled(bool enabled)
@@ -121,11 +123,16 @@ public sealed partial class MapControlPanelWindow : IDisposable
             return;
         _disposed = true;
         MapClassDiagnosticCoordinator.Instance.SnapshotChanged -= OnDiagnosticSnapshotChanged;
+        _classComboBox.SelectionChanged -= ClassComboBox_SelectionChanged;
+        ThemeService.For(_classComboBox).Changed -= OnClassThemeChanged;
         _captureProtectionRegistration?.Dispose();
         _captureProtectionRegistration = null;
         _isVisible = false;
         _window?.Close();
         _window = null;
+        _themeScope?.Dispose();
+        _themeScope = null;
+        _content = null;
     }
 
     [DllImport("user32.dll")]

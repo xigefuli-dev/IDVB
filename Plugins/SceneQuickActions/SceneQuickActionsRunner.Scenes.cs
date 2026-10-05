@@ -39,22 +39,31 @@ internal sealed partial class SceneQuickActionsRunner
         _logger.Info($"识别到「接受」按钮（相似度 {hit.Score:P0}），执行「按 Tab 开背包切出鼠标 → 点击接受 → 按 Tab 关背包」。");
 
         var wokeMouse = false;
+        var clicked = false;
         try
         {
             WakeMouse(options, frame.WindowHandle, token, ref wokeMouse);
-            EnsureForeground(frame.WindowHandle);
-            NativeInput.MoveSmoothly(x, y, MoveDurationMilliseconds, token);
+            EnsureCanInject(frame.WindowHandle, token);
+            _input.MoveSmoothly(x, y, MoveDurationMilliseconds, token);
             SleepAfterStep(options, PreClickDelayMilliseconds, token);
-            EnsureForeground(frame.WindowHandle);
-            NativeInput.ClickLeft(ClickHoldMilliseconds);
+            EnsureCanInject(frame.WindowHandle, token);
+            _input.ClickLeft(ClickHoldMilliseconds);
+            clicked = true;
             SleepAfterStep(options, 0, token);
             _logger.Info($"已点击「接受」（屏幕坐标 {x},{y}）。");
+        }
+        catch (OperationCanceledException) when (!clicked)
+        {
+            // 手动请求取消了尚未点击的邀请；交接后必须用下一帧重新确认，而非永久失去触发。
+            _inviteArmed = true;
+            _inviteReadyAt = DateTime.MinValue;
+            throw;
         }
         finally
         {
             // 无论点击成功与否都要把背包关掉：留在背包界面里会挡住游戏后续操作。
             if (wokeMouse)
-                CloseBackpack(frame.WindowHandle, options);
+                CloseBackpack(frame.WindowHandle, options, token);
         }
     }
 
@@ -74,7 +83,7 @@ internal sealed partial class SceneQuickActionsRunner
             frame.Gray,
             SceneQuickActionsTemplates.QuickReplace,
             options.MatchThreshold,
-            out var quickReplaceHit);
+            out _);
 
         if (!hasAnchor && !hasQuickReplace)
         {
@@ -98,7 +107,6 @@ internal sealed partial class SceneQuickActionsRunner
         PerformPickup(
             frame,
             hasAnchor ? anchorHit : null,
-            hasQuickReplace ? quickReplaceHit : null,
             options,
             token);
     }
@@ -106,11 +114,11 @@ internal sealed partial class SceneQuickActionsRunner
     private void PerformPickup(
         GrabbedFrame frame,
         MatchHit? pickupHit,
-        MatchHit? quickReplaceHit,
         SceneQuickActionsOptions options,
         CancellationToken token)
     {
         var wokeMouse = false;
+        var picked = false;
         try
         {
             if (options.PickupWakeMouse)
@@ -118,8 +126,9 @@ internal sealed partial class SceneQuickActionsRunner
             // 第一步：拾取全部（按下配置的按键，未配置则点击提示位置）
             if (options.PickupAllBinding.IsConfigured)
             {
-                EnsureForeground(frame.WindowHandle);
-                NativeInput.InjectBinding(options.PickupAllBinding, KeyHoldMilliseconds);
+                EnsureCanInject(frame.WindowHandle, token);
+                _input.InjectBinding(options.PickupAllBinding, KeyHoldMilliseconds);
+                picked = true;
                 _logger.Info($"已按下「拾取全部」按键（{options.PickupAllBinding.DisplayName}）。");
             }
             else if (pickupHit is { } anchor)
@@ -129,11 +138,12 @@ internal sealed partial class SceneQuickActionsRunner
                     anchor.CenterY,
                     frame.Bounds,
                     frame.Size);
-                EnsureForeground(frame.WindowHandle);
-                NativeInput.MoveSmoothly(x, y, MoveDurationMilliseconds, token);
+                EnsureCanInject(frame.WindowHandle, token);
+                _input.MoveSmoothly(x, y, MoveDurationMilliseconds, token);
                 SleepAfterStep(options, PreClickDelayMilliseconds, token);
-                EnsureForeground(frame.WindowHandle);
-                NativeInput.ClickLeft(ClickHoldMilliseconds);
+                EnsureCanInject(frame.WindowHandle, token);
+                _input.ClickLeft(ClickHoldMilliseconds);
+                picked = true;
                 _logger.Info($"已点击「拾取全部」（相似度 {anchor.Score:P0}，屏幕坐标 {x},{y}）。");
             }
             else
@@ -146,22 +156,28 @@ internal sealed partial class SceneQuickActionsRunner
             // 第二步：快捷替换
             if (options.QuickReplaceBinding.IsConfigured)
             {
-                PressQuickReplaceKey(options, token);
+                PressQuickReplaceKey(frame.WindowHandle, options, token);
                 return;
             }
 
-            ClickQuickReplace(frame, quickReplaceHit, options, token);
+            ClickQuickReplace(frame.WindowHandle, options, token);
+        }
+        catch (OperationCanceledException) when (!picked)
+        {
+            _pickupArmed = true;
+            _pickupReadyAt = DateTime.MinValue;
+            throw;
         }
         finally
         {
             // 切出过背包就必须关掉，否则会把拾取面板顶掉、还挡住后续操作。
             if (wokeMouse)
-                CloseBackpack(frame.WindowHandle, options);
+                CloseBackpack(frame.WindowHandle, options, token);
         }
     }
 
     /// <summary>「快捷替换」用按键：只需要确认面板还在，位置不重要。</summary>
-    private void PressQuickReplaceKey(SceneQuickActionsOptions options, CancellationToken token)
+    private void PressQuickReplaceKey(IntPtr window, SceneQuickActionsOptions options, CancellationToken token)
     {
         for (var attempt = 0; attempt < QuickReplaceAttempts; attempt++)
         {
@@ -177,6 +193,9 @@ internal sealed partial class SceneQuickActionsRunner
 
             using (fresh)
             {
+                token.ThrowIfCancellationRequested();
+                if (fresh.WindowHandle != window)
+                    break;
                 var panelOpen =
                     _matcher.TryMatch(
                         fresh.Gray,
@@ -191,8 +210,8 @@ internal sealed partial class SceneQuickActionsRunner
                 if (!panelOpen)
                     continue;
 
-                EnsureForeground(fresh.WindowHandle);
-                NativeInput.InjectBinding(options.QuickReplaceBinding, KeyHoldMilliseconds);
+                EnsureCanInject(window, token);
+                _input.InjectBinding(options.QuickReplaceBinding, KeyHoldMilliseconds);
                 SleepAfterStep(options, 0, token);
                 _logger.Info($"已按下「快捷替换」按键（{options.QuickReplaceBinding.DisplayName}）。");
                 return;
@@ -204,8 +223,7 @@ internal sealed partial class SceneQuickActionsRunner
 
     /// <summary>「快捷替换」用鼠标：必须重新认到按钮位置，绝不盲点。</summary>
     private void ClickQuickReplace(
-        GrabbedFrame frame,
-        MatchHit? quickReplaceHit,
+        IntPtr window,
         SceneQuickActionsOptions options,
         CancellationToken token)
     {
@@ -223,6 +241,9 @@ internal sealed partial class SceneQuickActionsRunner
 
             using (fresh)
             {
+                token.ThrowIfCancellationRequested();
+                if (fresh.WindowHandle != window)
+                    break;
                 if (!_matcher.TryMatch(
                         fresh.Gray,
                         SceneQuickActionsTemplates.QuickReplace,
@@ -237,25 +258,18 @@ internal sealed partial class SceneQuickActionsRunner
             }
         }
 
-        // 拿不到新画面时，退回「拾取全部」那一帧里已经确认过的位置。
-        if (quickReplaceHit is { } remembered)
-        {
-            ClickHit(frame, remembered, "快捷替换（上一帧位置）", options, token);
-            return;
-        }
-
-        LogThrottled("面板里没有识别到「快捷替换」，已跳过第二步。");
+        LogThrottled("没能在新画面中确认「快捷替换」的位置，已跳过第二步。");
     }
 
     private void ClickHit(GrabbedFrame frame, MatchHit hit, string label,
         SceneQuickActionsOptions options, CancellationToken token)
     {
         var (x, y) = SceneQuickActionsMatcher.ToScreen(hit.CenterX, hit.CenterY, frame.Bounds, frame.Size);
-        EnsureForeground(frame.WindowHandle);
-        NativeInput.MoveSmoothly(x, y, MoveDurationMilliseconds, token);
+        EnsureCanInject(frame.WindowHandle, token);
+        _input.MoveSmoothly(x, y, MoveDurationMilliseconds, token);
         SleepAfterStep(options, PreClickDelayMilliseconds, token);
-        EnsureForeground(frame.WindowHandle);
-        NativeInput.ClickLeft(ClickHoldMilliseconds);
+        EnsureCanInject(frame.WindowHandle, token);
+        _input.ClickLeft(ClickHoldMilliseconds);
         SleepAfterStep(options, 0, token);
         _logger.Info($"已点击「{label}」（相似度 {hit.Score:P0}，屏幕坐标 {x},{y}）。");
     }

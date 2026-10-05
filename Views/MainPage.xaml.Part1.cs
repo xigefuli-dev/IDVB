@@ -153,6 +153,11 @@ public sealed partial class MainPage : Page
         var targetPoint = container.TransformToVisual(NavigationSurface)
             .TransformPoint(new Windows.Foundation.Point(0, 0));
         var targetTranslationY = (float)(targetPoint.Y - indicator.Margin.Top);
+        // LayoutUpdated can also be raised by unrelated page content. Do not
+        // restart a row-to-row transition when its destination has not moved.
+        if (indicator.Translation.Y == targetTranslationY)
+            return true;
+
         indicator.TranslationTransition = duration is { } transitionDuration
             ? new Vector3Transition { Duration = transitionDuration }
             : null;
@@ -161,6 +166,42 @@ public sealed partial class MainPage : Page
             targetTranslationY,
             indicator.Translation.Z);
         return true;
+    }
+
+    private void NavigationSurface_LayoutUpdated(object sender, object e)
+    {
+        if (_navigationResizeAnimationActive)
+            return;
+
+        var animate = _navigationLayoutRefreshPending;
+        _navigationLayoutRefreshPending = false;
+        var selectionTarget = GetVisibleNavigationEntry(_selectedNavigationEntry);
+        if (selectionTarget is not null
+            && TryAnimateNavigationIndicator(
+                NavigationSelectionIndicator,
+                selectionTarget,
+                animate && _selectionIndicatorPositioned
+                    ? NavigationSelectionDuration : null))
+        {
+            _selectionIndicatorPositioned = true;
+            _pendingSelectionTarget = null;
+        }
+
+        // Footer rows move when the window is resized/maximized/restored.
+        // Follow their arranged coordinates without waiting for a navigation
+        // request, and snap layout corrections instead of trailing the window.
+        if (_hoveredNavigationEntry is { } hovered
+            && IsNavigationEntryVisible(hovered))
+        {
+            TryAnimateNavigationIndicator(
+                NavigationHoverIndicator,
+                hovered,
+                animate ? NavigationHoverEnterDuration : null);
+        }
+        else if (_hoveredNavigationEntry is not null)
+        {
+            HideNavigationHoverIndicator();
+        }
     }
 
     private FrameworkElement? TryGetNavigationRow(NavigationEntry entry)
@@ -203,19 +244,25 @@ public sealed partial class MainPage : Page
                 QueueInitialNavigationIndicatorPosition(visibleSelectionTarget);
         }
 
-        if (!App.IsServicesReady && moduleId != "home" && moduleId != "help" && moduleId != "main-settings" && moduleId != "account")
-        {
-            var loadingRing = new ProgressRing { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            ModuleContentHost.Content = loadingRing;
-            await App.ServicesReadyTask;
-            if (revision != _navigationRevision)
-                return;
-        }
-
         var animateMainContent = true;
         try
         {
-            var view = App.IsSafeMode && IsSafeModeRestrictedModule(moduleId)
+            var servicesReady = ModuleNavigationRules.GetRequiredServicesReadyTask(
+                moduleId, App.IsSafeMode, App.IsServicesReady, App.ServicesReadyTask);
+            if (!servicesReady.IsCompletedSuccessfully)
+            {
+                ModuleContentHost.Content = new ProgressRing
+                {
+                    IsActive = true,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                await servicesReady;
+                if (revision != _navigationRevision)
+                    return;
+            }
+
+            var view = App.IsSafeMode && ModuleNavigationRules.IsSafeModeRestrictedModule(moduleId)
                 ? CreateSafeModeRestrictedView(moduleId)
                 : _catalog.GetRequired(moduleId).CreateView();
             // Prepare persisted state before attaching controls to the live visual tree.
@@ -232,6 +279,7 @@ public sealed partial class MainPage : Page
                 ConnectScanVisuals(preparedHome);
             ModuleContentHost.Content = view;
             ConfigureMainContentScrolling(view);
+            ConnectSponsorshipNavigation(view);
             if (view is HelpPage helpPage)
             {
                 helpPage.ActivateGuideRequested += HelpPage_ActivateGuideRequested;
@@ -302,8 +350,7 @@ public sealed partial class MainPage : Page
 
     private async Task ShowSafeModeTutorialAsync()
     {
-        NavigateTo("map-list");
-        await Task.Yield();
+        await NavigateToAsync("map-list");
         if (ModuleContentHost.XamlRoot is not { } xamlRoot)
             return;
 
@@ -317,12 +364,9 @@ public sealed partial class MainPage : Page
         }.ShowThemedAsync();
     }
 
-    private static bool IsSafeModeRestrictedModule(string moduleId) => moduleId is
-        "map-status" or "plugins";
-
     private static FrameworkElement CreateSafeModeRestrictedView(string moduleId)
     {
-        if (moduleId == "map-status")
+        if (string.Equals(moduleId, "map-status", StringComparison.OrdinalIgnoreCase))
             return new SafeModeMapStatusPage();
 
         return new StackPanel

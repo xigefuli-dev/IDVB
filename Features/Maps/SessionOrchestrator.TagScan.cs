@@ -16,6 +16,7 @@ public sealed partial class SessionOrchestrator
         MapMatchSnapshot operationMatch,
         CancellationToken cancellationToken)
     {
+        var captureToggleVersion = _gameMapToggleState.Version;
         var mapClass = operationMatch.MapClass;
         if (string.IsNullOrWhiteSpace(mapClass))
         {
@@ -77,6 +78,8 @@ public sealed partial class SessionOrchestrator
             {
                 frame = captured;
                 ownsFrame = true;
+                if (!_settings!.BackgroundScanEnabled)
+                    _gameMapToggleState.MarkOpenFromCapture(captureToggleVersion);
             }
             else
             {
@@ -173,15 +176,20 @@ public sealed partial class SessionOrchestrator
         var locked = LockSelectedMapIdentity(chosen, initialFrame, userConfirmed: true);
         var targetFloorKey = ResolveBackgroundConsumeFloorKey(locked);
         _pendingAlignmentSeed = CreateIndependentFloorSeedSession(locked, targetFloorKey);
+        var isCurrent = CaptureRecognitionContinuationGuard(operationMatch, cancellationToken);
 
         _scanProgressOverlay.Report(0.90d, "正在对齐所选地图...");
         CapturedGameFrame? alignmentFrame = null;
         try
         {
-            alignmentFrame = await CaptureBackgroundAlignmentFrameAsync(
-                locked.Map,
-                cancellationToken,
-                () => IsCurrentMatchOperation(operationMatch));
+            // A player may close the map while choosing. The captured map
+            // remains the input for this scan instead of capturing gameplay.
+            alignmentFrame = !_gameMapToggleState.IsOpen && initialFrame.WindowHandle != IntPtr.Zero
+                ? ExtractCapturedAlignmentFrame(locked.Map, initialFrame)
+                : await CaptureBackgroundAlignmentFrameAsync(
+                    locked.Map,
+                    cancellationToken,
+                    isCurrent);
         }
         catch (OperationCanceledException)
         {
@@ -197,6 +205,7 @@ public sealed partial class SessionOrchestrator
 
         if (alignmentFrame is null)
         {
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             _statusMessage = $"已选择地图：{locked.Map.DisplayName}（当前未捕获到地图画面，打开游戏地图后将自动对齐）";
             _logCollector.Append(
                 MapLogCategory.Session,
@@ -209,6 +218,7 @@ public sealed partial class SessionOrchestrator
 
         try
         {
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             if (!Settings.DisableAutoFloor && alignmentFrame.DetectedFloorKey is { } detectedFloor && !string.IsNullOrWhiteSpace(detectedFloor))
             {
                 targetFloorKey = detectedFloor;
@@ -300,7 +310,7 @@ public sealed partial class SessionOrchestrator
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentMatchOperation(operationMatch))
+            if (!CanPublishRecognition(isCurrent, cancellationToken))
             {
                 return;
             }
@@ -350,7 +360,7 @@ public sealed partial class SessionOrchestrator
                 if (playerTransform is { } chosenPlayerTransform)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!IsCurrentMatchOperation(operationMatch))
+                    if (!CanPublishRecognition(isCurrent, cancellationToken))
                     {
                         return;
                     }
@@ -358,10 +368,11 @@ public sealed partial class SessionOrchestrator
                 }
             }
 
-            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
+            var adaptiveDecision = await EvaluateRecognitionAdaptiveAsync(
                 aligned,
                 alignmentFrame,
-                _lastDiagnostics);
+                _lastDiagnostics, isCurrent, cancellationToken);
+            if (adaptiveDecision is null || !CanPublishRecognition(isCurrent, cancellationToken)) return;
             aligned = adaptiveDecision.RecognitionToRender;
 
             RememberMapViewportPresenceReference(aligned, alignmentFrame);
@@ -370,14 +381,17 @@ public sealed partial class SessionOrchestrator
                 if (repairCacheKey is not null)
                 {
                     await RepairMapCacheAsync(repairCacheKey, aligned, alignmentFrame);
+                    if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
                 }
                 await PersistPreprocessedScaleAsync(
                     aligned,
                     alignmentFrame,
                     _lastDiagnostics);
+                if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
                 RecordSuccessfulAlignment(aligned, alignmentFrame);
             }
 
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             if (aligned.Result.OverlayTransform is { } committedTransform)
             {
                 _mapOpenSession.LockAlignedMap(
@@ -419,11 +433,12 @@ public sealed partial class SessionOrchestrator
             _statusMessage = $"地图已对齐：{aligned.Map.DisplayName} · {aligned.Result.Floor.ToUpperInvariant()}";
             _hasCompletedQuickScanAlignment = true;
 
-            _gameMapToggleState.MarkOpen();
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
-                $"通过标签选择地图并完成对齐 · map={aligned.Map.DisplayName} · floor={aligned.Result.Floor}，已同步原生地图为打开状态。");
+                $"通过标签选择地图并完成对齐 · map={aligned.Map.DisplayName} · floor={aligned.Result.Floor} · mapOpen={_gameMapToggleState.IsOpen}");
+
+            if (CompleteScanWhileMapClosed(1d)) return;
 
             var present = _overlay.DeferPresent();
             try
@@ -469,6 +484,7 @@ public sealed partial class SessionOrchestrator
             {
                 await StartOrbTrackingAsync(aligned, alignmentFrame);
             }
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             RefreshMiniMapForCurrentFloor();
             _scanProgressOverlay.Report(1.0d, "对齐完成");
             StateChanged?.Invoke(this, EventArgs.Empty);

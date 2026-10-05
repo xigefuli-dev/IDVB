@@ -92,6 +92,7 @@ public sealed partial class SessionOrchestrator
                 using (trace.StartTopLevel("cleanup"))
                 {
                     if (restoreOverlay
+                        && !cancellationToken.IsCancellationRequested
                         && IsCurrentMatchOperation(operationMatch)
                         && _gameMapToggleState.IsCurrent(toggle)
                         && !_overlay.IsVisible)
@@ -188,7 +189,8 @@ public sealed partial class SessionOrchestrator
                     _pendingBackgroundChoicePreviews,
                     _pendingBackgroundLivePreview,
                     _pendingBackgroundLearningResult,
-                    requiresExplicitSelection: true);
+                    requiresExplicitSelection: true,
+                    continuingMapOpenOwner: cancellationToken);
             }
             finally
             {
@@ -302,6 +304,9 @@ public sealed partial class SessionOrchestrator
                     validatedStructureScaleSeed is not null,
                 ["hasSideEntranceSeed"] = sideEntranceSeed is not null
             });
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentMatchOperation(operationMatch) || !_gameMapToggleState.IsCurrent(toggle))
+            return;
         _pendingAlignmentIdentity = locked;
         _currentFloorKey = targetFloorKey;
         _mapLease.Bind(_matchSession.Snapshot, locked.Map.Id);

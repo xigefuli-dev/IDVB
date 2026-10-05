@@ -1,5 +1,4 @@
 using IDVBuff.Lifecycle;
-using Microsoft.UI.Windowing;
 using WinRT.Interop;
 
 namespace IDVBuff;
@@ -11,14 +10,18 @@ public partial class App
     private void RestoreMainWindowPlacement()
     {
         if (window is null) return;
+        // The interaction guard blocks input; restoration must also avoid the
+        // activating native show commands, which can activate a disabled HWND.
+        var handle = WindowNative.GetWindowHandle(window);
         _lastMainWindowPlacement = MainWindowPlacement.Load();
         if (_lastMainWindowPlacement is { } placement
-            && placement.Apply(WindowNative.GetWindowHandle(window)))
+            && placement.Apply(handle, activate: false))
             return;
 
         // Preserve the first-launch default only when no usable saved placement exists.
-        if (window.AppWindow.Presenter is OverlappedPresenter presenter)
-            presenter.Maximize();
+        if (MainWindowPlacement.Capture(handle, false) is not { } initialPlacement
+            || !(initialPlacement with { IsMaximized = true }).Apply(handle, activate: false))
+            throw new InvalidOperationException("无法恢复主窗口，请重新启动 Identity Vision Bridge。");
     }
 
     private void CaptureMainWindowPlacement()

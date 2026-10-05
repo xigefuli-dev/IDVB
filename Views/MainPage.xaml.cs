@@ -55,6 +55,7 @@ public sealed partial class MainPage : Page
         DisplaySkeletonPreviewHost.Children.Add(_displaySkeletonPreview);
         PrepareDisplayPreviewMotion();
         foreach (var entry in NavigationEntry.CreateRoots(_navigationNodes)) NavigationItems.Add(entry);
+        SupportNavigationItem = CreateFooterNavigationEntry("支持开发", Symbol.Favorite, "sponsorship");
         TutorialNavigationItem = CreateFooterNavigationEntry("教程", Symbol.Help, "help");
         MainSettingsNavigationItem = CreateFooterNavigationEntry("主设置", Symbol.Setting, "main-settings");
         AccountNavigationItem = CreateFooterNavigationEntry("账户", Symbol.Contact, "account");
@@ -63,12 +64,17 @@ public sealed partial class MainPage : Page
         _navigationCompactPreference = _layoutMemory.NavigationCompact;
         ApplyInitialNavigationCompactPreference();
         Loaded += MainPage_Loaded;
-        Loaded += (_, _) => InitializeNotifications();
-        Unloaded += (_, _) => CleanupNotifications();
+        Loaded += (_, _) => { InitializeNotifications(); _ = SupportMotion; };
+        Unloaded += (_, _) =>
+        {
+            ++_navigationRevision;
+            CleanupNotifications();
+        };
     }
 
     public ObservableCollection<NavigationEntry> NavigationItems { get; } = [];
     public Task InitialReady => _initialReady.Task;
+    public NavigationEntry SupportNavigationItem { get; }
     public NavigationEntry TutorialNavigationItem { get; }
     public NavigationEntry MainSettingsNavigationItem { get; }
     public NavigationEntry AccountNavigationItem { get; }
@@ -101,6 +107,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        if (TryOpenSponsorship(entry)) return;
         PlayDetailTriggerFeedback(button);
 
         if (entry.ModuleId == "account")
@@ -400,37 +407,10 @@ public sealed partial class MainPage : Page
             return;
 
         DispatcherQueue.TryEnqueue(() =>
-            TryPositionInitialNavigationIndicator(entry));
-    }
-
-    private void NavigationSurface_LayoutUpdated(object sender, object e)
-    {
-        if (!_selectionIndicatorPositioned
-            && _selectedNavigationEntry is { } entry)
         {
-            TryPositionInitialNavigationIndicator(entry);
-        }
-
-        if (!_navigationLayoutRefreshPending)
-            return;
-
-        _navigationLayoutRefreshPending = false;
-        var selectionTarget = GetVisibleNavigationEntry(_selectedNavigationEntry);
-        if (selectionTarget is not null)
-            QueueSelectionIndicatorAnimation(selectionTarget);
-
-        if (_hoveredNavigationEntry is { } hovered
-            && IsNavigationEntryVisible(hovered))
-        {
-            TryAnimateNavigationIndicator(
-                NavigationHoverIndicator,
-                hovered,
-                NavigationHoverEnterDuration);
-        }
-        else if (_hoveredNavigationEntry is not null)
-        {
-            HideNavigationHoverIndicator();
-        }
+            if (GetVisibleNavigationEntry(_selectedNavigationEntry) is { } target)
+                TryPositionInitialNavigationIndicator(target);
+        });
     }
 
     private void RequestNavigationLayoutRefresh() =>

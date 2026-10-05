@@ -92,10 +92,12 @@ public sealed partial class SessionOrchestrator
             // 就绪帧上找出的真实对齐，locked 是上次成功对齐。二者位移差就是
             // 「重开图漂移」——决定投影边界掩膜能否复用上次位移的关键证据。
             LogMapOpenOffsetDrift(locked, aligned, targetFloorKey);
-            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
+            var adaptiveDecision = await EvaluateMapOpenAdaptiveAsync(
                 aligned,
                 frame,
-                _lastDiagnostics);
+                _lastDiagnostics, toggle, operationMatch, context);
+            if (adaptiveDecision is null)
+                return MapOpenAlignmentPublishOutcome.Superseded;
             if (_lastDiagnostics is { } adaptiveDiagnostics
                 && MapAlignmentChannelRegistry.Resolve(
                     aligned.Map,

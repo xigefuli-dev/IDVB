@@ -18,7 +18,10 @@ public enum QuickStartChoice
 /// </summary>
 public static class QuickStartDialog
 {
-    public static async Task<QuickStartChoice?> ShowAsync(XamlRoot? xamlRoot)
+    public static Task<QuickStartChoice?> ShowAsync(XamlRoot? xamlRoot) =>
+        ShowAsync(xamlRoot, CancellationToken.None);
+
+    public static async Task<QuickStartChoice?> ShowAsync(XamlRoot? xamlRoot, CancellationToken cancellationToken)
     {
         if (xamlRoot is null)
             return null;
@@ -73,7 +76,7 @@ public static class QuickStartDialog
             }
         };
 
-        await dialog.ShowThemedAsync();
+        await dialog.ShowThemedAsync(cancellationToken: cancellationToken);
         return choice;
     }
 

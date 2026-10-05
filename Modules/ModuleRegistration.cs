@@ -15,6 +15,7 @@ public static class ModuleRegistration
         catalog.Register(new TagsAndTemplatesModule());
         catalog.Register(new PluginsModule());
         catalog.Register(new MainSettingsModule());
+        catalog.Register(new SponsorshipModule());
         catalog.Register(new HelpModule());
 
         // Example after adding a ProjectReference to an imported WinUI project:

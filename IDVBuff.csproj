@@ -30,7 +30,7 @@
         <Product>Identity Vision Bridge</Product>
         <Company>Identity Vision Bridge</Company>
         <!-- Canonical SemVer product identity. The UI adds the conventional v prefix. -->
-        <IDVBProductVersion>1.7.0-preview.2</IDVBProductVersion>
+        <IDVBProductVersion>1.7.0-preview.3</IDVBProductVersion>
         <IDVBReleaseLine>b01.7</IDVBReleaseLine>
         <Version>$(IDVBProductVersion)</Version>
         <AssemblyVersion>1.7.0.0</AssemblyVersion>
@@ -121,6 +121,11 @@
         <Content Include="Assets\FloorIndicators\**\*" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Guide\*.png" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Assets\Markdown\**\*" CopyToOutputDirectory="PreserveNewest" />
+        <!-- Payment artwork is read only from verified assembly resources, never loose files. -->
+        <Content Remove="Assets\Sponsorship\*.png" />
+        <None Remove="Assets\Sponsorship\*.png" />
+        <EmbeddedResource Include="Assets\Sponsorship\*.png"
+                          LogicalName="IDVB.Sponsorship.%(Filename)%(Extension)" />
         <Content Include="LICENSE" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="release\trust\idvb-update-2026-01.pem"
                  Link="MapTrust\idvb-update-2026-01.pem"
@@ -156,6 +161,9 @@
         <Compile Remove="Pipeline\**\*.cs" />
         <Compile Remove="IDVBuff.ModuleContracts\**\*.cs" />
         <Compile Remove="IDVBuff.Tests\**\*.cs" />
+        <Compile Remove="IDVBuff.WinUI.RegressionTests\**\*.cs" />
+        <Page Remove="IDVBuff.WinUI.RegressionTests\**\*.xaml" />
+        <ApplicationDefinition Remove="IDVBuff.WinUI.RegressionTests\**\*.xaml" />
         <Compile Remove="IDVBuff.MapAlignment.Probe\**\*.cs" />
         <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
         <!-- The desktop client only collects and uploads training samples.

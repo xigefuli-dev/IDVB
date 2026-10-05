@@ -316,8 +316,7 @@ public sealed partial class SessionOrchestrator
 
             if (cancellationToken.IsCancellationRequested)
             {
-                _lastStableCaptureFailureReason =
-                    "地图对齐已超过时间预算，请保持完整地图打开后重试。";
+                cancellationToken.ThrowIfCancellationRequested();
             }
 
             _logCollector.Append(

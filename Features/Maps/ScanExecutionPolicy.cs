@@ -39,11 +39,14 @@ internal static class ScanUncertainPolicies
     {
         if (execution.Policy.Mode != ScanPerformanceMode.DeepScan) return false;
         var supported = candidates.Where(c => c.IdentityEvidence.State == ScanIdentityState.Supported)
-            .Select(c => c.Map.Id).Distinct().ToArray();
-        // A tiny local patch may fit multiple members of a variant family too.
-        // Confirming one pose does not identify that member. Preserve the
-        // candidates instead of letting the first aligned sibling win by default.
-        return supported.Length > 1;
+            .OrderBy(c => ScanIdentityVerifier.FitCost(c.IdentityEvidence))
+            .ThenBy(c => c.Map.SequenceNumber).ThenBy(c => c.Map.Id).ToArray();
+        var competitor = ScanIdentityVerifier.FirstCompetingMap(supported, c => c.Map.Id,
+            execution.VariantGroups);
+        // A declared variant family is one selectable identity. Align its best
+        // member unless an outside family is too close for automatic selection.
+        return competitor is not null && ScanIdentityVerifier.FitCost(competitor.IdentityEvidence)
+            - ScanIdentityVerifier.FitCost(supported[0].IdentityEvidence) < ScanIdentityVerifier.DominantFitMargin;
     }
 }
 
@@ -85,6 +88,12 @@ internal sealed class ScanExecutionContext : IDisposable
     public CancellationToken CancellationToken => _cancellation;
     public ScanFrameEvidence? Frame { get; private set; }
     public bool RetrievalCompleted { get; set; } = true;
+    internal void RecordRetrievalCoverage(int eligibleIdentities, int readyIdentities)
+    {
+        EligibleIdentities = eligibleIdentities;
+        // Complete assets cannot undo a previous cancellation or incomplete search.
+        if (readyIdentities != eligibleIdentities) RetrievalCompleted = false;
+    }
     public int EligibleIdentities { get; set; }
     public int? ComparedIdentityCount { get; set; }
     public int? VerifiedCandidateCount { get; set; }

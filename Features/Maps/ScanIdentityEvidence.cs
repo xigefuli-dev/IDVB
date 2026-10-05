@@ -178,6 +178,33 @@ internal sealed class ScanStructureIndex
 
 internal static class ScanIdentityVerifier
 {
+    internal static T? FirstCompetingMap<T>(IReadOnlyList<T> ranked, Func<T, Guid> mapId,
+        IReadOnlyList<Guid[]>? variantGroups) where T : class
+    {
+        if (ranked.Count == 0) return null;
+        var winner = mapId(ranked[0]);
+        var families = (variantGroups ?? []).Where(group => group.Contains(winner)).ToArray();
+        // Catalog groups are disjoint. Malformed overlapping groups must not
+        // transitively hide an unrelated competitor.
+        var family = families.Length == 1 ? families[0] : new[] { winner };
+        return ranked.Skip(1).FirstOrDefault(candidate => !family.Contains(mapId(candidate)));
+    }
+
+    internal static bool TryConfirmHypotheses(IReadOnlyList<SideEntranceScanCandidate> hypotheses,
+        ScanExecutionContext context, Func<SideEntranceScanCandidate, bool> tryConfirm)
+    {
+        // A pose is only one explanation of an identity. Local lack of evidence
+        // must not prevent another pose of the same map from being registered.
+        var ordered = hypotheses.OrderByDescending(h => h.IdentityEvidence.State == ScanIdentityState.Supported)
+            .ThenBy(h => FitCost(h.IdentityEvidence)).ThenByDescending(h => h.MatchScore).ToArray();
+        foreach (var hypothesis in ordered)
+        {
+            if (!context.CanCompute) return false;
+            if (tryConfirm(hypothesis)) return context.CanCompute;
+        }
+        return false;
+    }
+
     internal readonly record struct SelectionDecision(Guid? MapId, string Reason);
     public static Guid? SelectIdentity(IReadOnlyList<SideEntranceScanCandidate> candidates,
         bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null,

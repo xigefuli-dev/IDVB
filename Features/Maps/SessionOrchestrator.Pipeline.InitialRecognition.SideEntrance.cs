@@ -149,6 +149,8 @@ public sealed partial class SessionOrchestrator
                     ["retrievalComplete"] = context?.RetrievalCompleted,
                     ["computeStopReason"] = context?.ComputeStopReason,
                     ["eligibleCount"] = sideScan.EligibleMapCount,
+                    ["readyCount"] = sideScan.ReadyMapCount,
+                    ["candidateCount"] = candidates.Count,
                     ["variantGroups"] = context?.VariantGroups,
                     ["candidates"] = candidates.Select(c => new
                     {
@@ -179,6 +181,8 @@ public sealed partial class SessionOrchestrator
                         => "多张地图具有相似的局部结构，请选择当前地图。",
                     "supported-without-confirmed-alignment" => "地图尚未确定：存在结构匹配，但尚未完成可信对齐。",
                     "unverified-identities" => "地图尚未确定：仍有候选未完成验证。",
+                    "retrieval-incomplete" when sideScan.ReadyMapCount != sideScan.EligibleMapCount
+                        => sideScan.FailureReason,
                     "retrieval-incomplete" => "地图尚未确定：候选检索未完成。",
                     "execution-unavailable" => "地图尚未确定：扫描已取消、被新请求替代或计算预算已用尽。",
                     _ => "地图尚未确定：多张地图通过结构校验，尚不能唯一确认。"

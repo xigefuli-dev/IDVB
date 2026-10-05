@@ -8,6 +8,7 @@
     <PackageId>IdentityVisionBridge.SceneQuickActions</PackageId>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="IDVBuff.PluginContracts.Tests" />
     <ProjectReference Include="..\..\IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <ProjectReference Include="..\..\IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
   </ItemGroup>

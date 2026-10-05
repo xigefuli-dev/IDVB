@@ -379,7 +379,7 @@ public sealed partial class MapCvRecognitionService
             return failure!;
         }
 
-        var margin = MapCvRecognitionHelpers.GeometryMargin(ranked);
+        var margin = MapCvRecognitionHelpers.GeometryMargin(ranked, ScanVariantGroups);
         var choices = MapCvRecognitionBuilders.BuildChoices(
             ranked, alignmentMode, tuning, margin,
             MapRecognitionSource.ManualGateSelection);

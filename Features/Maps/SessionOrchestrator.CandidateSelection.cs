@@ -23,7 +23,8 @@ public sealed partial class SessionOrchestrator
         IReadOnlyList<Microsoft.UI.Xaml.Media.ImageSource?>? preloadedChoicePreviews = null,
         MapManualCandidateWindow.CandidateLivePreviewAssets? preloadedLivePreview = null,
         MapLearningScoreResult? precomputedLearningResult = null,
-        bool requiresExplicitSelection = false)
+        bool requiresExplicitSelection = false,
+        CancellationToken continuingMapOpenOwner = default)
     {
         var selectionExecution = ScanExecutionContext.Current;
         // Background consumption runs after the scan's ambient scope ends.
@@ -120,7 +121,8 @@ public sealed partial class SessionOrchestrator
             var identityLock = LockSelectedMapIdentity(
                 recognition,
                 frame,
-                userConfirmed: false);
+                userConfirmed: false,
+                continuingMapOpenOwner);
             return new CandidateSelectionResolution(identityLock, false, recognition);
         }
         if (_activeCandidateSelector is not null)
@@ -129,7 +131,8 @@ public sealed partial class SessionOrchestrator
                 frame,
                 orderedCandidates,
                 reason,
-                cancellationToken);
+                cancellationToken,
+                continuingMapOpenOwner);
         }
 
         if (_headless)
@@ -159,7 +162,8 @@ public sealed partial class SessionOrchestrator
             var identityLock = LockSelectedMapIdentity(
                 recognition,
                 frame,
-                userConfirmed: false);
+                userConfirmed: false,
+                continuingMapOpenOwner);
             return new CandidateSelectionResolution(identityLock, false, recognition);
         }
 
@@ -243,7 +247,8 @@ public sealed partial class SessionOrchestrator
             var identityLock = LockSelectedMapIdentity(
                 recognition,
                 frame,
-                userConfirmed: true);
+                userConfirmed: true,
+                continuingMapOpenOwner);
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
@@ -309,7 +314,8 @@ public sealed partial class SessionOrchestrator
         CapturedGameFrame frame,
         IReadOnlyList<MapRecognitionChoice> candidates,
         string reason,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken continuingMapOpenOwner)
     {
         var selector = _activeCandidateSelector;
         if (selector is null)
@@ -345,7 +351,8 @@ public sealed partial class SessionOrchestrator
         var identityLock = LockSelectedMapIdentity(
             recognition,
             frame,
-            userConfirmed: true);
+            userConfirmed: true,
+            continuingMapOpenOwner);
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
@@ -378,26 +385,29 @@ public sealed partial class SessionOrchestrator
             return false;
         }
 
-        var second = choices.Skip(1)
-            .Select(choice => choice.ModelProbability)
-            .FirstOrDefault(value => value.HasValue);
+        var scoredChoices = choices.Where(choice => choice.ModelProbability.HasValue).ToArray();
+        var second = ScanIdentityVerifier.FirstCompetingMap(scoredChoices,
+            choice => choice.Recognition.Map.Id, _recognition.ScanVariantGroups)?.ModelProbability;
         return !second.HasValue || top - second.Value >= 0.15d;
     }
 
     private RuntimeMapRecognition LockSelectedMapIdentity(
         RuntimeMapRecognition selected,
         CapturedGameFrame frame,
-        bool userConfirmed)
-        => LockSelectedMapIdentity(selected, frame.ClientBounds, frame.WindowHandle, userConfirmed);
+        bool userConfirmed,
+        CancellationToken continuingMapOpenOwner = default)
+        => LockSelectedMapIdentity(selected, frame.ClientBounds, frame.WindowHandle, userConfirmed,
+            continuingMapOpenOwner);
 
     private RuntimeMapRecognition LockSelectedMapIdentity(
         RuntimeMapRecognition selected,
         MapScreenRect clientBounds,
         IntPtr windowHandle,
-        bool userConfirmed)
+        bool userConfirmed,
+        CancellationToken continuingMapOpenOwner = default)
     {
+        InvalidateActiveMapOpenOperation("candidate-identity-committed", continuingMapOpenOwner);
         CancelMapObservation(clearPreview: true);
-        InvalidateActiveMapOpenOperation("candidate-identity-committed");
         _recentConfirmedFloorPreference = null;
         _recentConfirmedFloorMapId = Guid.Empty;
         var floorKey = selected.Result.Floor;

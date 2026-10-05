@@ -1,12 +1,13 @@
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 
 namespace IDVBuff.Views;
 
 public sealed partial class SettingsPage
 {
+    public event EventHandler? SponsorshipRequested;
+
     private Border CreateInfoCard(
         string label,
         string value,
@@ -50,22 +51,12 @@ public sealed partial class SettingsPage
                 Content = new TextBlock
                 {
                     Text = "[赞助此项目]",
-                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 148, 108, 230)),
+                    Foreground = FluentTheme.Brush(this, "AccentTextFillColorPrimaryBrush"),
                     TextDecorations = Windows.UI.Text.TextDecorations.Underline
                 },
                 Padding = new Thickness(0, 2, 0, 2)
             };
-            var sponsorship = new SponsorshipAction(
-                async uri => await Windows.System.Launcher.LaunchUriAsync(uri),
-                enabled => sponsorLink.IsEnabled = enabled,
-                async () => await new ContentDialog
-                {
-                    XamlRoot = XamlRoot,
-                    Title = "链接未打开",
-                    Content = "无法打开浏览器，请稍后重试。",
-                    CloseButtonText = "知道了"
-                }.ShowAsync());
-            sponsorLink.Click += async (_, _) => await sponsorship.ClickAsync();
+            sponsorLink.Click += (_, _) => SponsorshipRequested?.Invoke(this, EventArgs.Empty);
             actions.Children.Add(sponsorLink);
             content.Children.Add(actions);
         }

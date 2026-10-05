@@ -333,7 +333,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 ["candidateCount"] = ranked.Count,
                 ["topMapId"] = ranked[0].Fingerprint.Map.Id
             });
-        var margin = MapCvRecognitionHelpers.GeometryMargin(ranked);
+        var margin = MapCvRecognitionHelpers.GeometryMargin(ranked, ScanVariantGroups);
         if (!MapCvRecognitionDiagnostics.TryValidateRanking(
                 ranked, tuning, diagnostics, out var failure))
         {
@@ -354,10 +354,11 @@ public sealed partial class MapCvRecognitionService : IDisposable
         {
             usedConfirmation = true;
             stopwatch.Restart();
-            var confirmed = ranked
-                .Take(4)
-                .Where(candidate => candidate.VectorError <= tuning.VectorErrorTolerance)
-                .ToArray();
+            var eligible = ranked.Where(candidate => candidate.VectorError <= tuning.VectorErrorTolerance).ToArray();
+            var competitor = ScanIdentityVerifier.FirstCompetingMap(eligible,
+                candidate => candidate.Fingerprint.Map.Id, ScanVariantGroups);
+            var confirmed = eligible.Take(4)
+                .Concat(competitor is null ? [] : new[] { competitor }).Distinct().ToArray();
             foreach (var candidate in confirmed)
             {
                 using var candidateConfirmation = MapOperationTraceAmbient.StartChild(
@@ -379,10 +380,11 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 .OrderByDescending(candidate => candidate.ConfirmationScore)
                 .ThenBy(candidate => candidate.VectorError)
                 .ToArray();
-            if (confirmationRanking.Length < 2
-                || confirmationRanking[0].ConfirmationScore
-                    - confirmationRanking[1].ConfirmationScore
-                    < tuning.ConfirmationAdvantage)
+            var confirmationCompetitor = ScanIdentityVerifier.FirstCompetingMap(confirmationRanking,
+                candidate => candidate.Fingerprint.Map.Id, ScanVariantGroups);
+            if (confirmationRanking.Length == 0
+                || confirmationCompetitor is not null && confirmationRanking[0].ConfirmationScore
+                    - confirmationCompetitor.ConfirmationScore < tuning.ConfirmationAdvantage)
             {
                 if (!tuning.ForceBestRecognitionResult)
                 {

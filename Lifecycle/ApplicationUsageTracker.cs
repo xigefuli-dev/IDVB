@@ -43,6 +43,7 @@ internal sealed class ApplicationUsageTracker : IDisposable
         try
         {
             _persistedTicks = ReadPersistedTicks();
+            _persistedTicksAtStartup = _persistedTicks;
             _historyReadable = true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
@@ -60,6 +61,9 @@ internal sealed class ApplicationUsageTracker : IDisposable
             throw new InvalidDataException("Unsupported application usage statistics.");
         return statistics.TotalTicks;
     }
+
+    internal TimeSpan? PreviousUsage => _historyReadable ? TimeSpan.FromTicks(_persistedTicksAtStartup) : null;
+    private readonly long _persistedTicksAtStartup;
 
     internal void Start()
     {

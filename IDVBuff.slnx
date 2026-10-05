@@ -29,6 +29,9 @@
     <Project Path="Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
     <Project Path="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
     <Project Path="IDVBuff.Tests\IDVBuff.Tests.csproj" />
+    <Project Path="IDVBuff.WinUI.RegressionTests\IDVBuff.WinUI.RegressionTests.csproj">
+        <Platform Project="x64" />
+    </Project>
     <Project Path="IDVBuff.MapAlignment.Probe\IDVBuff.MapAlignment.Probe.csproj" />
     <Project Path="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <Project Path="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />

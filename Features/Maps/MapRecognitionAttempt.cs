@@ -103,6 +103,23 @@ internal static class SideEntranceCandidateEvidence
 {
     private const double StrictInitialIdentityChamferLimit = 3.0d;
 
+    internal static bool ApplyConfirmedScanAttempt(SideEntranceScanCandidate candidate,
+        bool confirmed, ScanIdentityEvidence? verifiedEvidence, MapRecognitionAttempt? attempt)
+    {
+        // Confirmation belongs to one usable pose. Earlier local failures must
+        // not revoke it; the traversal still owns the shared execution deadline.
+        if (!confirmed || verifiedEvidence is null) return false;
+        ApplyStructureAttempt(candidate, attempt!);
+        candidate.IdentityEvidence = verifiedEvidence;
+        candidate.VerifiedTransform = attempt!.Recognition!.Result.OverlayTransform;
+        candidate.RawChamferPixels = verifiedEvidence.ForwardMeanPixels;
+        candidate.IdentityConfidence = verifiedEvidence.SupportedFraction;
+        candidate.Disposition = SideEntranceCandidateDisposition.Reliable;
+        candidate.RejectionReason = SideEntranceRejectionReason.None;
+        candidate.RejectionDetail = string.Empty;
+        return true;
+    }
+
     public static bool ApplyStructureAttempt(
         SideEntranceScanCandidate candidate,
         MapRecognitionAttempt attempt)

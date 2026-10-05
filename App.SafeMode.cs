@@ -30,20 +30,32 @@ public partial class App
 
         WriteStartupTrace("Safe mode is active; CV, overlay and plugin runtimes will not be initialized.");
         await PrepareMapListAsync(null);
+        if (IsApplicationStopping)
+            return true;
         if (!preferences.SafeModeFirstRunIntroductionCompleted)
         {
             await CompleteStartupPresentationAsync(startMinimized: false);
+            if (IsApplicationStopping) return true;
             await ShowSafeModeFirstRunIntroductionAsync(preferences);
         }
+        if (IsApplicationStopping)
+            return true;
         if (GameProcessIntegrityService.Check().CurrentProcessIsElevated)
         {
             await CompleteStartupPresentationAsync(startMinimized: false);
+            if (IsApplicationStopping) return true;
             await ShowSafeModeElevationWarningAsync();
         }
+        if (IsApplicationStopping)
+            return true;
 
         await EnsureMapRuntimeDisabledAsync();
+        if (IsApplicationStopping)
+            return true;
         await InitializeSafeModeTraditionalWindowInputAsync(
             DispatcherQueue.GetForCurrentThread());
+        if (IsApplicationStopping)
+            return true;
         _ = Task.Run(AutomaticUpdateLauncher.TryLaunch);
         if (startMinimized)
         {
@@ -53,8 +65,12 @@ public partial class App
         return true;
     }
 
+    private bool IsApplicationStopping =>
+        explicitExitRequested || shutdownInProgress || shutdownComplete || applicationExitRequested;
+
     private async Task ShowSafeModeFirstRunIntroductionAsync(MainProgramPreferences preferences)
     {
+        var cancellationToken = _startupPresentationCancellation.Token;
         var xamlRoot = await WaitForMainXamlRootAsync();
         if (xamlRoot is null)
             return;
@@ -66,9 +82,10 @@ public partial class App
             Content = "IDVB 是免费的开源软件，绝对不存在任何收费行为。如果你是花钱购买的，说明你被骗了。",
             CloseButtonText = "知道了",
             DefaultButton = ContentDialogButton.Close
-        }.ShowThemedAsync();
+        }.ShowThemedAsync(cancellationToken: cancellationToken);
 
-        var choice = await ShowSafeModeChoiceAsync(xamlRoot);
+        var choice = await ShowSafeModeChoiceAsync(xamlRoot, cancellationToken);
+        if (IsApplicationStopping) return;
         preferences.SafeModeFirstRunIntroductionCompleted = true;
         if (!choice)
         {
@@ -85,7 +102,7 @@ public partial class App
             Content = "已关闭，接下来需要你以管理员权限重新启动此软件。",
             CloseButtonText = "好的",
             DefaultButton = ContentDialogButton.Close
-        }.ShowThemedAsync();
+        }.ShowThemedAsync(cancellationToken: cancellationToken);
         RequestApplicationExit();
     }
 
@@ -93,17 +110,19 @@ public partial class App
     {
         for (var attempt = 0; attempt < 20; attempt++)
         {
+            if (IsApplicationStopping)
+                return null;
             if (window?.Content is FrameworkElement { XamlRoot: { } xamlRoot })
                 return xamlRoot;
 
-            await Task.Delay(50);
+            await Task.Delay(50, _startupPresentationCancellation.Token);
         }
 
         WriteStartupTrace("Safe-mode first-run introduction could not acquire a XamlRoot.");
         return null;
     }
 
-    private static async Task<bool> ShowSafeModeChoiceAsync(XamlRoot xamlRoot)
+    private static async Task<bool> ShowSafeModeChoiceAsync(XamlRoot xamlRoot, CancellationToken cancellationToken)
     {
         var dialog = new ContentDialog
         {
@@ -175,7 +194,7 @@ public partial class App
         timer.Start();
         try
         {
-            await dialog.ShowThemedAsync();
+            await dialog.ShowThemedAsync(cancellationToken: cancellationToken);
         }
         finally
         {
@@ -201,6 +220,8 @@ public partial class App
         DispatcherQueue dispatcher)
     {
         var settings = await new MapRuntimeSettingsRepository().LoadAsync();
+        if (IsApplicationStopping)
+            return;
         _safeModeInput = new MapGlobalInputService(dispatcher);
         _safeModeInput.SwitchFloorInvoked += SafeModeSwitchFloorInvoked;
         ApplySafeModeTraditionalWindowBinding(settings.TraditionalWindowSwitchFloorBinding);
@@ -251,6 +272,6 @@ public partial class App
             Content = "当前 Identity Vision Bridge 正以管理员权限运行。安全模式不需要管理员权限，建议退出后以普通用户权限重新启动；你也可以关闭此提示并继续使用。",
             CloseButtonText = "继续使用",
             DefaultButton = ContentDialogButton.Close
-        }.ShowThemedAsync();
+        }.ShowThemedAsync(cancellationToken: _startupPresentationCancellation.Token);
     }
 }

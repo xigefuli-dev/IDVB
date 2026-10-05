@@ -8,6 +8,7 @@ public partial class App
 {
     private void StartStartupBackgroundTasks(SessionOrchestrator session)
     {
+        if (IsApplicationStopping) return;
         if (MainProgramPreferences.Load().RealtimePerformanceOverlayEnabled)
             RealtimePerformanceOverlay.SetEnabled(true);
 
@@ -23,15 +24,21 @@ public partial class App
     {
         try
         {
+            if (IsApplicationStopping) return;
             var service = new MapSubscriptionService(new MapRepository());
             if (!service.GetSubscriptions().Any(item => item.Enabled)) return;
-            var result = await service.CheckAndApplyAsync();
+            var result = await service.CheckAndApplyAsync(_startupPresentationCancellation.Token);
+            if (IsApplicationStopping) return;
             if (result.AppliedCount > 0)
                 await session.RefreshMapCacheAsync();
             OutputLog.Write(
                 "INFO",
                 "MAP/SUBSCRIPTION",
                 $"Subscription check completed: checked={result.CheckedCount}, upToDate={result.UpToDateCount}, applied={result.AppliedCount}, failed={result.FailedCount}.");
+        }
+        catch (OperationCanceledException) when (IsApplicationStopping)
+        {
+            return;
         }
         catch (Exception exception)
         {

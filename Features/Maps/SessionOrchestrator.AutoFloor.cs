@@ -4,6 +4,24 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private CapturedGameFrame ExtractCapturedAlignmentFrame(MapRecord map, CapturedGameFrame captured)
+    {
+        var viewport = ResolveMapViewportForCurrentWindow();
+        var floors = MapFloorRules.GetOrderedFloors(map).Select(f => f.Key).ToArray();
+        var group = FloorIndicatorTemplateRegistry.Resolve(floors);
+        if (group is not null && _settings?.DisableAutoFloor != true)
+            return new AutoFloorCapture(map, group).Extract(captured, viewport);
+
+        var bounds = DwrGameWindowCaptureService.GetViewportBounds(captured.ClientBounds, viewport);
+        var rect = new Rect((int)Math.Round(bounds.X - captured.ViewportBounds.X),
+            (int)Math.Round(bounds.Y - captured.ViewportBounds.Y),
+            (int)Math.Round(bounds.Width), (int)Math.Round(bounds.Height));
+        if ((rect & new Rect(0, 0, captured.Image.Width, captured.Image.Height)) != rect)
+            throw new InvalidDataException("Map viewport is outside the captured scan frame.");
+        return new CapturedGameFrame(new Mat(captured.Image, rect), captured.ClientBounds,
+            bounds, captured.WindowHandle) { DetectedFloorKey = captured.DetectedFloorKey };
+    }
+
     private Task<CapturedGameFrame?> CaptureBackgroundAlignmentFrameAsync(
         MapRecord map, CancellationToken cancellationToken, Func<bool> shouldContinue)
     {

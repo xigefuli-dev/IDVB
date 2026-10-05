@@ -63,37 +63,45 @@ public sealed partial class SessionOrchestrator
     private Task InitializeAdaptiveScaleAsync() =>
         _adaptiveScale.InitializeAsync(_lifetimeCts.Token);
 
-    private async Task<AdaptiveAlignmentDecision> EvaluateAdaptiveInitialAsync(
+    private Task<AdaptiveAlignmentDecision> EvaluateAdaptiveInitialAsync(
         RuntimeMapRecognition recognition,
         CapturedGameFrame frame,
         MapScanDiagnostics? diagnostics,
-        MapFeatureCacheSource? explicitSource = null)
+        MapFeatureCacheSource? explicitSource = null,
+        Func<bool>? isCurrent = null,
+        CancellationToken cancellationToken = default)
     {
         // Manual runtime-scale locking is independent from adaptive-scale
         // arbitration, but it still needs the exact capture geometry so that
         // a lock cannot leak into another resolution. Record that context for
         // every accepted alignment, including provisional/disabled adaptive
         // results that are intentionally excluded from automatic cache writes.
-        RememberAlignmentCaptureContext(frame);
-        if (_recognition.DidChangeScaleOnRefresh(frame, recognition.Map, recognition.Result.Floor))
+        AdaptiveScaleKey? refreshedKey = null;
+        return MapOperationContinuation.CommitAfterAsync(async () =>
         {
-            var refreshedKey = AdaptiveScaleKey.Create(recognition.Map, recognition.Result.Floor, frame.ClientBounds, frame.ViewportBounds);
-            await _adaptiveScale.ResetForScaleRecoveryAsync(refreshedKey);
-            ForgetReliableFloorAlignment(CreateAlignmentContextKey(
-                _matchSession.Snapshot, frame, recognition.Map, recognition.Result.Floor));
-            lock (_manualFloorScaleLockGate)
-                foreach (var key in _manualFloorScaleLocks.Keys.Where(k => k.MapId == refreshedKey.MapId && k.FloorKey == refreshedKey.FloorKey).ToArray())
-                    _manualFloorScaleLocks.Remove(key);
-        }
-        _recognition.ObserveAlignmentCoverage(frame, recognition);
-        var source = explicitSource ?? ResolveLegacyScaleSource(recognition, frame);
-        var evidence = CreateAdaptiveInitialEvidence(recognition, diagnostics);
-        return _adaptiveScale.EvaluateInitial(
-            recognition,
-            frame,
-            source,
-            evidence,
-            _gameMapToggleState.Version);
+            if (_recognition.DidChangeScaleOnRefresh(frame, recognition.Map, recognition.Result.Floor))
+            {
+                refreshedKey = AdaptiveScaleKey.Create(recognition.Map, recognition.Result.Floor,
+                    frame.ClientBounds, frame.ViewportBounds);
+                await _adaptiveScale.ResetForScaleRecoveryAsync(refreshedKey.Value);
+            }
+        }, () =>
+        {
+            if (refreshedKey is { } refreshed)
+            {
+                ForgetReliableFloorAlignment(CreateAlignmentContextKey(
+                    _matchSession.Snapshot, frame, recognition.Map, recognition.Result.Floor));
+                lock (_manualFloorScaleLockGate)
+                    foreach (var key in _manualFloorScaleLocks.Keys.Where(k => k.MapId == refreshed.MapId && k.FloorKey == refreshed.FloorKey).ToArray())
+                        _manualFloorScaleLocks.Remove(key);
+            }
+            RememberAlignmentCaptureContext(frame);
+            _recognition.ObserveAlignmentCoverage(frame, recognition);
+            var source = explicitSource ?? ResolveLegacyScaleSource(recognition, frame);
+            var evidence = CreateAdaptiveInitialEvidence(recognition, diagnostics);
+            return _adaptiveScale.EvaluateInitial(recognition, frame, source, evidence,
+                _gameMapToggleState.Version);
+        }, cancellationToken, isCurrent);
     }
 
     private AdaptiveScaleInitialEvidence CreateAdaptiveInitialEvidence(

@@ -1,5 +1,4 @@
 using IDVBuff.PluginContracts;
-using IDVBuff.PluginHostMessages;
 
 namespace IDVBuff.Plugins.SceneQuickActions;
 
@@ -30,9 +29,6 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
     // —— 拖拽热键相关 ——
     private const int HotkeyDebounceMilliseconds = 400;
 
-    private const uint MouseeventfLeftdown = 0x0002;
-    private const uint MouseeventfLeftup = 0x0004;
-
     private const int BagSlotCount = 6;
     private const int HotbarSlotCount = 4;
 
@@ -40,17 +36,20 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
     private const double DropTargetX = 0.50;
     private const double DropTargetY = 0.50;
 
-    private static readonly IntPtr InjectionMarker =
-        new(InputInjectionMarkers.HostGeneratedInput);
-
+    private readonly object _lifecycleSync = new();
     private readonly object _sync = new();
-    private readonly GameFrameGrabber _grabber;
-    private readonly SceneQuickActionsMatcher _matcher;
+    // 跨启停保留同一把操作锁，直到最后一次 MouseUp / Tab 清理完成才交接。
+    private readonly SemaphoreSlim _inputOperationGate = new(1, 1);
+    private readonly ISceneQuickActionsFrameGrabber _grabber;
+    private readonly ISceneQuickActionsMatcher _matcher;
+    private readonly ISceneQuickActionsInput _input;
     private readonly IPluginLogger _logger;
 
     private SceneQuickActionsOptions _options = new();
     private CancellationTokenSource? _cancellation;
+    private CancellationTokenSource? _automaticOperationCancellation;
     private Thread? _worker;
+    private Task? _hotkeyTask;
     private volatile bool _mapOpen;
     private bool _inviteArmed = true;
     private bool _pickupArmed = true;
@@ -65,16 +64,18 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
     private int _hotkeyBusy;
     private int _hotbarCursor;
     private DateTime _lastHotkeyAt = DateTime.MinValue;
-    private DateTime _dropSilenceUntil = DateTime.MinValue;
+    private long _dropSilenceUntilTicks;
 
     public SceneQuickActionsRunner(
-        GameFrameGrabber grabber,
-        SceneQuickActionsMatcher matcher,
-        IPluginLogger logger)
+        ISceneQuickActionsFrameGrabber grabber,
+        ISceneQuickActionsMatcher matcher,
+        IPluginLogger logger,
+        ISceneQuickActionsInput? input = null)
     {
         _grabber = grabber ?? throw new ArgumentNullException(nameof(grabber));
         _matcher = matcher ?? throw new ArgumentNullException(nameof(matcher));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _input = input ?? SceneQuickActionsNativeInput.Instance;
     }
 
     public void SetOptions(SceneQuickActionsOptions options) =>
@@ -85,6 +86,7 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
 
     public void Start()
     {
+        lock (_lifecycleSync)
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -107,13 +109,20 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
 
     public void Stop()
     {
+        lock (_lifecycleSync)
+            StopCore();
+    }
+
+    private void StopCore()
+    {
         Thread? worker;
+        Task? hotkeyTask;
         CancellationTokenSource? cancellation;
         lock (_sync)
         {
             worker = _worker;
+            hotkeyTask = _hotkeyTask;
             cancellation = _cancellation;
-            _worker = null;
             _cancellation = null;
             StopHotkeys();
         }
@@ -127,11 +136,17 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
         }
 
         if (worker is not null && worker != Thread.CurrentThread)
-            worker.Join(TimeSpan.FromSeconds(3));
+            worker.Join();
+        hotkeyTask?.GetAwaiter().GetResult();
+        // 不能在仍使用 WaitHandle 或仍会执行 finally 时销毁 token / 开始新一轮。
         cancellation?.Dispose();
-
-        _inviteArmed = true;
-        _pickupArmed = true;
+        lock (_sync)
+        {
+            _worker = null;
+            _hotkeyTask = null;
+            _inviteArmed = true;
+            _pickupArmed = true;
+        }
     }
 
     public void Dispose()
@@ -172,8 +187,44 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
         }
     }
 
-    private void ProcessOnce(SceneQuickActionsOptions options, CancellationToken token)
+    internal void ProcessOnce(SceneQuickActionsOptions options, CancellationToken token)
     {
+        // 自动动作从取得新帧前开始独占；手动请求到达时优先取消自动动作并接管。
+        // 不排队旧检测帧，拖拽结束后下一轮重新抓取。
+        if (Volatile.Read(ref _hotkeyBusy) != 0 || !_inputOperationGate.Wait(0, token))
+            return;
+
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        try
+        {
+            lock (_sync)
+            {
+                if (Volatile.Read(ref _hotkeyBusy) != 0)
+                    return;
+                _automaticOperationCancellation = operationCancellation;
+            }
+            ProcessAutomaticScene(options, operationCancellation.Token);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            // 手动热键取消当前自动动作后，检测线程仍需继续下一轮。
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_automaticOperationCancellation, operationCancellation))
+                    _automaticOperationCancellation = null;
+            }
+            _inputOperationGate.Release();
+        }
+    }
+
+    private void ProcessAutomaticScene(SceneQuickActionsOptions options, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (_mapOpen)
+            return;
         if (!_grabber.TryGrab(out var frame, out var failure, token) || frame is null)
         {
             if (!IsIdleFailure(failure))
@@ -183,10 +234,11 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
 
         using (frame)
         {
+            token.ThrowIfCancellationRequested();
             var now = DateTime.UtcNow;
             if (options.InviteEnabled && ProcessInviteScene(frame, options, now, token))
                 return;
-            if (options.PickupEnabled && now >= _dropSilenceUntil)
+            if (options.PickupEnabled && now.Ticks >= Interlocked.Read(ref _dropSilenceUntilTicks))
                 ProcessPickupScene(frame, options, now, token);
         }
     }
@@ -200,8 +252,8 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
     private void WakeMouse(SceneQuickActionsOptions options, IntPtr windowHandle, CancellationToken token,
         ref bool wokeMouse)
     {
-        EnsureForeground(windowHandle);
-        NativeInput.InjectKey(SceneQuickActionsOptions.WakeVirtualKey, WakeHoldMilliseconds);
+        EnsureCanInject(windowHandle, token);
+        _input.InjectKey(SceneQuickActionsOptions.WakeVirtualKey, WakeHoldMilliseconds);
         wokeMouse = true;
         _logger.Info("已按 Tab 打开背包切出鼠标。");
 
@@ -211,9 +263,9 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
     }
 
     /// <summary>再按一次 Tab 把背包关掉，恢复游戏手势。游戏已不在前台时只记日志、不注入。</summary>
-    private void CloseBackpack(IntPtr windowHandle, SceneQuickActionsOptions options)
+    private void CloseBackpack(IntPtr windowHandle, SceneQuickActionsOptions options, CancellationToken token)
     {
-        if (!NativeInput.IsForegroundWindow(windowHandle))
+        if (!_input.IsForegroundWindow(windowHandle))
         {
             _logger.Warning("游戏已不在前台，跳过「按 Tab 关闭背包」。");
             return;
@@ -221,8 +273,10 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
 
         try
         {
-            NativeInput.InjectKey(SceneQuickActionsOptions.WakeVirtualKey, WakeHoldMilliseconds);
-            SleepAfterStep(options, 0);
+            _input.InjectKey(SceneQuickActionsOptions.WakeVirtualKey, WakeHoldMilliseconds);
+            // 清理必须完成，但取消后的所有权交接无需再等待随机延迟。
+            if (!token.IsCancellationRequested)
+                SleepAfterStep(options, 0, token);
             _logger.Info("已再按一次 Tab 关闭背包。");
         }
         catch (Exception exception)
@@ -231,9 +285,10 @@ internal sealed partial class SceneQuickActionsRunner : IDisposable
         }
     }
 
-    private static void EnsureForeground(IntPtr windowHandle)
+    private void EnsureCanInject(IntPtr windowHandle, CancellationToken token)
     {
-        if (!NativeInput.IsForegroundWindow(windowHandle))
+        token.ThrowIfCancellationRequested();
+        if (!_input.IsForegroundWindow(windowHandle))
             throw new InvalidOperationException("游戏已不在前台，已放弃本次自动点击。");
     }
 

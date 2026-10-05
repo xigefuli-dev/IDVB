@@ -114,13 +114,12 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         if (!isOpen)
         {
             CancelMapObservation();
-            CancelQuickScan();
             EndAdaptiveMapOpen("external game map closed");
             CancelOrbTracking("external game map closed");
             _overlay.ClearMap();
             RefreshMiniMapForCurrentFloor();
         }
-        else if (CanObserveMap)
+        else if (CanObserveMap && !HasActiveQuickScan)
             StartMapObservation();
         StateChanged?.Invoke(this, EventArgs.Empty);
     }

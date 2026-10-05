@@ -20,48 +20,52 @@ public sealed partial class SessionOrchestrator
         // 候选预览帧只用于立即展示候选窗口；真实对齐必须在用户选中后
         // 重新捕获当前完整地图帧。
         var ownsFrame = frame is null;
-        if (frame is null)
-        {
-            var stableViewport = ActiveOperationTrace?.StartTopLevel(
-                "stable_viewport",
-                MapOperationWaitKind.Capture);
-            try
-            {
-                frame = await CaptureBackgroundAlignmentFrameAsync(locked.Map,
-                    cancellationToken, () => _gameMapToggleState.IsCurrent(toggle));
-            }
-            finally
-            {
-                stableViewport?.Complete();
-            }
-        }
-        if (frame is null)
-        {
-            ActiveOperationTrace?.SetTerminal(
-                "failed",
-                "stable-viewport-capture-failed");
-            // 身份锁与 seed 已配对保留，玩家重新打开地图可经 recovering 链路重试。
-            _statusMessage =
-                string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)
-                    ? "后台扫描消费：地图截图失败，请保持地图打开后重试。"
-                    : _lastStableCaptureFailureReason;
-            _logCollector.Append(
-                MapLogCategory.ViewportCapture,
-                MapLogLevel.Warning,
-                _statusMessage);
-            return;
-        }
-
-        var effectiveFloor = FloorRecognitionRules.ResolveTargetFloor(
-            Settings.DisableAutoFloor, _currentFloorKey ?? targetFloorKey,
-            frame.DetectedFloorKey, MapFloorRules.GetPrimaryFloorKey(locked.Map));
-        if (effectiveFloor != targetFloorKey)
-            validatedStructureScaleSeed = null;
-        targetFloorKey = effectiveFloor;
-        if (!Settings.DisableAutoFloor && frame.DetectedFloorKey is { } floorKey)
-            PresentDetectedFloorBeforeAlignment(locked, floorKey, frame);
         try
         {
+            if (frame is null)
+            {
+                var stableViewport = ActiveOperationTrace?.StartTopLevel(
+                    "stable_viewport",
+                    MapOperationWaitKind.Capture);
+                try
+                {
+                    frame = await CaptureBackgroundAlignmentFrameAsync(locked.Map,
+                        cancellationToken, () => _gameMapToggleState.IsCurrent(toggle));
+                }
+                finally
+                {
+                    stableViewport?.Complete();
+                }
+            }
+            if (frame is null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ActiveOperationTrace?.SetTerminal(
+                    "failed",
+                    "stable-viewport-capture-failed");
+                // 身份锁与 seed 已配对保留，玩家重新打开地图可经 recovering 链路重试。
+                _statusMessage =
+                    string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)
+                        ? "后台扫描消费：地图截图失败，请保持地图打开后重试。"
+                        : _lastStableCaptureFailureReason;
+                _logCollector.Append(
+                    MapLogCategory.ViewportCapture,
+                    MapLogLevel.Warning,
+                    _statusMessage);
+                return;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var effectiveFloor = FloorRecognitionRules.ResolveTargetFloor(
+                Settings.DisableAutoFloor, _currentFloorKey ?? targetFloorKey,
+                frame.DetectedFloorKey, MapFloorRules.GetPrimaryFloorKey(locked.Map));
+            if (effectiveFloor != targetFloorKey)
+                validatedStructureScaleSeed = null;
+            targetFloorKey = effectiveFloor;
+            if (!Settings.DisableAutoFloor && frame.DetectedFloorKey is { } floorKey)
+                PresentDetectedFloorBeforeAlignment(locked, floorKey, frame);
+            var context = CaptureMapOpenOperationContext(toggle, operationMatch, locked,
+                cancellationToken, targetFloorKey, frame.WindowHandle, frame.ClientBounds);
             // 与正常扫描一致的初始对齐入口：真实侧门种子走带完整恢复上下文
             // 的侧门路线，其余主层才走通用 selected-map 路线；非主层保持
             // no-door 精确楼层路线。
@@ -221,15 +225,9 @@ public sealed partial class SessionOrchestrator
             MapRecognitionAttempt attempt;
             try
             {
-                attempt = await Task.Run(
+                attempt = await NoDoorAlignmentDeadline.RunAsync(
                     () =>
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        using var alignmentDeadline = new NoDoorAlignmentDeadline(
-                            cancellationToken,
-                            MapOpenAlignmentRouteRules.MaximumNoDoorAlignmentBudgetMilliseconds,
-                            enforceTimeBudget: false);
-                        using var alignmentBudget = alignmentDeadline.EnterAmbient();
                         selectedDispatch.Complete();
                         using var selectedWorker = MapOperationTraceAmbient.StartChild(
                             "candidate_worker_execution",
@@ -277,7 +275,8 @@ public sealed partial class SessionOrchestrator
                         failureReason ?? string.Empty,
                         operationMatch.MapClass!,
                         cancellationToken,
-                        requiresExplicitSelection: true);
+                        requiresExplicitSelection: true,
+                        continuingMapOpenOwner: cancellationToken);
                 }
                 finally
                 {
@@ -303,6 +302,9 @@ public sealed partial class SessionOrchestrator
                     return;
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!IsCurrentMatchOperation(operationMatch) || !_gameMapToggleState.IsCurrent(toggle))
+                    return;
                 locked = chosen;
                 targetFloorKey = ResolveBackgroundConsumeFloorKey(chosen);
                 ActiveOperationTrace?.SetContext(
@@ -318,6 +320,8 @@ public sealed partial class SessionOrchestrator
                         chosen,
                         targetFloorKey)
                     ?? CreateIndependentFloorSeedSession(chosen, targetFloorKey);
+                context = CaptureMapOpenOperationContext(toggle, operationMatch, chosen,
+                    cancellationToken, targetFloorKey, frame.WindowHandle, frame.ClientBounds);
                 MapFeatureCacheKey? secondRepairKey = null;
                 var secondAlignment = ActiveOperationTrace?.StartTopLevel(
                     "selected_candidate_alignment",
@@ -334,7 +338,7 @@ public sealed partial class SessionOrchestrator
                 MapRecognitionAttempt secondAttempt;
                 try
                 {
-                    secondAttempt = await Task.Run(
+                    secondAttempt = await NoDoorAlignmentDeadline.RunAsync(
                         () =>
                         {
                             secondDispatch.Complete();
@@ -416,7 +420,8 @@ public sealed partial class SessionOrchestrator
                 aligned,
                 failureReason,
                 repairCacheKey,
-                resetRecoveredScaleState: false);
+                resetRecoveredScaleState: false,
+                context);
             if (publishOutcome == MapOpenAlignmentPublishOutcome.Superseded)
             {
                 ActiveOperationTrace?.SetTerminal(

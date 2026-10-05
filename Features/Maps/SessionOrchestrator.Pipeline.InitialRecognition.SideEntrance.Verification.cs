@@ -56,17 +56,16 @@ public sealed partial class SessionOrchestrator
             }
             var hypotheses = candidate.SearchHypotheses.Count > 0 ? candidate.SearchHypotheses : new[] { candidate };
             var complete = true;
-            var supported = false;
             ScanIdentityEvidence? bestEvidence = null;
             MapAlignmentSession? bestSeed = null;
             MapRecognitionAttempt? bestAttempt = null;
-            foreach (var proposal in deferAmbiguousAlignment ? Array.Empty<SideEntranceScanCandidate>() : hypotheses)
+            bool TryConfirmProposal(SideEntranceScanCandidate proposal)
             {
                 var hypothesis = proposal;
-                if (!context.CanCompute) { complete = false; break; }
+                if (!context.CanCompute) { complete = false; return false; }
                 if (hypothesis.StructureIndex is not { } index
                     || !_recognition.TryCreateSideEntranceAlignmentSeed(hypothesis, frame.ViewportBounds, out var seed, out _))
-                { complete = false; continue; }
+                { complete = false; return false; }
                 var evidence = hypothesis.IdentityEvidence;
                 var competitiveCost = selectionPolicy == ScanIdentitySelectionPolicy.AllowDominantSupport
                     && reliable.Count > 0
@@ -81,7 +80,8 @@ public sealed partial class SessionOrchestrator
                     hypothesis = refined;
                     seed = refinedSeed;
                     evidence = refined.IdentityEvidence;
-                    candidate.SearchHypotheses = hypotheses.Append(refined).ToArray();
+                    candidate.SearchHypotheses = (candidate.SearchHypotheses.Count > 0
+                        ? candidate.SearchHypotheses : hypotheses).Append(refined).ToArray();
                 }
                 // A weaker alternative pose must not erase this identity's best
                 // support before the family-versus-outsider comparison below.
@@ -89,13 +89,13 @@ public sealed partial class SessionOrchestrator
                     && (candidate.IdentityEvidence.State != ScanIdentityState.Supported
                         || ScanIdentityVerifier.FitCost(evidence) < ScanIdentityVerifier.FitCost(candidate.IdentityEvidence)))
                     candidate.IdentityEvidence = evidence;
-                if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
+                if (evidence.State == ScanIdentityState.Unverified) { complete = false; return false; }
                 // A gate-anchored retrieval pose is not a confirmed alignment.
                 // Its bounded residual search can leave a near fit a few pixels
                 // off an authored anchor. Let the existing formal registration
                 // and VPSG confirmation correct it before excluding the identity.
                 // Only their final transform may pass the unchanged verifier below.
-                if (!ScanIdentityVerifier.ShouldAttemptStructureRegistration(evidence, context.Policy.Mode)) continue;
+                if (!ScanIdentityVerifier.ShouldAttemptStructureRegistration(evidence, context.Policy.Mode)) return false;
                 // Refinement can recover a weak outside identity. Keep that
                 // evidence in the final comparison, but do not spend a full
                 // registration/rescue on it if a verified family already wins.
@@ -105,7 +105,7 @@ public sealed partial class SessionOrchestrator
                     && winner != candidate.Map.Id)
                 {
                     dominatedAlignments++;
-                    continue;
+                    return false;
                 }
                 LogScanVerificationCandidateSelected(hypothesis, completed);
                 var structureTuning = CreateScanVerificationTuning(
@@ -123,11 +123,11 @@ public sealed partial class SessionOrchestrator
                     // The original pose still supports this identity. It cannot be
                     // selected without alignment, but it must remain a competitor.
                     complete = false;
-                    continue;
+                    return false;
                 }
                 // Re-evaluate the transform that will actually be consumed, including rescue/precision changes.
                 evidence = ScanIdentityVerifier.Verify(evidenceFrame, index, finalTransform, frame.ViewportBounds, context);
-                if (evidence.State == ScanIdentityState.Unverified) { complete = false; break; }
+                if (evidence.State == ScanIdentityState.Unverified) { complete = false; return false; }
                 // Rejection of the moved transform does not disprove the original
                 // supported identity; registration has not confirmed a usable pose.
                 if (evidence.State != ScanIdentityState.Supported)
@@ -140,7 +140,7 @@ public sealed partial class SessionOrchestrator
                             ["finalTransform"] = finalTransform
                         });
                     complete = false;
-                    continue;
+                    return false;
                 }
                 hypothesis.VerifiedTransform = finalTransform;
                 hypothesis.IdentityEvidence = evidence;
@@ -150,26 +150,21 @@ public sealed partial class SessionOrchestrator
                     bestSeed = seed;
                     bestAttempt = attempt;
                 }
-                supported = true;
                 // One confirmed pose establishes this identity's supported fit.
                 // Spend the remaining shared budget on competing identities, not
                 // repeated registrations of this already usable map.
-                break;
+                return true;
             }
+            var supported = !deferAmbiguousAlignment
+                && ScanIdentityVerifier.TryConfirmHypotheses(hypotheses, context, TryConfirmProposal);
+            complete &= context.CanCompute;
             // Alternative poses belong to the same identity. A failed alternative
             // cannot revoke a pose that passed both formal registration and final
             // evidence verification. Other identities and the shared deadline are
             // still checked independently by SelectIdentity and the commit guard.
-            if (supported && bestEvidence is not null)
+            if (SideEntranceCandidateEvidence.ApplyConfirmedScanAttempt(
+                candidate, supported, bestEvidence, bestAttempt))
             {
-                SideEntranceCandidateEvidence.ApplyStructureAttempt(candidate, bestAttempt!);
-                candidate.IdentityEvidence = bestEvidence;
-                candidate.VerifiedTransform = bestAttempt!.Recognition!.Result.OverlayTransform;
-                candidate.RawChamferPixels = bestEvidence.ForwardMeanPixels;
-                candidate.IdentityConfidence = bestEvidence.SupportedFraction;
-                candidate.Disposition = SideEntranceCandidateDisposition.Reliable;
-                candidate.RejectionReason = SideEntranceRejectionReason.None;
-                candidate.RejectionDetail = string.Empty;
                 reliable.Add((candidate, bestSeed!, bestAttempt!));
             }
             else

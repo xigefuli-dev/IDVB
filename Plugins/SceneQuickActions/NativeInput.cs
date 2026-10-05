@@ -30,6 +30,47 @@ internal static class NativeInput
     public static bool IsForegroundWindow(IntPtr window) =>
         window != IntPtr.Zero && GetForegroundWindow() == window;
 
+    public static bool TryGetForegroundGameWindow(out IntPtr window)
+    {
+        window = GetForegroundWindow();
+        if (window == IntPtr.Zero)
+            return false;
+        GetWindowThreadProcessId(window, out var processId);
+        if (processId == 0)
+            return false;
+
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            return string.Equals(process.ProcessName, "dwrg", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static bool TryGetClientBounds(IntPtr window, out PluginClientBounds bounds)
+    {
+        bounds = default;
+        if (window == IntPtr.Zero || !GetClientRect(window, out var client))
+            return false;
+
+        var width = client.Right - client.Left;
+        var height = client.Bottom - client.Top;
+        if (width <= 0 || height <= 0)
+            return false;
+
+        var origin = new NativePoint { X = client.Left, Y = client.Top };
+        if (!ClientToScreen(window, ref origin))
+            return false;
+
+        bounds = new PluginClientBounds(origin.X, origin.Y, width, height);
+        return true;
+    }
+
+    public static void SetLeftButton(bool down) => SendMouse(down ? MouseeventfLeftdown : MouseeventfLeftup, 0);
+
     public static void MoveCursorTo(int x, int y)
     {
         lock (SendGate)
@@ -101,60 +142,12 @@ internal static class NativeInput
     /// <summary>按下并抬起一个插件绑定（键盘组合或鼠标键）。</summary>
     public static void InjectBinding(PluginInputBinding binding, int holdMilliseconds)
     {
-        if (!binding.IsConfigured)
-            throw new InvalidOperationException("尚未设置「切出鼠标」按键。");
-
-        var modifiers = GetModifierKeys(binding.Modifiers).ToArray();
-        var companions = (binding.CompanionVirtualKeys ?? [])
-            .Where(key => key != 0 && key <= ushort.MaxValue)
-            .Distinct()
-            .ToArray();
-
-        foreach (var key in modifiers)
-            SendKeyboard(key, up: false);
-        try
-        {
-            foreach (var key in companions)
-                SendKeyboard(key, up: false);
-            try
+        SceneQuickActionsBindingExecutor.Execute(binding, holdMilliseconds, SendKeyboard,
+            (button, up) =>
             {
-                if (binding.Kind == PluginInputBindingKind.Mouse)
-                {
-                    var flags = GetMouseFlags(binding.MouseButton);
-                    SendMouse(flags.Down, flags.Data);
-                    try
-                    {
-                        Thread.Sleep(Math.Clamp(holdMilliseconds, 1, 500));
-                    }
-                    finally
-                    {
-                        SendMouse(flags.Up, flags.Data);
-                    }
-                }
-                else
-                {
-                    SendKeyboard(binding.VirtualKey, up: false);
-                    try
-                    {
-                        Thread.Sleep(Math.Clamp(holdMilliseconds, 1, 500));
-                    }
-                    finally
-                    {
-                        SendKeyboard(binding.VirtualKey, up: true);
-                    }
-                }
-            }
-            finally
-            {
-                for (var index = companions.Length - 1; index >= 0; index--)
-                    SendKeyboard(companions[index], up: true);
-            }
-        }
-        finally
-        {
-            for (var index = modifiers.Length - 1; index >= 0; index--)
-                SendKeyboard(modifiers[index], up: true);
-        }
+                var flags = GetMouseFlags(button);
+                SendMouse(up ? flags.Up : flags.Down, flags.Data);
+            }, Thread.Sleep);
     }
 
     public static void Sleep(int milliseconds, CancellationToken cancellationToken) =>
@@ -170,18 +163,6 @@ internal static class NativeInput
             PluginMouseButton.XButton2 => (MouseeventfXdown, MouseeventfXup, 2u << 16),
             _ => throw new ArgumentOutOfRangeException(nameof(button))
         };
-
-    private static IEnumerable<uint> GetModifierKeys(PluginInputModifiers modifiers)
-    {
-        if (modifiers.HasFlag(PluginInputModifiers.Control))
-            yield return 0x11;
-        if (modifiers.HasFlag(PluginInputModifiers.Alt))
-            yield return 0x12;
-        if (modifiers.HasFlag(PluginInputModifiers.Shift))
-            yield return 0x10;
-        if (modifiers.HasFlag(PluginInputModifiers.Windows))
-            yield return 0x5B;
-    }
 
     private static void SendKeyboard(uint virtualKey, bool up)
     {
@@ -274,6 +255,15 @@ internal static class NativeInput
         public int Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint inputCount, NativeInputStructure[] inputs, int inputSize);
 
@@ -287,4 +277,15 @@ internal static class NativeInput
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr window, out NativeRect rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr window, ref NativePoint point);
 }

@@ -55,9 +55,12 @@ internal sealed class LegacyPluginV2CompatibilityAdapter : IIdvbPlugin
         {
             _plugin.OnEnable();
             enabledCallbackCompleted = true;
+            cancellationToken.ThrowIfCancellationRequested();
             _subscribe();
             subscribed = true;
+            cancellationToken.ThrowIfCancellationRequested();
             _plugin.OnStart();
+            cancellationToken.ThrowIfCancellationRequested();
             _started = true;
             return ValueTask.CompletedTask;
         }

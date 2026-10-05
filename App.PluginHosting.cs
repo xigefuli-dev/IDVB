@@ -36,6 +36,7 @@ public partial class App
 
     private async Task InitializeThirdPartyPluginsAsync(IMessageBus pluginBus)
     {
+        if (IsApplicationStopping) return;
         using var timing = StartupTimeline.Measure("Third-party initialization body (after method JIT)");
         WriteStartupTrace("Third-party directories, state and installer construction begin.");
         // Developer mode is explicit and uses isolated package, trust and state directories.
@@ -77,7 +78,7 @@ public partial class App
                     $"PLUGIN/{manifest.Id}",
                     exception is null ? message : $"{message}{Environment.NewLine}{exception}")),
             QueueThirdPartyPluginFault);
-        _thirdPartyPluginRuntime = new ThirdPartyPluginRuntimeManager(
+        var thirdPartyRuntime = new ThirdPartyPluginRuntimeManager(
             _thirdPartyPluginDirectories,
             _thirdPartyPluginState,
             _thirdPartyPluginInstaller,
@@ -85,13 +86,19 @@ public partial class App
         {
             StartupDiagnostic = message => WriteStartupTrace($"Third-party: {message}")
         };
+        _thirdPartyPluginRuntime = thirdPartyRuntime;
         WriteStartupTrace("Third-party manager constructed.");
         try
         {
             using (StartupTimeline.Measure("Third-party activation gate close"))
-                await _thirdPartyPluginRuntime.SetMatchActivationAsync(false);
+                await thirdPartyRuntime.SetMatchActivationAsync(false, _startupPresentationCancellation.Token);
+            if (IsApplicationStopping) return;
             using (StartupTimeline.Measure("Third-party runtime StartAsync call"))
-                await _thirdPartyPluginRuntime.StartAsync();
+                await thirdPartyRuntime.StartAsync(_startupPresentationCancellation.Token);
+        }
+        catch (OperationCanceledException) when (IsApplicationStopping)
+        {
+            return;
         }
         catch (Exception exception)
         {

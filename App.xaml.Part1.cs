@@ -42,6 +42,7 @@ namespace IDVBuff
                 return;
 
             shutdownInProgress = true;
+            StopStartupPresentation();
             var closingWindow = window;
 
             // 立即隐藏主窗口与系统托盘图标，从用户视觉上瞬间关闭（< 10ms），绝无空白卡顿或“未响应”
@@ -74,6 +75,7 @@ namespace IDVBuff
 
             try
             {
+                await DrainRuntimeStartupAsync();
                 // Detach the active page tree first while window is already hidden.
                 if (closingWindow is not null)
                 {
@@ -249,7 +251,7 @@ namespace IDVBuff
                 && (args.DidPositionChange || args.DidSizeChange || args.DidPresenterChange)
                 && sender.Presenter is OverlappedPresenter { State: not OverlappedPresenterState.Minimized })
                 CaptureMainWindowPlacement();
-            if (args.DidPresenterChange
+            if (!_startupPresentationPending && args.DidPresenterChange
                 && sender.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }
                 && MainProgramPreferences.Load().MinimizeToTray)
                 HideMainWindow();
@@ -283,7 +285,7 @@ namespace IDVBuff
             if (currentWindow.AppWindow.Presenter is OverlappedPresenter presenter)
             {
                 if (presenter.State == OverlappedPresenterState.Minimized)
-                    presenter.Restore();
+                    presenter.Restore(bringToForeground);
             }
             if (bringToForeground)
             {
@@ -347,112 +349,6 @@ namespace IDVBuff
         [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
         [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr windowHandle, int attribute, ref int attributeValue, int attributeSize);
-
-        private async Task ShowUpdatedSuccessfullyAsync()
-        {
-            UpdateLifecycleState.WasRestartedAfterUpdate = false;
-            if (window?.Content is not FrameworkElement root)
-                return;
-            await new ContentDialog
-            {
-                XamlRoot = root.XamlRoot,
-                Title = "更新完成",
-                Content = $"Identity Vision Bridge 已更新到 {BuildVersionInfo.BuildVersion}。",
-                CloseButtonText = "知道了"
-            }.ShowThemedAsync();
-        }
-
-        private async Task ShowQuickStartAsync(Features.Maps.SessionOrchestrator session)
-        {
-            var stateStore = new QuickStartStateStore();
-            if (!stateStore.ShouldShow)
-                return;
-
-            FrameworkElement? root = null;
-            for (var attempt = 0; attempt < 10; attempt++)
-            {
-                root = window?.Content as FrameworkElement;
-                if (root?.XamlRoot is not null)
-                    break;
-                await Task.Delay(100);
-            }
-
-            var choice = await QuickStartDialog.ShowAsync(root?.XamlRoot);
-            if (choice is null)
-                return;
-
-            if (choice == QuickStartChoice.UseRecommendedSettings)
-            {
-                try
-                {
-                    await ApplyQuickStartSelectionAsync(session);
-                    if (_mainFrame?.Content is MainPage mainPage)
-                        await mainPage.ShowRecommendedConfigurationGuideAsync();
-                }
-                catch (Exception exception)
-                {
-                    WriteStartupTrace("Unable to apply quick-start recommended settings.", exception);
-                    return;
-                }
-            }
-
-            try
-            {
-                stateStore.MarkCompleted();
-            }
-            catch (Exception exception)
-            {
-                // A marker failure must not prevent the application from starting.
-                WriteStartupTrace("Unable to persist quick-start completion.", exception);
-            }
-        }
-
-        private void Runtime_ElevationRequiredDetected(object? sender, EventArgs e)
-        {
-            // The integrity check runs during SessionOrchestrator initialization.
-            // Defer the mandatory dialog until the rest of OnLaunched has completed.
-            startupElevationRequired = true;
-            WriteStartupTrace("Startup requires administrator privileges.");
-        }
-
-        private async Task ShowStartupElevationRequiredAsync()
-        {
-            var currentWindow = window;
-            try
-            {
-                if (currentWindow is null)
-                    return;
-
-                FrameworkElement? root = null;
-                for (var attempt = 0; attempt < 10; attempt++)
-                {
-                    root = currentWindow.Content as FrameworkElement;
-                    if (root?.XamlRoot is not null)
-                        break;
-                    await Task.Delay(150);
-                }
-
-                if (root?.XamlRoot is not null)
-                {
-                    await new ContentDialog
-                    {
-                        XamlRoot = root.XamlRoot,
-                        Title = "需要管理员权限",
-                        Content = "Identity Vision Bridge 必须以管理员权限运行，请退出后重新以管理员权限打开。",
-                        CloseButtonText = "退出",
-                        DefaultButton = ContentDialogButton.Close
-                    }.ShowThemedAsync();
-                }
-            }
-            catch (Exception exception)
-            {
-                WriteStartupTrace("Unable to show the administrator privilege prompt.", exception);
-            }
-            finally
-            {
-                RequestApplicationExit();
-            }
-        }
 
         private static void TrySetWindowIcon(Window targetWindow)
         {

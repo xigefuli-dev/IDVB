@@ -26,7 +26,7 @@ internal sealed class GrabbedFrame(Mat gray, PluginClientBounds bounds, IntPtr w
 /// 插件 SDK 的 <see cref="IPluginScreenshotService"/>（一次性 PNG 截图）。两条路径都要求
 /// dwrg.exe 在前台窗口。
 /// </summary>
-internal sealed class GameFrameGrabber
+internal sealed class GameFrameGrabber : ISceneQuickActionsFrameGrabber
 {
     private const string CaptureContractTypeName = "IDVBuff.Core.Contracts.IGameWindowCapture";
     private static readonly TimeSpan ReflectionRetryInterval = TimeSpan.FromSeconds(5);

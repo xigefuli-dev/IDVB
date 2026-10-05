@@ -59,3 +59,45 @@ public sealed record MapOpenOperationContext
         return true;
     }
 }
+
+/// <summary>Latest-wins cancellation with an explicit continuing identity-commit owner.</summary>
+internal sealed class MapOpenCancellationOwner
+{
+    private readonly object _gate = new();
+    private CancellationTokenSource? _current;
+
+    internal CancellationTokenSource Begin(CancellationToken match, CancellationToken external)
+    {
+        lock (_gate)
+        {
+            _current?.Cancel();
+            var scope = CancellationTokenSource.CreateLinkedTokenSource(match, external);
+            _current = scope;
+            return scope;
+        }
+    }
+
+    internal void Complete(CancellationTokenSource scope)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_current, scope)) _current = null;
+        }
+        scope.Dispose();
+    }
+
+    internal void CancelUnlessOwnedBy(CancellationToken continuingOwner = default)
+    {
+        lock (_gate)
+        {
+            if (continuingOwner.CanBeCanceled)
+            {
+                continuingOwner.ThrowIfCancellationRequested();
+                if (_current is null || _current.Token != continuingOwner)
+                    throw new OperationCanceledException("Map-open identity commit lost its owner.", continuingOwner);
+                return;
+            }
+            _current?.Cancel();
+        }
+    }
+}

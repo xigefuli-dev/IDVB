@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <!-- This executable renders genuine WinUI controls on its own STA dispatcher.
+         The ordinary xUnit suite launches it and checks its process exit/results. -->
+    <UseWinUI>true</UseWinUI>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Include="RegressionApp.xaml" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
+    <PackageReference Include="xunit.assert" Version="2.9.3" />
+    <ProjectReference Include="..\IDVBuff.Appearance\IDVBuff.Appearance.csproj" />
+    <ProjectReference Include="..\Survey\Domain\IDVBuff.Survey.Domain.csproj" />
+    <Compile Include="..\Core\Contracts\ICaptureProtectionService.cs" Link="Production\ICaptureProtectionService.cs" />
+    <Compile Include="..\Presentation\Theming\*.cs" Link="Production\Theming\%(Filename)%(Extension)" />
+    <Compile Include="..\GaussianBlurBackdrop.cs" Link="Production\GaussianBlurBackdrop.cs" />
+    <Compile Include="..\Features\Maps\MapControlPanelWindow*.cs" Link="Production\Maps\%(Filename)%(Extension)" />
+    <Compile Include="..\Features\Maps\MapPlayerModels.cs" Link="Production\Maps\MapPlayerModels.cs" />
+    <Compile Include="..\Features\Maps\BorderlessWindowHelper.cs" Link="Production\Maps\BorderlessWindowHelper.cs" />
+    <Compile Include="..\Features\Maps\GameInputPreservingWindow.cs" Link="Production\Maps\GameInputPreservingWindow.cs" />
+    <Compile Include="..\Lifecycle\MainWindowPlacement.cs" Link="Production\Lifecycle\MainWindowPlacement.cs" />
+    <Compile Include="..\Lifecycle\StartupWindowInteractionGuard.cs" Link="Production\Lifecycle\StartupWindowInteractionGuard.cs" />
+  </ItemGroup>
+</Project>

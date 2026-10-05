@@ -135,10 +135,13 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         _byId[plugin.Id] = registration;
     }
 
-    public void Start()
+    public void Start() => Start(CancellationToken.None);
+
+    public void Start(CancellationToken cancellationToken)
     {
         if (_started)
             return;
+        cancellationToken.ThrowIfCancellationRequested();
         _started = true;
 
         try
@@ -147,29 +150,19 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             // plugin is marked as AlwaysActive to run across match boundaries.
             foreach (var registration in _registrations)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (_activationAllowed || registration.IsAlwaysActive)
                 {
-                    InitializeRegistration(registration);
+                    InitializeRegistration(registration, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (registration.DesiredEnabled)
-                        EnableRegistration(registration);
+                        EnableRegistration(registration, cancellationToken);
                 }
             }
         }
         catch
         {
-            _started = false;
-            foreach (var registration in _registrations.AsEnumerable().Reverse())
-            {
-                DisableRegistration(registration);
-                try
-                {
-                    registration.Adapter?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                }
-                catch (Exception exception)
-                {
-                    registration.Context?.Logger.Error($"OnUnload 异常：{exception}");
-                }
-            }
+            Stop();
             throw;
         }
     }
@@ -247,12 +240,12 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         }
     }
 
-    private void EnableRegistration(Registration registration)
+    private void EnableRegistration(Registration registration, CancellationToken cancellationToken = default)
     {
         try
         {
             (registration.Adapter ?? throw new InvalidOperationException("Plugin adapter is not initialized."))
-                .StartAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
+                .StartAsync(cancellationToken).AsTask().GetAwaiter().GetResult();
             registration.Enabled = true;
         }
         catch
@@ -262,8 +255,9 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
         }
     }
 
-    private void InitializeRegistration(Registration registration)
+    private void InitializeRegistration(Registration registration, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (registration.Adapter is not null)
             return;
 
@@ -275,8 +269,9 @@ public sealed class PluginHost : IPluginHost, IPluginRegistry, IDisposable
             registration.Plugin,
             () => Subscribe(registration),
             () => Unsubscribe(registration));
-        registration.Adapter.InitializeAsync(registration.SdkContext, CancellationToken.None)
+        registration.Adapter.InitializeAsync(registration.SdkContext, cancellationToken)
             .AsTask().GetAwaiter().GetResult();
+        cancellationToken.ThrowIfCancellationRequested();
         ContextInitialized?.Invoke(registration.Plugin);
     }
 

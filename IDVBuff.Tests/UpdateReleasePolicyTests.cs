@@ -153,11 +153,13 @@ public sealed class UpdateReleasePolicyTests
     [Fact]
     public void InstalledMainApplicationStartsAThrottledBackgroundUpdateCheck()
     {
-        var app = Read("App.xaml.cs");
+        var app = Read("App.xaml.cs") + Read("App.RuntimeStartup.cs");
         var startupTasks = Read("App.MapSubscriptions.cs");
         var launcher = Read("Lifecycle", "AutomaticUpdateLauncher.cs");
 
         Assert.Contains("StartStartupBackgroundTasks(session)", app);
+        Assert.Contains("_runtimeStartupTask = CompleteRuntimeStartupAsync(startMinimized, dispatcher, cliOptions)", app);
+        Assert.Contains("await _runtimeStartupTask", app);
         Assert.Contains("Task.Run(AutomaticUpdateLauncher.TryLaunch)", startupTasks);
         Assert.Contains("TimeSpan.FromHours(24)", launcher);
         Assert.Contains("state.Channel, channel", launcher);

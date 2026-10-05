@@ -14,7 +14,7 @@ internal readonly record struct MatchHit(double Score, Rect Box, double Scale)
 /// 多尺度 + 限定区域的模板匹配。基础缩放按「当前帧宽度 / 1920」推算，
 /// 再在其上下各留两档（0.90–1.10），以同时适应窗口化与非 1080p 分辨率。
 /// </summary>
-internal sealed class SceneQuickActionsMatcher : IDisposable
+internal sealed class SceneQuickActionsMatcher : ISceneQuickActionsMatcher, IDisposable
 {
     private static readonly double[] ScaleFactors = [0.90, 0.95, 1.00, 1.05, 1.10];
 

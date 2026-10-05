@@ -203,19 +203,25 @@ public sealed partial class MainPage : Page
                 QueueInitialNavigationIndicatorPosition(visibleSelectionTarget);
         }
 
-        if (!App.IsServicesReady && moduleId != "home" && moduleId != "help" && moduleId != "main-settings" && moduleId != "account")
-        {
-            var loadingRing = new ProgressRing { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            ModuleContentHost.Content = loadingRing;
-            await App.ServicesReadyTask;
-            if (revision != _navigationRevision)
-                return;
-        }
-
         var animateMainContent = true;
         try
         {
-            var view = App.IsSafeMode && IsSafeModeRestrictedModule(moduleId)
+            var servicesReady = ModuleNavigationRules.GetRequiredServicesReadyTask(
+                moduleId, App.IsSafeMode, App.IsServicesReady, App.ServicesReadyTask);
+            if (!servicesReady.IsCompletedSuccessfully)
+            {
+                ModuleContentHost.Content = new ProgressRing
+                {
+                    IsActive = true,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                await servicesReady;
+                if (revision != _navigationRevision)
+                    return;
+            }
+
+            var view = App.IsSafeMode && ModuleNavigationRules.IsSafeModeRestrictedModule(moduleId)
                 ? CreateSafeModeRestrictedView(moduleId)
                 : _catalog.GetRequired(moduleId).CreateView();
             // Prepare persisted state before attaching controls to the live visual tree.
@@ -302,8 +308,7 @@ public sealed partial class MainPage : Page
 
     private async Task ShowSafeModeTutorialAsync()
     {
-        NavigateTo("map-list");
-        await Task.Yield();
+        await NavigateToAsync("map-list");
         if (ModuleContentHost.XamlRoot is not { } xamlRoot)
             return;
 
@@ -317,12 +322,9 @@ public sealed partial class MainPage : Page
         }.ShowThemedAsync();
     }
 
-    private static bool IsSafeModeRestrictedModule(string moduleId) => moduleId is
-        "map-status" or "plugins";
-
     private static FrameworkElement CreateSafeModeRestrictedView(string moduleId)
     {
-        if (moduleId == "map-status")
+        if (string.Equals(moduleId, "map-status", StringComparison.OrdinalIgnoreCase))
             return new SafeModeMapStatusPage();
 
         return new StackPanel

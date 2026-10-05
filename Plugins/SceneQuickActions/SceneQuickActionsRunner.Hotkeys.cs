@@ -1,6 +1,4 @@
-using System.ComponentModel;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using IDVBuff.PluginContracts;
 
 namespace IDVBuff.Plugins.SceneQuickActions;
@@ -71,20 +69,20 @@ internal sealed partial class SceneQuickActionsRunner
         var scheduled = false;
         try
         {
-            if (!IsGameForeground())
+            if (!_input.TryGetForegroundGameWindow(out var window))
             {
                 LogThrottled("热键已按下，但当前前台窗口不是游戏，已忽略。");
                 return;
             }
-
-            var window = GetForegroundWindow();
 
             // 暂停「拾取相关」：默认 30 秒，免得把刚丢出来的东西又捡回去。
             var silence = Math.Clamp(
                 options.DropSilenceSeconds,
                 SceneQuickActionsOptions.DropSilenceMinimum,
                 SceneQuickActionsOptions.DropSilenceMaximum);
-            _dropSilenceUntil = DateTime.UtcNow.AddSeconds(silence);
+            Interlocked.Exchange(ref _dropSilenceUntilTicks, DateTime.UtcNow.AddSeconds(silence).Ticks);
+            // 手动操作优先：自动动作取消后仍持有操作锁，先释放鼠标、恢复背包，再交接。
+            _automaticOperationCancellation?.Cancel();
 
             string[] work;
             var hotbarSlot = 0;
@@ -106,14 +104,27 @@ internal sealed partial class SceneQuickActionsRunner
                     + $"「拾取相关」暂停 {silence} 秒。");
             }
 
-            _ = Task.Run(() =>
+            _hotkeyTask = Task.Run(() =>
             {
+                var ownsInput = false;
                 try
                 {
+                    _inputOperationGate.Wait(token);
+                    ownsInput = true;
+                    EnsureCanInject(window, token);
                     RunDropWork(work, window, isBag, hotbarSlot, options, token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception exception)
+                {
+                    _logger.Warning($"拖拽失败：{exception.Message}");
                 }
                 finally
                 {
+                    if (ownsInput)
+                        _inputOperationGate.Release();
                     Interlocked.Exchange(ref _hotkeyBusy, 0);
                 }
             });
@@ -191,7 +202,8 @@ internal sealed partial class SceneQuickActionsRunner
         try
         {
             token.ThrowIfCancellationRequested();
-            if (!TryGetClientBounds(window, out var bounds))
+            EnsureCanInject(window, token);
+            if (!_input.TryGetClientBounds(window, out var bounds))
                 return;
 
             if (!SceneQuickActionsDropPlan.TryGetSlots(
@@ -216,11 +228,7 @@ internal sealed partial class SceneQuickActionsRunner
 
             for (var index = 0; index < source.Length; index++)
             {
-                if (!IsGameForeground())
-                {
-                    _logger.Warning("游戏已不在前台，放弃本次拖拽。");
-                    return;
-                }
+                EnsureCanInject(window, token);
 
                 var fromX = originX + (int)Math.Round(source[index].X * bounds.Width);
                 var fromY = originY + (int)Math.Round(source[index].Y * bounds.Height);
@@ -241,7 +249,7 @@ internal sealed partial class SceneQuickActionsRunner
         {
             // 再把背包关回去，恢复游戏手势（再按一次 Tab 是开/关切换）。
             if (wokeMouse)
-                CloseBackpack(window, options);
+                CloseBackpack(window, options, token);
         }
     }
 
@@ -249,9 +257,8 @@ internal sealed partial class SceneQuickActionsRunner
     private void WakeMouseForDrop(IntPtr window, SceneQuickActionsOptions options,
         CancellationToken token, ref bool wokeMouse)
     {
-        token.ThrowIfCancellationRequested();
-        EnsureForeground(window);
-        NativeInput.InjectKey(SceneQuickActionsOptions.WakeVirtualKey, WakeHoldMilliseconds);
+        EnsureCanInject(window, token);
+        _input.InjectKey(SceneQuickActionsOptions.WakeVirtualKey, WakeHoldMilliseconds);
         wokeMouse = true;
         _logger.Info("已按 Tab 打开背包切出鼠标（准备拖拽）。");
 
@@ -260,7 +267,7 @@ internal sealed partial class SceneQuickActionsRunner
     }
 
     /// <summary>按一次左键拖拽：移动 → 按下 → 缓动到目标 → 松手。快慢由 timing 决定。</summary>
-    private static void DragOnce(
+    private void DragOnce(
         IntPtr window,
         int fromX,
         int fromY,
@@ -271,12 +278,12 @@ internal sealed partial class SceneQuickActionsRunner
         int afterReleaseMilliseconds,
         CancellationToken token)
     {
-        token.ThrowIfCancellationRequested();
-        SetCursor(fromX, fromY);
+        EnsureCanInject(window, token);
+        _input.MoveCursorTo(fromX, fromY);
         SleepAfterStep(options, timing.Settle, token);
 
-        EnsureForeground(window);
-        SendMouse(MouseeventfLeftdown);
+        EnsureCanInject(window, token);
+        _input.SetLeftButton(down: true);
         try
         {
             SleepAfterStep(options, timing.Settle, token);
@@ -284,11 +291,10 @@ internal sealed partial class SceneQuickActionsRunner
             var perStep = Math.Max(1, timing.Move / steps);
             for (var step = 1; step <= steps; step++)
             {
-                token.ThrowIfCancellationRequested();
-                EnsureForeground(window);
+                EnsureCanInject(window, token);
                 var progress = step / (double)steps;
                 var eased = progress * progress * (3 - (2 * progress));
-                SetCursor(
+                _input.MoveCursorTo(
                     (int)Math.Round(fromX + ((targetX - fromX) * eased)),
                     (int)Math.Round(fromY + ((targetY - fromY) * eased)));
                 NativeInput.Sleep(perStep, token);
@@ -297,137 +303,9 @@ internal sealed partial class SceneQuickActionsRunner
         }
         finally
         {
-            SendMouse(MouseeventfLeftup);
+            _input.SetLeftButton(down: false);
         }
         SleepAfterStep(options, afterReleaseMilliseconds, token);
     }
-
-    private static void SetCursor(int x, int y)
-    {
-        if (!SetCursorPos(x, y))
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "无法移动鼠标指针。");
-    }
-
-    private static void SendMouse(uint flags)
-    {
-        var input = new NativeInputStructure
-        {
-            Type = InputMouse,
-            Data = new NativeInputUnion
-            {
-                Mouse = new MouseInput
-                {
-                    Flags = flags,
-                    ExtraInfo = InjectionMarker
-                }
-            }
-        };
-        if (SendInput(1, [input], Marshal.SizeOf<NativeInputStructure>()) != 1)
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注入鼠标输入。");
-    }
-
-    private static bool IsGameForeground()
-    {
-        var window = GetForegroundWindow();
-        if (window == IntPtr.Zero)
-            return false;
-        GetWindowThreadProcessId(window, out var processId);
-        if (processId == 0)
-            return false;
-
-        try
-        {
-            using var process = System.Diagnostics.Process.GetProcessById((int)processId);
-            return string.Equals(process.ProcessName, "dwrg", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool TryGetClientBounds(IntPtr window, out ClientBounds bounds)
-    {
-        bounds = default;
-        if (window == IntPtr.Zero || !GetClientRect(window, out var client))
-            return false;
-
-        var width = client.Right - client.Left;
-        var height = client.Bottom - client.Top;
-        if (width <= 0 || height <= 0)
-            return false;
-
-        var origin = new NativePoint { X = client.Left, Y = client.Top };
-        if (!ClientToScreen(window, ref origin))
-            return false;
-
-        bounds = new ClientBounds(origin.X, origin.Y, width, height);
-        return true;
-    }
-
-    private readonly record struct ClientBounds(int X, int Y, int Width, int Height);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X;
-        public int Y;
-    }
-
-    private const uint InputMouse = 0;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeInputStructure
-    {
-        public uint Type;
-        public NativeInputUnion Data;
-    }
-
-    [StructLayout(LayoutKind.Explicit)]
-    private struct NativeInputUnion
-    {
-        [FieldOffset(0)] public MouseInput Mouse;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MouseInput
-    {
-        public int X;
-        public int Y;
-        public uint MouseData;
-        public uint Flags;
-        public uint Time;
-        public IntPtr ExtraInfo;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetClientRect(IntPtr window, out NativeRect rect);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ClientToScreen(IntPtr window, ref NativePoint point);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetCursorPos(int x, int y);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint SendInput(uint count, NativeInputStructure[] inputs, int size);
 
 }

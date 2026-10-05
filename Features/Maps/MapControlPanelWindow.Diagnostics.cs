@@ -1,7 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Windows.UI;
+using IDVBuff.Appearance;
+using IDVBuff.Presentation.Theming;
 
 namespace IDVBuff.Features.Maps;
 
@@ -28,10 +29,10 @@ public sealed partial class MapControlPanelWindow
                 {
                     Glyph = "\uE7BA",
                     FontFamily = new FontFamily("Segoe Fluent Icons"),
-                    Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 185, 0)),
                     FontSize = 15,
                     VerticalAlignment = VerticalAlignment.Center
                 };
+                warning.Foreground = ThemeService.For(warning)[ThemeToken.WarningText];
                 ToolTipService.SetToolTip(warning, diagnostic.Summary);
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(
                     warning, diagnostic.Summary);
@@ -50,11 +51,13 @@ public sealed partial class MapControlPanelWindow
 
     private void OnDiagnosticSnapshotChanged()
     {
-        var dispatcher = _window?.DispatcherQueue;
+        var window = _window;
+        var dispatcher = window?.DispatcherQueue;
         if (dispatcher is null)
             return;
         dispatcher.TryEnqueue(() =>
         {
+            if (_disposed || !ReferenceEquals(_window, window)) return;
             var snapshot = MapClassDiagnosticCoordinator.Instance.Snapshot;
             _mapClassDiagnostics = _mapClasses.Select(mapClass =>
                 snapshot.TryGetValue(mapClass, out var diagnostic)

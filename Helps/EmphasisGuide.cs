@@ -191,6 +191,7 @@ public sealed partial class EmphasisGuide : IDisposable
             try
             {
                 var result = await step.CheckAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (result.IsPassed)
                 {
                     consecutiveFailedChecks = 0;
@@ -206,7 +207,7 @@ public sealed partial class EmphasisGuide : IDisposable
                 if (consecutiveFailedChecks >= FailedChecksBeforeSkipPrompt)
                 {
                     consecutiveFailedChecks = 0;
-                    if (await ConfirmSkipAfterFailedChecksAsync(step, checkMessage.Text))
+                    if (await ConfirmSkipAfterFailedChecksAsync(step, checkMessage.Text, cancellationToken))
                     {
                         completion.TrySetResult();
                         return;

@@ -4,7 +4,8 @@ public sealed partial class EmphasisGuide
 {
     private async Task<bool> ConfirmSkipAfterFailedChecksAsync(
         EmphasisGuideStep step,
-        string failureMessage)
+        string failureMessage,
+        CancellationToken cancellationToken)
     {
         var dialog = new ContentDialog
         {
@@ -15,6 +16,6 @@ public sealed partial class EmphasisGuide
             CloseButtonText = "继续检查",
             DefaultButton = ContentDialogButton.Close
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await dialog.ShowThemedAsync(cancellationToken: cancellationToken) == ContentDialogResult.Primary;
     }
 }

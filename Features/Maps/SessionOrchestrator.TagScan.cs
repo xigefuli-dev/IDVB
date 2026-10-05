@@ -173,6 +173,7 @@ public sealed partial class SessionOrchestrator
         var locked = LockSelectedMapIdentity(chosen, initialFrame, userConfirmed: true);
         var targetFloorKey = ResolveBackgroundConsumeFloorKey(locked);
         _pendingAlignmentSeed = CreateIndependentFloorSeedSession(locked, targetFloorKey);
+        var isCurrent = CaptureRecognitionContinuationGuard(operationMatch, cancellationToken);
 
         _scanProgressOverlay.Report(0.90d, "正在对齐所选地图...");
         CapturedGameFrame? alignmentFrame = null;
@@ -181,7 +182,7 @@ public sealed partial class SessionOrchestrator
             alignmentFrame = await CaptureBackgroundAlignmentFrameAsync(
                 locked.Map,
                 cancellationToken,
-                () => IsCurrentMatchOperation(operationMatch));
+                isCurrent);
         }
         catch (OperationCanceledException)
         {
@@ -197,6 +198,7 @@ public sealed partial class SessionOrchestrator
 
         if (alignmentFrame is null)
         {
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             _statusMessage = $"已选择地图：{locked.Map.DisplayName}（当前未捕获到地图画面，打开游戏地图后将自动对齐）";
             _logCollector.Append(
                 MapLogCategory.Session,
@@ -209,6 +211,7 @@ public sealed partial class SessionOrchestrator
 
         try
         {
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             if (!Settings.DisableAutoFloor && alignmentFrame.DetectedFloorKey is { } detectedFloor && !string.IsNullOrWhiteSpace(detectedFloor))
             {
                 targetFloorKey = detectedFloor;
@@ -300,7 +303,7 @@ public sealed partial class SessionOrchestrator
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!IsCurrentMatchOperation(operationMatch))
+            if (!CanPublishRecognition(isCurrent, cancellationToken))
             {
                 return;
             }
@@ -350,7 +353,7 @@ public sealed partial class SessionOrchestrator
                 if (playerTransform is { } chosenPlayerTransform)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!IsCurrentMatchOperation(operationMatch))
+                    if (!CanPublishRecognition(isCurrent, cancellationToken))
                     {
                         return;
                     }
@@ -358,10 +361,11 @@ public sealed partial class SessionOrchestrator
                 }
             }
 
-            var adaptiveDecision = await EvaluateAdaptiveInitialAsync(
+            var adaptiveDecision = await EvaluateRecognitionAdaptiveAsync(
                 aligned,
                 alignmentFrame,
-                _lastDiagnostics);
+                _lastDiagnostics, isCurrent, cancellationToken);
+            if (adaptiveDecision is null || !CanPublishRecognition(isCurrent, cancellationToken)) return;
             aligned = adaptiveDecision.RecognitionToRender;
 
             RememberMapViewportPresenceReference(aligned, alignmentFrame);
@@ -370,14 +374,17 @@ public sealed partial class SessionOrchestrator
                 if (repairCacheKey is not null)
                 {
                     await RepairMapCacheAsync(repairCacheKey, aligned, alignmentFrame);
+                    if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
                 }
                 await PersistPreprocessedScaleAsync(
                     aligned,
                     alignmentFrame,
                     _lastDiagnostics);
+                if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
                 RecordSuccessfulAlignment(aligned, alignmentFrame);
             }
 
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             if (aligned.Result.OverlayTransform is { } committedTransform)
             {
                 _mapOpenSession.LockAlignedMap(
@@ -420,6 +427,8 @@ public sealed partial class SessionOrchestrator
             _hasCompletedQuickScanAlignment = true;
 
             _gameMapToggleState.MarkOpen();
+            // This owned synchronous transition precedes the tracking await.
+            isCurrent = CaptureRecognitionContinuationGuard(operationMatch, cancellationToken);
             _logCollector.Append(
                 MapLogCategory.Session,
                 MapLogLevel.Info,
@@ -469,6 +478,7 @@ public sealed partial class SessionOrchestrator
             {
                 await StartOrbTrackingAsync(aligned, alignmentFrame);
             }
+            if (!CanPublishRecognition(isCurrent, cancellationToken)) return;
             RefreshMiniMapForCurrentFloor();
             _scanProgressOverlay.Report(1.0d, "对齐完成");
             StateChanged?.Invoke(this, EventArgs.Empty);

@@ -1,7 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Windows.UI;
+using IDVBuff.Appearance;
+using IDVBuff.Presentation.Theming;
 
 namespace IDVBuff.Features.Maps;
 
@@ -17,13 +17,14 @@ public sealed partial class MapControlPanelWindow
         content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Spacing = 10, Margin = new Thickness(8) };
-        header.Children.Add(new TextBlock
+        var title = new TextBlock
         {
             Text = "Identity Vision Bridge 对局控件",
             FontSize = 20,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255))
-        });
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+        };
+        title.Foreground = ThemeService.For(title)[ThemeToken.Text];
+        header.Children.Add(title);
         header.Children.Add(_stateText);
         content.Children.Add(header);
 
@@ -32,7 +33,6 @@ public sealed partial class MapControlPanelWindow
             Spacing = 8,
             Margin = new Thickness(8, 10, 8, 8)
         };
-        _classComboBox.SelectionChanged += ClassComboBox_SelectionChanged;
         mode.Children.Add(_classComboBox);
         Grid.SetRow(mode, 1);
         content.Children.Add(mode);

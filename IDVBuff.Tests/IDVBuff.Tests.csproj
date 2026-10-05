@@ -18,6 +18,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UpdateCore\IDVBuff.UpdateCore.csproj" />
+    <ProjectReference Include="..\IDVBuff.WinUI.RegressionTests\IDVBuff.WinUI.RegressionTests.csproj"
+                      ReferenceOutputAssembly="false" AdditionalProperties="Platform=x64"
+                      PrivateAssets="all" ExcludeAssets="all" />
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
     <ProjectReference Include="..\Infrastructure\IDVBuff.Infrastructure.csproj" />
     <ProjectReference Include="..\IDVBuff.Appearance\IDVBuff.Appearance.csproj" />
@@ -36,6 +39,7 @@
 
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Modules\ModuleNavigationRules.cs" Link="Production\Modules\ModuleNavigationRules.cs" />
     <Compile Include="..\Lifecycle\UsageNotice.cs" Link="Production\Lifecycle\UsageNotice.cs" />
     <Compile Include="..\Lifecycle\ApplicationUsageTracker.cs" Link="Production\Lifecycle\ApplicationUsageTracker.cs" />
     <Compile Include="..\Features\Feedback\FeedbackTextValidator.cs" Link="Production\Feedback\FeedbackTextValidator.cs" />
@@ -55,6 +59,8 @@
     <Compile Include="..\Diagnostics\RealtimePerformanceTracker.cs" Link="Production\Diagnostics\RealtimePerformanceTracker.cs" />
     <Compile Include="..\Lifecycle\MainProgramPreferences.cs" Link="Production\Lifecycle\MainProgramPreferences.cs" />
     <Compile Include="..\Lifecycle\MainWindowPlacement.cs" Link="Production\Lifecycle\MainWindowPlacement.cs" />
+    <Compile Include="..\Lifecycle\StartupWindowInteractionGuard.cs" Link="Production\Lifecycle\StartupWindowInteractionGuard.cs" />
+    <Compile Include="..\Lifecycle\StartupFocusSnapshot.cs" Link="Production\Lifecycle\StartupFocusSnapshot.cs" />
     <Compile Include="..\Features\Plugins\PluginPreferencesStore.cs" Link="Production\Plugins\PluginPreferencesStore.cs" />
     <Compile Include="..\Features\Windows\WindowCaptureProtectionService.cs" Link="Production\Features\Windows\WindowCaptureProtectionService.cs" />
     <Compile Include="..\Lifecycle\VelopackInstallLayout.cs" Link="Production\VelopackInstallLayout.cs" />
@@ -81,6 +87,8 @@
 
   <ItemGroup>
     <Compile Include="..\Features\Maps\MapOpenOperationContext.cs" Link="Production\MapOpenOperationContext.cs" />
+    <Compile Include="..\Features\Maps\MapOperationContinuation.cs" Link="Production\MapOperationContinuation.cs" />
+    <Compile Include="..\Features\Maps\SessionOrchestrator.AlignmentCancellation.cs" Link="Production\NoDoorAlignmentDeadline.cs" />
     <Compile Include="..\Features\Maps\FloorAlignmentRecoveryModels.cs" Link="Production\FloorAlignmentRecoveryModels.cs" />
     <Compile Include="..\Features\Maps\FloorAlignmentRecoveryRules.cs" Link="Production\FloorAlignmentRecoveryRules.cs" />
     <Compile Include="..\Features\Maps\MapSessionModels.cs" Link="Production\MapSessionModels.cs" />
@@ -398,4 +406,13 @@
     <Compile Include="..\Features\Maps\FloorIndicatorTemplateRegistry.cs" Link="Production\FloorIndicatorTemplateRegistry.cs" />
     <Compile Include="..\Features\Maps\FloorIndicatorCaptureRegion.cs" Link="Production\FloorIndicatorCaptureRegion.cs" />
   </ItemGroup>
+  <Target Name="WriteWinUIRegressionHostPath" AfterTargets="Build">
+    <MSBuild Projects="..\IDVBuff.WinUI.RegressionTests\IDVBuff.WinUI.RegressionTests.csproj"
+             Targets="GetTargetPath" BuildInParallel="false"
+             Properties="Configuration=$(Configuration);Platform=x64">
+      <Output TaskParameter="TargetOutputs" ItemName="_WinUIRegressionHostPath" />
+    </MSBuild>
+    <WriteLinesToFile File="$(TargetDir)winui-regression-host-path.txt"
+                      Lines="@(_WinUIRegressionHostPath)" Overwrite="true" Encoding="UTF-8" />
+  </Target>
 </Project>

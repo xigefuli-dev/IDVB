@@ -51,7 +51,7 @@ public sealed partial class MapCvRecognitionService
         var inputs = BuildSideEntranceScanInputs(mapClass);
         var eligible = _maps.Count(map => string.IsNullOrWhiteSpace(mapClass)
             || string.Equals(map.Class, mapClass, StringComparison.OrdinalIgnoreCase));
-        if (inputs.Count != eligible) context.RetrievalCompleted = false;
+        context.RecordRetrievalCoverage(eligible, inputs.Count);
         try
         {
             // Gates are optional exclusions, never localization anchors. The dedicated
@@ -70,10 +70,13 @@ public sealed partial class MapCvRecognitionService
                     });
             }
             var candidates = DeepScanPipeline.Run(frame.Image, inputs, frame.ViewportBounds, context, progress, gates.Gates);
+            context.RecordRetrievalCoverage(eligible, inputs.Count);
             return new()
             {
                 GateDetection = gates, Candidates = candidates, EligibleMapCount = eligible, ReadyMapCount = inputs.Count,
-                FailureReason = candidates.Count == 0
+                FailureReason = inputs.Count != eligible
+                    ? $"地图目录数据尚未就绪（就绪 {inputs.Count}/{eligible}）；请检查扫描楼层标记与结构特征。"
+                    : candidates.Count == 0
                     ? "DeepScan 未找到足够的局部拐角结构，请多露出一小片地图后重试。" : string.Empty
             };
         }

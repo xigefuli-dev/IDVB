@@ -152,6 +152,9 @@
         <Compile Remove="Pipeline\**\*.cs" />
         <Compile Remove="IDVBuff.ModuleContracts\**\*.cs" />
         <Compile Remove="IDVBuff.Tests\**\*.cs" />
+        <Compile Remove="IDVBuff.WinUI.RegressionTests\**\*.cs" />
+        <Page Remove="IDVBuff.WinUI.RegressionTests\**\*.xaml" />
+        <ApplicationDefinition Remove="IDVBuff.WinUI.RegressionTests\**\*.xaml" />
         <Compile Remove="IDVBuff.MapAlignment.Probe\**\*.cs" />
         <Compile Remove="IDVBuff.RealCLI\**\*.cs" />
         <!-- The desktop client only collects and uploads training samples.

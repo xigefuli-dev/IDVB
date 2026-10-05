@@ -64,7 +64,11 @@ public sealed partial class MainPage : Page
         ApplyInitialNavigationCompactPreference();
         Loaded += MainPage_Loaded;
         Loaded += (_, _) => InitializeNotifications();
-        Unloaded += (_, _) => CleanupNotifications();
+        Unloaded += (_, _) =>
+        {
+            ++_navigationRevision;
+            CleanupNotifications();
+        };
     }
 
     public ObservableCollection<NavigationEntry> NavigationItems { get; } = [];

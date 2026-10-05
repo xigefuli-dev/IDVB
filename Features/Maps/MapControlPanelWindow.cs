@@ -4,10 +4,11 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
-using Windows.UI;
 using IDVBuff.Survey.Domain;
 using XamlWindow = Microsoft.UI.Xaml.Window;
 using IDVBuff.Core.Contracts;
+using IDVBuff.Appearance;
+using IDVBuff.Presentation.Theming;
 using WinRT.Interop;
 
 namespace IDVBuff.Features.Maps;
@@ -32,13 +33,11 @@ public sealed partial class MapControlPanelWindow : IDisposable
     private readonly ICaptureProtectionService? _captureProtection;
     private readonly TextBlock _stateText = new()
     {
-        FontSize = 14,
-        Foreground = new SolidColorBrush(Color.FromArgb(255, 210, 218, 229))
+        FontSize = 14
     };
     private readonly TextBlock _messageText = new()
     {
         FontSize = 12,
-        Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 184, 77)),
         TextWrapping = TextWrapping.Wrap
     };
     private readonly Button _beginButton = new()
@@ -63,11 +62,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
     };
     private readonly ComboBox _classComboBox = new()
     {
-        Header = new TextBlock
-        {
-            Text = "地图模式（Class）",
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 255, 255))
-        },
+        Header = "地图模式（Class）",
         MinHeight = 38,
         HorizontalAlignment = HorizontalAlignment.Stretch,
         PlaceholderText = "请选择地图模式"
@@ -76,7 +71,6 @@ public sealed partial class MapControlPanelWindow : IDisposable
     {
         Text = "可能存在的变体",
         FontSize = 13,
-        Foreground = new SolidColorBrush(Color.FromArgb(255, 174, 184, 198)),
         Visibility = Visibility.Collapsed
     };
     private readonly StackPanel _variantButtons = new() { Spacing = 8 };
@@ -88,6 +82,8 @@ public sealed partial class MapControlPanelWindow : IDisposable
         Visibility = Visibility.Collapsed
     };
     private XamlWindow? _window;
+    private UIElement? _content;
+    private ThemeScope? _themeScope;
     private string? _pendingClass;
     private MapVariantSelectionContext? _variantContext;
     private IReadOnlyList<string> _mapClasses = [];
@@ -137,6 +133,9 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _endButton.Click += EndButton_Click;
         _correctMapButton.Click += CorrectMapButton_Click;
         _surveyModeToggle.Toggled += SurveyModeToggle_Toggled;
+        _classComboBox.SelectionChanged += ClassComboBox_SelectionChanged;
+        ApplyControlTheme();
+        ThemeService.For(_classComboBox).Changed += OnClassThemeChanged;
     }
 
     public bool IsVisible => _isVisible;
@@ -238,12 +237,7 @@ public sealed partial class MapControlPanelWindow : IDisposable
         _classComboBox.IsEnabled = !snapshot.IsStarted;
         var selectedDiagnostic = _mapClassDiagnostics.FirstOrDefault(item =>
             string.Equals(item.MapClass, _pendingClass, StringComparison.OrdinalIgnoreCase));
-        _classComboBox.BorderBrush = selectedDiagnostic?.IsHealthy is false
-            ? new SolidColorBrush(Color.FromArgb(255, 255, 185, 0))
-            : new SolidColorBrush(Color.FromArgb(255, 52, 59, 69));
-        _classComboBox.Background = selectedDiagnostic?.IsHealthy is false
-            ? new SolidColorBrush(Color.FromArgb(36, 255, 185, 0))
-            : new SolidColorBrush(Color.FromArgb(255, 30, 35, 43));
+        ApplyClassTheme(selectedDiagnostic?.IsHealthy is false);
         if (snapshot.IsStarted)
             SetSurveyToggle(snapshot.Mode == MapRunMode.Survey);
         else if (!_isSurveyModeAllowed())
@@ -290,17 +284,25 @@ public sealed partial class MapControlPanelWindow : IDisposable
 
         var root = new Border
         {
-            RequestedTheme = ElementTheme.Dark,
-            Background = new SolidColorBrush(Color.FromArgb(255, 15, 20, 28)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 62, 72, 86)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(16),
-            Child = BuildContent()
+            Child = _content ??= BuildContent()
         };
-        _window = new XamlWindow { Content = root, ExtendsContentIntoTitleBar = false };
-        _window.Closed += (_, _) =>
+        var window = new XamlWindow { Content = root, ExtendsContentIntoTitleBar = false };
+        var scope = ThemeService.AttachWindow(window, root, ThemeProfile.Application);
+        _window = window;
+        _themeScope = scope;
+        root.Background = scope.WindowBrush;
+        root.BorderBrush = scope.Resources[ThemeToken.SurfaceBorder];
+        window.Closed += (_, _) =>
         {
+            scope.Dispose();
+            // Retain the controls without retaining their closed window parent.
+            // Reopening must not rebuild content or subscribe selection twice.
+            root.Child = null;
+            if (!ReferenceEquals(_window, window)) return;
+            _themeScope = null;
             _captureProtectionRegistration?.Dispose();
             _captureProtectionRegistration = null;
             _window = null;
@@ -359,11 +361,9 @@ public sealed partial class MapControlPanelWindow : IDisposable
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 BorderThickness = new Thickness(option.IsCurrent ? 3 : 1),
-                BorderBrush = new SolidColorBrush(option.IsCurrent
-                    ? Color.FromArgb(255, 46, 132, 225)
-                    : Color.FromArgb(255, 72, 80, 92)),
                 IsEnabled = !option.IsCurrent
             };
+            ApplyVariantTheme(button, option.IsCurrent);
             ToolTipService.SetToolTip(button, option.MapName);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(
                 button,

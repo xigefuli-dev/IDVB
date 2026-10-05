@@ -71,8 +71,12 @@ public sealed partial class MainPage
         }
     }
     /// <summary>Runs after the user accepts the first-run recommended configuration.</summary>
-    public async Task ShowRecommendedConfigurationGuideAsync()
+    public Task ShowRecommendedConfigurationGuideAsync() =>
+        ShowRecommendedConfigurationGuideAsync(CancellationToken.None);
+
+    public async Task ShowRecommendedConfigurationGuideAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         _onboardingNavigationLocked = true;
         SetNavigationCompact(false);
         foreach (var entry in NavigationItems)
@@ -81,7 +85,7 @@ public sealed partial class MainPage
         try
         {
             NavigateTo("map-status", NavigationItems.FirstOrDefault(entry => entry.ModuleId == "map-status"));
-            await Task.Delay(50);
+            await Task.Delay(50, cancellationToken);
             if (ModuleContentHost.Content is not MapStatusPage statusPage)
                 return;
 
@@ -91,8 +95,8 @@ public sealed partial class MainPage
                 CreateBindingStep("绑定游戏地图开关", "请先检查你游戏内打开地图的按键是哪个，然后在这里绑定一样的按键。千万不要按 ESC 或者用鼠标关闭地图，必须通过这个按键来关闭地图。", statusPage, MapRuntimeBindingTarget.GameMapToggle, "游戏地图开关", "game-map-toggle.png"),
                 CreateBindingStep("绑定外置控件层", "在进入战局后，按下此按键打开控件菜单。请在选择好本局使用的地图后，点击进入对局。\n\n在结束对局后，同样需要按下此按键打开控件菜单，点击结束对局。", statusPage, MapRuntimeBindingTarget.ControlPanelToggle, "外置控件层", "control-panel-start.png", "control-panel-end.png"),
                 new EmphasisGuideStep("绑定快捷扫描", string.Empty, statusPage.GetBindingControl(MapRuntimeBindingTarget.QuickScan), CheckAsync: _ => RequireBindingAsync(MapRuntimeBindingTarget.QuickScan, "快捷扫描"), DescriptionSegmentsFactory: CreateQuickScanGuideDescription, ImageUris: GuideImages("quick-scan-start.png", "quick-scan-complete.png", "quick-scan-select-map.png", "quick-scan-map-open.png")),
-            ]);
-            await ShowMapImportAndActivationGuideAsync();
+            ], cancellationToken);
+            await ShowMapImportAndActivationGuideAsync(cancellationToken);
         }
         finally
         {
@@ -112,12 +116,13 @@ public sealed partial class MainPage
             ExpandOnboardingNavigation(child);
     }
 
-    private async Task ShowMapImportAndActivationGuideAsync()
+    private async Task ShowMapImportAndActivationGuideAsync(CancellationToken cancellationToken)
     {
         var repository = new MapRepository();
         var mapCountBeforeImport = (await repository.GetMapsAsync()).Count;
+        cancellationToken.ThrowIfCancellationRequested();
         NavigateTo("map-list");
-        await Task.Delay(50);
+        await Task.Delay(50, cancellationToken);
         if (ModuleContentHost.Content is not MapListPage mapListPage)
             return;
 
@@ -129,10 +134,10 @@ public sealed partial class MainPage
                 "点击“导入”，选择“导入数据包”，然后选择你自己的 IDVM 地图包。导入完成后点击检查。",
                 CheckAsync: _ => RequireImportedMapAsync(repository, mapCountBeforeImport),
                 TargetProvider: mapListPage.GetImportControl)
-        ]);
+        ], cancellationToken);
 
         NavigateTo("map-status");
-        await Task.Delay(50);
+        await Task.Delay(50, cancellationToken);
         if (ModuleContentHost.Content is not MapStatusPage statusPage)
             return;
 
@@ -144,12 +149,12 @@ public sealed partial class MainPage
                 "地图包已导入。回到“加页手记 → 配置”后，在这里打开总开关。",
                 statusPage.GetRuntimeEnableControl(),
                 CheckAsync: _ => RequireRuntimeEnabledAsync())
-        ]);
+        ], cancellationToken);
 
-        await ShowPreMatchVideoGuidesAsync(statusPage);
+        await ShowPreMatchVideoGuidesAsync(statusPage, cancellationToken);
     }
 
-    private async Task ShowPreMatchVideoGuidesAsync(MapStatusPage statusPage)
+    private async Task ShowPreMatchVideoGuidesAsync(MapStatusPage statusPage, CancellationToken cancellationToken)
     {
         var calibrationVideoOpened = false;
         var startMatchVideoOpened = false;
@@ -195,7 +200,7 @@ public sealed partial class MainPage
                 TargetProvider: () => TryGetNavigationRow(TutorialNavigationItem),
                 NextButtonDelay: TimeSpan.Zero,
                 AdvanceButtonText: "完成")
-        ]);
+        ], cancellationToken);
     }
 
     private static EmphasisGuideStep CreateBindingStep(string title, string description, MapStatusPage page, MapRuntimeBindingTarget target, string displayName, params string[] imageFiles) =>

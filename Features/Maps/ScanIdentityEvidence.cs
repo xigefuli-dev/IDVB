@@ -178,6 +178,21 @@ internal sealed class ScanStructureIndex
 
 internal static class ScanIdentityVerifier
 {
+    internal static bool TryConfirmHypotheses(IReadOnlyList<SideEntranceScanCandidate> hypotheses,
+        ScanExecutionContext context, Func<SideEntranceScanCandidate, bool> tryConfirm)
+    {
+        // A pose is only one explanation of an identity. Local lack of evidence
+        // must not prevent another pose of the same map from being registered.
+        var ordered = hypotheses.OrderByDescending(h => h.IdentityEvidence.State == ScanIdentityState.Supported)
+            .ThenBy(h => FitCost(h.IdentityEvidence)).ThenByDescending(h => h.MatchScore).ToArray();
+        foreach (var hypothesis in ordered)
+        {
+            if (!context.CanCompute) return false;
+            if (tryConfirm(hypothesis)) return context.CanCompute;
+        }
+        return false;
+    }
+
     internal readonly record struct SelectionDecision(Guid? MapId, string Reason);
     public static Guid? SelectIdentity(IReadOnlyList<SideEntranceScanCandidate> candidates,
         bool retrievalComplete, bool withinBudget, IReadOnlyList<Guid[]>? variantGroups = null,

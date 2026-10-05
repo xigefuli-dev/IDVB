@@ -79,6 +79,7 @@ namespace IDVBuff
                 }
 
                 WriteStartupTrace("Creating the main window.");
+                _startupLaunchFocus = StartupSplash.LaunchFocus ?? StartupFocusSnapshot.Capture();
                 WriteStartupTrace("Preferences load begin.");
                 var preferences = MainProgramPreferences.Load(); IsSafeMode = preferences.SafeMode;
                 OutputLog.ConfigureApplication(
@@ -112,13 +113,10 @@ namespace IDVBuff
                 // Initialize the visual tree without showing a large blank window.
                 SetMainWindowCloaked(true);
                 _startupPresentationPending = true;
-
-                if (!startMinimized)
-                {
-                    StartupSplash.SetTargetWindow(WindowNative.GetWindowHandle(window));
-                }
+                BeginStartupWindowInteractionGuard();
 
                 RestoreMainWindowPlacement();
+                WriteStartupWindowState("main-placement-restored");
 
                 WriteStartupTrace("Window presentation configured; startup content construction begin.");
                 var rootFrame = new Frame();
@@ -129,14 +127,15 @@ namespace IDVBuff
                 window.Content = rootFrame;
                 if (!rootFrame.Navigate(typeof(Views.MainPage), e.Arguments))
                     throw new InvalidOperationException("主界面导航失败。");
-                WriteStartupTrace("Main page navigated; Window.Activate begin.");
-                window.Activate();
+                WriteStartupTrace("Main page navigated; showing guarded HWND without activation.");
                 if (!startMinimized)
                 {
-                    WriteStartupTrace("Main window activated while cloaked; native startup splash remains visible.");
+                    window.AppWindow.Show(false);
+                    WriteStartupTrace("Main window shown while cloaked and input-disabled; native startup splash remains visible.");
                 }
                 else
                 {
+                    window.AppWindow.Hide();
                     WriteStartupTrace("Main window starts hidden in the notification area.");
                 }
                 WriteStartupTrace(
@@ -155,154 +154,37 @@ namespace IDVBuff
                 StartupSplash.Complete(StartupSplash.Stage.Window);
                 WriteStartupTrace("Model improvement initialization begin.");
                 await InitializeModelImprovementAsync(preferences, startMinimized);
+                if (IsApplicationStopping) return;
                 WriteStartupTrace("Model improvement initialization complete; safe-mode branch begin.");
                 if (await TryCompleteSafeModeLaunchAsync(startMinimized, preferences))
                 {
-                    if (!explicitExitRequested)
+                    if (!IsApplicationStopping)
                     {
                         await CompleteStartupPresentationAsync(startMinimized);
                     }
                     return;
                 }
-                // ═══ 构建 DI 容器（在后台线程进行，避免大原生 DLL 首次冷加载阻塞 UI 渲染）═══
-                WriteStartupTrace("DI registration begin.");
-                StartupSplash.Report("正在加载运行组件…");
-                _serviceProvider = await Task.Run(() =>
-                {
-                    WriteStartupTrace("DI background worker started; AddIdvbServices begin.");
-                    var services = new ServiceCollection();
-                    services.AddIdvbServices(dispatcher);
-                    services.AddSingleton<IPluginInputService, PluginInputService>();
-                    WriteStartupTrace("DI: AddIdvbServices complete; BuildServiceProvider begin.");
-                    var sp = services.BuildServiceProvider();
-                    WriteStartupTrace("DI: BuildServiceProvider complete.");
-                    return sp;
-                });
-                _servicesReadyTcs.TrySetResult();
-                WriteStartupTrace("DI container built.");
-                StartupSplash.Complete(StartupSplash.Stage.Services);
-
-                _mainWindowCaptureProtection = _serviceProvider
-                    .GetRequiredService<ICaptureProtectionService>()
-                    .RegisterWindow(
-                        WindowNative.GetWindowHandle(window),
-                        CaptureProtectionWindowCategory.MainProgram,
-                        "主程序窗口");
-
-                _serviceProvider.GetRequiredService<IOverlayNotificationService>();
-
-                WriteStartupTrace("Capture protection registered; yielding UI dispatcher.");
-                await Task.Yield();
-                WriteStartupTrace("UI dispatcher continuation resumed.");
-
-                WriteStartupTrace("Initializing map runtime.");
-                StartupSplash.Report("正在准备地图服务…");
-
-                // 新架构入口 — 唯一运行路径
-                var session = _serviceProvider.GetRequiredService<Features.Maps.SessionOrchestrator>();
-                WriteStartupTrace("Map session constructed.");
-                session.ElevationRequiredDetected += Runtime_ElevationRequiredDetected;
-                WriteStartupTrace("Map session InitializeAsync begin.");
-                await session.InitializeAsync();
-                WriteStartupTrace("Map session initialized.");
-                StartupSplash.Complete(StartupSplash.Stage.Maps);
-
-                // ═══ 插件 SDK 装配（仅 GUI 路径；RealCLI 走 RunCliAsync，绝不加载插件）═══
-                var pluginBus = new MessageBus();
-                var pluginSynchronizer = new DispatcherQueueSynchronizer(dispatcher);
-                var pluginContextFactory = new PluginContextFactory(
-                    pluginBus,
-                    pluginSynchronizer,
-                    _serviceProvider);
-                // 单一共享偏好存储：PluginManager 与 TTM 共用同一实例，
-                // 避免两个实例各自读改写而互相覆盖整个文件。
-                var preferencesStore = new PluginPreferencesStore();
-                _pluginManager = new PluginManager(
-                    dispatcher,
-                    pluginBus,
-                    pluginContextFactory,
-                    preferences: preferencesStore);
-                // Plugin-page switches remain saved primary preferences. The
-                // runtime gate only opens from the started-match control.
-                _pluginManager.SetMatchActivation(false);
-                _teachingTipManager = new TeachingTipManager(dispatcher, preferencesStore);
-                _hostEventBridge = new HostEventBridge(
-                    pluginBus,
-                    session,
-                    _serviceProvider.GetRequiredService<IGlobalInput>(),
-                    session.SurveyCoordinator,
-                    _serviceProvider.GetRequiredService<IConfigProvider>(),
-                    _serviceProvider.GetRequiredService<IResolutionProfileService>());
-                _hostEventBridge.Attach();
-                WriteStartupTrace("Plugin host assembled; built-in registration begin.");
-                StartupSplash.Report("正在加载扩展…");
-                WriteStartupTrace("Built-in worker queued.");
-                await Task.Run(() =>
-                {
-                    WriteStartupTrace("Built-in worker entered (before registration method JIT).");
-                    using (StartupTimeline.Measure("Built-in PluginRegistration.Register call"))
-                        PluginRegistration.Register(_pluginManager);
-                    using (StartupTimeline.Measure("Built-in PluginManager.Start call"))
-                        _pluginManager.Start();
-                    WriteStartupTrace("Built-in worker finished; awaiting UI continuation.");
-                });
-                WriteStartupTrace("Built-in UI continuation resumed.");
-                WriteStartupTrace("Built-in plugins registered and started.");
-                WriteStartupTrace("Third-party plugins initialization begin.");
-                await InitializeThirdPartyPluginsAsync(pluginBus);
-                WriteStartupTrace("Third-party plugins initialization complete.");
-                StartupSplash.Complete(StartupSplash.Stage.Extensions);
-                session.MatchPluginActivationChanged += SetMatchPluginActivationAsync;
-                if (!string.IsNullOrWhiteSpace(cliOptions.IdvbControlPipeName))
-                {
-                    _idvbControlServer = new IdvbControlServer(
-                        cliOptions.IdvbControlPipeName,
-                        dispatcher,
-                        session);
-                    _idvbControlServer.Start();
-                    WriteStartupTrace(
-                        $"IDVB control pipe started: {cliOptions.IdvbControlPipeName}");
-                }
-
-                WriteStartupTrace("Map runtime initialized.");
-                StartupSplash.Report("正在完成准备…");
-                await PrepareMapListAsync(session);
-                await CompleteStartupPresentationAsync(startMinimized);
-                StartVersionAccessMonitor();
-                if (_accessStopping) return;
-                if (!startMinimized
-                    && !startupElevationRequired
-                    && UpdateLifecycleState.WasRestartedAfterUpdate)
-                    await ShowUpdatedSuccessfullyAsync();
-                if (_accessStopping) return;
-                if (!startMinimized && !startupElevationRequired)
-                    await ShowQuickStartAsync(session);
-                if (_accessStopping) return;
-                StartStartupBackgroundTasks(session);
-                if (startMinimized)
-                {
-                    HideMainWindow();
-                    SetMainWindowCloaked(false);
-                }
-
-                if (startupElevationRequired)
-                {
-                    // A minimized launch has no visible owner for the dialog.
-                    // Show the main window only for this mandatory startup prompt.
-                    if (startMinimized)
-                        ShowMainWindow();
-                    await ShowStartupElevationRequiredAsync();
-                }
+                _runtimeStartupTask = CompleteRuntimeStartupAsync(startMinimized, dispatcher, cliOptions);
+                await _runtimeStartupTask;
             }
             catch (Exception exception)
             {
+                if (exception is not OperationCanceledException || !IsApplicationStopping)
+                {
+                    WriteStartupTrace("Startup failed.", exception);
+                    System.Diagnostics.Debug.WriteLine($"Application startup failed: {exception}");
+                }
+                _servicesReadyTcs.TrySetException(exception);
+                _mainWindowPresentationCompleted.TrySetException(exception);
+                ReleaseStartupWindowInteractionGuard();
                 _startupPresentationPending = false;
                 StartupSplash.Close();
                 StartupTimeline.StopSampling();
-                if (window is not null) ShowMainWindow();
+                if (IsApplicationStopping)
+                    return;
+                if (window is not null)
+                    ShowMainWindow(bringToForeground: MayActivateStartupMainWindow());
                 StopStartupRenderObservation();
-                WriteStartupTrace("Startup failed.", exception);
-                System.Diagnostics.Debug.WriteLine($"Application startup failed: {exception}");
                 if (ShowStartupFailurePage(exception))
                     return;
 

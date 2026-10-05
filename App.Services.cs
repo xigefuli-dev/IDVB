@@ -30,6 +30,17 @@ public partial class App
     /// <summary>全局 DI 容器是否已完成构建并可用。</summary>
     public static bool IsServicesReady => _currentApp?._serviceProvider is not null;
 
+    private async ValueTask<bool> TryCommitStartupServicesAsync(ServiceProvider services)
+    {
+        if (IsApplicationStopping)
+        {
+            await services.DisposeAsync();
+            return false;
+        }
+        _serviceProvider = services;
+        return true;
+    }
+
     /// <summary>全局 DI 容器（供 Views 等非 DI 感知组件使用）。</summary>
     public static ServiceProvider Services =>
         (_currentApp?._serviceProvider)

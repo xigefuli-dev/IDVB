@@ -85,6 +85,12 @@ internal sealed class ScanExecutionContext : IDisposable
     public CancellationToken CancellationToken => _cancellation;
     public ScanFrameEvidence? Frame { get; private set; }
     public bool RetrievalCompleted { get; set; } = true;
+    internal void RecordRetrievalCoverage(int eligibleIdentities, int readyIdentities)
+    {
+        EligibleIdentities = eligibleIdentities;
+        // Complete assets cannot undo a previous cancellation or incomplete search.
+        if (readyIdentities != eligibleIdentities) RetrievalCompleted = false;
+    }
     public int EligibleIdentities { get; set; }
     public int? ComparedIdentityCount { get; set; }
     public int? VerifiedCandidateCount { get; set; }

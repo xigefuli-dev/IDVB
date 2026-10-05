@@ -30,6 +30,9 @@ public sealed partial class MapGlobalInputService
             _lastLatencyReport = now;
             _lastGcPause = pause;
             using var process = Process.GetCurrentProcess();
+            var gcMemory = GC.GetGCMemoryInfo();
+            var memory = IDVBuff.Diagnostics.RealtimePerformanceTracker.GetMemoryMetrics();
+            var overlayMemory = MapOverlayBitmapRenderer.GetCacheMemoryForDiagnostics();
             var cpuMs = process.TotalProcessorTime.TotalMilliseconds;
             var cpuDelta = _lastProcessCpuMs is { } previousCpu ? cpuMs - previousCpu : (double?)null;
             _lastProcessCpuMs = cpuMs;
@@ -74,6 +77,15 @@ public sealed partial class MapGlobalInputService
                     ["gcPauseMs"] = gcPause,
                     ["workingSetMb"] = Environment.WorkingSet / 1048576d,
                     ["managedHeapMb"] = GC.GetTotalMemory(false) / 1048576d,
+                    ["privateWorkingSetMb"] = memory.PrivateWorkingSetMb,
+                    ["privateCommitMb"] = process.PrivateMemorySize64 / 1048576d,
+                    ["gcCommittedMb"] = gcMemory.TotalCommittedBytes / 1048576d,
+                    ["gcHeapSizeAfterLastCollectionMb"] = gcMemory.HeapSizeBytes / 1048576d,
+                    ["gcFragmentedAfterLastCollectionMb"] = gcMemory.FragmentedBytes / 1048576d,
+                    ["gen2Collections"] = GC.CollectionCount(2),
+                    ["processHandleCount"] = process.HandleCount,
+                    ["overlayBitmapCount"] = overlayMemory.Count,
+                    ["overlayBitmapEstimatedMb"] = overlayMemory.Bytes / 1048576d,
                     ["poolPending"] = ThreadPool.PendingWorkItemCount
                 });
         }

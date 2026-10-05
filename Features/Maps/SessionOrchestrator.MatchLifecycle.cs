@@ -285,6 +285,11 @@ public sealed partial class SessionOrchestrator
             if (_matchSession.Snapshot.IsStarted)
                 throw new InvalidOperationException("A match is already in progress.");
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
+            _statusMessage = $"正在准备对局地图 · {mapClass}";
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            await _recognition.PrepareMatchResourcesAsync(mapClass);
+            if (_disposed)
+                return;
             _matchPluginsActivated = false;
             StartMatchCancellationScope();
             var match = _matchSession.Begin(mapClass);

@@ -449,9 +449,7 @@ public sealed partial class SessionOrchestrator
         RefreshMiniMapForCurrentFloor();
         StateChanged?.Invoke(this, EventArgs.Empty);
 
-        var notificationVersion = Interlocked.Increment(ref _selectedVariantNotificationVersion);
-        if (userConfirmed)
-            _ = NotifySelectedVariantAsync(identityLock.Map.Id, notificationVersion);
+        QueueVariantIdentityNotification(identityLock.Map.Id, userConfirmed);
 
         _logCollector.Append(
             MapLogCategory.Session,

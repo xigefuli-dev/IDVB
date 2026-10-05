@@ -21,48 +21,62 @@ internal static class CaptureStreamCheck
                 Height = double.Parse(region[3], System.Globalization.CultureInfo.InvariantCulture)
             }) : bounds;
         var start = Stopwatch.GetTimestamp();
-        using var stream = new GameFrameStream(window);
-        var prepareMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var after = (long)(start * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
-        for (var index = 0; index < 12; index++)
+        var owner = new CaptureDeviceOwner<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice>(GameFrameStream.CreateDevice);
+        GameFrameStream? stream = null;
+        try
         {
-            start = Stopwatch.GetTimestamp();
-            using var frame = await stream.CaptureAsync(bounds, viewport, after, deadline.Token)
-                ?? throw new InvalidOperationException("Native frame geometry rejected.");
-            if (frame.CaptureSystemRelativeTicks <= after || frame.Image.Width != (int)viewport.Width
-                || frame.Image.Height != (int)viewport.Height || frame.Image.Channels() != 4)
-                throw new InvalidOperationException("Native frame freshness/geometry check failed.");
-            after = frame.CaptureSystemRelativeTicks;
-            var receiveMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-            var ageAtReceiveMs = Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency
-                - after / (double)TimeSpan.TicksPerMillisecond;
-            var signature = MapViewportPresenceDetector.CreateSignature(frame.Image);
-            var observation = frame.GetOrCreateVpsg3Observation();
-            if (!ReferenceEquals(observation, frame.GetOrCreateVpsg3Observation()))
-                throw new InvalidOperationException("Prepared contour was recomputed.");
-            Console.WriteLine(JsonSerializer.Serialize(new
+            await CaptureStreamWorker.RunAsync(() => stream = new GameFrameStream(window, owner));
+            var activeStream = stream ?? throw new InvalidOperationException("Capture stream was not initialized.");
+            var prepareMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var after = (long)(start * (double)TimeSpan.TicksPerSecond / Stopwatch.Frequency);
+            for (var index = 0; index < 12; index++)
             {
-                index, prepareMs, receiveMs, ageAtReceiveMs, viewport.Width, viewport.Height,
-                frameToContourMs = Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency
-                    - after / (double)TimeSpan.TicksPerMillisecond,
-                contourMs = observation.ExtractionMilliseconds,
-                observation.EdgePixelCount, signature.BlueGrayFraction
-            }));
-        }
-        using (var canceled = new CancellationTokenSource(TimeSpan.FromMilliseconds(25)))
-        {
-            try
-            {
-                await stream.CaptureAsync(bounds, viewport, long.MaxValue, canceled.Token);
-                throw new InvalidOperationException("Canceled frame wait returned normally.");
+                start = Stopwatch.GetTimestamp();
+                using var frame = await activeStream.CaptureAsync(bounds, viewport, after, deadline.Token)
+                    ?? throw new InvalidOperationException("Native frame geometry rejected.");
+                if (frame.CaptureSystemRelativeTicks <= after || frame.Image.Width != (int)viewport.Width
+                    || frame.Image.Height != (int)viewport.Height || frame.Image.Channels() != 4)
+                    throw new InvalidOperationException("Native frame freshness/geometry check failed.");
+                after = frame.CaptureSystemRelativeTicks;
+                var receiveMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+                var ageAtReceiveMs = Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency
+                    - after / (double)TimeSpan.TicksPerMillisecond;
+                var signature = MapViewportPresenceDetector.CreateSignature(frame.Image);
+                var observation = frame.GetOrCreateVpsg3Observation();
+                if (!ReferenceEquals(observation, frame.GetOrCreateVpsg3Observation()))
+                    throw new InvalidOperationException("Prepared contour was recomputed.");
+                Console.WriteLine(JsonSerializer.Serialize(new
+                {
+                    index, prepareMs, receiveMs, ageAtReceiveMs, viewport.Width, viewport.Height,
+                    frameToContourMs = Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency
+                        - after / (double)TimeSpan.TicksPerMillisecond,
+                    contourMs = observation.ExtractionMilliseconds,
+                    observation.EdgePixelCount, signature.BlueGrayFraction
+                }));
             }
-            catch (OperationCanceledException) when (canceled.IsCancellationRequested) { }
+            using (var canceled = new CancellationTokenSource(TimeSpan.FromMilliseconds(25)))
+            {
+                try
+                {
+                    await activeStream.CaptureAsync(bounds, viewport, long.MaxValue, canceled.Token);
+                    throw new InvalidOperationException("Canceled frame wait returned normally.");
+                }
+                catch (OperationCanceledException) when (canceled.IsCancellationRequested) { }
+            }
+            activeStream.Dispose();
+            if (await activeStream.CaptureAsync(bounds, bounds, after, CancellationToken.None) is not null)
+                throw new InvalidOperationException("Disposed stream returned a frame.");
+            return 0;
         }
-        stream.Dispose();
-        if (await stream.CaptureAsync(bounds, bounds, after, CancellationToken.None) is not null)
-            throw new InvalidOperationException("Disposed stream returned a frame.");
-        return 0;
+        finally
+        {
+            await CaptureStreamWorker.RunAsync(() =>
+            {
+                try { stream?.Dispose(); }
+                finally { owner.Reset(); }
+            });
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

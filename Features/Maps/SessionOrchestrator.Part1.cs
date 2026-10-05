@@ -71,6 +71,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             {
                 QueueMapModelTraining();
             }
+            await _recognition.ReleaseMatchResourcesAsync();
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
 
             _statusMessage = "对局已结束。";
@@ -84,7 +85,10 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
                     ? "本局任务已排空，自动地图缓存已完成确认落盘阶段"
                     : "本局任务已排空，自动地图缓存样本未保存"));
             StateChanged?.Invoke(this, EventArgs.Empty);
-            GC.Collect(2, GCCollectionMode.Optimized, blocking: false);
+            // Resident owners have been released. Request collection of the
+            // now-unreachable large arrays even when the idle app allocates
+            // nothing more; do not trim live pages from the working set.
+            GC.Collect(2, GCCollectionMode.Forced, blocking: false);
         }
         finally
         {

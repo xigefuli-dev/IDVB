@@ -245,7 +245,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
         var rebuild = Task.Run(async () =>
         {
             // Yield startup CPU priority to initial UI presentation
-            try { await Task.Delay(1500, token); }
+            try { if (!_matchScopedResources) await Task.Delay(1500, token); }
             catch (OperationCanceledException) { return; }
 
             var options = new ParallelOptions

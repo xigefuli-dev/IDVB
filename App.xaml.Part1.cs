@@ -266,52 +266,12 @@ namespace IDVBuff
             var currentWindow = window;
             if (currentWindow is null)
                 return;
-            var hWnd = WindowNative.GetWindowHandle(currentWindow);
+            SetMainWindowCloaked(false);
+            MainWindowPresentation.Show(currentWindow, bringToForeground, _lastMainWindowPlacement);
             if (!mainWindowHasBeenShown)
             {
-                SetMainWindowCloaked(false);
-                ShowWindow(hWnd, bringToForeground ? 5 : 8);
                 mainWindowHasBeenShown = true;
                 CaptureMainWindowPlacement();
-                if (bringToForeground)
-                {
-                    currentWindow.Activate();
-                    BringWindowToForeground(hWnd);
-                }
-                return;
-            }
-            SetMainWindowCloaked(false);
-            ShowWindow(hWnd, bringToForeground ? 5 : 8);
-            if (currentWindow.AppWindow.Presenter is OverlappedPresenter presenter)
-            {
-                if (presenter.State == OverlappedPresenterState.Minimized)
-                    presenter.Restore(bringToForeground);
-            }
-            if (bringToForeground)
-            {
-                currentWindow.Activate();
-                BringWindowToForeground(hWnd);
-            }
-        }
-
-        private void BringWindowToForeground(IntPtr hWnd)
-        {
-            if (hWnd == IntPtr.Zero) return;
-            var foregroundHwnd = GetForegroundWindow();
-            if (foregroundHwnd == hWnd) return;
-
-            var foregroundThreadId = foregroundHwnd != IntPtr.Zero ? GetWindowThreadProcessId(foregroundHwnd, out _) : 0;
-            var currentThreadId = GetCurrentThreadId();
-            if (foregroundThreadId != 0 && foregroundThreadId != currentThreadId)
-            {
-                AttachThreadInput(currentThreadId, foregroundThreadId, true);
-                try { BringWindowToTop(hWnd); SetForegroundWindow(hWnd); }
-                finally { AttachThreadInput(currentThreadId, foregroundThreadId, false); }
-            }
-            else
-            {
-                BringWindowToTop(hWnd);
-                SetForegroundWindow(hWnd);
             }
         }
 
@@ -342,12 +302,6 @@ namespace IDVBuff
         }
 
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr windowHandle, int command);
-        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr hWnd);
-        [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
-        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
         [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr windowHandle, int attribute, ref int attributeValue, int attributeSize);
 
         private static void TrySetWindowIcon(Window targetWindow)

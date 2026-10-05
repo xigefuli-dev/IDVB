@@ -30,6 +30,7 @@ public sealed partial class MapManualCandidateWindow
     private readonly TaskCompletionSource<MapCandidateDecision> _completion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private XamlWindow? _window;
+    private CandidateWindowInputScope? _inputScope;
     private bool _completed;
 
     private MapManualCandidateWindow(
@@ -311,8 +312,10 @@ public sealed partial class MapManualCandidateWindow
         root.Children.Add(topActionsPanel);
 
         await RenderChoicesAsync();
+        cancellationToken.ThrowIfCancellationRequested();
 
-        // Read fresh shortcut edges without consuming the game's keyboard input.
+        // Ignore keys already held when the chooser opens. Shortcuts belong only
+        // to the foreground chooser, never to gameplay or another application.
         var shortcutKeys = new[] { 0x1B, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
             0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69 };
         var heldKeys = shortcutKeys.Select(key => (GetAsyncKeyState(key) & 0x8000) != 0).ToArray();
@@ -325,7 +328,7 @@ public sealed partial class MapManualCandidateWindow
                 var down = (GetAsyncKeyState(shortcutKeys[i]) & 0x8000) != 0;
                 var pressed = down && !heldKeys[i];
                 heldKeys[i] = down;
-                if (!pressed || _completed || GetForegroundWindow() != _frame.WindowHandle)
+                if (!pressed || _completed || _inputScope?.OwnsForeground != true)
                     continue;
                 if (i == 0)
                     Complete(MapCandidateDecision.Cancel());
@@ -343,6 +346,7 @@ public sealed partial class MapManualCandidateWindow
             ExtendsContentIntoTitleBar = false
         };
         _window.Closed += (_, _) => Complete(MapCandidateDecision.Cancel(), closeWindow: false);
+        _window.AppWindow.Closing += (_, _) => _inputScope?.Dispose();
         if (_window.AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
@@ -355,7 +359,6 @@ public sealed partial class MapManualCandidateWindow
         RegisterCaptureProtection();
         var hwnd = WindowNative.GetWindowHandle(_window);
         BorderlessWindowHelper.Apply(hwnd);
-        GameInputPreservingWindow.Apply(hwnd);
         // 消除 WinUI 默认白色底色：将窗口设为分层半透明
         const int GWL_EXSTYLE = -20;
         const int WS_EX_LAYERED = 0x80000;
@@ -363,13 +366,14 @@ public sealed partial class MapManualCandidateWindow
         var exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
         _ = SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
         _ = SetLayeredWindowAttributes(hwnd, 0, 230, LWA_ALPHA);
-        GameInputPreservingWindow.Show(hwnd);
-        shortcutTimer.Start();
-        using var cancellationRegistration = cancellationToken.Register(
-            () => CompleteOnDispatcher(dispatcher));
-        onPresented?.Invoke();
         try
         {
+            _inputScope = new CandidateWindowInputScope(hwnd, _frame.WindowHandle);
+            _inputScope.Show();
+            shortcutTimer.Start();
+            using var cancellationRegistration = cancellationToken.Register(
+                () => CompleteOnDispatcher(dispatcher));
+            onPresented?.Invoke();
             return await _completion.Task;
         }
         finally
@@ -377,6 +381,8 @@ public sealed partial class MapManualCandidateWindow
             shortcutTimer.Stop();
             if (!_completed)
                 Complete(MapCandidateDecision.Cancel());
+            _inputScope?.Dispose();
+            _inputScope = null;
             _captureProtectionRegistration?.Dispose();
             _captureProtectionRegistration = null;
             _window = null;
@@ -430,6 +436,7 @@ public sealed partial class MapManualCandidateWindow
         if (_completed)
             return;
         _completed = true;
+        _inputScope?.Dispose();
         var window = _window;
         _window = null;
         if (closeWindow && window is not null)
@@ -450,9 +457,6 @@ public sealed partial class MapManualCandidateWindow
         dispatcher.TryEnqueue(
             () => Complete(MapCandidateDecision.Cancel()));
     }
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int virtualKey);

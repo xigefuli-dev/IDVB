@@ -47,11 +47,13 @@ public sealed partial class MapStructurePreprocessor
     private static readonly object _cacheGate = new();
     private static string? _cachedReferencePath;
     private static MapStructureFeatures? _cachedReferenceFeatures;
+    private static long _referenceCacheGeneration;
 
     public static void ClearReferenceCache()
     {
         lock (_cacheGate)
         {
+            _referenceCacheGeneration++;
             _cachedReferenceFeatures?.Dispose();
             _cachedReferenceFeatures = null;
             _cachedReferencePath = null;
@@ -105,10 +107,12 @@ public sealed partial class MapStructurePreprocessor
             MapOperationWaitKind.Io);
         timing = new PreprocessTiming();
         cacheHit = false;
+        long generation = 0;
         if (referencePath is not null)
         {
             lock (_cacheGate)
             {
+                generation = _referenceCacheGeneration;
                 if (string.Equals(
                     _cachedReferencePath,
                     referencePath,
@@ -143,13 +147,15 @@ public sealed partial class MapStructurePreprocessor
         {
             lock (_cacheGate)
             {
+                if (generation != _referenceCacheGeneration)
+                    return result; // Caller owns this late result; never repopulate a reset cache.
                 _cachedReferenceFeatures?.Dispose();
                 _cachedReferenceFeatures = result;
                 _cachedReferencePath = referencePath;
+                // Clone while protected against another caller clearing or
+                // replacing the cached native Mats.
+                return result.Clone();
             }
-            // Return a clone so the caller owns their copy and can
-            // Dispose it independently. The cache keeps the original.
-            return result.Clone();
         }
         // No caching path — ownership transfers directly to the caller.
         return result;

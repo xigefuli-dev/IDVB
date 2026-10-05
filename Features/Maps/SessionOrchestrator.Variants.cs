@@ -3,8 +3,27 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class SessionOrchestrator
 {
     private long _selectedVariantNotificationVersion;
+    private int _variantNotificationMatchVersion = -1;
+    private Guid? _variantNotificationMapId;
 
-    private async Task NotifySelectedVariantAsync(Guid mapId, long notificationVersion)
+    private void QueueVariantIdentityNotification(Guid mapId, bool userConfirmed)
+    {
+        var match = _matchSession.Snapshot;
+        if (!IsCurrentMatchOperation(match) || !_mapLease.IsCurrent(match, mapId)
+            || match.Mode != MapRunMode.Normal)
+            return;
+
+        // Identity confirmation and its later alignment publication can both arrive here.
+        // Keep the original delay instead of posting twice or restarting it for the same lock.
+        if (_variantNotificationMatchVersion == match.Version && _variantNotificationMapId == mapId)
+            return;
+        _variantNotificationMatchVersion = match.Version;
+        _variantNotificationMapId = mapId;
+        var notificationVersion = Interlocked.Increment(ref _selectedVariantNotificationVersion);
+        _ = NotifySelectedVariantAsync(mapId, notificationVersion, userConfirmed);
+    }
+
+    private async Task NotifySelectedVariantAsync(Guid mapId, long notificationVersion, bool userConfirmed)
     {
         var match = _matchSession.Snapshot;
         var cancellationToken = CurrentMatchCancellationToken;
@@ -13,7 +32,7 @@ public sealed partial class SessionOrchestrator
             await Task.Delay(500, cancellationToken);
             if (!IsCurrentMatchOperation(match)
                 || notificationVersion != Volatile.Read(ref _selectedVariantNotificationVersion)
-                || _mapLease.MapId != mapId)
+                || !_mapLease.IsCurrent(match, mapId))
                 return;
 
             var context = await GetCurrentVariantContextAsync();
@@ -21,11 +40,13 @@ public sealed partial class SessionOrchestrator
                 || cancellationToken.IsCancellationRequested
                 || !IsCurrentMatchOperation(match)
                 || notificationVersion != Volatile.Read(ref _selectedVariantNotificationVersion)
-                || _mapLease.MapId != mapId)
+                || !_mapLease.IsCurrent(match, mapId))
                 return;
 
             IDVBuff.Features.Notifications.OverlayNotificationCenter.Notice(
-                "你选择了一张变体地图，如果对齐贴合异常请在对局控件中快速切换。");
+                userConfirmed
+                    ? "你选择了一张变体地图，如果对齐贴合异常请在对局控件中快速切换。"
+                    : "已确认这是一张变体地图，如果对齐贴合异常请在对局控件中快速切换。");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -33,7 +54,7 @@ public sealed partial class SessionOrchestrator
         catch (Exception exception)
         {
             _logCollector.Append(MapLogCategory.Session, MapLogLevel.Warning,
-                $"变体地图选择提示失败：{exception.Message}");
+                $"变体地图确认提示失败：{exception.Message}");
         }
     }
 

@@ -54,8 +54,8 @@ public sealed partial class MapStatusPage : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         _selectMapByTagsToggle.Visibility = developerVisibility;
         _disableAutoFloorToggle.Visibility = developerVisibility;
-        foreach (var target in new[] { MapRuntimeBindingTarget.SwitchFloor,
-                     MapRuntimeBindingTarget.SaveMapCache, MapRuntimeBindingTarget.RestMapDisplay })
+        foreach (var target in new[] { MapRuntimeBindingTarget.SaveMapCache,
+                     MapRuntimeBindingTarget.RestMapDisplay })
         {
             if (_bindingRows.TryGetValue(target, out var row))
                 row.Visibility = developerVisibility;

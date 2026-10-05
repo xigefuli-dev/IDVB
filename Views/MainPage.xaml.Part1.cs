@@ -145,13 +145,20 @@ public sealed partial class MainPage : Page
         TimeSpan? duration)
     {
         if (TryGetNavigationRow(target) is not FrameworkElement container
-            || container.Visibility != Visibility.Visible)
+            || container.Visibility != Visibility.Visible
+            || VisualTreeHelper.GetParent(container) is not UIElement parent)
         {
             return false;
         }
 
-        var targetPoint = container.TransformToVisual(NavigationSurface)
-            .TransformPoint(new Windows.Foundation.Point(0, 0));
+        // Click feedback scales the row around its center. Transforming the row's
+        // origin includes that transient scale, so LayoutUpdated sees a moving
+        // destination and snaps (cancels) the selection transition. Use the row's
+        // arranged offset in its parent's coordinate space instead; the parent's
+        // transform still accounts for scrolling and moving footer/child hosts.
+        var arrangedOffset = container.ActualOffset;
+        var targetPoint = parent.TransformToVisual(NavigationSurface)
+            .TransformPoint(new Windows.Foundation.Point(arrangedOffset.X, arrangedOffset.Y));
         var targetTranslationY = (float)(targetPoint.Y - indicator.Margin.Top);
         // LayoutUpdated can also be raised by unrelated page content. Do not
         // restart a row-to-row transition when its destination has not moved.

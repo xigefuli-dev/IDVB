@@ -321,8 +321,20 @@ internal static class ScanIdentityVerifier
                     { UnknownReferencePoints = unknown, StrongTestedPoints = strongTested });
         }
         if (!ScanStructureIndex.HasEnoughKnownPoints(tested, points.Length, 80))
+        {
+            // Coverage is required to support a pose, not to ignore contradictions.
+            // Give every erased point perfect support: if even that upper bound
+            // cannot reach corrective registration, this pose cannot compete.
+            // Keep genuinely unknown poses unresolved and the positive gates intact.
+            if (strongTested >= 80
+                && hits + unknown < MinimumRefinementSupport * points.Length)
+                return WithPose(new(ScanIdentityState.Excluded, tested, points.Length, distance / tested,
+                    hits / (double)tested, 0, "unexplained-visible-structure")
+                    { UnknownReferencePoints = unknown, StrongTestedPoints = strongTested });
             return WithPose(ScanIdentityEvidence.Unverified("insufficient-unmasked-reference-structure")
-                with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown });
+                with { TestedPoints = tested, TotalPoints = points.Length, UnknownReferencePoints = unknown,
+                    StrongTestedPoints = strongTested });
+        }
         // An all-weak observation cannot establish identity by merely avoiding
         // the conflict checks. Wait for enough known strong structure instead.
         if (strongTested < 80)

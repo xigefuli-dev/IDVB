@@ -5,6 +5,8 @@ namespace IDVBuff.Features.Maps;
 public sealed partial class DwrGameWindowCaptureService
 {
     private readonly object _streamGate = new();
+    private readonly CaptureDeviceOwner<Windows.Graphics.DirectX.Direct3D11.IDirect3DDevice> _streamDevice =
+        new(GameFrameStream.CreateDevice);
     private GameFrameStream? _stream;
     private IntPtr _streamWindow;
     private MapScreenRect _streamBounds;
@@ -22,7 +24,18 @@ public sealed partial class DwrGameWindowCaptureService
             _streamDemand.Request(Environment.TickCount64);
             // Cache failures for this window geometry too; do not repeatedly initialize a failed GPU device.
             if (_streamWindow == window && _streamBounds == bounds) return;
-            _streamIdleTimer ??= new Timer(_ => ReleaseIdleFrameStream(), null, 1000, 1000);
+            if (_streamIdleTimer is null)
+            {
+                // This timer outlives the current scan. Do not retain its
+                // AsyncLocal frame, operation trace or alignment context.
+                if (ExecutionContext.IsFlowSuppressed())
+                    _streamIdleTimer = new Timer(_ => ReleaseIdleFrameStream(), null, 1000, 1000);
+                else
+                {
+                    using var flow = ExecutionContext.SuppressFlow();
+                    _streamIdleTimer = new Timer(_ => ReleaseIdleFrameStream(), null, 1000, 1000);
+                }
+            }
             previous = _stream;
             _stream = null;
             _streamWindow = window;
@@ -41,7 +54,7 @@ public sealed partial class DwrGameWindowCaptureService
         GameFrameStream? created = null;
         try
         {
-            if (GraphicsCaptureSession.IsSupported()) created = new GameFrameStream(window);
+            if (GraphicsCaptureSession.IsSupported()) created = new GameFrameStream(window, _streamDevice);
             lock (_streamGate)
             {
                 if (_streamVersion == version)
@@ -55,6 +68,7 @@ public sealed partial class DwrGameWindowCaptureService
         {
             MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture, MapLogLevel.Warning,
                 $"新帧捕获初始化失败，回退 GDI · {exception.Message}");
+            _streamDevice.Reset();
         }
         finally { created?.Dispose(); }
     }
@@ -176,7 +190,15 @@ public sealed partial class DwrGameWindowCaptureService
             _streamWindow = IntPtr.Zero;
             _streamBounds = default;
             _streamVersion++;
+            // Queue retirement while holding the version gate: a subsequent
+            // match cannot enqueue acquisition ahead of this retirement.
+            _ = CaptureStreamWorker.RunAsync(() =>
+            {
+                using var memory = IDVBuff.Diagnostics.RealtimePerformanceTracker.TrackScope(
+                    "WGC.MatchDeviceReset", forceLog: true);
+                try { previous?.Dispose(); }
+                finally { _streamDevice.Reset(); }
+            });
         }
-        previous?.Dispose();
     }
 }

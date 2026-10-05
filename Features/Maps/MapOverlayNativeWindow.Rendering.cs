@@ -228,6 +228,29 @@ internal static partial class MapOverlayBitmapRenderer
         }
     }
 
+    // Pixel storage only: excludes GDI+/driver bookkeeping. This lets memory
+    // samples distinguish resident render caches from GC commit and WGC.
+    internal static (int Count, long Bytes) GetCacheMemoryForDiagnostics()
+    {
+        lock (ImageCacheLock)
+        {
+            long bytes = 0;
+            int count = 0;
+            void Add(Bitmap bitmap)
+            {
+                var bits = System.Drawing.Image.GetPixelFormatSize(bitmap.PixelFormat);
+                var stride = ((long)bitmap.Width * bits + 31) / 32 * 4;
+                bytes += stride * bitmap.Height;
+                count++;
+            }
+            foreach (var bitmap in ImageCache.Values) Add(bitmap);
+            foreach (var entry in ScaledImageCache.Values) Add(entry.Bitmap);
+            foreach (var entry in MapLayerCache.Values) Add(entry.Bitmap);
+            foreach (var entry in MiniMapLayerCache.Values) Add(entry.Bitmap);
+            return (count, bytes);
+        }
+    }
+
     internal static int MapLayerCacheCount
     {
         get

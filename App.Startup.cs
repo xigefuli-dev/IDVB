@@ -62,7 +62,7 @@ public partial class App
             return;
         if (_startupTransitionComplete)
         {
-            if (!startMinimized) ShowMainWindow(bringToForeground: false);
+            if (!startMinimized) ShowMainWindow();
             return;
         }
         _startupTransitionComplete = true;
@@ -130,7 +130,11 @@ public partial class App
             return;
         if (!startMinimized && !IsApplicationStopping)
         {
-            ShowMainWindow(bringToForeground: MayActivateStartupMainWindow());
+            // Normal startup must yield a visible, active main window even if
+            // the user clicked another application while the splash was loading.
+            // Only StartMinimized opts out of this completed presentation.
+            TraceStartupMainWindowHandoff();
+            ShowMainWindow();
         }
         WriteStartupWindowState("main-after-handoff");
         _mainWindowPresentationCompleted.TrySetResult();
@@ -168,18 +172,14 @@ public partial class App
         WriteStartupWindowState("main-input-guard-released");
     }
 
-    private bool MayActivateStartupMainWindow()
+    private void TraceStartupMainWindowHandoff()
     {
         var current = StartupFocusSnapshot.Capture();
-        var handle = window is null ? IntPtr.Zero
-            : WinRT.Interop.WindowNative.GetWindowHandle(window);
-        var activate = _startupLaunchFocus.MayActivateMainWindow(current, handle);
-        WriteStartupTrace($"Startup foreground handoff: requested={activate}; "
+        WriteStartupTrace("Startup foreground handoff: requested=True; "
             + $"launchForeground=0x{_startupLaunchFocus.ForegroundWindow.ToInt64():X}; "
             + $"currentForeground=0x{current.ForegroundWindow.ToInt64():X}; "
             + $"launchInput={_startupLaunchFocus.LastInputTick}; currentInput={current.LastInputTick}.");
         WriteStartupWindowState("main-before-handoff");
-        return activate;
     }
 
     private void WriteStartupWindowState(string stage)

@@ -303,7 +303,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
                         edgePyramid: [edges.Clone(), halfEdges, quarterEdges],
                         keyPoints: keyPoints,
                         descriptors: descriptors,
-                        repeatedRegionMask: repeated));
+                        repeatedRegionMask: repeated), generationSnapshot);
             }
             nuisance.Dispose();
             structure.Dispose();
@@ -397,7 +397,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
     private MapStructureFeatures Remember(
         CacheKey key,
         MapStructureFeatures features,
-        long expectedGeneration = 0)
+        long expectedGeneration)
     {
         using var distanceMap = MapOperationTraceAmbient.StartChild(
             "reference_distance_map",
@@ -407,7 +407,7 @@ public sealed partial class MapStructureReferenceCache : IDisposable
 
         lock (_memoryGate)
         {
-            if (expectedGeneration != 0 && _generation != expectedGeneration)
+            if (_generation != expectedGeneration)
             {
                 // 缓存代次已改变（对局已重置并调用了 Clear()），放弃将此孤儿特征存入常驻缓存，
                 // 直接返回未缓存的特征供当前调用方使用或释放，防止内存常驻泄漏。

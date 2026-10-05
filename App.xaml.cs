@@ -183,7 +183,10 @@ namespace IDVBuff
                 if (IsApplicationStopping)
                     return;
                 if (window is not null)
-                    ShowMainWindow(bringToForeground: MayActivateStartupMainWindow());
+                {
+                    TraceStartupMainWindowHandoff();
+                    ShowMainWindow();
+                }
                 StopStartupRenderObservation();
                 if (ShowStartupFailurePage(exception))
                     return;

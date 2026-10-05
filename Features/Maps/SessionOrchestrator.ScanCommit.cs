@@ -173,6 +173,7 @@ public sealed partial class SessionOrchestrator
                 ["decisionElapsedMs"] = execution.ElapsedMilliseconds
             });
         StateChanged?.Invoke(this, EventArgs.Empty);
+        QueueVariantIdentityNotification(recognition.Map.Id, userConfirmed: false);
         return true;
     }
 

@@ -426,6 +426,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             await DrainMatchOperationsAsync();
             await DrainMapCacheWritesAsync();
             await DrainHumanMapSelectionRecordingAsync();
+            await _recognition.ReleaseMatchResourcesAsync();
             ResetMatchTransientState(resetAutomaticCacheSamples: true);
         }
         finally

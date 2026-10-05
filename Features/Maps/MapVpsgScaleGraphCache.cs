@@ -45,6 +45,16 @@ public sealed class MapVpsgScaleGraphCache
     private readonly object _gate = new();
     private readonly string _rootDirectory;
     private readonly Dictionary<string, MapVpsgScaleGraph> _memory = [];
+    private long _generation;
+
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            _generation++;
+            _memory.Clear();
+        }
+    }
 
     public MapVpsgScaleGraphCache(string? rootDirectory = null)
     {
@@ -63,8 +73,10 @@ public sealed class MapVpsgScaleGraphCache
         using var protection = AppDataPaths.ProtectCachePath(
             Path.Combine(_rootDirectory, map.Id.ToString("N")));
         var memoryKey = $"{map.Id:N}|{fingerprint}|{floorKey}|{keyPoints.Count}";
+        long generation;
         lock (_gate)
         {
+            generation = _generation;
             if (_memory.TryGetValue(memoryKey, out var cached)
                 && cached.IsCompatible(referenceSize, keyPoints.Count))
             {
@@ -84,7 +96,10 @@ public sealed class MapVpsgScaleGraphCache
             ?? Build(referenceSize, keyPoints);
         TrySave(path, graph);
         lock (_gate)
-            _memory[memoryKey] = graph;
+        {
+            if (generation == _generation)
+                _memory[memoryKey] = graph;
+        }
         return graph;
     }
 

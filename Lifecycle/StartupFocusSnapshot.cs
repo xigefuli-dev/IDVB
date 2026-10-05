@@ -11,13 +11,9 @@ internal readonly record struct StartupFocusSnapshot(IntPtr ForegroundWindow, ui
             GetLastInputInfo(ref input) ? input.Time : null);
     }
 
-    internal bool MayActivateMainWindow(StartupFocusSnapshot current, IntPtr mainWindow) =>
-        mainWindow != IntPtr.Zero
-        && (current.ForegroundWindow == mainWindow
-            || (ForegroundWindow != IntPtr.Zero
-                && current.ForegroundWindow == ForegroundWindow
-                && LastInputTick.HasValue
-                && current.LastInputTick == LastInputTick));
+    // GetLastInputInfo includes mouse movement. Its timestamp cannot tell us
+    // whether the user chose another window during loading. These samples are
+    // diagnostics only; they must not cancel normal startup presentation.
 
     [StructLayout(LayoutKind.Sequential)]
     private struct LastInputInfo { public uint Size; public uint Time; }

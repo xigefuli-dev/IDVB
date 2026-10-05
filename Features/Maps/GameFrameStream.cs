@@ -13,6 +13,9 @@ internal sealed partial class GameFrameStream : IDisposable
 {
     private readonly object _gate = new();
     private readonly IDirect3DDevice _device;
+    private readonly CaptureDeviceOwner<IDirect3DDevice> _deviceOwner;
+    private readonly CaptureDeviceOwner<IDirect3DDevice>.Lease _deviceLease;
+    private bool _deviceFailed;
     private readonly Direct3D11CaptureFramePool _pool;
     private readonly GraphicsCaptureSession _session;
     private Direct3D11CaptureFrame? _latest;
@@ -25,17 +28,21 @@ internal sealed partial class GameFrameStream : IDisposable
     private long _readbackCount;
     private double _readbackTotalMs;
 
-    public GameFrameStream(IntPtr window)
+    public GameFrameStream(IntPtr window, CaptureDeviceOwner<IDirect3DDevice> deviceOwner)
     {
         if (!CaptureStreamWorker.HasThreadAccess)
             throw new InvalidOperationException("WGC resources must be created on their capture worker.");
+        using var memory = IDVBuff.Diagnostics.RealtimePerformanceTracker.TrackScope(
+            "WGC.Create", forceLog: true);
         Window = window;
         var iid = new Guid("79C3F95B-31F7-4EC2-A464-632EF5D30760");
         var pointer = GraphicsCaptureItem.As<ICaptureItemInterop>().CreateForWindow(window, ref iid);
         GraphicsCaptureItem item;
         try { item = MarshalInterface<GraphicsCaptureItem>.FromAbi(pointer); }
         finally { Marshal.Release(pointer); }
-        _device = CreateDevice();
+        _deviceOwner = deviceOwner;
+        _deviceLease = deviceOwner.Rent();
+        _device = _deviceLease.Value;
         try
         {
             _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(
@@ -63,7 +70,7 @@ internal sealed partial class GameFrameStream : IDisposable
             }
             catch { _pool.Dispose(); throw; }
         }
-        catch { _device.Dispose(); throw; }
+        catch { _deviceOwner.Invalidate(_deviceLease); _deviceLease.Dispose(); throw; }
     }
 
     public IntPtr Window { get; }
@@ -102,6 +109,7 @@ internal sealed partial class GameFrameStream : IDisposable
             catch (Exception)
             {
                 // Device loss wakes the consumer; the capture service falls back to GDI.
+                _deviceFailed = true;
                 _disposed = true;
                 _changed.TrySetResult();
             }
@@ -183,6 +191,8 @@ internal sealed partial class GameFrameStream : IDisposable
 
     private void DisposeResources()
     {
+        using var memory = IDVBuff.Diagnostics.RealtimePerformanceTracker.TrackScope(
+            "WGC.Release", $"streamId={_createdAt}", forceLog: true);
         var failures = new List<string>();
         bool Release(string resource, Action close)
         {
@@ -206,7 +216,9 @@ internal sealed partial class GameFrameStream : IDisposable
         {
             Release("readback", () => _readback?.Dispose());
             _readback = null;
-            Release("device", _device.Dispose);
+            if (_deviceFailed || failures.Count > 0)
+                Release("device-invalidate", () => _deviceOwner.Invalidate(_deviceLease));
+            Release("device-lease", _deviceLease.Dispose);
         }
         if (sessionClosed) Interlocked.Decrement(ref CaptureStreamDiagnostics.ActiveSessions);
         MapLogCollector.Instance.Append(MapLogCategory.ViewportCapture,
@@ -223,8 +235,10 @@ internal sealed partial class GameFrameStream : IDisposable
             });
     }
 
-    private static IDirect3DDevice CreateDevice()
+    internal static IDirect3DDevice CreateDevice()
     {
+        using var memory = IDVBuff.Diagnostics.RealtimePerformanceTracker.TrackScope(
+            "WGC.DeviceCreate", forceLog: true);
         IntPtr device = IntPtr.Zero, context = IntPtr.Zero, dxgi = IntPtr.Zero,
             inspectable = IntPtr.Zero, multithread = IntPtr.Zero;
         try

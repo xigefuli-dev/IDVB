@@ -456,9 +456,18 @@ public sealed partial class MapCvRecognitionService
                     floorKey, tuning.Generation, profile);
             }, ct);
             _floorPrewarmTasks[key] = task;
-            _ = task.ContinueWith(_ =>
+            _allFloorPrewarmTasks.Add(task);
+            _ = task.ContinueWith(completed =>
             {
-                lock (_floorPrewarmGate) _floorPrewarmTasks.Remove(key);
+                lock (_floorPrewarmGate)
+                {
+                    _allFloorPrewarmTasks.Remove(completed);
+                    // An earlier match's completion must not erase a newer
+                    // prewarm registered under the same map/floor key.
+                    if (_floorPrewarmTasks.TryGetValue(key, out var current)
+                        && ReferenceEquals(current, completed))
+                        _floorPrewarmTasks.Remove(key);
+                }
             }, TaskScheduler.Default);
             return task;
         }

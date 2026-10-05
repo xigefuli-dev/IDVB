@@ -15,8 +15,16 @@ internal sealed partial class GameFrameStream
         lock (_readbackGate)
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _resourcesDisposed) != 0, this);
-            _readback ??= new ViewportReadback(_device);
-            return _readback.Read(surface, roi);
+            try
+            {
+                _readback ??= new ViewportReadback(_device);
+                return _readback.Read(surface, roi);
+            }
+            catch
+            {
+                _deviceFailed = true;
+                throw;
+            }
         }
     }
 

@@ -73,6 +73,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var ownedPixels = pixels;
             var ownedLease = lease;
             var bounds = frame.ViewportBounds;
+            var excludedScreenRegions = frame.UiExclusionRegions;
             var capturedAt = DateTimeOffset.UtcNow;
             var referenceSha256 = prebuilt.Sha256;
             return Task.Run(() =>
@@ -83,7 +84,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     try
                     {
                         if (_disposed) return;
-                        using var observation = Vpsg3FastLiveExtractor.Extract(ownedPixels, bounds);
+                        using var observation = Vpsg3FastLiveExtractor.Extract(ownedPixels, bounds,
+                            excludedScreenRegions: excludedScreenRegions);
                         var result = Vpsg3FastBootstrapSolver.TrySolve(observation, ownedLease.Floor);
                         if (MapDiagnosticModeCapture.IsActive)
                         {

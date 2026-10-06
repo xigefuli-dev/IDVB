@@ -116,17 +116,19 @@ public sealed partial class SessionOrchestrator
                 candidate, match, requestedFloor, currentFrame))
             return null;
 
+        var source = currentFrame.AutomaticCanvasFrame ?? currentFrame;
         var probeFrame = new CapturedGameFrame(
-            currentFrame.Image.Clone(),
-            currentFrame.ClientBounds,
-            currentFrame.ViewportBounds,
-            currentFrame.WindowHandle)
+            source.Image.Clone(),
+            source.ClientBounds,
+            source.ViewportBounds,
+            source.WindowHandle)
         {
-            CaptureBackend = currentFrame.CaptureBackend,
-            CaptureSystemRelativeTicks = currentFrame.CaptureSystemRelativeTicks,
-            CaptureReadbackMilliseconds = currentFrame.CaptureReadbackMilliseconds,
-            CaptureDroppedFrames = currentFrame.CaptureDroppedFrames,
-            DetectedFloorKey = currentFrame.DetectedFloorKey
+            CaptureBackend = source.CaptureBackend,
+            CaptureSystemRelativeTicks = source.CaptureSystemRelativeTicks,
+            CaptureReadbackMilliseconds = source.CaptureReadbackMilliseconds,
+            CaptureDroppedFrames = source.CaptureDroppedFrames,
+            DetectedFloorKey = source.DetectedFloorKey,
+            UiExclusionRegions = source.UiExclusionRegions
         };
         CapturedGameFrame? ownedProbe = probeFrame;
         CapturedGameFrame? cropped = null;

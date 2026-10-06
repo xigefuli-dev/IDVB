@@ -6,61 +6,39 @@ public sealed partial class SessionOrchestrator
 {
     private static CapturedGameFrame CropAutomaticMapContent(CapturedGameFrame captured)
     {
-        // Select visible map content, not isolated legends or scene fragments.
-        // The old assistant uses a central bright connected component for the
-        // same purpose. This creates no identity or pose evidence by itself.
-        var searchBounds = DwrGameWindowCaptureService.GetViewportBounds(
-            captured.ClientBounds, new NormalizedRectangle
-                { X = 0.16, Y = 0.22, Width = 0.72, Height = 0.58 });
-        var search = new Rect(
-            (int)Math.Round(searchBounds.X - captured.ViewportBounds.X),
-            (int)Math.Round(searchBounds.Y - captured.ViewportBounds.Y),
-            (int)Math.Round(searchBounds.Width), (int)Math.Round(searchBounds.Height));
-        search &= new Rect(0, 0, captured.Image.Width, captured.Image.Height);
-        if (search.Width <= 0 || search.Height <= 0)
-            return captured;
-        using var source = new Mat(captured.Image, search);
-        using var gray = new Mat();
-        if (source.Channels() == 1) source.CopyTo(gray);
-        else Cv2.CvtColor(source, gray, source.Channels() == 4
-            ? ColorConversionCodes.BGRA2GRAY : ColorConversionCodes.BGR2GRAY);
-        using var mask = new Mat();
-        Cv2.Threshold(gray, mask, 74, 255, ThresholdTypes.Binary);
-        using var labels = new Mat();
-        using var stats = new Mat();
-        using var centroids = new Mat();
-        var count = Cv2.ConnectedComponentsWithStats(mask, labels, stats, centroids);
-        var largestArea = 999;
-        Rect? content = null;
-        for (var label = 1; label < count; label++)
+        // Zoom and fog can enlarge or disconnect the visible buildings.
+        // Keep the map canvas; exclude client-anchored controls in feature
+        // evidence rather than selecting a single bright component.
+        var canvas = MapFrameUiExclusion.WithAutomaticCanvasContext(captured);
+        try
         {
-            var area = stats.At<int>(label, (int)ConnectedComponentsTypes.Area);
-            var width = stats.At<int>(label, (int)ConnectedComponentsTypes.Width);
-            var height = stats.At<int>(label, (int)ConnectedComponentsTypes.Height);
-            if (area <= largestArea || width > captured.ClientBounds.Width * 0.58
-                || height > captured.ClientBounds.Height * 0.62)
-                continue;
-            largestArea = area;
-            content = new Rect(search.X + stats.At<int>(label, (int)ConnectedComponentsTypes.Left),
-                search.Y + stats.At<int>(label, (int)ConnectedComponentsTypes.Top), width, height);
+            // This is only a calculation envelope. Every proposed wall from
+            // every disconnected building contributes; no component area or
+            // maximum map-size rule chooses a winner. UI has already been
+            // removed in evidence space, and empty/fog pixels prove nothing.
+            using var points = canvas.GetOrCreateVpsg3Observation().ProposalEdges.FindNonZero();
+            if (points.Empty()) return canvas;
+            var walls = Cv2.BoundingRect(points);
+            var padding = Math.Max(8, (int)Math.Round(canvas.ClientBounds.Width * .03));
+            var crop = new Rect(walls.X - padding, walls.Y - padding,
+                walls.Width + 2 * padding, walls.Height + 2 * padding)
+                & new Rect(0, 0, canvas.Image.Width, canvas.Image.Height);
+            if (crop == new Rect(0, 0, canvas.Image.Width, canvas.Image.Height)) return canvas;
+            var result = new CapturedGameFrame(new Mat(canvas.Image, crop), canvas.ClientBounds,
+                new MapScreenRect(canvas.ViewportBounds.X + crop.X,
+                    canvas.ViewportBounds.Y + crop.Y, crop.Width, crop.Height), canvas.WindowHandle)
+            {
+                CaptureBackend = canvas.CaptureBackend,
+                CaptureSystemRelativeTicks = canvas.CaptureSystemRelativeTicks,
+                DetectedFloorKey = canvas.DetectedFloorKey,
+                CaptureReadbackMilliseconds = canvas.CaptureReadbackMilliseconds,
+                CaptureDroppedFrames = canvas.CaptureDroppedFrames,
+                UiExclusionRegions = canvas.UiExclusionRegions,
+                AutomaticCanvasFrame = canvas
+            };
+            return result;
         }
-        if (content is not { } visible)
-            return captured;
-        var padding = Math.Max(8, (int)Math.Round(captured.ClientBounds.Width * 0.03));
-        var crop = new Rect(visible.X - padding, visible.Y - padding,
-            visible.Width + 2 * padding, visible.Height + 2 * padding)
-            & new Rect(0, 0, captured.Image.Width, captured.Image.Height);
-        var bounds = new MapScreenRect(captured.ViewportBounds.X + crop.X,
-            captured.ViewportBounds.Y + crop.Y, crop.Width, crop.Height);
-        var result = new CapturedGameFrame(new Mat(captured.Image, crop),
-            captured.ClientBounds, bounds, captured.WindowHandle)
-        {
-            CaptureBackend = captured.CaptureBackend,
-            CaptureSystemRelativeTicks = captured.CaptureSystemRelativeTicks,
-            DetectedFloorKey = captured.DetectedFloorKey
-        };
-        captured.Dispose();
-        return result;
+        catch { canvas.Dispose(); throw; }
     }
 
     // Standard map UI search area, relative to the physical game client.
@@ -70,6 +48,9 @@ public sealed partial class SessionOrchestrator
     {
         X = 0.10, Y = 0.12, Width = 0.78, Height = 0.82
     };
+
+    private NormalizedRectangle ResolveTrackingViewport(bool useAutomaticCanvas) =>
+        useAutomaticCanvas ? AutomaticMapViewport() : ResolveMapViewportForCurrentWindow();
 
     private async Task<FloorIndicatorTemplateRegistry.Group?>
         ResolveAutomaticIdentityFloorGroupAsync(string? mapClass)

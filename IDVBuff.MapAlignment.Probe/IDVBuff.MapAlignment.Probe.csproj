@@ -59,6 +59,7 @@
     <Compile Include="..\Features\Maps\MapAlignmentConfidence.cs" Link="Production\MapAlignmentConfidence.cs" />
     <Compile Include="..\Features\Maps\MapCvRecognitionScript.cs" Link="Production\MapCvRecognitionScript.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionModels.cs" Link="Production\MapRecognitionModels.cs" />
+    <Compile Include="..\Features\Maps\MapFrameUiExclusion.cs" Link="Production\MapFrameUiExclusion.cs" />
     <Compile Include="..\Features\Maps\MapRecognitionModels.Part*.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentSession.cs" Link="Production\MapAlignmentSession.cs" />
     <Compile Include="..\Features\Maps\MapGeometryFingerprint.cs" Link="Production\MapGeometryFingerprint.cs" />

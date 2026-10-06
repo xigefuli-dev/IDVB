@@ -19,7 +19,11 @@ public sealed partial class SessionOrchestrator
         if ((rect & new Rect(0, 0, captured.Image.Width, captured.Image.Height)) != rect)
             throw new InvalidDataException("Map viewport is outside the captured scan frame.");
         return new CapturedGameFrame(new Mat(captured.Image, rect), captured.ClientBounds,
-            bounds, captured.WindowHandle) { DetectedFloorKey = captured.DetectedFloorKey };
+            bounds, captured.WindowHandle)
+        {
+            DetectedFloorKey = captured.DetectedFloorKey,
+            UiExclusionRegions = captured.UiExclusionRegions
+        };
     }
 
     private Task<CapturedGameFrame?> CaptureBackgroundAlignmentFrameAsync(
@@ -243,13 +247,15 @@ public sealed partial class SessionOrchestrator
                     details: attemptDetails);
 
                 // Mat ROI retains the backing buffer; no second map-sized copy.
-                return new CapturedGameFrame(new Mat(captured.Image, mapRect), captured.ClientBounds,
+                var extracted = new CapturedGameFrame(new Mat(captured.Image, mapRect), captured.ClientBounds,
                     viewportBounds, captured.WindowHandle)
                 {
                     CaptureBackend = captured.CaptureBackend,
                     CaptureSystemRelativeTicks = captured.CaptureSystemRelativeTicks,
-                    DetectedFloorKey = FloorKey
+                    DetectedFloorKey = FloorKey,
+                    UiExclusionRegions = captured.UiExclusionRegions
                 };
+                return extracted;
             }
             finally
             {

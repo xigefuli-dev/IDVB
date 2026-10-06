@@ -20,7 +20,8 @@ public sealed partial class MapOrbTracker : IDisposable
         Mat initialFrame,
         MapScreenRect viewportBounds,
         MapOverlayTransform initialTransform,
-        MapOrbTrackingOptions options)
+        MapOrbTrackingOptions options,
+        IReadOnlyList<MapScreenRect>? uiExclusionRegions = null)
     {
         ArgumentNullException.ThrowIfNull(initialFrame);
         ArgumentNullException.ThrowIfNull(initialTransform);
@@ -34,7 +35,7 @@ public sealed partial class MapOrbTracker : IDisposable
         _baselineScale = UniformScale(initialTransform);
         if (!double.IsFinite(_baselineScale) || _baselineScale <= 0)
             throw new ArgumentException("The ORB seed transform is invalid.", nameof(initialTransform));
-        _anchor = Extract(initialFrame);
+        _anchor = Extract(initialFrame, viewportBounds, uiExclusionRegions);
         if (_anchor.KeyPoints.Length == 0 || _anchor.Descriptors.Empty())
         {
             _anchor.Dispose();
@@ -50,7 +51,8 @@ public sealed partial class MapOrbTracker : IDisposable
     public MapOrbTrackingResult Track(
         Mat frame,
         MapScreenRect viewportBounds,
-        TimeSpan actualInterval)
+        TimeSpan actualInterval,
+        IReadOnlyList<MapScreenRect>? uiExclusionRegions = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(frame);
@@ -70,7 +72,7 @@ public sealed partial class MapOrbTracker : IDisposable
         try
         {
             var stageTimer = System.Diagnostics.Stopwatch.StartNew();
-            current = Extract(frame);
+            current = Extract(frame, viewportBounds, uiExclusionRegions);
             stageTimer.Stop();
             extractionMilliseconds = stageTimer.Elapsed.TotalMilliseconds;
             if (current.KeyPoints.Length == 0 || current.Descriptors.Empty())
@@ -274,10 +276,11 @@ public sealed partial class MapOrbTracker : IDisposable
     public void Reanchor(
         Mat frame,
         MapScreenRect viewportBounds,
-        MapOverlayTransform transform)
+        MapOverlayTransform transform,
+        IReadOnlyList<MapScreenRect>? uiExclusionRegions = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var replacement = Extract(frame);
+        var replacement = Extract(frame, viewportBounds, uiExclusionRegions);
         if (replacement.KeyPoints.Length == 0 || replacement.Descriptors.Empty())
         {
             replacement.Dispose();
@@ -323,7 +326,8 @@ public sealed partial class MapOrbTracker : IDisposable
         };
     }
 
-    private MapOrbFrameFeatures Extract(Mat source)
+    private MapOrbFrameFeatures Extract(Mat source, MapScreenRect viewportBounds,
+        IReadOnlyList<MapScreenRect>? uiExclusionRegions)
     {
         using var bgr = new Mat();
         switch (source.Channels())
@@ -358,6 +362,11 @@ public sealed partial class MapOrbTracker : IDisposable
             using var kernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(3, 3));
             Cv2.Dilate(nuisance, nuisance, kernel);
             ApplyIgnoreRegions(nuisance);
+            var uiRects = (uiExclusionRegions ?? [])
+                .Select(region => MapFrameUiExclusion.Local(region, viewportBounds, source.Size()))
+                .Where(rect => rect.Width > 0 && rect.Height > 0).ToArray();
+            foreach (var rect in uiRects)
+                Cv2.Rectangle(nuisance, rect, Scalar.White, -1);
             using var validMask = new Mat();
             Cv2.BitwiseNot(nuisance, validMask);
             var border = Math.Max(1, (int)Math.Round(Math.Min(source.Width, source.Height) * 0.02));
@@ -374,6 +383,35 @@ public sealed partial class MapOrbTracker : IDisposable
                 fastThreshold: 20);
             var descriptors = new Mat();
             orb.DetectAndCompute(gray, validMask, out var keyPoints, descriptors);
+            if (uiRects.Length > 0 && keyPoints.Length > 0)
+            {
+                // ORB masks keypoint centres only. The rotated descriptor patch
+                // must also stay outside controls at this keypoint's octave.
+                var usable = Enumerable.Range(0, keyPoints.Length).Where(index =>
+                {
+                    var point = keyPoints[index];
+                    var radius = Math.Ceiling(point.Size * Math.Sqrt(2d) / 2d) + 2;
+                    return !uiRects.Any(rect => point.Pt.X + radius >= rect.X
+                        && point.Pt.X - radius <= rect.Right
+                        && point.Pt.Y + radius >= rect.Y
+                        && point.Pt.Y - radius <= rect.Bottom);
+                }).ToArray();
+                if (usable.Length != keyPoints.Length)
+                {
+                    var filtered = usable.Length == 0 ? new Mat()
+                        : new Mat(usable.Length, descriptors.Cols, descriptors.Type());
+                    if (usable.Length > 0)
+                    {
+                        var sourceRows = descriptors.AsRows<byte>();
+                        var targetRows = filtered.AsRows<byte>();
+                        for (var row = 0; row < usable.Length; row++)
+                            sourceRows[usable[row]].CopyTo(targetRows[row]);
+                    }
+                    descriptors.Dispose();
+                    descriptors = filtered;
+                    keyPoints = usable.Select(index => keyPoints[index]).ToArray();
+                }
+            }
             return new MapOrbFrameFeatures(gray, nuisance, keyPoints, descriptors);
         }
         catch

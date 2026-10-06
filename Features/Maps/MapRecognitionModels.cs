@@ -20,6 +20,7 @@ public sealed partial class CapturedGameFrame : IDisposable
     private string _defaultLiveStructureGenerationFingerprint = string.Empty;
     private double _defaultLiveStructureExtractionMilliseconds;
     private bool _disposed;
+    private CapturedGameFrame? _automaticCanvasFrame;
 
     public CapturedGameFrame(
         Mat image,
@@ -37,6 +38,14 @@ public sealed partial class CapturedGameFrame : IDisposable
     public Mat Image { get; }
     public MapScreenRect ClientBounds { get; }
     public MapScreenRect ViewportBounds { get; }
+    internal IReadOnlyList<MapScreenRect> UiExclusionRegions { get; init; } = [];
+    // A cropped observation owns the uncropped view of the same capture until
+    // tracking has cloned its seed. No later capture may inherit this view.
+    internal CapturedGameFrame? AutomaticCanvasFrame
+    {
+        get => _automaticCanvasFrame;
+        init => _automaticCanvasFrame = value;
+    }
     public IntPtr WindowHandle { get; }
     public long CaptureSystemRelativeTicks { get; init; }
     public string CaptureBackend { get; init; } = "gdi";
@@ -129,11 +138,16 @@ public sealed partial class CapturedGameFrame : IDisposable
             var created = preprocessor.ProcessLiveRoiDiagnostic(
                 ComputationImage,
                 null,
-                null,
+                UiExclusionRegions.Select(region => MapFrameUiExclusion.Local(
+                    region, ViewportBounds, ComputationImage.Size()))
+                    .Where(rect => rect.Width > 0 && rect.Height > 0).ToArray(),
                 out var createdTiming,
                 generateVisibleMask: generateVisibleMask,
                 profile: requestedProfile,
                 generationTuning: generationTuning);
+            if (created.RawVisibleMask is { } visibleMask && UiExclusionRegions.Count > 0)
+                MapFrameUiExclusion.Fill(visibleMask, ViewportBounds, UiExclusionRegions,
+                    Scalar.Black, padding: 6);
             stopwatch.Stop();
             _defaultLiveStructureFeatures = created;
             _defaultLiveStructureTiming = createdTiming;
@@ -166,6 +180,8 @@ public sealed partial class CapturedGameFrame : IDisposable
             _defaultLiveStructureGenerationFingerprint = string.Empty;
             _ownedComputationImage?.Dispose();
             _ownedComputationImage = null;
+            _automaticCanvasFrame?.Dispose();
+            _automaticCanvasFrame = null;
             Image.Dispose();
         }
     }

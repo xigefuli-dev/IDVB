@@ -24,7 +24,7 @@ public sealed partial class MapCvRecognitionService
                 Mode = GateSearchMode.FullSearch,
                 AllowDualGateEarlyExit = false,
                 AllowSingleGateEarlyExit = false
-            });
+            }, excludedScreenRegions: frame.UiExclusionRegions);
         Point2d[] gates = detected.BudgetExceeded ? [] : detected.Gates.Select(gate =>
             new Point2d(gate.ScreenBounds.CenterX - observation.ViewportBounds.X,
                 gate.ScreenBounds.CenterY - observation.ViewportBounds.Y)).ToArray();

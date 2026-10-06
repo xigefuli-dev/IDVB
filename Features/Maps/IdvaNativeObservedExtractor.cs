@@ -26,7 +26,8 @@ public sealed class IdvaNativeObservedExtractor
         }
     }
 
-    public static Result Process(Mat source)
+    public static Result Process(Mat source, MapScreenRect? viewportBounds = null,
+        IReadOnlyList<MapScreenRect>? excludedScreenRegions = null)
     {
         _ = Definition.Value;
         ArgumentNullException.ThrowIfNull(source);
@@ -52,7 +53,13 @@ public sealed class IdvaNativeObservedExtractor
         using var hsv = new Mat();
         Cv2.CvtColor(bgr, hsv, ColorConversionCodes.BGR2HSV);
 
-        using var exclusion = DetectDynamicExclusion(bgr, hsv);
+        using var exclusion = excludedScreenRegions is { Count: > 0 }
+            ? new Mat(bgr.Size(), MatType.CV_8UC1, Scalar.Black)
+            : DetectDynamicExclusion(bgr, hsv);
+        if (excludedScreenRegions is { Count: > 0 })
+            MapFrameUiExclusion.Fill(exclusion,
+                viewportBounds ?? new MapScreenRect(0, 0, source.Width, source.Height),
+                excludedScreenRegions, Scalar.White);
         var (room, corridor) = ClassifyStructure(hsv, exclusion);
         using (room)
         using (corridor)
@@ -65,6 +72,10 @@ public sealed class IdvaNativeObservedExtractor
             using var overlayKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
             using var dilatedExclusion = new Mat();
             Cv2.Dilate(exclusion, dilatedExclusion, overlayKernel);
+            // Semantic contours can draw a rim around masked UI. It must not
+            // be promoted back into valid walls by photometric support.
+            if (excludedScreenRegions is { Count: > 0 })
+                candidateEdges.SetTo(Scalar.Black, dilatedExclusion);
 
             var (support, strongEdges) = StrongSourceEdgeSupport(bgr);
             using (support)

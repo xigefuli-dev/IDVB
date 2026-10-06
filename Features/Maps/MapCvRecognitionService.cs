@@ -292,7 +292,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 frame.ViewportBounds,
                 frame.ClientBounds.Width,
                 tuning.GateTemplateThreshold,
-                new GateSearchContext { Mode = GateSearchMode.FullSearch });
+                new GateSearchContext { Mode = GateSearchMode.FullSearch },
+                excludedScreenRegions: frame.UiExclusionRegions);
         }
         var gates = gateResult.Gates;
         stopwatch.Stop();

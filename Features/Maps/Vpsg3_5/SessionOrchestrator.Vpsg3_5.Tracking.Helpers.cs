@@ -55,6 +55,7 @@ public sealed partial class SessionOrchestrator
         double feedforwardTx,
         double feedforwardTy,
         Vpsg3_5TrackingConfig trackingConfig,
+        bool useAutomaticCanvas,
         CancellationToken cancellationToken)
     {
         try
@@ -63,7 +64,7 @@ public sealed partial class SessionOrchestrator
             if (!IsOrbTrackingContextCurrent(context))
                 return null;
 
-            var viewport = ResolveMapViewportForCurrentWindow();
+            var viewport = ResolveTrackingViewport(useAutomaticCanvas);
             object? frameObject = await _captureSvc.CaptureNextViewportAsync(
                 viewport,
                 SystemRelativeClock.GetTicks(),
@@ -74,10 +75,13 @@ public sealed partial class SessionOrchestrator
             if (frameObject is not CapturedGameFrame frame)
                 return null;
 
+            if (useAutomaticCanvas)
+                frame = MapFrameUiExclusion.WithAutomaticCanvasContext(frame);
             using (frame)
             using (var observation = Vpsg3FastLiveExtractor.Extract(
                        frame.Image,
-                       frame.ViewportBounds))
+                       frame.ViewportBounds,
+                       excludedScreenRegions: frame.UiExclusionRegions))
             {
                 if (observation.SparseEdgePoints.Count < 8
                     || !_recognition.TryGetVpsg3FloorLease(

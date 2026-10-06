@@ -48,7 +48,8 @@ public sealed partial class SessionOrchestrator
             {
                 CaptureBackend = source.CaptureBackend,
                 CaptureSystemRelativeTicks = source.CaptureSystemRelativeTicks,
-                DetectedFloorKey = source.DetectedFloorKey
+                DetectedFloorKey = source.DetectedFloorKey,
+                UiExclusionRegions = source.UiExclusionRegions
             };
             // Always enter the delegate so the owned frame is disposed even
             // when a match ends before this worker is scheduled.
@@ -169,7 +170,8 @@ public sealed partial class SessionOrchestrator
         // Six spatially independent corners are the existing minimum geometric
         // witness. Here their count only chooses which frame gets compute time;
         // it never changes identity acceptance or removes a map from the pool.
-        using var observation = Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds);
+        using var observation = Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds,
+            excludedScreenRegions: frame.UiExclusionRegions);
         var corners = MapLocalCornerGeometryExtractor.ExtractCorners(
             observation.ProposalEdges, observation.ProposalEdges);
         var independent = new List<OpenCvSharp.Point2d>();

@@ -81,8 +81,11 @@ public sealed partial class SessionOrchestrator
         var linked = CancellationTokenSource.CreateLinkedTokenSource(
             CurrentMatchCancellationToken,
             _lifetimeCts.Token);
-        var viewportBounds = seedFrame.ViewportBounds;
-        var seed = config.Enabled ? seedFrame.Image.Clone() : null;
+        var orbSeedFrame = seedFrame.AutomaticCanvasFrame ?? seedFrame;
+        var viewportBounds = orbSeedFrame.ViewportBounds;
+        var useAutomaticCanvas = seedFrame.UiExclusionRegions.Count > 0;
+        var seed = !useVpsgTracking && config.Enabled ? orbSeedFrame.Image.Clone() : null;
+        var seedUiExclusionRegions = orbSeedFrame.UiExclusionRegions;
         lock (_orbTrackingGate)
         {
             _orbTrackingCancellation = linked;
@@ -95,6 +98,7 @@ public sealed partial class SessionOrchestrator
                         context,
                         recognition,
                         transform,
+                        useAutomaticCanvas,
                         linked.Token))
                 : config.Enabled
                     ? Task.Run(
@@ -103,14 +107,17 @@ public sealed partial class SessionOrchestrator
                             recognition,
                             seed!,
                             viewportBounds,
+                            seedUiExclusionRegions,
                             transform,
                             config,
+                            useAutomaticCanvas,
                             linked.Token))
                     : Task.Run(
                         () => RunAdaptiveStructureTrackingLoopAsync(
                             context,
                             recognition,
                             config,
+                            useAutomaticCanvas,
                             linked.Token));
         }
         _logCollector.Append(
@@ -128,8 +135,10 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition recognition,
         Mat seed,
         MapScreenRect seedViewportBounds,
+        IReadOnlyList<MapScreenRect> seedUiExclusionRegions,
         MapOverlayTransform initialTransform,
         OrbTrackingConfig config,
+        bool useAutomaticCanvas,
         CancellationToken cancellationToken)
     {
         try
@@ -141,7 +150,8 @@ public sealed partial class SessionOrchestrator
                 initialTransform,
                 MapOrbTrackingOptions.FromConfig(
                     config,
-                    _settings?.SessionTuning.ViewportIgnoreRegions)))
+                    _settings?.SessionTuning.ViewportIgnoreRegions),
+                seedUiExclusionRegions))
             {
                 var currentRecognition = recognition;
                 var weakFrames = 0;
@@ -161,7 +171,7 @@ public sealed partial class SessionOrchestrator
 
                     var captureTimer = Stopwatch.StartNew();
                     if (!_captureSvc.TryCaptureViewport(
-                            ResolveMapViewportForCurrentWindow(),
+                            ResolveTrackingViewport(useAutomaticCanvas),
                             out var frameObject,
                             out var captureFailure)
                         || frameObject is not CapturedGameFrame frame)
@@ -183,6 +193,8 @@ public sealed partial class SessionOrchestrator
                         continue;
                     }
 
+                    if (useAutomaticCanvas)
+                        frame = MapFrameUiExclusion.WithAutomaticCanvasContext(frame);
                     using (frame)
                     {
                         captureTimer.Stop();
@@ -194,7 +206,8 @@ public sealed partial class SessionOrchestrator
                         var observation = tracker.Track(
                             frame.Image,
                             frame.ViewportBounds,
-                            actualInterval);
+                            actualInterval,
+                            frame.UiExclusionRegions);
                         orbTimer.Stop();
                         if (observation.Accepted)
                         {
@@ -211,7 +224,8 @@ public sealed partial class SessionOrchestrator
                                 tracker.Reanchor(
                                     frame.Image,
                                     frame.ViewportBounds,
-                                    adaptiveOrb.Transform);
+                                    adaptiveOrb.Transform,
+                                    frame.UiExclusionRegions);
                             }
                             currentRecognition = MapCvRecognitionBuilders.ReplaceTransformAndSource(
                                 currentRecognition,
@@ -272,7 +286,8 @@ public sealed partial class SessionOrchestrator
                                 tracker.Reanchor(
                                     frame.Image,
                                     frame.ViewportBounds,
-                                    correctedTransform);
+                                    correctedTransform,
+                                    frame.UiExclusionRegions);
                                 currentRecognition = corrected;
                                 weakFrames = 0;
                                 stableFrames = 0;

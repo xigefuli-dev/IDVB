@@ -9,6 +9,7 @@ public sealed partial class SessionOrchestrator
         OrbTrackingContext context,
         RuntimeMapRecognition initialRecognition,
         MapOverlayTransform initialTransform,
+        bool useAutomaticCanvas,
         CancellationToken cancellationToken)
     {
         var currentRecognition = initialRecognition;
@@ -101,6 +102,7 @@ public sealed partial class SessionOrchestrator
                             feedforwardTx,
                             feedforwardTy,
                             trackingConfig,
+                            useAutomaticCanvas,
                             cancellationToken).ConfigureAwait(false);
 
                         if (snapResult is not null && snapResult.IsAccepted)
@@ -210,7 +212,7 @@ public sealed partial class SessionOrchestrator
                 {
                     pendingCaptureStarted = Stopwatch.GetTimestamp();
                     pendingCapture = _captureSvc.CaptureNextViewportAsync(
-                        ResolveMapViewportForCurrentWindow(),
+                        ResolveTrackingViewport(useAutomaticCanvas),
                         afterSystemTicks,
                         TimeSpan.FromMilliseconds(trackingConfig.FrameCaptureWaitMs),
                         dragCaptureCancellation.Token);
@@ -235,7 +237,7 @@ public sealed partial class SessionOrchestrator
                     {
                         var fallbackStarted = Stopwatch.GetTimestamp();
                         var fallbackCaptured = _captureSvc.TryCaptureViewport(
-                            ResolveMapViewportForCurrentWindow(),
+                            ResolveTrackingViewport(useAutomaticCanvas),
                             out frameObject,
                             out _);
                         captureElapsedMs = Stopwatch.GetElapsedTime(fallbackStarted).TotalMilliseconds;
@@ -245,6 +247,8 @@ public sealed partial class SessionOrchestrator
 
                     if (frameObject is CapturedGameFrame frame)
                     {
+                        if (useAutomaticCanvas)
+                            frame = MapFrameUiExclusion.WithAutomaticCanvasContext(frame);
                         using (frame)
                         {
                             captureCount++;
@@ -302,7 +306,8 @@ public sealed partial class SessionOrchestrator
                                 var preprocessStarted = Stopwatch.GetTimestamp();
                                 using var obs = Vpsg3FastLiveExtractor.Extract(
                                     frame.Image,
-                                    frame.ViewportBounds);
+                                    frame.ViewportBounds,
+                                    excludedScreenRegions: frame.UiExclusionRegions);
                                 preprocessTotalMs += Stopwatch.GetElapsedTime(preprocessStarted)
                                     .TotalMilliseconds;
                                 if (obs.SparseEdgePoints.Count >= 8

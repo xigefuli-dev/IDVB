@@ -13,7 +13,8 @@ public sealed partial class CapturedGameFrame
         lock (_derivedFeaturesGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return _vpsg3Observation ??= Vpsg3FastLiveExtractor.Extract(Image, ViewportBounds);
+            return _vpsg3Observation ??= Vpsg3FastLiveExtractor.Extract(Image, ViewportBounds,
+                excludedScreenRegions: UiExclusionRegions);
         }
     }
 
@@ -24,7 +25,8 @@ public sealed partial class CapturedGameFrame
         lock (_derivedFeaturesGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return _nativeObservedStructure ??= IdvaNativeObservedExtractor.Process(Image);
+            return _nativeObservedStructure ??= IdvaNativeObservedExtractor.Process(Image,
+                ViewportBounds, UiExclusionRegions);
         }
     }
 

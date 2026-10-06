@@ -260,7 +260,7 @@ internal static partial class MapCvAlignmentService
                     frame.ClientBounds.Width,
                     tuning.GateTemplateThreshold,
                     gateContext,
-                    frame.PhysicalPixelsPerComputationPixel);
+                    frame.PhysicalPixelsPerComputationPixel, frame.UiExclusionRegions);
             if (prioritizeStructureValidation)
             {
                 gateDetection.Complete(
@@ -351,7 +351,7 @@ internal static partial class MapCvAlignmentService
                         frame.ClientBounds.Width,
                         tuning.GateTemplateThreshold,
                         warmContext,
-                        frame.PhysicalPixelsPerComputationPixel);
+                        frame.PhysicalPixelsPerComputationPixel, frame.UiExclusionRegions);
                 }
                 gates = gateResult.Gates;
                 stopwatch.Stop();

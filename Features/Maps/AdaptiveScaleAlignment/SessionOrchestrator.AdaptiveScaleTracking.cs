@@ -8,6 +8,7 @@ public sealed partial class SessionOrchestrator
         OrbTrackingContext context,
         RuntimeMapRecognition recognition,
         OrbTrackingConfig config,
+        bool useAutomaticCanvas,
         CancellationToken cancellationToken)
     {
         var current = recognition;
@@ -23,7 +24,7 @@ public sealed partial class SessionOrchestrator
                 if (!IsOrbTrackingContextCurrent(context))
                     break;
                 if (!_captureSvc.TryCaptureViewport(
-                        ResolveMapViewportForCurrentWindow(),
+                        ResolveTrackingViewport(useAutomaticCanvas),
                         out var frameObject,
                         out _)
                     || frameObject is not CapturedGameFrame frame)
@@ -31,6 +32,8 @@ public sealed partial class SessionOrchestrator
                     continue;
                 }
 
+                if (useAutomaticCanvas)
+                    frame = MapFrameUiExclusion.WithAutomaticCanvasContext(frame);
                 using (frame)
                 {
                     var corrected = TryCorrectOrbTrackingWithStructure(

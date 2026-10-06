@@ -33,7 +33,8 @@ public static class Vpsg3FastLiveExtractor
         Mat source,
         MapScreenRect? viewportBounds = null,
         int maxSparsePoints = 150,
-        Vpsg3LiveExtractorScratch? scratch = null)
+        Vpsg3LiveExtractorScratch? scratch = null,
+        IReadOnlyList<MapScreenRect>? excludedScreenRegions = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.Empty())
@@ -57,7 +58,10 @@ public static class Vpsg3FastLiveExtractor
         Cv2.CvtColor(bgr, s.Hsv, ColorConversionCodes.BGR2HSV);
 
         // 3. Fast dynamic exclusion (HUD and top glyph exclusion without connected components)
-        ComputeFastDynamicExclusion(s.Hsv, s);
+        if (excludedScreenRegions is { Count: > 0 })
+            MapFrameUiExclusion.Fill(s.Exclusion, bounds, excludedScreenRegions, Scalar.White);
+        else
+            ComputeFastDynamicExclusion(s.Hsv, s);
 
         // 4. Classify room and corridor semantic areas with pure morphological filtering
         ClassifyStructurePureMorphology(s);

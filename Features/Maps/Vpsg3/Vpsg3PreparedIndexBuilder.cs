@@ -32,19 +32,32 @@ public static class Vpsg3PreparedIndexBuilder
         var width = edgeImage.Width;
         var height = edgeImage.Height;
 
-        // 1. Edge pixel count
-        var edgePixelCount = Cv2.CountNonZero(edgeImage);
+        // Normalize once so original points, scale analysis, and both dilated
+        // match masks share the exact >128 source-pixel semantics.
+        using var normalizedEdgeImage = new Mat();
+        Cv2.Threshold(edgeImage, normalizedEdgeImage, 128, 255, ThresholdTypes.Binary);
+
+        // 1. Count original wall pixels and retain their exact coordinates.
+        var edgePixelCount = Cv2.CountNonZero(normalizedEdgeImage);
+        using var referenceEdgePointMatrix = new Mat();
+        Cv2.FindNonZero(normalizedEdgeImage, referenceEdgePointMatrix);
+        Point[] referenceEdgePoints = [];
+        if (!referenceEdgePointMatrix.Empty())
+            referenceEdgePointMatrix.GetArray(out referenceEdgePoints);
 
         // 2. Compute reference scale prior via normalized autocorrelation
-        var scalePrior = ComputeReferenceScalePrior(edgeImage, edgePixelCount, cfg);
+        var scalePrior = ComputeReferenceScalePrior(
+            normalizedEdgeImage,
+            edgePixelCount,
+            cfg);
 
         // 3. Morphological dilation for structural matching tolerance (K5 for 5x5 / +/-2px and K3 for 3x3 / +/-1px)
         using var dilatedK5 = new Mat();
         using var dilatedK3 = new Mat();
         using var kernel5 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
         using var kernel3 = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
-        Cv2.Dilate(edgeImage, dilatedK5, kernel5);
-        Cv2.Dilate(edgeImage, dilatedK3, kernel3);
+        Cv2.Dilate(normalizedEdgeImage, dilatedK5, kernel5);
+        Cv2.Dilate(normalizedEdgeImage, dilatedK3, kernel3);
 
         // 4. Pack into 64-bit row-major bitsets
         var wordsPerRow = (width + 63) / 64;
@@ -76,8 +89,7 @@ public static class Vpsg3PreparedIndexBuilder
             using var binary = new Mat();
             using var inverse = new Mat();
             using var distance = new Mat();
-            Cv2.Threshold(edgeImage, binary, 128, 255, ThresholdTypes.Binary);
-            Cv2.BitwiseNot(binary, inverse);
+            Cv2.BitwiseNot(normalizedEdgeImage, inverse);
             Cv2.DistanceTransform(inverse, distance, DistanceTypes.L2, DistanceTransformMasks.Precise);
             precisionDistance = new float[checked(width * height)];
             Marshal.Copy(distance.Data, precisionDistance, 0, precisionDistance.Length);
@@ -95,7 +107,8 @@ public static class Vpsg3PreparedIndexBuilder
             bitsetK5,
             bitsetK3,
             totalBytes,
-            precisionDistance);
+            precisionDistance,
+            referenceEdgePoints);
     }
 
     /// <summary>

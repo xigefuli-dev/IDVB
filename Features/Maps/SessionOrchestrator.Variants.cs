@@ -46,7 +46,7 @@ public sealed partial class SessionOrchestrator
             IDVBuff.Features.Notifications.OverlayNotificationCenter.Notice(
                 userConfirmed
                     ? "你选择了一张变体地图，如果对齐贴合异常请在对局控件中快速切换。"
-                    : "已确认这是一张变体地图，如果对齐贴合异常请在对局控件中快速切换。");
+                    : "已自动确认相似地图组，可在对局控件中切换组内地图。");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -16,6 +16,9 @@ public sealed class Vpsg3LiveExtractorScratch : IDisposable
     public Mat K3 { get; } = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
     public Mat K5 { get; } = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5));
     public Mat K11 { get; } = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(11, 11));
+    public Mat PoseSupportKernel { get; } = Cv2.GetStructuringElement(MorphShapes.Rect,
+        new Size(2 * (int)Math.Ceiling(Vpsg3LiveObservation.AutomaticPoseTolerancePixels) + 1,
+            2 * (int)Math.Ceiling(Vpsg3LiveObservation.AutomaticPoseTolerancePixels) + 1));
 
     // Reusable intermediate Mats
     public Mat Bgr { get; } = new();
@@ -41,6 +44,7 @@ public sealed class Vpsg3LiveExtractorScratch : IDisposable
     public Mat UncertainFrontier { get; } = new();
     public Mat DilatedExclusion { get; } = new();
     public Mat Invalid { get; } = new();
+    public Mat PoseUncertainSupport { get; } = new();
 
     // Reusable contour batch buffers
     public List<Point[]> ApproxContourBatch { get; } = new(64);
@@ -78,6 +82,8 @@ public sealed class Vpsg3LiveExtractorScratch : IDisposable
         K3.Dispose();
         K5.Dispose();
         K11.Dispose();
+        PoseSupportKernel.Dispose();
+        PoseUncertainSupport.Dispose();
 
         Bgr.Dispose();
         Hsv.Dispose();

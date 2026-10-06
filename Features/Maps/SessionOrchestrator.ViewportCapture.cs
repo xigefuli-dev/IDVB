@@ -71,7 +71,14 @@ public sealed partial class SessionOrchestrator
         bool prepareVpsg3Structure = false,
         AutoFloorCapture? autoFloor = null,
         bool allowPartialMap = false,
-        Func<NormalizedRectangle, IDisposable>? suspendOverlayForCapture = null)
+        Func<NormalizedRectangle, IDisposable>? suspendOverlayForCapture = null,
+        bool useAutomaticViewport = false,
+        FloorIndicatorTemplateRegistry.Group? identityFloorGroup = null,
+        MapViewportColorSignature? readinessReferenceSignature = null,
+        bool cropAutomaticMapContentBeforeReadiness = false,
+        int? readinessMaximumAttempts = null,
+        string? requiredDetectedFloor = null,
+        Func<CapturedGameFrame, CapturedGameFrame?>? acceptedJobReadinessFrame = null)
     {
         var sessionTuning = _settings!.SessionTuning;
         if (_captureSvc.TryGetForegroundClientBounds(
@@ -83,7 +90,8 @@ public sealed partial class SessionOrchestrator
         {
             await ApplySelectedResolutionPresetAsync(validPresetBounds);
         }
-        var viewport = ResolveMapViewportForCurrentWindow();
+        var viewport = useAutomaticViewport
+            ? AutomaticMapViewport() : ResolveMapViewportForCurrentWindow();
         var interval = relaxForLockedMap
             ? 8
             : Math.Max(
@@ -112,12 +120,18 @@ public sealed partial class SessionOrchestrator
                 requireStructureReadiness: lowStructureReadiness,
                 structureFallbackFrameCount,
                 prepareNativeStructure,
-                prepareVpsg3Structure, autoFloor);
+                prepareVpsg3Structure, autoFloor, identityFloorGroup,
+                useReferenceSignature: !useAutomaticViewport,
+                referenceSignatureOverride: readinessReferenceSignature,
+                cropAutomaticMapContentBeforeReadiness: cropAutomaticMapContentBeforeReadiness,
+                maximumAttempts: readinessMaximumAttempts,
+                requiredDetectedFloor: requiredDetectedFloor);
+            if (useAutomaticViewport && readyFrame is not null
+                && !cropAutomaticMapContentBeforeReadiness)
+                readyFrame = CropAutomaticMapContent(readyFrame);
             if (readyFrame is not null
                 && string.Equals(operation, "仅对齐", StringComparison.Ordinal))
-            {
                 MapDiagnosticModeCapture.BeginMapOpen(readyFrame.Image);
-            }
             return readyFrame;
         }
 
@@ -127,6 +141,8 @@ public sealed partial class SessionOrchestrator
         if (ScanExecutionContext.Current is { IsAutomatic: true, Policy.Mode: ScanPerformanceMode.Fast })
             requiredFrames = 2;
         var maximumDifference = sessionTuning.StableFrameDifference;
+        var captureViewport = identityFloorGroup is null
+            ? viewport : FloorIndicatorCaptureRegion.IncludeMap(viewport);
         var timeout = surveyTuning is null
             ? Math.Max(
                 sessionTuning.OpeningTimeoutMilliseconds,
@@ -162,7 +178,7 @@ public sealed partial class SessionOrchestrator
                 try
                 {
                     // Restore before stability analysis or the next inter-frame wait.
-                    using var captureVisibility = suspendOverlayForCapture?.Invoke(viewport);
+                    using var captureVisibility = suspendOverlayForCapture?.Invoke(captureViewport);
                     if (suspendOverlayForCapture is not null)
                     {
                         // Observation must not block input dispatch on desktop capture.
@@ -170,7 +186,7 @@ public sealed partial class SessionOrchestrator
                         // surface outlives this capture lease.
                         var capture = await Task.Run(() =>
                         {
-                            var ok = _captureSvc.TryCaptureViewport(viewport,
+                            var ok = _captureSvc.TryCaptureViewport(captureViewport,
                                 out var image, out var error);
                             return (ok, image, error);
                         }, cancellationToken);
@@ -180,7 +196,7 @@ public sealed partial class SessionOrchestrator
                     }
                     else
                         captured = _captureSvc.TryCaptureViewport(
-                            viewport, out frameObj, out failureReason);
+                            captureViewport, out frameObj, out failureReason);
                 }
                 finally
                 {
@@ -196,11 +212,33 @@ public sealed partial class SessionOrchestrator
                         return null;
                     }
                     successfulCaptures++;
+                    if (identityFloorGroup is not null)
+                        current = ExtractAutomaticIdentityViewport(current, viewport, identityFloorGroup);
                     var stable = tracker.Observe(
                         current.Image,
                         maximumDifference,
                         requiredFrames,
                         sessionTuning.ViewportIgnoreRegions);
+                    if (acceptedJobReadinessFrame is not null)
+                    {
+                        CapturedGameFrame? readinessFrame = null;
+                        try
+                        {
+                            readinessFrame = acceptedJobReadinessFrame(current);
+                        }
+                        catch (Exception)
+                        {
+                            // Optional accepted-job readiness must never change
+                            // the established stable-capture failure behavior.
+                        }
+                        if (readinessFrame is not null)
+                        {
+                            DisposeViewportFrame(lastFrame, attempts);
+                            lastFrame = null;
+                            DisposeViewportFrame(current, attempts);
+                            return readinessFrame;
+                        }
+                    }
                     DisposeViewportFrame(lastFrame, attempts);
                     lastFrame = current;
                     if (stable)
@@ -213,7 +251,7 @@ public sealed partial class SessionOrchestrator
                         {
                             lastPresence = MapViewportPresenceDetector.Evaluate(
                                 current.Image,
-                                GetCurrentMapViewportPresenceReference());
+                                useAutomaticViewport ? null : GetCurrentMapViewportPresenceReference());
                             if (!lastPresence.IsPresent && allowPartialMap
                                 && ScanExecutionContext.Current is { CanCompute: true }
                                 && ScanObservationRules.HasVisibleStructure(current.Image))
@@ -270,7 +308,8 @@ public sealed partial class SessionOrchestrator
                                 });
                             var stableFrame = lastFrame;
                             lastFrame = null;
-                            return stableFrame;
+                            return useAutomaticViewport
+                                ? CropAutomaticMapContent(stableFrame) : stableFrame;
                         }
                     }
                 }

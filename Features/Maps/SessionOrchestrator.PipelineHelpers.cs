@@ -45,7 +45,9 @@ public sealed partial class SessionOrchestrator
         }
 
         var windowHandle = windowHandleObj is IntPtr hwnd ? hwnd : IntPtr.Zero;
-        await ApplySelectedResolutionPresetAsync(clientBounds);
+        var operationMatch = _matchSession.Snapshot;
+        // Record the input before an asynchronous preset load. A second key
+        // press must close this open, rather than also seeing the old state.
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
         {
@@ -53,6 +55,10 @@ public sealed partial class SessionOrchestrator
             ReportInputDecision("game-map-toggle", "applied", "map-closed-after-preset");
             return;
         }
+        await ApplySelectedResolutionPresetAsync(clientBounds);
+        if (!_gameMapToggleState.IsCurrent(toggle)
+            || !IsCurrentMatchOperation(operationMatch))
+            return;
         if (HasActiveQuickScan && (!_hasCompletedQuickScanAlignment
             || _lastRecognition?.Result.OverlayTransform is null))
         {
@@ -63,29 +69,27 @@ public sealed partial class SessionOrchestrator
             return;
         }
         var route = _matchSession.Snapshot.Mode == MapRunMode.Survey ? "survey"
+            : _lastRecognition is null && _pendingAlignmentIdentity is null ? "automatic-identity"
             : CanObserveMap ? "continuous-observation"
-            : _settings.SilentScanEnabled && _pendingAlignmentIdentity is null && _lastRecognition is null
-                ? "silent-scan"
             : _backgroundScanStatus == BackgroundScanStatus.CompletedFailed ? "background-failed-alignment"
             : IsBackgroundScanCompleted ? "consume-background-scan" : "locked-map-alignment";
         ReportInputDecision("game-map-toggle", "dispatched", route);
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
+        else if (_lastRecognition is null && _pendingAlignmentIdentity is null)
+        {
+            CancelMapObservation(clearPreview: true);
+            await RunMapOpenAlignmentAsync(toggle);
+        }
         else if (CanObserveMap)
         {
             ClearPendingBackgroundScan();
             RefreshMiniMapForCurrentFloor();
             StartMapObservation();
         }
-        else if (_settings.SilentScanEnabled
-            && _pendingAlignmentIdentity is null
-            && _lastRecognition is null)
-            await RunSilentScanAsync(toggle);
         else if (_backgroundScanStatus == BackgroundScanStatus.CompletedFailed)
         {
-            // 后台扫描失败：无身份可消费，提示后走标准「尚未锁定地图」路径，
-            // 保证玩家手动扫描仍可正常对齐。
-            _statusMessage = "后台扫描未识别出地图，请重新按快捷扫描键。";
+            _statusMessage = "后台扫描未完成，正在按已锁定地图继续对齐。";
             ClearPendingBackgroundScan();
             await RunMapOpenAlignmentAsync(toggle);
         }

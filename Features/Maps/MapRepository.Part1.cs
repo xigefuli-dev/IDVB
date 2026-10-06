@@ -64,6 +64,7 @@ public sealed partial class MapRepository
                     .Select(record => CloneWithClassProperties(catalog, record))
                     .ToArray())
             {
+                Revision = GetCatalogRevision(),
                 ClassProperties = catalog.ClassProperties.ToDictionary(
                     pair => pair.Key,
                     pair => pair.Value.Clone(),

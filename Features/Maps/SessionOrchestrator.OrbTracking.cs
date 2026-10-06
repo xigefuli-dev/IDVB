@@ -30,11 +30,14 @@ public sealed partial class SessionOrchestrator
 
     private async Task StartOrbTrackingAsync(
         RuntimeMapRecognition recognition,
-        CapturedGameFrame seedFrame)
+        CapturedGameFrame seedFrame,
+        Func<bool>? canStart = null)
     {
         var scan = ScanExecutionContext.Current;
         CancelOrbTracking("alignment replaced");
         await DrainOrbTrackingAsync();
+        if (!(canStart?.Invoke() ?? true))
+            return;
         if (scan is not null && (scan.IsSuperseded || scan.CancellationToken.IsCancellationRequested
             || scan.Expired || !ReferenceEquals(_lastRecognition, recognition)))
             return;

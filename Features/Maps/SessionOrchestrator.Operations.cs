@@ -21,11 +21,30 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
 
     public async Task RefreshMapCacheAsync(Guid? changedMapId = null)
     {
-        await _recognition.RefreshCacheAsync(changedMapId);
+        Task refresh;
+        lock (_mapOpenCancellationOwner.SyncRoot)
+        {
+            ClearAutomaticIdentityJob();
+            // Put the cache writer in the same lane, so a new open cannot
+            // start a worker in the gap between draining and refreshing.
+            refresh = RefreshAutomaticIdentityCacheAfterWorkerAsync(
+                _automaticIdentityWorker, changedMapId);
+            _automaticIdentityWorker = refresh;
+            ObserveAutomaticIdentityWorkerFault(refresh);
+        }
+        await refresh;
         if (_learningEngineInitialized)
             await _learningEngine.InvalidateReferenceCacheAsync(
                 _lifetimeCts.Token);
         StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task RefreshAutomaticIdentityCacheAfterWorkerAsync(
+        Task precedingWorker, Guid? changedMapId)
+    {
+        await ObserveAutomaticIdentityWorkerAsync(precedingWorker);
+        _lifetimeCts.Token.ThrowIfCancellationRequested();
+        await _recognition.RefreshCacheAsync(changedMapId);
     }
 
     public async Task EnsureMapCacheSynchronizedAsync()
@@ -37,8 +56,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     }
 
     /// <summary>
-    /// Runs the existing map-open alignment entry point against the locked
-    /// recognition result.  It never invokes the scan/identification pipeline.
+    /// Runs the same map-open entry as the GUI. An unidentified match first
+    /// resolves identity from the current frame, then publishes its alignment.
     /// </summary>
     public async Task RunAlignmentAsync()
     {
@@ -64,13 +83,6 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
             return;
         }
 
-        if (_lastRecognition is null && _pendingAlignmentIdentity is null)
-        {
-            _statusMessage = "尚未锁定地图，请先按快捷扫描键确认地图。";
-            StateChanged?.Invoke(this, EventArgs.Empty);
-            return;
-        }
-
         if (!_gameMapToggleState.IsOpen)
         {
             _statusMessage = "游戏地图未打开，请先打开游戏地图后再执行对齐。";
@@ -92,6 +104,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         var transition = new MapGameToggleTransition(
             IsOpen: true,
             Version: _gameMapToggleState.Version);
+        var operationMatch = _matchSession.Snapshot;
         Interlocked.Increment(ref _activeScanOperations);
         StateChanged?.Invoke(this, EventArgs.Empty);
         try
@@ -101,6 +114,9 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         finally
         {
             Interlocked.Decrement(ref _activeScanOperations);
+            if (IsCurrentMatchOperation(operationMatch)
+                && _gameMapToggleState.IsCurrent(transition) && CanObserveMap)
+                StartMapObservation(delayFirstPass: true);
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -113,6 +129,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _gameMapToggleState.SetOpenForExternalController(isOpen);
         if (!isOpen)
         {
+            CancelMapOpenAlignment();
             CancelMapObservation();
             EndAdaptiveMapOpen("external game map closed");
             CancelOrbTracking("external game map closed");

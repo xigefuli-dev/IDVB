@@ -150,7 +150,7 @@ public sealed partial class SessionOrchestrator
             return true;
         }
 
-        _statusMessage = "尚未锁定地图，无法切换楼层；请先执行快捷扫描。";
+        _statusMessage = "尚未识别地图，暂时无法切换楼层；打开游戏地图后将自动识别。";
         _logCollector.Append(
             MapLogCategory.FloorRecognition,
             MapLogLevel.Warning,
@@ -174,6 +174,7 @@ public sealed partial class SessionOrchestrator
         string source,
         int? requestedPosition = null)
     {
+        ClearAutomaticIdentityJob();
         Interlocked.Increment(ref _scanRequestGeneration);
         CancelQuickScan();
         var openSession = _mapOpenSession.Snapshot;

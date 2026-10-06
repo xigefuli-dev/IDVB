@@ -33,9 +33,20 @@ public readonly record struct Vpsg3SparseSamplingDiagnostics(
 /// </summary>
 public sealed class Vpsg3LiveObservation : IDisposable
 {
+    // Shared physical tolerance: six-corner fitting, strict-pose binding and
+    // the uncertainty band around observed edges must describe the same pixels.
+    internal const double AutomaticPoseTolerancePixels = 3d;
     private Mat? _observedEdges;
     private Mat? _validMask;
     private Mat? _proposalEdges;
+    private Mat? _visibleInterior;
+    private Mat? _automaticWallEvidence;
+    /// <summary>Strong wall pixels outside the extractor's uncertain frontier and exclusions.
+    /// Null means unavailable; verification validity cannot substitute for this evidence.</summary>
+    internal Mat? AutomaticWallEvidence => _automaticWallEvidence;
+    /// <summary>Inset room/corridor fill with no strong or weak photometric edge.
+    /// Null means unavailable. ValidMask must never substitute for this mask.</summary>
+    internal Mat? VisibleInterior => _visibleInterior;
     /// <summary>Strong semantic contours for scale proposals and local identity contradictions.
     /// All observed edges, including weak recovery, still participate in global distance verification.</summary>
     public Mat ProposalEdges => _proposalEdges ?? ObservedEdges;
@@ -46,8 +57,8 @@ public sealed class Vpsg3LiveObservation : IDisposable
         _observedEdges ?? throw new ObjectDisposedException(nameof(Vpsg3LiveObservation));
 
     /// <summary>
-    /// Single-channel 8-bit validity mask (255=known/explored/valid, 0=unknown/fog/HUD).
-    /// Unknown fog regions represent absence of observation rather than confirmed open space.
+    /// Single-channel edge-verification mask. White does not certify explored
+    /// empty space; unknown fog may be white outside detected uncertain contours.
     /// </summary>
     public Mat ValidMask =>
         _validMask ?? throw new ObjectDisposedException(nameof(Vpsg3LiveObservation));
@@ -132,11 +143,15 @@ public sealed class Vpsg3LiveObservation : IDisposable
         int maxSparsePoints = 150,
         Point[]? sparseEdgePoints = null,
         double extractionMilliseconds = 0,
-        Mat? proposalEdges = null)
+        Mat? proposalEdges = null,
+        Mat? visibleInterior = null,
+        Mat? automaticWallEvidence = null)
     {
         _observedEdges = observedEdges ?? throw new ArgumentNullException(nameof(observedEdges));
         _validMask = validMask ?? throw new ArgumentNullException(nameof(validMask));
         _proposalEdges = proposalEdges;
+        _visibleInterior = visibleInterior;
+        _automaticWallEvidence = automaticWallEvidence;
         Width = width;
         Height = height;
         EdgePixelCount = edgePixelCount;
@@ -182,6 +197,10 @@ public sealed class Vpsg3LiveObservation : IDisposable
             _validMask = null;
             _proposalEdges?.Dispose();
             _proposalEdges = null;
+            _visibleInterior?.Dispose();
+            _visibleInterior = null;
+            _automaticWallEvidence?.Dispose();
+            _automaticWallEvidence = null;
         }
     }
 }

@@ -23,7 +23,8 @@ public sealed partial class SessionOrchestrator
         string? failureReason,
         MapFeatureCacheKey? repairCacheKey,
         bool resetRecoveredScaleState,
-        MapOpenOperationContext? context = null)
+        MapOpenOperationContext? context = null,
+        Func<bool>? canPublish = null)
     {
         var trace = ActiveOperationTrace;
         var previousFloorKey = _currentFloorKey;
@@ -41,6 +42,10 @@ public sealed partial class SessionOrchestrator
             aligned = null;
             repairCacheKey = null;
         }
+        bool IsPublicationCurrent() => IsCurrentMatchOperation(operationMatch)
+            && _gameMapToggleState.IsCurrent(toggle)
+            && (context is null || IsMapOpenOperationCurrent(context))
+            && (canPublish?.Invoke() ?? true);
         var independentAlignment = string.Equals(
             _lastDiagnostics?.WarmStateMissReason,
             "independent-alignment",
@@ -59,9 +64,7 @@ public sealed partial class SessionOrchestrator
         try
         {
         // A background result must never overwrite a newer close/open action.
-        if ((context is not null && !IsMapOpenOperationCurrent(context))
-            || !IsCurrentMatchOperation(operationMatch)
-            || !_gameMapToggleState.IsCurrent(toggle))
+        if (!IsPublicationCurrent())
         {
             resultPublish?.Complete(
                 MapOperationSpanStatus.Superseded,
@@ -95,7 +98,7 @@ public sealed partial class SessionOrchestrator
             var adaptiveDecision = await EvaluateMapOpenAdaptiveAsync(
                 aligned,
                 frame,
-                _lastDiagnostics, toggle, operationMatch, context);
+                _lastDiagnostics, toggle, operationMatch, context, IsPublicationCurrent);
             if (adaptiveDecision is null)
                 return MapOpenAlignmentPublishOutcome.Superseded;
             if (_lastDiagnostics is { } adaptiveDiagnostics
@@ -119,9 +122,7 @@ public sealed partial class SessionOrchestrator
             }
             aligned = adaptiveDecision.RecognitionToRender;
             resultPublish?.Complete();
-            if ((context is not null && !IsMapOpenOperationCurrent(context))
-                || !IsCurrentMatchOperation(operationMatch)
-                || !_gameMapToggleState.IsCurrent(toggle))
+            if (!IsPublicationCurrent())
             {
                 trace?.SetTerminal("superseded", "match-operation-version-changed");
                 return MapOpenAlignmentPublishOutcome.Superseded;
@@ -298,7 +299,7 @@ public sealed partial class SessionOrchestrator
                     floorKey: aligned.Result.Floor);
                 try
                 {
-                    await StartOrbTrackingAsync(aligned, frame);
+                    await StartOrbTrackingAsync(aligned, frame, IsPublicationCurrent);
                 }
                 finally
                 {
@@ -307,6 +308,8 @@ public sealed partial class SessionOrchestrator
             }
             if (adaptiveDecision.AllowLegacyCacheWrite)
             {
+                if (!IsPublicationCurrent())
+                    return MapOpenAlignmentPublishOutcome.Superseded;
                 var persistence = trace?.StartTopLevel(
                     "persistence",
                     MapOperationWaitKind.Io,
@@ -315,6 +318,8 @@ public sealed partial class SessionOrchestrator
                 try
                 {
                     await RepairMapCacheAsync(repairCacheKey, aligned, frame);
+                    if (!IsPublicationCurrent())
+                        return MapOpenAlignmentPublishOutcome.Superseded;
                     await PersistPreprocessedScaleAsync(
                         aligned,
                         frame,
@@ -350,8 +355,11 @@ public sealed partial class SessionOrchestrator
         var isQueryLarger = failureReason?.Contains("结构范围超出") == true
             || failureReason?.Contains("QueryLargerThanReference") == true
             || failureReason?.Contains("结构范围大于参考地图") == true;
+        var automaticIdentity = locked.Result.Source == MapRecognitionSource.Automatic;
+        var groupedAutomaticIdentity = automaticIdentity && _recognition.ScanVariantGroups
+            .Any(group => group.Contains(locked.Map.Id));
         _statusMessage = recoveringSelectedIdentity
-            ? $"所选地图暂未完成首次对齐：{locked.Map.DisplayName} · "
+            ? $"{(groupedAutomaticIdentity ? "已确认相似地图组" : automaticIdentity ? "已识别地图" : "所选地图")}暂未完成首次对齐：{locked.Map.DisplayName} · "
                 + $"{failureReason ?? "无法匹配当前画面"}"
             : isQueryLarger
                 ? $"对齐未更新：当前按{manualFloorLabel}对齐，但画面特征范围明显超出该楼层（疑似楼层不匹配）"
@@ -377,12 +385,14 @@ public sealed partial class SessionOrchestrator
                 ? MapOverlayStatusLevel.Warning
                 : MapOverlayStatusLevel.Failure;
             var bannerTitle = isPendingWait
-                ? (pendingVariant ? "目标变体等待对齐" : "已选定地图，等待开图对齐")
+                ? (pendingVariant ? "目标变体等待对齐"
+                    : groupedAutomaticIdentity ? "已确认相似地图组，等待开图对齐"
+                        : automaticIdentity ? "已识别地图，等待开图对齐" : "已选定地图，等待开图对齐")
                 : (isQueryLarger ? "楼层结构不匹配" : "地图重新对齐失败");
             var bannerSubtext = isPendingWait
                 ? (pendingVariant
                     ? "目标地图身份和楼层已保留；本次没有复用旧变体的覆盖层或变换。"
-                    : "已锁定所选地图身份；请保持完整地图打开并重新打开地图以完成对齐。")
+                    : "地图身份已保留；后续开图将自动继续对齐。")
                 : (isQueryLarger
                     ? $"检测到当前小地图结构大于{manualFloorLabel}参考范围。若刚进入其他楼层，请等待游戏小地图刷新后重新开图；或按快捷键切换到正确楼层。"
                     : "本次未复用旧变换；请保持完整地图打开，确认 IDVB 手动楼层正确后重新打开地图重试。");

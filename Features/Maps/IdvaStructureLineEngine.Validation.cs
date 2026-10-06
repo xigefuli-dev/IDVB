@@ -164,12 +164,16 @@ public sealed partial class IdvaStructureLineEngine
         private Mat? _sourceEdgeEvidence;
         private Mat? _edges;
         private Mat? _protectedBackground;
+        private readonly Mat _sourceBackground;
 
         private PipelineState(Mat bgr, Mat room, Mat corridor)
         {
             _bgr = bgr;
             _room = room;
             _corridor = corridor;
+            _sourceBackground = new Mat();
+            // Retain original input evidence before tone/contrast or overlay stages.
+            Cv2.InRange(bgr, Scalar.Black, Scalar.Black, _sourceBackground);
         }
 
         public Mat Bgr => _bgr;
@@ -180,6 +184,9 @@ public sealed partial class IdvaStructureLineEngine
         public Mat? RouteMask => _routeMask;
         public Mat? SourceEdgeEvidence => _sourceEdgeEvidence;
         public Mat? Edges => _edges;
+        public Mat SourceBackground => _sourceBackground;
+        public int? RoomMinimumComponentArea { get; set; }
+        public int? CorridorMinimumComponentArea { get; set; }
         public RetrievalModes RoomRetrieval { get; set; } = RetrievalModes.List;
         public RetrievalModes CorridorRetrieval { get; set; } = RetrievalModes.List;
         public double ApproxPolyDpEpsilon { get; set; } = 0d;
@@ -255,6 +262,7 @@ public sealed partial class IdvaStructureLineEngine
             _sourceEdgeEvidence?.Dispose();
             _edges?.Dispose();
             _protectedBackground?.Dispose();
+            _sourceBackground.Dispose();
         }
     }
 }

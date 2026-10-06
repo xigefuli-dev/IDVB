@@ -32,6 +32,7 @@ public sealed partial class SessionOrchestrator
         bool independentAlignment)
     {
         var mapOpenCancellation = BeginMapOpenCancellationScope();
+        CancelMapObservation(clearPreview: true);
         var cancellationToken = mapOpenCancellation.Token;
         CancelOrbTracking("absolute alignment started");
         await DrainOrbTrackingAsync();
@@ -80,6 +81,11 @@ public sealed partial class SessionOrchestrator
                 if (restoreMainContent)
                     _overlay.SetMainContentVisible(false);
             }
+            if (_pendingAlignmentIdentity is not null || _lastRecognition is not null)
+            {
+                ClearAutomaticIdentityJob();
+                await DrainAutomaticIdentityWorkerAsync(cancellationToken);
+            }
             await RunMapOpenAlignmentCoreAsync(
                 toggle,
                 operationMatch,
@@ -123,6 +129,9 @@ public sealed partial class SessionOrchestrator
             finally
             {
                 CompleteMapOpenCancellationScope(mapOpenCancellation);
+                if (IsCurrentMatchOperation(operationMatch)
+                    && _gameMapToggleState.IsCurrent(toggle) && CanObserveMap)
+                    StartMapObservation(delayFirstPass: true);
                 if (!traceFinished)
                 {
                     FinishMapOperationTrace(
@@ -147,6 +156,8 @@ public sealed partial class SessionOrchestrator
             CancelOrbTracking("recognition scan started");
             var operationMatch = _matchSession.Snapshot;
             var cancellationToken = scanExecution.CancellationToken;
+            ClearAutomaticIdentityJob();
+            CancelMapOpenAlignment();
             bool acquired;
             var waitStage = "tracking-drain";
             try
@@ -198,6 +209,7 @@ public sealed partial class SessionOrchestrator
             var traceFinished = false;
             try
             {
+                await DrainAutomaticIdentityWorkerAsync(cancellationToken);
                 using (trace.StartTopLevel("route_prepare"))
                     UnlockMapForRescan();
                 if (!scanExecution.CanCompute)

@@ -64,6 +64,8 @@ public sealed partial class SessionOrchestrator
         }
         try
         {
+            ClearAutomaticIdentityJob();
+            await DrainAutomaticIdentityWorkerAsync(cancellationToken);
             await ConsumeBackgroundScanCoreAsync(
                 toggle,
                 operationMatch,

@@ -13,6 +13,11 @@ public static class Vpsg3FastLiveExtractor
     private const double ContourMinPerimeter = 30d;
     private const double HoleMinArea = 900d;
     private const double ApproxEpsilon = 0.55d;
+    // The native floor palette is less saturated than the blue fog background.
+    // This is the existing native corridor ceiling used by the Wangqingxin
+    // floor classifier, not the broad <=105 range used to recover wall edges.
+    // More saturated or recolored pixels remain unknown for empty-floor proof.
+    private const int VisibleCorridorMaximumSaturation = 72;
 
     [ThreadStatic]
     private static Vpsg3LiveExtractorScratch? t_defaultScratch;
@@ -90,24 +95,112 @@ public static class Vpsg3FastLiveExtractor
         Cv2.BitwiseNot(s.Invalid, validMask);
         validMask.SetTo(Scalar.White, observedEdges);
 
+        // Positive fill evidence is different from edge validity. Keep only
+        // the classified room/corridor interior, inset by the existing frontier
+        // protection kernel. All photometric edges (including weak recovery)
+        // and HUD pixels remain unknown for reverse wall contradiction checks.
+        var visibleInterior = CreateSupportedVisibleFill(s, observedEdges);
+        Cv2.Erode(visibleInterior, visibleInterior, s.K11,
+            borderType: BorderTypes.Constant, borderValue: Scalar.Black);
+        // A physically allowed pose error must not turn a real wall into an
+        // interior contradiction. Expand all strong/weak support by the same
+        // physical tolerance used by the automatic corner/strict pose binding.
+        Cv2.Dilate(s.Support, s.PoseUncertainSupport, s.PoseSupportKernel);
+        visibleInterior.SetTo(Scalar.Black, s.PoseUncertainSupport);
+        visibleInterior.SetTo(Scalar.Black, s.Invalid);
+
         // 9. Edge pixel metrics
         var edgePixelCount = Cv2.CountNonZero(observedEdges);
         var validPixelCount = Cv2.CountNonZero(validMask);
 
-        sw.Stop();
+        // Verification may tolerate photometric edges at the fog boundary.
+        // Hard map exclusions require positive walls outside that uncertainty.
+        var automaticWallEvidence = proposalEdges.Clone();
+        try
+        {
+            automaticWallEvidence.SetTo(Scalar.Black, s.Invalid);
+            sw.Stop();
+            return new Vpsg3LiveObservation(
+                observedEdges: observedEdges,
+                validMask: validMask,
+                width: width,
+                height: height,
+                edgePixelCount: edgePixelCount,
+                validStructurePixelCount: validPixelCount,
+                viewportBounds: bounds,
+                maxSparsePoints: maxSparsePoints,
+                sparseEdgePoints: null,
+                extractionMilliseconds: sw.Elapsed.TotalMilliseconds,
+                proposalEdges: proposalEdges,
+                visibleInterior: visibleInterior,
+                automaticWallEvidence: automaticWallEvidence);
+        }
+        catch
+        {
+            automaticWallEvidence.Dispose();
+            throw;
+        }
+    }
 
-        return new Vpsg3LiveObservation(
-            observedEdges: observedEdges,
-            validMask: validMask,
-            width: width,
-            height: height,
-            edgePixelCount: edgePixelCount,
-            validStructurePixelCount: validPixelCount,
-            viewportBounds: bounds,
-            maxSparsePoints: maxSparsePoints,
-            sparseEdgePoints: null,
-            extractionMilliseconds: sw.Elapsed.TotalMilliseconds,
-            proposalEdges: proposalEdges);
+    private static Mat CreateSupportedVisibleFill(Vpsg3LiveExtractorScratch s, Mat observedEdges)
+    {
+        // Wall proposals deliberately include dim/saturated blue pixels. That
+        // permissive mask also includes fog, so it cannot certify empty floor.
+        // Classify positive corridor fill separately without changing any of
+        // the existing observed/proposal/valid-mask inputs or outputs.
+        using var corridor = new Mat();
+        Cv2.InRange(s.Hsv, new Scalar(95, 14, 82),
+            new Scalar(130, VisibleCorridorMaximumSaturation, 200), corridor);
+        corridor.SetTo(Scalar.Black, s.Exclusion);
+        Cv2.MorphologyEx(corridor, corridor, MorphTypes.Open, s.K5);
+        Cv2.MorphologyEx(corridor, corridor, MorphTypes.Close, s.K3);
+        var fill = new Mat();
+        Cv2.BitwiseOr(s.Room, corridor, fill);
+
+        // A flat field of palette-colored fog/background supplies no structural
+        // witness. Only fill components adjacent to an observed wall contour
+        // of the extractor's existing minimum perimeter may become positive.
+        // We make no assumption that a crop border is empty or unexplored.
+        Cv2.FindContours(observedEdges, out var contours, out _,
+            RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        var supportedContours = contours.Where(contour =>
+            Cv2.ArcLength(contour, closed: true) >= ContourMinPerimeter).ToArray();
+        if (supportedContours.Length == 0)
+        {
+            fill.SetTo(Scalar.Black);
+            return fill;
+        }
+
+        using var witnesses = new Mat(fill.Size(), MatType.CV_8UC1, Scalar.Black);
+        Cv2.DrawContours(witnesses, supportedContours, -1, Scalar.White,
+            thickness: -1, lineType: LineTypes.Link8);
+        Cv2.BitwiseAnd(witnesses, observedEdges, witnesses);
+        Cv2.Dilate(witnesses, witnesses, s.K5);
+        Cv2.BitwiseAnd(witnesses, fill, witnesses);
+
+        using var labels = new Mat();
+        using var stats = new Mat();
+        using var centroids = new Mat();
+        Cv2.ConnectedComponentsWithStats(fill, labels, stats, centroids,
+            PixelConnectivity.Connectivity8);
+        using var witnessPoints = new Mat();
+        Cv2.FindNonZero(witnesses, witnessPoints);
+        var supportedLabels = new HashSet<int>();
+        if (!witnessPoints.Empty())
+        {
+            witnessPoints.GetArray(out Point[] points);
+            foreach (var point in points)
+                supportedLabels.Add(labels.At<int>(point.Y, point.X));
+        }
+        fill.SetTo(Scalar.Black);
+        using var component = new Mat();
+        foreach (var label in supportedLabels)
+        {
+            if (label == 0) continue;
+            Cv2.InRange(labels, new Scalar(label), new Scalar(label), component);
+            fill.SetTo(Scalar.White, component);
+        }
+        return fill;
     }
 
     private static Mat NormalizeToBgr(Mat source, Vpsg3LiveExtractorScratch scratch)

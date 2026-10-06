@@ -1,4 +1,3 @@
-using System.Text;
 using IDVBuff.PluginContracts;
 
 namespace IDVBuff.Plugins.CustomPhrases;
@@ -7,7 +6,6 @@ namespace IDVBuff.Plugins.CustomPhrases;
 public static class CustomPhrasePluginData
 {
     public const int MaxPhraseCount = 30;
-    public const int DisplayCharacterLimit = 5;
     public const int SendCooldownMilliseconds = 6000;
     public const uint SendVirtualKey = 0x0D;
     public static readonly PluginNormalizedPoint ChatBoxCoordinate16By9 =
@@ -76,12 +74,7 @@ public static class CustomPhrasePluginData
     public static string ToDisplayText(string phrase)
     {
         ArgumentNullException.ThrowIfNull(phrase);
-        var runes = phrase.EnumerateRunes().ToArray();
-        if (runes.Length <= DisplayCharacterLimit)
-            return phrase;
-
-        return string.Concat(
-            runes.Take(DisplayCharacterLimit - 1))
-            + "…";
+        // The renderer fits the full phrase to the actual available width.
+        return phrase;
     }
 }

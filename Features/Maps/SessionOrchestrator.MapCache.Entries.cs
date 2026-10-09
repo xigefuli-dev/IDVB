@@ -97,7 +97,7 @@ public sealed partial class SessionOrchestrator
         return identity is not null
             && string.Equals(
                 key.MapContentFingerprint,
-                MapFeatureCacheRules.ComputeContentFingerprint(identity.Map),
+                MapFeatureCacheRules.ComputeContentFingerprint(identity.Map, key.FloorKey),
                 StringComparison.Ordinal)
             && string.Equals(
                 key.FloorKey,

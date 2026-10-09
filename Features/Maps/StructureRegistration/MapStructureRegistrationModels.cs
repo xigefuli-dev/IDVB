@@ -12,6 +12,8 @@ public sealed class MapStructureFeatures : IDisposable
 {
     private readonly object _visibleAwareCacheSync = new();
     private readonly Dictionary<int, Mat> _visibleAwareStructureCache = new();
+    private bool _frameOwnedNativeComputationFeature;
+    private TemplateSpectrumCache? _templateSpectrumCache;
     public MapStructureFeatures(
         Mat nuisanceMask,
         Mat structureMask,
@@ -57,6 +59,31 @@ public sealed class MapStructureFeatures : IDisposable
     public Mat RepeatedRegionMask { get; }
     public PreprocessTiming? DiagnosticTiming { get; }
     public Mat? RawVisibleMask { get; }
+
+    internal bool IsFrameOwnedNativeComputationFeature
+    {
+        get
+        {
+            lock (_visibleAwareCacheSync)
+                return _frameOwnedNativeComputationFeature;
+        }
+    }
+
+    internal void MarkFrameOwnedNativeComputationFeature()
+    {
+        lock (_visibleAwareCacheSync)
+            _frameOwnedNativeComputationFeature = true;
+    }
+
+    internal TemplateSpectrumCache? GetOrCreateTemplateSpectrumCache()
+    {
+        lock (_visibleAwareCacheSync)
+        {
+            if (!_frameOwnedNativeComputationFeature)
+                return null;
+            return _templateSpectrumCache ??= new TemplateSpectrumCache();
+        }
+    }
 
     internal Mat GetOrCreateUnitStructureMask(int factor)
     {
@@ -147,6 +174,9 @@ public sealed class MapStructureFeatures : IDisposable
         {
             foreach (var cached in _visibleAwareStructureCache.Values) cached.Dispose();
             _visibleAwareStructureCache.Clear();
+            _frameOwnedNativeComputationFeature = false;
+            _templateSpectrumCache?.Dispose();
+            _templateSpectrumCache = null;
         }
         NuisanceMask.Dispose();
         StructureMask.Dispose();

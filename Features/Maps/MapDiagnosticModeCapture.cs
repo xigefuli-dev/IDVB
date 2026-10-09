@@ -2,12 +2,13 @@ using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps;
 
-internal static class MapDiagnosticModeCapture
+internal static partial class MapDiagnosticModeCapture
 {
     private static readonly object Gate = new();
     private static int _currentMapOpenId;
     private static readonly AsyncLocal<int> SuppressionDepth = new();
     private static string? _matchDirectory;
+    private static object? _matchIdentity;
     private static IDisposable? _cacheProtection;
     private static int _attemptId;
 
@@ -40,6 +41,7 @@ internal static class MapDiagnosticModeCapture
                 .DefaultIfEmpty()
                 .Max() + 1;
             _matchDirectory = Path.Combine(RootDirectory, $"对局 {matchId}");
+            _matchIdentity = new object();
             _cacheProtection?.Dispose();
             _cacheProtection = AppDataPaths.ProtectCachePath(_matchDirectory);
             foreach (var category in new[] { "结构配准", "显示区域", "贴合度" })
@@ -54,6 +56,7 @@ internal static class MapDiagnosticModeCapture
         lock (Gate)
         {
             _matchDirectory = null;
+            _matchIdentity = null;
             _cacheProtection?.Dispose();
             _cacheProtection = null;
             _currentMapOpenId = 0;
@@ -69,10 +72,19 @@ internal static class MapDiagnosticModeCapture
 
     internal static int CurrentMapOpenId
     {
-        get { lock (Gate) return _currentMapOpenId; }
+        get
+        {
+            if (DeferredFitness.Value is { } capture)
+                return capture.MapOpenId;
+            lock (Gate) return _currentMapOpenId;
+        }
     }
 
-    internal static int BeginMapOpen(Mat viewport)
+    internal static int BeginMapOpen(Mat viewport) => BeginMapOpenCore(viewport, null);
+
+    internal static int BeginMapOpen(CapturedGameFrame frame) => BeginMapOpenCore(frame.Image, frame);
+
+    private static int BeginMapOpenCore(Mat viewport, CapturedGameFrame? frame)
     {
         string? matchDirectory;
         int id;
@@ -84,6 +96,27 @@ internal static class MapDiagnosticModeCapture
         }
         if (matchDirectory is not null)
             TryWrite(Path.Combine(matchDirectory, "显示区域", $"显示区域 {id}.png"), viewport);
+        if (id > 0 && matchDirectory is not null && frame?.DiagnosticSourceImage is { } source)
+        {
+            try
+            {
+                var directory = Path.Combine(matchDirectory, "捕获原帧");
+                Directory.CreateDirectory(directory);
+                TryWrite(Path.Combine(directory, $"捕获原帧 {id}.png"), source);
+                var metadata = new
+                {
+                    frame.ClientBounds,
+                    SourceBounds = frame.DiagnosticSourceBounds,
+                    frame.ViewportBounds,
+                    frame.CaptureSystemRelativeTicks,
+                    frame.CaptureBackend,
+                    frame.DetectedFloorKey
+                };
+                File.WriteAllText(Path.Combine(directory, $"捕获原帧 {id}.json"),
+                    System.Text.Json.JsonSerializer.Serialize(metadata));
+            }
+            catch { /* Diagnostics must never change identity or alignment behavior. */ }
+        }
         return id;
     }
 
@@ -93,13 +126,19 @@ internal static class MapDiagnosticModeCapture
         return new SuppressionScope();
     }
 
+
     internal static void WriteInputs(Mat viewport, Mat structure, int? attemptId = null, string? tag = null)
     {
         if (SuppressionDepth.Value > 0)
             return;
         string? matchDirectory;
         int id;
-        lock (Gate)
+        if (DeferredFitness.Value is { } capture)
+        {
+            matchDirectory = capture.MatchDirectory;
+            id = attemptId ?? capture.MapOpenId;
+        }
+        else lock (Gate)
         {
             matchDirectory = _matchDirectory;
             id = attemptId ?? _currentMapOpenId;
@@ -107,7 +146,7 @@ internal static class MapDiagnosticModeCapture
         if (matchDirectory is null || id <= 0)
             return;
         var suffix = string.IsNullOrWhiteSpace(tag) ? string.Empty : $"_{tag}";
-        TryWrite(Path.Combine(matchDirectory, "结构配准", $"结构配准 {id}{suffix}.png"), structure);
+        WriteDiagnosticImage(Path.Combine(matchDirectory, "结构配准", $"结构配准 {id}{suffix}.png"), structure);
     }
 
     internal static void WriteFitness(Mat image, int? attemptId = null, string? tag = null)
@@ -116,7 +155,12 @@ internal static class MapDiagnosticModeCapture
             return;
         string? matchDirectory;
         int id;
-        lock (Gate)
+        if (DeferredFitness.Value is { } capture)
+        {
+            matchDirectory = capture.MatchDirectory;
+            id = attemptId ?? capture.MapOpenId;
+        }
+        else lock (Gate)
         {
             matchDirectory = _matchDirectory;
             id = attemptId ?? _currentMapOpenId;
@@ -124,8 +168,20 @@ internal static class MapDiagnosticModeCapture
         if (matchDirectory is not null && id > 0)
         {
             var suffix = string.IsNullOrWhiteSpace(tag) ? string.Empty : $"_{tag}";
-            TryWrite(Path.Combine(matchDirectory, "贴合度", $"贴合度 {id}{suffix}.png"), image);
+            var path = Path.Combine(matchDirectory, "贴合度", $"贴合度 {id}{suffix}.png");
+            // An immediate writer is later than any pending drawing for this
+            // path. It must not be overwritten when the job finishes.
+            DeferredFitness.Value?.Discard(path);
+            WriteDiagnosticImage(path, image);
         }
+    }
+
+    private static void WriteDiagnosticImage(string path, Mat image)
+    {
+        if (DeferredFitness.Value is { } capture)
+            capture.WriteIfCurrent(path, image);
+        else
+            TryWrite(path, image);
     }
 
     internal static string? WriteNativeMiniMap(Mat image, string suffix = "")

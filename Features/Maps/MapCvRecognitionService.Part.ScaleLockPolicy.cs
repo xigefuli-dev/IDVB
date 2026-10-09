@@ -130,7 +130,8 @@ public sealed partial class MapCvRecognitionService
         if (points.Length == 0)
             return null;
         using var extracted = observation is null
-            ? Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds) : null;
+            ? Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds,
+                excludedScreenRegions: frame.UiExclusionRegions) : null;
         var live = observation ?? extracted!;
         var hits = AdaptiveScaleCoverageMilestones.CountCoveredPoints(
             points, live.ObservedEdges, transform, frame.ViewportBounds);

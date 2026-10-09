@@ -29,7 +29,7 @@ public sealed partial class IdvaStructureLineEngine
 {
     // Persisted separately from the IDVA package hash: execution semantics can change
     // without changing a user-supplied algorithm package.
-    public const int CurrentRevision = 1;
+    public const int CurrentRevision = 2;
     private const int MaximumPackageBytes = 1024 * 1024;
     private const int MaximumStages = 64;
     private static readonly HashSet<string> SupportedStages =
@@ -230,9 +230,11 @@ public sealed partial class IdvaStructureLineEngine
                 MorphEach(state, MorphTypes.Open, ReadSize(stage, "kernel"));
                 break;
             case "remove_small_components":
+                state.RoomMinimumComponentArea = ReadBoundedInt(stage, "room_min_area", 1, int.MaxValue);
+                state.CorridorMinimumComponentArea = ReadBoundedInt(stage, "corridor_min_area", 1, int.MaxValue);
                 ReplaceMasks(state,
-                    RemoveSmall(state.Room, ReadBoundedInt(stage, "room_min_area", 1, int.MaxValue)),
-                    RemoveSmall(state.Corridor, ReadBoundedInt(stage, "corridor_min_area", 1, int.MaxValue)));
+                    RemoveSmall(state.Room, state.RoomMinimumComponentArea.Value),
+                    RemoveSmall(state.Corridor, state.CorridorMinimumComponentArea.Value));
                 break;
             case "morph_close":
                 foreach (var size in ReadSizes(stage, "kernels"))
@@ -251,9 +253,12 @@ public sealed partial class IdvaStructureLineEngine
                         ReadBoundedInt(stage, "vertical_gap_px", 1, 255)));
                 break;
             case "fill_small_holes":
-                ReplaceMasks(state,
-                    FillSmallHoles(state.Room, ReadBoundedInt(stage, "room_max_hole_area", 1, int.MaxValue)),
-                    FillSmallHoles(state.Corridor, ReadBoundedInt(stage, "corridor_max_hole_area", 1, int.MaxValue)));
+                state.ReplaceRoom(FillSmallHoles(state.Room,
+                    ReadBoundedInt(stage, "room_max_hole_area", 1, int.MaxValue),
+                    state.SourceBackground, state.RoomMinimumComponentArea, cancellationToken));
+                state.ReplaceCorridor(FillSmallHoles(state.Corridor,
+                    ReadBoundedInt(stage, "corridor_max_hole_area", 1, int.MaxValue),
+                    state.SourceBackground, state.CorridorMinimumComponentArea, cancellationToken));
                 break;
             case "contours":
                 state.RoomRetrieval = ReadRetrieval(stage);

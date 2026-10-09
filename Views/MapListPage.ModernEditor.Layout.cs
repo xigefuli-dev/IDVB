@@ -16,6 +16,7 @@ public sealed partial class MapListPage : UserControl
 {
     private void ShowMarkerEditor()
     {
+        CancelImportWorkflow();
         if (_draft is null || !HasAnyFloorImage(_draft))
             return;
 

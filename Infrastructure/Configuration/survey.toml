@@ -1,0 +1,56 @@
+[survey.capture]
+stable_frame_delay_milliseconds = 220
+maximum_capture_milliseconds = 2500
+queue_capacity = 4
+
+[survey.preprocessing]
+maximum_feature_count = 3000
+edge_low_threshold = 50
+edge_high_threshold = 150
+map_canvas_left = 0.27
+map_canvas_top = 0.24
+map_canvas_right = 0.80
+map_canvas_bottom = 0.88
+shape_opening_divisor = 420.0
+shape_closing_divisor = 520.0
+minimum_shape_component_area_ratio = 0.00012
+minimum_shape_thickness_factor = 0.70
+maximum_shape_hole_area_ratio = 0.00045
+
+[survey.registration]
+candidate_count = 4
+ratio_test = 0.75
+minimum_matches = 18
+minimum_inliers = 12
+minimum_inlier_ratio = 0.45
+maximum_residual_pixels = 4.5
+minimum_scale = 0.40
+maximum_scale = 1.60
+
+[survey.pose_graph]
+robust_loss = "huber"
+global_optimization_idle_only = true
+
+[survey.fusion.visual]
+interpolation = "linear"
+maximum_output_pixels = 100000000
+
+[survey.fusion.structure]
+minimum_coverage_confidence = 0.35
+binary_threshold = 0.50
+
+[survey.storage]
+asset_retention_days = 30
+maximum_project_layers = 2000
+minimum_free_space_megabytes = 1024
+
+[survey.quality]
+record_rejection_diagnostics = true
+
+[survey.performance]
+thumbnail_cache_megabytes = 256
+decode_visible_layers_only = true
+
+[survey.research]
+enabled = false
+retain_raw_frames = true

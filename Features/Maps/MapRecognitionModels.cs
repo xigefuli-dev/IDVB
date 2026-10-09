@@ -37,6 +37,7 @@ public sealed partial class CapturedGameFrame : IDisposable
     public Mat Image { get; }
     public MapScreenRect ClientBounds { get; }
     public MapScreenRect ViewportBounds { get; }
+    internal IReadOnlyList<MapScreenRect> UiExclusionRegions { get; init; } = [];
     public IntPtr WindowHandle { get; }
     public long CaptureSystemRelativeTicks { get; init; }
     public string CaptureBackend { get; init; } = "gdi";
@@ -129,11 +130,16 @@ public sealed partial class CapturedGameFrame : IDisposable
             var created = preprocessor.ProcessLiveRoiDiagnostic(
                 ComputationImage,
                 null,
-                null,
+                UiExclusionRegions.Select(region => MapFrameUiExclusion.Local(
+                    region, ViewportBounds, ComputationImage.Size()))
+                    .Where(rect => rect.Width > 0 && rect.Height > 0).ToArray(),
                 out var createdTiming,
                 generateVisibleMask: generateVisibleMask,
                 profile: requestedProfile,
                 generationTuning: generationTuning);
+            if (created.RawVisibleMask is { } visibleMask && UiExclusionRegions.Count > 0)
+                MapFrameUiExclusion.Fill(visibleMask, ViewportBounds, UiExclusionRegions,
+                    Scalar.Black, padding: 6);
             stopwatch.Stop();
             _defaultLiveStructureFeatures = created;
             _defaultLiveStructureTiming = createdTiming;
@@ -158,6 +164,11 @@ public sealed partial class CapturedGameFrame : IDisposable
             _disposed = true;
             _vpsg3Observation?.Dispose();
             _vpsg3Observation = null;
+            _nativePrebuiltLiveOriginal?.Dispose();
+            _nativePrebuiltLiveOriginal = null;
+            _nativePrebuiltLiveComputation?.Dispose();
+            _nativePrebuiltLiveComputation = null;
+            _nativePrebuiltLiveSource = null;
             _nativeObservedStructure?.Dispose();
             _nativeObservedStructure = null;
             _defaultLiveStructureFeatures?.Dispose();
@@ -166,6 +177,8 @@ public sealed partial class CapturedGameFrame : IDisposable
             _defaultLiveStructureGenerationFingerprint = string.Empty;
             _ownedComputationImage?.Dispose();
             _ownedComputationImage = null;
+            DiagnosticSourceImage?.Dispose();
+            DiagnosticSourceImage = null;
             Image.Dispose();
         }
     }

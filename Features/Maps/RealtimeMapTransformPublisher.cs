@@ -2,6 +2,8 @@ using System.Diagnostics;
 
 namespace IDVBuff.Features.Maps;
 
+internal enum RealtimeTransformSource { Unknown, MousePoll, VisualFrame }
+
 /// <summary>
 /// Minimal high-frequency map state. It intentionally carries no recognition,
 /// alignment-session, cache, or lease object.
@@ -12,7 +14,8 @@ internal readonly record struct RealtimeTransformState(
     double Ty,
     long Timestamp,
     double Confidence,
-    long Generation);
+    long Generation,
+    RealtimeTransformSource Source = RealtimeTransformSource.Unknown);
 
 internal readonly record struct RealtimeTransformTelemetry(
     long PublishedTransforms,
@@ -24,7 +27,11 @@ internal readonly record struct RealtimeTransformTelemetry(
     double AverageRenderMs,
     double P95RenderMs,
     double AverageEndToEndMs,
-    double P95EndToEndMs);
+    double P95EndToEndMs,
+    int MouseSampleCount,
+    double MouseCallbackP95Ms,
+    int VisualSampleCount,
+    double VisualCallbackP95Ms);
 
 /// <summary>
 /// Retains only the newest transform while presentation is suppressed. Tracking
@@ -87,6 +94,7 @@ internal sealed class RealtimeMapTransformPublisher
     private readonly double[] _queueSamples = new double[TimingCapacity];
     private readonly double[] _renderSamples = new double[TimingCapacity];
     private readonly double[] _endToEndSamples = new double[TimingCapacity];
+    private readonly RealtimeTransformSource[] _sampleSources = new RealtimeTransformSource[TimingCapacity];
     private RealtimeTransformState _pending;
     private long _pendingQueuedAt;
     private bool _hasPending;
@@ -156,7 +164,11 @@ internal sealed class RealtimeMapTransformPublisher
                 Average(render),
                 Percentile95(render),
                 Average(endToEnd),
-                Percentile95(endToEnd));
+                Percentile95(endToEnd),
+                CountSource(RealtimeTransformSource.MousePoll),
+                SourcePercentile95(RealtimeTransformSource.MousePoll),
+                CountSource(RealtimeTransformSource.VisualFrame),
+                SourcePercentile95(RealtimeTransformSource.VisualFrame));
             if (reset)
             {
                 _published = 0;
@@ -216,7 +228,7 @@ internal sealed class RealtimeMapTransformPublisher
                     AddTimingSample(
                         Stopwatch.GetElapsedTime(queuedAt, started).TotalMilliseconds,
                         Stopwatch.GetElapsedTime(started, completed).TotalMilliseconds,
-                        GetSourceAgeMilliseconds(state.Timestamp));
+                        GetSourceAgeMilliseconds(state.Timestamp), state.Source);
                 }
                 else
                 {
@@ -246,14 +258,24 @@ internal sealed class RealtimeMapTransformPublisher
         }
     }
 
-    private void AddTimingSample(double queueMs, double renderMs, double endToEndMs)
+    private void AddTimingSample(double queueMs, double renderMs, double endToEndMs,
+        RealtimeTransformSource source)
     {
         _queueSamples[_timingCursor] = queueMs;
         _renderSamples[_timingCursor] = renderMs;
         _endToEndSamples[_timingCursor] = endToEndMs;
+        _sampleSources[_timingCursor] = source;
         _timingCursor = (_timingCursor + 1) % TimingCapacity;
         _timingCount = Math.Min(TimingCapacity, _timingCount + 1);
     }
+
+    private int CountSource(RealtimeTransformSource source) =>
+        Enumerable.Range(0, _timingCount).Count(i => _sampleSources[i] == source);
+
+    private double SourcePercentile95(RealtimeTransformSource source) =>
+        Percentile95(Enumerable.Range(0, _timingCount)
+            .Where(i => _sampleSources[i] == source)
+            .Select(i => _endToEndSamples[i]).ToArray());
 
     private static double[] CopySamples(double[] source, int count)
     {

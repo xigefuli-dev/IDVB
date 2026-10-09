@@ -234,6 +234,26 @@ public sealed partial class MapListPage : UserControl
         content.Children.Add(nameLabel);
         Grid.SetRow(lowStructureToggle, 2);
         content.Children.Add(lowStructureToggle);
+        var reuseButton = new Button
+        {
+            Content = entry.SharedStructure is null ? "复用结构底图" : "重新对准小抄",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(10, 0, 10, 8)
+        };
+        reuseButton.Click += async (_, _) => await ConfigureImportFloorStructureAsync(entry, onChanged, confirmButton);
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(reuseButton, 3);
+        content.Children.Add(reuseButton);
+        var sourceButton = new Button
+        {
+            Content = entry.StructureSourceDirectory.Length == 0 ? "使用外部结构底图" : "重新对准外部底图",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(10, 0, 10, 8)
+        };
+        sourceButton.Click += async (_, _) => await ConfigureTilemapFloorStructureAsync(entry, onChanged, confirmButton);
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(sourceButton, 4);
+        content.Children.Add(sourceButton);
 
         var card = new Border
         {

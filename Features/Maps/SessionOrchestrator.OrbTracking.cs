@@ -30,11 +30,14 @@ public sealed partial class SessionOrchestrator
 
     private async Task StartOrbTrackingAsync(
         RuntimeMapRecognition recognition,
-        CapturedGameFrame seedFrame)
+        CapturedGameFrame seedFrame,
+        Func<bool>? canStart = null)
     {
         var scan = ScanExecutionContext.Current;
         CancelOrbTracking("alignment replaced");
         await DrainOrbTrackingAsync();
+        if (!(canStart?.Invoke() ?? true))
+            return;
         if (scan is not null && (scan.IsSuperseded || scan.CancellationToken.IsCancellationRequested
             || scan.Expired || !ReferenceEquals(_lastRecognition, recognition)))
             return;
@@ -79,6 +82,7 @@ public sealed partial class SessionOrchestrator
             CurrentMatchCancellationToken,
             _lifetimeCts.Token);
         var viewportBounds = seedFrame.ViewportBounds;
+        var useAutomaticCanvas = seedFrame.UiExclusionRegions.Count > 0;
         var seed = config.Enabled ? seedFrame.Image.Clone() : null;
         lock (_orbTrackingGate)
         {
@@ -92,6 +96,7 @@ public sealed partial class SessionOrchestrator
                         context,
                         recognition,
                         transform,
+                        useAutomaticCanvas,
                         linked.Token))
                 : config.Enabled
                     ? Task.Run(

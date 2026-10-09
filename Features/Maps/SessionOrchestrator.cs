@@ -90,6 +90,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
     private MapScreenRect _lastGameBounds;
     private IntPtr _lastGameWindowHandle;
     private readonly bool _headless;
+    private readonly IMapDragInputSource? _mapDragInput;
 
     public SessionOrchestrator(
         DispatcherQueue dispatcher,
@@ -111,7 +112,8 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         SurveyCaptureTuning? surveyCaptureTuning = null,
         ICaptureProtectionService? captureProtection = null,
         bool headless = false,
-        IMapCandidateLearningEngine? learningEngine = null)
+        IMapCandidateLearningEngine? learningEngine = null,
+        IMapDragInputSource? mapDragInput = null)
     {
         _dispatcher = dispatcher;
         _settingsRepo = settingsRepo;
@@ -119,6 +121,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         _captureSvc = capture;
         _overlay = overlay;
         _input = input;
+        _mapDragInput = mapDragInput;
         _gateDetector = gateDetector;
         _floorRecognizer = floorRecognizer;
         _mapIdentifier = mapIdentifier;

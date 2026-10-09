@@ -53,8 +53,12 @@ public sealed partial class IdvmPackageService
             && parsedHeader.MinorVersion == 4
             && manifest.FormatVersion == "1.4"
             && manifest.MinimumReader == "1.4";
+        var isVersion15 = parsedHeader.MajorVersion == 1
+            && parsedHeader.MinorVersion == 5
+            && manifest.FormatVersion == "1.5"
+            && manifest.MinimumReader == "1.5";
         if (manifest.Format != "idvm"
-            || (!isVersion10 && !isVersion11 && !isVersion12 && !isVersion13 && !isVersion14)
+            || (!isVersion10 && !isVersion11 && !isVersion12 && !isVersion13 && !isVersion14 && !isVersion15)
             || manifest.PackageType != "class-set")
         {
             throw new InvalidDataException("不支持的 IDVM 格式或读取器版本。");
@@ -67,7 +71,7 @@ public sealed partial class IdvmPackageService
             throw new InvalidDataException("IDVM 1.2 包必须声明 floorMarkerKeys 能力。");
         if (isVersion13 && (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags))
             throw new InvalidDataException("IDVM 1.3 包必须声明 floorMarkerKeys 和 mapTags 能力。");
-        if (isVersion14)
+        if (isVersion14 || isVersion15)
         {
             if (!manifest.Capabilities.FloorMarkerKeys || !manifest.Capabilities.MapTags)
                 throw new InvalidDataException("IDVM 1.4 包必须声明 floorMarkerKeys 和 mapTags 能力。");
@@ -107,7 +111,7 @@ public sealed partial class IdvmPackageService
         if (!actualFiles.SetEquals(declaredPaths))
             throw new InvalidDataException("manifest 文件清单与包内容不一致。");
 
-        ValidateManifestRelationships(manifest, isVersion12 || isVersion13 || isVersion14);
+        ValidateManifestRelationships(manifest, isVersion12 || isVersion13 || isVersion14 || isVersion15);
         return manifest;
     }
 
@@ -261,6 +265,21 @@ public sealed partial class IdvmPackageService
                 throw new InvalidDataException($"地图 {map.MapId} 的楼层 metadata 无效。");
             }
             ValidateMarkerKeys(floor.MarkerKeys, requireFloorMarkerSchema);
+            if (floor.SharedStructure is not null)
+            {
+                floor.SharedStructure.Source?.Validate(floor.Key);
+                if (floor.SharedStructure.Id == Guid.Empty || floor.SharedStructure.Revision < 1
+                    || floor.SharedStructure.UpdatedAt == default
+                    || string.IsNullOrWhiteSpace(floor.RecognitionImage)
+                    || floor.ArtworkRegistration is null)
+                    throw new InvalidDataException("共享结构楼层缺少底图或小抄配准记录。");
+                floor.ArtworkRegistration.Validate();
+                if (floor.ArtworkRegistration.SourceWidth != floor.ImageWidth
+                    || floor.ArtworkRegistration.SourceHeight != floor.ImageHeight)
+                    throw new InvalidDataException("小抄原图尺寸与配准记录不一致。");
+            }
+            else if (floor.ArtworkRegistration is not null)
+                throw new InvalidDataException("小抄配准记录缺少结构底图归属。");
             ValidateRectangle(floor.RecognitionRegion, allowNull: true, "recognitionRegion");
             if (floor.FreeCropPoints.Count is 1 or 2)
                 throw new InvalidDataException("freeCropPoints 必须为空或至少包含三个点。");
@@ -292,6 +311,11 @@ public sealed partial class IdvmPackageService
             var anchorKeys = new HashSet<string>(StringComparer.Ordinal);
             foreach (var anchor in anchorFloor.Anchors)
             {
+                if (floor.SharedStructure?.Source is { } source
+                    && (anchor.Key is "main-entrance" or "side-entrance" or "second-floor-primary")
+                    && !source.Entrances.Any(entrance => entrance.Role == anchor.Key)
+                    && (anchor.Bounds is not null || !string.IsNullOrWhiteSpace(anchor.GateId)))
+                    throw new InvalidDataException($"楼层 {floor.Key} 包含源数据中不存在的入口锚点。");
                 if (anchor.Id == Guid.Empty || !anchorIds.Add(anchor.Id)
                     || !IsSafeIdentifier(anchor.Key) || !anchorKeys.Add(anchor.Key)
                     || string.IsNullOrWhiteSpace(anchor.DisplayName)
@@ -354,21 +378,24 @@ public sealed partial class IdvmPackageService
             if (!string.IsNullOrWhiteSpace(anchor.GateId) && !gateIds.Contains(anchor.GateId))
                 throw new InvalidDataException($"锚点 {anchor.Key} 引用了不存在的门。");
 
-        var primaryFloorKey = metadata.Floors[0].Key;
-        var primaryAnchors = anchors.Floors[primaryFloorKey].Anchors;
-        foreach (var (anchorKey, gateRole) in new[]
+        foreach (var floor in metadata.Floors)
         {
-            ("main-entrance", "mainEntrance"),
-            ("side-entrance", "sideEntrance")
-        })
-        {
-            var gate = gates.Gates.SingleOrDefault(item =>
-                item.FloorKey == primaryFloorKey && item.Role == gateRole);
-            if (gate is null || !primaryAnchors.Any(anchor =>
-                    anchor.Key == anchorKey && anchor.GateId == gate.Id))
+            var requiredKeys = floor.SharedStructure?.Source is { } source
+                ? source.Entrances.Select(entrance => entrance.Role)
+                : floor.Key == metadata.Floors[0].Key
+                    ? new[] { "main-entrance", "side-entrance" } : [];
+            foreach (var anchorKey in requiredKeys)
             {
-                throw new InvalidDataException(
-                    $"主楼层必须包含通过 gateId 关联的 {anchorKey} 门锚点。");
+                var anchor = anchors.Floors[floor.Key].Anchors.SingleOrDefault(item => item.Key == anchorKey);
+                var gateRole = anchorKey switch
+                {
+                    "main-entrance" => "mainEntrance", "side-entrance" => "sideEntrance", _ => null
+                };
+                var valid = gateRole is null ? anchor?.Bounds is not null
+                    : gates.Gates.Any(gate => gate.FloorKey == floor.Key && gate.Role == gateRole
+                        && anchor?.GateId == gate.Id);
+                if (!valid)
+                    throw new InvalidDataException($"楼层 {floor.Key} 缺少 {anchorKey} 的真实门锚点。");
             }
         }
     }

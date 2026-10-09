@@ -123,6 +123,12 @@ public sealed class FloorIndicatorCaptureService : IDisposable
         return true;
     }
 
+    public void Reset()
+    {
+        lock (_gate)
+            ReleaseBuffer();
+    }
+
     private void EnsureBuffer(int width, int height)
     {
         if (_memoryDc != IntPtr.Zero && width == _width && height == _height)

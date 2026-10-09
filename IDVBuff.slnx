@@ -1,5 +1,8 @@
 <Solution>
     <Configurations>
+        <BuildType Name="Debug" />
+        <BuildType Name="Release" />
+        <BuildType Name="Test" />
         <Platform Name="x64" />
     </Configurations>
     <Project Path="IDVBuff.csproj">
@@ -9,7 +12,6 @@
     <Project Path="Core\IDVBuff.Core.csproj" />
     <Project Path="IDVB.Vision.Contracts\IDVB.Vision.Contracts.csproj" />
     <Project Path="IDVB.Vision\IDVB.Vision.csproj" />
-    <Project Path="IDVB.Vision.Tests\IDVB.Vision.Tests.csproj" />
     <Project Path="IDVBuff.Appearance\IDVBuff.Appearance.csproj" />
     <Project Path="Infrastructure\IDVBuff.Infrastructure.csproj" />
     <Project Path="Services\IDVBuff.Services.csproj" />
@@ -17,7 +19,6 @@
     <Project Path="IDVBuff.ModuleContracts\IDVBuff.ModuleContracts.csproj" />
     <Project Path="UpdateCore\IDVBuff.UpdateCore.csproj" />
     <Project Path="Updater\IDVBuff.Updater.csproj" />
-    <Project Path="release\IDVBuff.ReleaseTool\IDVBuff.ReleaseTool.csproj" />
     <Project Path="Survey\Domain\IDVBuff.Survey.Domain.csproj" />
     <Project Path="Survey\Contracts\IDVBuff.Survey.Contracts.csproj" />
     <Project Path="Survey\Application\IDVBuff.Survey.Application.csproj" />
@@ -28,10 +29,6 @@
     <Project Path="Survey\PoseGraph\IDVBuff.Survey.PoseGraph.csproj" />
     <Project Path="Survey\Fusion\IDVBuff.Survey.Fusion.OpenCv.csproj" />
     <Project Path="Survey\Idvm\IDVBuff.Survey.Idvm.csproj" />
-    <Project Path="IDVBuff.Tests\IDVBuff.Tests.csproj" />
-    <Project Path="IDVBuff.WinUI.RegressionTests\IDVBuff.WinUI.RegressionTests.csproj">
-        <Platform Project="x64" />
-    </Project>
     <Project Path="IDVBuff.MapAlignment.Probe\IDVBuff.MapAlignment.Probe.csproj" />
     <Project Path="IDVBuff.PluginContracts\IDVBuff.PluginContracts.csproj" />
     <Project Path="IDVBuff.PluginHostMessages\IDVBuff.PluginHostMessages.csproj" />
@@ -39,8 +36,6 @@
     <Project Path="IDVB.PluginPackaging\IDVB.PluginPackaging.csproj" />
     <Project Path="IDVB.PluginRuntime\IDVB.PluginRuntime.csproj" />
     <Project Path="IDVB.PluginTool\IDVB.PluginTool.csproj" />
-    <Project Path="IDVB.PluginTestHost\IDVB.PluginTestHost.csproj" />
-    <Project Path="IDVB.PluginSystem.Tests\IDVB.PluginSystem.Tests.csproj" />
     <Project Path="Plugins\Samples\MatchNotifier\IDVB.Sample.MatchNotifier.csproj" />
     <Project Path="Plugins\Samples\MatchShortcuts\IDVB.Sample.MatchShortcuts.csproj" />
     <Project Path="Plugins\AutoClicker\IDVBuff.AutoClicker.csproj" />

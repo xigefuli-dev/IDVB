@@ -4,6 +4,32 @@ namespace IDVBuff.Features.Maps;
 
 public sealed partial class SessionOrchestrator
 {
+    private void LogTrackingMotionSample(OrbTrackingContext context, long frameTicks,
+        long previousFrameTicks, double mouseDx, double mouseDy, Vpsg3_5OpticalFlowResult flow,
+        double tx, double ty, double visualTx, double visualTy) =>
+        _logCollector.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
+            "拖动鼠标与画面位移对照", details: new()
+            {
+                ["generation"] = context.Generation, ["frameTicks"] = frameTicks,
+                ["previousFrameTicks"] = previousFrameTicks,
+                ["mouseDx"] = mouseDx, ["mouseDy"] = mouseDy,
+                ["flowAccepted"] = flow.Accepted, ["flowDx"] = flow.DeltaX, ["flowDy"] = flow.DeltaY,
+                ["feedforwardTx"] = tx, ["feedforwardTy"] = ty,
+                ["visualTx"] = visualTx, ["visualTy"] = visualTy
+            });
+
+    private void LogTrackingCorrectionSample(OrbTrackingContext context, long frameTicks,
+        Vpsg3_5TrackingResult result, double priorTx, double priorTy, double tx, double ty) =>
+        _logCollector.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
+            "拖动结构修正位置对照", details: new()
+            {
+                ["generation"] = context.Generation, ["frameTicks"] = frameTicks,
+                ["accepted"] = result.IsAccepted, ["failureReason"] = result.FallbackReason,
+                ["priorTx"] = priorTx, ["priorTy"] = priorTy,
+                ["solvedTx"] = result.OffsetX, ["solvedTy"] = result.OffsetY,
+                ["feedforwardTx"] = tx, ["feedforwardTy"] = ty
+            });
+
     private const int VkLButton = 0x01;
 
     [DllImport("user32.dll")]
@@ -21,6 +47,23 @@ public sealed partial class SessionOrchestrator
     {
         public int X;
         public int Y;
+    }
+
+    private IntPtr ReadTrackingForegroundWindow() =>
+        _mapDragInput is { } source ? source.GetForegroundWindow() : GetForegroundWindow();
+
+    private bool ReadTrackingLeftButtonDown() =>
+        _mapDragInput is { } source
+            ? source.IsLeftButtonDown()
+            : (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
+
+    private bool TryReadTrackingCursor(out NativePoint point)
+    {
+        if (_mapDragInput is not { } source)
+            return GetCursorPos(out point);
+        var available = source.TryGetCursorPosition(out var x, out var y);
+        point = new NativePoint { X = x, Y = y };
+        return available;
     }
 
     [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
@@ -55,6 +98,7 @@ public sealed partial class SessionOrchestrator
         double feedforwardTx,
         double feedforwardTy,
         Vpsg3_5TrackingConfig trackingConfig,
+        bool useAutomaticCanvas,
         CancellationToken cancellationToken)
     {
         try
@@ -74,10 +118,13 @@ public sealed partial class SessionOrchestrator
             if (frameObject is not CapturedGameFrame frame)
                 return null;
 
+            if (useAutomaticCanvas)
+                frame = MapFrameUiExclusion.WithAutomaticCanvasContext(frame);
             using (frame)
             using (var observation = Vpsg3FastLiveExtractor.Extract(
                        frame.Image,
-                       frame.ViewportBounds))
+                       frame.ViewportBounds,
+                       excludedScreenRegions: frame.UiExclusionRegions))
             {
                 if (observation.SparseEdgePoints.Count < 8
                     || !_recognition.TryGetVpsg3FloorLease(
@@ -183,6 +230,11 @@ public sealed partial class SessionOrchestrator
                 ["pipelineUntilPublishMs"] = Average(endToEndTotalMs, captureCount),
                 ["endToEndMs"] = realtime.AverageEndToEndMs,
                 ["endToEndP95Ms"] = realtime.P95EndToEndMs,
+                ["timingEndpoint"] = "overlay-callback-return-not-screen-presentation",
+                ["mousePollSamples"] = realtime.MouseSampleCount,
+                ["mousePollToCallbackP95Ms"] = realtime.MouseCallbackP95Ms,
+                ["visualFrameSamples"] = realtime.VisualSampleCount,
+                ["visualFrameToCallbackP95Ms"] = realtime.VisualCallbackP95Ms,
                 ["droppedFrames"] = droppedFrames,
                 ["coalescedTransforms"] = realtime.CoalescedTransforms,
                 ["publishedTransforms"] = realtime.PublishedTransforms,

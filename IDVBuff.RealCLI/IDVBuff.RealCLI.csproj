@@ -20,12 +20,52 @@
     <IDVBTorchRuntimePackage Condition="'$(IDVBTorchRuntimePackage)' == ''">TorchSharp-cpu</IDVBTorchRuntimePackage>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Test'">
+    <DefineConstants>$(DefineConstants);IDVBUFF_TEST_BUILD</DefineConstants>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- Read the source project's version on every build without building WinUI
+       or consuming/incrementing the main application's build counter. -->
+  <Target Name="GenerateRealCliVersion" BeforeTargets="CoreCompile">
+    <XmlPeek XmlInputPath="$(MSBuildProjectDirectory)\..\IDVBuff.csproj"
+             Query="/Project/PropertyGroup[not(@Condition)]/IDVBProductVersion/text()">
+      <Output TaskParameter="Result" ItemName="_RealCliProductVersionValue" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(MSBuildProjectDirectory)\..\IDVBuff.csproj"
+             Query="/Project/PropertyGroup[not(@Condition)]/AssemblyVersion/text()">
+      <Output TaskParameter="Result" ItemName="_RealCliNumericVersionValue" />
+    </XmlPeek>
+    <Error Condition="'@(_RealCliProductVersionValue->Count())' != '1' Or '@(_RealCliNumericVersionValue->Count())' != '1'"
+           Text="RealCLI requires one unconditional IDVBProductVersion and AssemblyVersion in IDVBuff.csproj." />
+    <PropertyGroup>
+      <_RealCliProductVersion>@(_RealCliProductVersionValue)</_RealCliProductVersion>
+      <_RealCliNumericVersion>@(_RealCliNumericVersionValue)</_RealCliNumericVersion>
+    </PropertyGroup>
+    <ItemGroup>
+      <_RealCliVersionSource Include="// &lt;auto-generated /&gt;" />
+      <_RealCliVersionSource Include="[assembly: System.Reflection.AssemblyVersion(&quot;$(_RealCliNumericVersion)&quot;)]" />
+      <_RealCliVersionSource Include="[assembly: System.Reflection.AssemblyFileVersion(&quot;$(_RealCliNumericVersion)&quot;)]" />
+      <_RealCliVersionSource Include="[assembly: System.Reflection.AssemblyInformationalVersion(&quot;$(_RealCliProductVersion)-RealCLI&quot;)]" />
+      <_RealCliVersionSource Include="namespace IDVBuff%3B" />
+      <_RealCliVersionSource Include="internal static partial class BuildVersionInfo {" />
+      <_RealCliVersionSource Include="public const string ProductVersion = &quot;$(_RealCliProductVersion)&quot;%3B" />
+      <_RealCliVersionSource Include="public const string NumericVersion = &quot;$(_RealCliNumericVersion)&quot;%3B" />
+      <_RealCliVersionSource Include="}" />
+      <Compile Include="$(IntermediateOutputPath)RealCLI.Version.g.cs" AutoGen="true" Visible="false" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)RealCLI.Version.g.cs"
+                      Lines="@(_RealCliVersionSource)" Encoding="UTF-8"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
   <!-- 引用真实 IDVB 程序集（Core/Infrastructure/Pipeline）
        注意：不能 ProjectReference 主项目 IDVBuff.csproj（WinExe，自包含）——
        会触发 NETSDK1151 / MSIX AnyCPU 检查。改为像 Probe/Tests 一样链接 Features 源码，
        确保走与主应用完全相同的编译产物，同时保持主程序与 RealCLI 构建互不干扰。 -->
   <ItemGroup>
     <ProjectReference Include="..\Core\IDVBuff.Core.csproj" />
+    <ProjectReference Include="..\IDVBuff.Appearance\IDVBuff.Appearance.csproj" />
     <ProjectReference Include="..\Infrastructure\IDVBuff.Infrastructure.csproj" />
     <ProjectReference Include="..\Pipeline\IDVBuff.Pipeline.csproj" />
     <ProjectReference Include="..\Survey\Domain\IDVBuff.Survey.Domain.csproj" />
@@ -66,10 +106,15 @@
     <Compile Include="..\Features\Plugins\PluginGameWindowService.cs" Link="Production\Features\Plugins\PluginGameWindowService.cs" />
     <Compile Include="..\Features\Windows\WindowCaptureProtectionService.cs" Link="Production\Features\Windows\WindowCaptureProtectionService.cs" />
     <Compile Include="..\Features\Notifications\**\*.cs" Link="Production\Features\Notifications\%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- The production map control panel now uses shared theme scopes. Link
+         those implementations; headless replay never creates a UI scope. -->
+    <Compile Include="..\Presentation\Theming\**\*.cs" Link="Production\Presentation\Theming\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\GaussianBlurBackdrop.cs" Link="Production\GaussianBlurBackdrop.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
     <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
     <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20260627" />
     <PackageReference Include="$(IDVBTorchRuntimePackage)" Version="0.107.0" />
@@ -84,5 +129,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\Assets\FloorIndicators\**\*" Link="Assets\FloorIndicators\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\Assets\Algorithms\structure-native-observed-v2.idva" Link="Assets\Algorithms\structure-native-observed-v2.idva" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\Assets\Algorithms\structure-doom-girl-hard-wangqingxin-v1.idva" Link="Assets\Algorithms\structure-doom-girl-hard-wangqingxin-v1.idva" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

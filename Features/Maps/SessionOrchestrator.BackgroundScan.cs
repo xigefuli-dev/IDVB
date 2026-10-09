@@ -105,7 +105,10 @@ public sealed partial class SessionOrchestrator
                 frame.Image.Clone(),
                 frame.ClientBounds,
                 frame.ViewportBounds,
-                frame.WindowHandle);
+                frame.WindowHandle)
+            {
+                UiExclusionRegions = frame.UiExclusionRegions
+            };
         }
 
         // 候选界面依赖的目录补齐此前被放在「开图后」才执行，使第一次开图

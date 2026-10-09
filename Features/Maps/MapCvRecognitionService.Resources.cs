@@ -34,6 +34,7 @@ public sealed partial class MapCvRecognitionService
                     return cache;
                 });
                 InvalidateAndTriggerVpsg3Rebuild(maps, maps.Select(map => map.Id).ToHashSet());
+                ScheduleAutomaticEntryReferencePreparation(maps, _catalogRevision);
                 await _vpsg3Preparation;
                 AuditResidentResources("MatchResources.Prepared");
             }

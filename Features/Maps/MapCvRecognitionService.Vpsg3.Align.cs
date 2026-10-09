@@ -135,7 +135,9 @@ public sealed partial class MapCvRecognitionService
                     frame, map, floorKey, knownScaleSeed);
             var scanFrame = ScanExecutionContext.Current is { IsAutomatic: true } scan ? scan.Frame : null;
             var sharedObservation = ReferenceEquals(scanFrame?.Source, frame.Image) ? scanFrame.Observation : null;
-            using var ownedObservation = sharedObservation is null ? Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds) : null;
+            using var ownedObservation = sharedObservation is null
+                ? Vpsg3FastLiveExtractor.Extract(frame.Image, frame.ViewportBounds,
+                    excludedScreenRegions: frame.UiExclusionRegions) : null;
             var observation = sharedObservation ?? ownedObservation!;
             var result = Vpsg3FastBootstrapSolver.TrySolve(observation, lease.Floor, knownScaleSeed: knownScaleSeed);
             var refreshComparisonMs = 0d;

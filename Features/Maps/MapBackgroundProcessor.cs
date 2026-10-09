@@ -192,6 +192,23 @@ public static class MapBackgroundProcessor
         }
     }
 
+    public static Mat ClipToStructureFootprint(Mat registeredArtwork, Mat canonical)
+    {
+        if (registeredArtwork.Empty() || registeredArtwork.Type() != MatType.CV_8UC4
+            || canonical.Empty() || canonical.Type() != MatType.CV_8UC4
+            || canonical.Size() != registeredArtwork.Size())
+            throw new InvalidOperationException("小抄显示裁剪需要同尺寸、包含完整房间与走廊范围的透明结构底图。");
+        using var result = registeredArtwork.Clone();
+        using var alpha = new Mat();
+        using var exterior = new Mat();
+        Cv2.ExtractChannel(canonical, alpha, 3);
+        Cv2.Compare(alpha, 0, exterior, CmpTypes.EQ);
+        // Keep interiors and anti-aliased boundaries unchanged. Exterior removal
+        // depends only on location, including colorful ink crossing empty gaps.
+        result.SetTo(Scalar.All(0), exterior);
+        return result.Clone();
+    }
+
     /// <summary>
     /// Zeros out color channels (B, G, R) for any pixels where Alpha == 0 to prevent
     /// hidden texture or white background noise from leaking when Alpha is discarded.
@@ -291,6 +308,20 @@ public static class MapBackgroundProcessor
         {
             Cv2.Circle(mask, center, Math.Max(0, (size - 1) / 2), Scalar.White, -1);
         }
+    }
+
+    internal static Mat CreateFloorCropMask(int width, int height,
+        NormalizedRectangle? region, IReadOnlyList<NormalizedPoint> points)
+    {
+        var mask = new Mat(height, width, MatType.CV_8UC1, Scalar.Black);
+        if (region is not null)
+        {
+            mask.SetTo(Scalar.White);
+            using var inside = new Mat(mask, GetPixelRegion(region, width, height));
+            inside.SetTo(Scalar.Black);
+        }
+        ApplyFreeCropMask(mask, points);
+        return mask;
     }
 
     private static void ApplyFreeCropMask(Mat mask, IReadOnlyList<NormalizedPoint>? points)

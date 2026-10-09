@@ -69,7 +69,7 @@ public sealed class MapVpsgScaleGraphCache
         Size referenceSize,
         IReadOnlyList<KeyPoint> keyPoints)
     {
-        var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(map);
+        var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(map, floorKey);
         using var protection = AppDataPaths.ProtectCachePath(
             Path.Combine(_rootDirectory, map.Id.ToString("N")));
         var memoryKey = $"{map.Id:N}|{fingerprint}|{floorKey}|{keyPoints.Count}";
@@ -87,7 +87,7 @@ public sealed class MapVpsgScaleGraphCache
         var directory = Path.Combine(
             _rootDirectory,
             map.Id.ToString("N"),
-            $"{map.UpdatedAt.UtcTicks}-{floorKey}-"
+            $"{MapStructureRevisionRules.GetFloorUpdatedAt(map, floorKey).UtcTicks}-{floorKey}-"
                 + MapStructurePreprocessor.AlgorithmVersion);
         var path = Path.Combine(
             directory,

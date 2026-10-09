@@ -60,6 +60,7 @@ return command switch
     "model-replay" => await ModelReplayCommand.RunAsync(args[1..], dispatcher),
     "model-device" => await ModelDeviceCommand.RunAsync(args[1..]),
     "model-memory-test" => await ModelMemoryTestCommand.RunAsync(args[1..]),
+    "map-package" => await MapPackageCommand.RunAsync(args[1..]),
     "survey" => await SurveyReplayCommand.RunAsync(args[1..]),
     _ => UnknownCommand(command)
 };
@@ -319,7 +320,7 @@ static string[] ResolveGlob(string pattern)
 static int UnknownCommand(string command)
 {
     Console.Error.WriteLine($"未知命令：{command}");
-    Console.Error.WriteLine("可用命令：run | bench | batch | mapopen | mapopen-replay | model-train | model-replay | model-device | model-memory-test | survey");
+    Console.Error.WriteLine("可用命令：run | bench | batch | mapopen | mapopen-replay | model-train | model-replay | model-device | model-memory-test | map-package | survey");
     return 1;
 }
 
@@ -337,6 +338,7 @@ static void PrintUsage()
           IDVB.RealCLI.exe mapopen-replay --manifest <path> [--out <path>] [--settings <path>]
           IDVB.RealCLI.exe model-train --manifest <path> --repository <path> [--out <path>]
           IDVB.RealCLI.exe model-replay --manifest <path> --repository <path> --mode <mode> [--out <path>]
+          IDVB.RealCLI.exe map-package --manifest <portable-manifest.json> --out <fresh-output-root>
 
         run 命令：
           --image, -i <path>    输入截图路径（必需）

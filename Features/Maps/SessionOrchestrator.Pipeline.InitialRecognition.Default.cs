@@ -48,34 +48,12 @@ public sealed partial class SessionOrchestrator
             SkipFloorDetection = true,
         };
 
-        // 预构建地图指纹
-        using var repositoryRead = MapOperationTraceAmbient.StartChild(
-            "map_repository_read",
-            MapOperationWaitKind.Io);
-        var maps = _mapRepo.GetMapsAsync().GetAwaiter().GetResult();
-        repositoryRead.Complete();
-        var fingerprints = new List<object>();
+        // Reuse the recognition cache's measured gate icon sizes. A user-drawn
+        // anchor rectangle is not comparable to a tightly detected live icon.
         using var fingerprintBuild = MapOperationTraceAmbient.StartChild(
             "fingerprint_build",
             MapOperationWaitKind.Compute);
-        foreach (var mapObj in maps)
-        {
-            if (mapObj is MapRecord map
-                && string.Equals(
-                    map.Class,
-                    mapClass,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                using var mapFingerprint = MapOperationTraceAmbient.StartChild(
-                    "map_fingerprint",
-                    MapOperationWaitKind.Compute,
-                    mapId: map.Id.ToString("D"),
-                    floorKey: MapScanFloorRules.ResolveScanFloorKey(map));
-                map.NormalizeRecognition();
-                var fp = BuildFingerprint(map);
-                if (fp != null) fingerprints.Add(fp);
-            }
-        }
+        var fingerprints = _recognition.FilterFingerprints(mapClass).Cast<object>().ToList();
         fingerprintBuild.Complete();
         scanCtx.FingerprintsRaw = fingerprints;
 

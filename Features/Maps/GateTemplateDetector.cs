@@ -90,7 +90,8 @@ public sealed partial class GateTemplateDetector : IDisposable
         double clientWidth,
         double scoreThreshold,
         GateSearchContext? searchContext,
-        double physicalPixelsPerImagePixel = 1d)
+        double physicalPixelsPerImagePixel = 1d,
+        IReadOnlyList<MapScreenRect>? excludedScreenRegions = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         scoreThreshold = double.IsFinite(scoreThreshold)
@@ -160,6 +161,12 @@ public sealed partial class GateTemplateDetector : IDisposable
                     using var roiMat = new Mat(liveMatchImage, roi);
                     using var output = new Mat();
                     Cv2.MatchTemplate(roiMat, scaled, output, TemplateMatchModes.CCoeffNormed);
+                    MapFrameUiExclusion.ExcludeGateScores(output, scaled.Size(),
+                        new MapScreenRect(viewportBounds.X + roi.X * physicalPixelsPerImagePixel,
+                            viewportBounds.Y + roi.Y * physicalPixelsPerImagePixel,
+                            roi.Width * physicalPixelsPerImagePixel,
+                            roi.Height * physicalPixelsPerImagePixel),
+                        physicalPixelsPerImagePixel, excludedScreenRegions);
                     matchTemplateCalls++;
 
                     Cv2.MinMaxLoc(output, out _, out var score, out _, out var location);
@@ -225,6 +232,8 @@ public sealed partial class GateTemplateDetector : IDisposable
                 using var scaled = CreateMatchImage(scaledSource);
                 using var output = new Mat();
                 Cv2.MatchTemplate(liveMatchImage, scaled, output, TemplateMatchModes.CCoeffNormed);
+                MapFrameUiExclusion.ExcludeGateScores(output, scaled.Size(), viewportBounds,
+                    physicalPixelsPerImagePixel, excludedScreenRegions);
                 matchTemplateCalls++;
 
                 var scaleCandidates = new List<GateDetection>();

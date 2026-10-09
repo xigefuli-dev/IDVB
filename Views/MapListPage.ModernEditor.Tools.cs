@@ -16,6 +16,12 @@ public sealed partial class MapListPage : UserControl
 {
     private void SelectModernTool(MapEditorTool tool, Button? placementTarget = null)
     {
+        if (_draft?.Floors.FirstOrDefault(floor => floor.Key == _activeFloorKey)?.SharedStructure is not null
+            && tool is MapEditorTool.Crop or MapEditorTool.FreeCrop or MapEditorTool.Conceal)
+        {
+            SetModernStatus("当前小抄复用完整结构底图；需要裁剪或遮瑕时，请修改原结构底图。", true);
+            return;
+        }
         if (_modernToolState.ActiveTool == tool
             && tool is MapEditorTool.Text or MapEditorTool.Line or MapEditorTool.Conceal)
         {

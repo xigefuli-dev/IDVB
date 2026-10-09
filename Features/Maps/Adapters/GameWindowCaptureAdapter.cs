@@ -1,4 +1,5 @@
 using IDVBuff.Core.Contracts;
+using OpenCvSharp;
 
 namespace IDVBuff.Features.Maps.Adapters;
 
@@ -6,6 +7,8 @@ namespace IDVBuff.Features.Maps.Adapters;
 public sealed class GameWindowCaptureAdapter : IGameWindowCapture
 {
     private readonly DwrGameWindowCaptureService _capture = new();
+    private readonly FloorIndicatorCaptureService _uiCapture = new();
+    private readonly object _uiCaptureGate = new();
 
     public bool TryGetForegroundClientBounds(out object clientBounds, out IntPtr windowHandle, out string failureReason)
     {
@@ -41,7 +44,30 @@ public sealed class GameWindowCaptureAdapter : IGameWindowCapture
         return result;
     }
 
-    public void Reset() => _capture.Reset();
+    public bool TryCaptureUiRegion(object region, out object? frame, out string failureReason)
+    {
+        frame = null;
+        var rectangle = (NormalizedRectangle)region;
+        lock (_uiCaptureGate)
+        {
+            if (!_uiCapture.TryCapture(rectangle, out var pixels, out _, out failureReason))
+                return false;
+            // Clone before another caller can reuse the service's DIB buffer.
+            using var borrowed = Mat.FromPixelData(pixels.Height, pixels.Width,
+                MatType.CV_8UC4, pixels.Pixels, pixels.Stride);
+            frame = new CapturedGameFrame(borrowed.Clone(), pixels.ClientBounds,
+                DwrGameWindowCaptureService.GetViewportBounds(pixels.ClientBounds, rectangle),
+                pixels.WindowHandle);
+            return true;
+        }
+    }
+
+    public void Reset()
+    {
+        _capture.Reset();
+        lock (_uiCaptureGate)
+            _uiCapture.Reset();
+    }
 
     public void PrepareViewportCapture() => _capture.PrepareViewportCapture();
 

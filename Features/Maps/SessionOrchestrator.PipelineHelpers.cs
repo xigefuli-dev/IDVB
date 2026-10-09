@@ -45,7 +45,9 @@ public sealed partial class SessionOrchestrator
         }
 
         var windowHandle = windowHandleObj is IntPtr hwnd ? hwnd : IntPtr.Zero;
-        await ApplySelectedResolutionPresetAsync(clientBounds);
+        var operationMatch = _matchSession.Snapshot;
+        // Record the input before an asynchronous preset load. A second key
+        // press must close this open, rather than also seeing the old state.
         var toggle = _gameMapToggleState.Toggle();
         if (!toggle.IsOpen)
         {
@@ -53,6 +55,10 @@ public sealed partial class SessionOrchestrator
             ReportInputDecision("game-map-toggle", "applied", "map-closed-after-preset");
             return;
         }
+        await ApplySelectedResolutionPresetAsync(clientBounds);
+        if (!_gameMapToggleState.IsCurrent(toggle)
+            || !IsCurrentMatchOperation(operationMatch))
+            return;
         if (HasActiveQuickScan && (!_hasCompletedQuickScanAlignment
             || _lastRecognition?.Result.OverlayTransform is null))
         {
@@ -63,14 +69,18 @@ public sealed partial class SessionOrchestrator
             return;
         }
         var route = _matchSession.Snapshot.Mode == MapRunMode.Survey ? "survey"
+            : _lastRecognition is null && _pendingAlignmentIdentity is null ? "automatic-identity"
             : CanObserveMap ? "continuous-observation"
-            : _settings.SilentScanEnabled && _pendingAlignmentIdentity is null && _lastRecognition is null
-                ? "silent-scan"
             : _backgroundScanStatus == BackgroundScanStatus.CompletedFailed ? "background-failed-alignment"
             : IsBackgroundScanCompleted ? "consume-background-scan" : "locked-map-alignment";
         ReportInputDecision("game-map-toggle", "dispatched", route);
         if (_matchSession.Snapshot.Mode == MapRunMode.Survey)
             await HandleSurveyMapOpenAsync(toggle);
+        else if (_lastRecognition is null && _pendingAlignmentIdentity is null)
+        {
+            CancelMapObservation(clearPreview: true);
+            await RunMapOpenAlignmentAsync(toggle);
+        }
         else if (CanObserveMap)
         {
             ClearPendingBackgroundScan();
@@ -83,9 +93,7 @@ public sealed partial class SessionOrchestrator
             await RunSilentScanAsync(toggle);
         else if (_backgroundScanStatus == BackgroundScanStatus.CompletedFailed)
         {
-            // 后台扫描失败：无身份可消费，提示后走标准「尚未锁定地图」路径，
-            // 保证玩家手动扫描仍可正常对齐。
-            _statusMessage = "后台扫描未识别出地图，请重新按快捷扫描键。";
+            _statusMessage = "后台扫描未完成，正在按已锁定地图继续对齐。";
             ClearPendingBackgroundScan();
             await RunMapOpenAlignmentAsync(toggle);
         }
@@ -185,46 +193,6 @@ public sealed partial class SessionOrchestrator
             });
     }
 
-    private static MapGeometryFingerprint? BuildFingerprint(MapRecord map)
-    {
-        var floorKey = MapScanFloorRules.ResolveScanFloorKey(map);
-        var profile = MapFloorRules.GetFloorProfile(map, floorKey)
-            ?? map.Recognition.FirstFloor;
-        var anchors = MapScanFloorRules.GetGeometryAnchors(map, floorKey);
-        var main = anchors?.Main;
-        var side = anchors?.Side;
-        if (main?.Bounds?.IsValid is not true
-            || side?.Bounds?.IsValid is not true
-            || profile.RecognitionPixelWidth <= 0
-            || profile.RecognitionPixelHeight <= 0)
-        {
-            return null;
-        }
-
-        return new MapGeometryFingerprint
-        {
-            Map = map,
-            FloorKey = floorKey,
-            MainPoint = new MapNormalizedPoint(
-                main.Bounds.X + main.Bounds.Width / 2d,
-                main.Bounds.Y + main.Bounds.Height / 2d),
-            SidePoint = new MapNormalizedPoint(
-                side.Bounds.X + side.Bounds.Width / 2d,
-                side.Bounds.Y + side.Bounds.Height / 2d),
-            MainReferenceBounds = new MapScreenRect(
-                main.Bounds.X * profile.RecognitionPixelWidth,
-                main.Bounds.Y * profile.RecognitionPixelHeight,
-                main.Bounds.Width * profile.RecognitionPixelWidth,
-                main.Bounds.Height * profile.RecognitionPixelHeight),
-            SideReferenceBounds = new MapScreenRect(
-                side.Bounds.X * profile.RecognitionPixelWidth,
-                side.Bounds.Y * profile.RecognitionPixelHeight,
-                side.Bounds.Width * profile.RecognitionPixelWidth,
-                side.Bounds.Height * profile.RecognitionPixelHeight),
-            ReferenceWidth = profile.RecognitionPixelWidth,
-            ReferenceHeight = profile.RecognitionPixelHeight
-        };
-    }
 }
 /*
  * 文件职责：SessionOrchestrator.PipelineHelpers。

@@ -12,7 +12,9 @@ internal sealed class QueryGeometry : IDisposable
         Rect bounds,
         Point[] edgePoints,
         Mat? visibleMask = null,
-        Mat? appearance = null)
+        Mat? appearance = null,
+        Size resizeTargetSize = default,
+        MapStructureFeatures? templateSpectraSource = null)
     {
         Scale = scale;
         Structure = structure;
@@ -21,6 +23,8 @@ internal sealed class QueryGeometry : IDisposable
         EdgePoints = edgePoints;
         VisibleMask = visibleMask;
         Appearance = appearance;
+        ResizeTargetSize = resizeTargetSize;
+        TemplateSpectraSource = templateSpectraSource;
     }
 
     public double Scale { get; }
@@ -31,6 +35,8 @@ internal sealed class QueryGeometry : IDisposable
     public int EdgeCount => EdgePoints.Length;
     public Mat? VisibleMask { get; }
     public Mat? Appearance { get; }
+    public Size ResizeTargetSize { get; }
+    internal MapStructureFeatures? TemplateSpectraSource { get; }
 
     internal Mat GetOrCreateEdgeDistanceMap()
     {
@@ -58,7 +64,8 @@ internal sealed class QueryGeometry : IDisposable
         Bounds,
         EdgePoints,
         VisibleMask?.Clone(),
-        Appearance?.Clone());
+        Appearance?.Clone(),
+        ResizeTargetSize);
 
     public void Dispose()
     {

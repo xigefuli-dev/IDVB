@@ -150,7 +150,7 @@ public sealed partial class SessionOrchestrator
             return true;
         }
 
-        _statusMessage = "尚未锁定地图，无法切换楼层；请先执行快捷扫描。";
+        _statusMessage = "尚未识别地图，暂时无法切换楼层；打开游戏地图后将自动识别。";
         _logCollector.Append(
             MapLogCategory.FloorRecognition,
             MapLogLevel.Warning,
@@ -172,8 +172,10 @@ public sealed partial class SessionOrchestrator
         long matchVersion,
         MapFloorSwitchDecision decision,
         string source,
-        int? requestedPosition = null)
+        int? requestedPosition = null,
+        bool realignWhileOpen = false)
     {
+        ClearAutomaticIdentityJob();
         Interlocked.Increment(ref _scanRequestGeneration);
         CancelQuickScan();
         var openSession = _mapOpenSession.Snapshot;
@@ -182,7 +184,7 @@ public sealed partial class SessionOrchestrator
             && openSession.RecalibrationReason == MapRecalibrationReason.VariantChanged
             && openSession.MapId == recognition.Map.Id
             && _pendingAlignmentIdentity?.Map.Id == recognition.Map.Id;
-        InvalidateActiveMapOpenOperation("manual-floor-switch");
+        InvalidateActiveMapOpenOperation("floor-switch");
         _recentConfirmedFloorPreference = null;
         _recentConfirmedFloorMapId = Guid.Empty;
         CancelOrbTracking("floor changed");
@@ -206,9 +208,36 @@ public sealed partial class SessionOrchestrator
                 recognition.Map.Id,
                 nextFloorKey);
         }
+        else if (realignWhileOpen)
+        {
+            // Keep identity, but never render or seed the new floor from the
+            // old floor's transform. The existing pending-identity entry
+            // obtains an independent seed for this floor.
+            _pendingAlignmentIdentity = new RuntimeMapRecognition
+            {
+                Map = recognition.Map,
+                FloorImagePath = _mapRepository.GetFloorRecognitionPath(recognition.Map, nextFloorKey),
+                Result = new MapRecognitionResult
+                {
+                    MapId = recognition.Map.Id,
+                    Floor = nextFloorKey,
+                    OrientationDegrees = MapFloorRules.GetFloorProfile(recognition.Map, nextFloorKey)!.OrientationDegrees,
+                    IdentityConfidence = recognition.Result.IdentityConfidence,
+                    Source = recognition.Result.Source,
+                    OverlayTransform = null
+                }
+            };
+            _lastRecognition = null;
+            _pendingAlignmentSeed = null;
+            _lastFloorRecognition = null;
+            ClearAdaptiveSessionKeys();
+            _mapOpenSession.LockMapIdentity(recognition.Map.Id, nextFloorKey,
+                recognition.Result.IdentityConfidence, MapRecalibrationReason.FloorChanged,
+                "game floor changed; independent alignment pending");
+        }
         MapOverlayPresentationBatch.Apply(_overlay, () =>
         {
-            if (retargetsPendingVariant)
+            if (retargetsPendingVariant || realignWhileOpen)
                 _overlayStatus.Clear();
             if (!string.Equals(
                     recognition.Result.Floor,
@@ -221,13 +250,15 @@ public sealed partial class SessionOrchestrator
             try { _overlay.Show(); } catch { }
         });
         var floorLabel = MapFloorRules.GetFloorDisplayName(recognition.Map, nextFloorKey);
-        _statusMessage = retargetsPendingVariant && _gameMapToggleState.IsOpen
+        _statusMessage = realignWhileOpen && _gameMapToggleState.IsOpen
+            ? $"已自动切换到{floorLabel}，正在重新对齐。"
+            : retargetsPendingVariant && _gameMapToggleState.IsOpen
             ? $"已手动切换到{floorLabel}，正在按目标变体重新对齐。"
             : $"已手动切换到{floorLabel}；下次开图将按该楼层对齐。";
         _logCollector.Append(
             MapLogCategory.FloorRecognition,
             MapLogLevel.Info,
-            $"手动楼层切换：{floorLabel}",
+            $"{(realignWhileOpen ? "自动" : "手动")}楼层切换：{floorLabel}",
             details: new()
             {
                 ["outcome"] = "switched",
@@ -240,14 +271,14 @@ public sealed partial class SessionOrchestrator
                 ["requestedPosition"] = requestedPosition
             });
         NotifyStateChanged();
-        if (retargetsPendingVariant && _gameMapToggleState.IsOpen)
+        if ((retargetsPendingVariant || realignWhileOpen) && _gameMapToggleState.IsOpen)
         {
             var transition = new MapGameToggleTransition(
                 IsOpen: true,
                 Version: _gameMapToggleState.Version);
             StartInputOperation(
-                "variant-floor-realignment",
-                () => RunMapOpenAlignmentAsync(transition));
+                realignWhileOpen ? "automatic-floor-realignment" : "variant-floor-realignment",
+                () => RunMapOpenAlignmentAsync(transition, continuous: !realignWhileOpen));
         }
     }
 

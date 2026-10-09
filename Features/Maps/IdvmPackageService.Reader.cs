@@ -82,7 +82,7 @@ public sealed partial class IdvmPackageService
         var minor = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2));
         if (!bytes.AsSpan(0, 4).SequenceEqual("IDVM"u8)
             || major != 1
-            || minor is not (0 or 1 or 2 or 3 or 4)
+            || minor is not (0 or 1 or 2 or 3 or 4 or 5)
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2)) != HeaderSize
             || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(10, 2)) != 0
             || bytes.AsSpan(68, 12).IndexOfAnyExcept((byte)0) >= 0)
@@ -179,7 +179,7 @@ public sealed partial class IdvmPackageService
             item => new MapClassProperties
             {
                 RemoveBackground = item.Properties?.RemoveBackground is true,
-                ContainsVectorRoutes = manifest.FormatVersion == "1.4"
+                ContainsVectorRoutes = manifest.FormatVersion is "1.4" or "1.5"
                     ? item.Properties?.ContainsVectorRoutes is true
                     : null,
                 ScanFloorKey = MapScanFloorRules.NormalizeFloorIdentity(
@@ -193,6 +193,9 @@ public sealed partial class IdvmPackageService
             cancellationToken.ThrowIfCancellationRequested();
             var dataRoot = Path.Combine(root, map.Root.Replace('/', Path.DirectorySeparatorChar), "data");
             var metadata = await ReadJsonAsync<MetadataDto>(Path.Combine(dataRoot, "metadata.json"), cancellationToken);
+            if (manifest.FormatVersion != "1.5" && metadata.Floors.Any(floor => floor.SharedStructure is not null
+                || floor.ArtworkRegistration is not null))
+                throw new InvalidDataException("共享结构地图需要 IDVM 1.5 格式。");
             var gatesDocument = await ReadJsonAsync<GatesDto>(Path.Combine(dataRoot, "gates.json"), cancellationToken);
             var anchorsDocument = await ReadJsonAsync<AnchorsDto>(Path.Combine(dataRoot, "anchors.json"), cancellationToken);
             ValidateMapDocuments(
@@ -200,8 +203,8 @@ public sealed partial class IdvmPackageService
                 metadata,
                 gatesDocument,
                 anchorsDocument,
-                manifest.FormatVersion is "1.2" or "1.3" or "1.4",
-                manifest.FormatVersion is "1.3" or "1.4");
+                manifest.FormatVersion is "1.2" or "1.3" or "1.4" or "1.5",
+                manifest.FormatVersion is "1.3" or "1.4" or "1.5");
 
             var floorDefinitions = new List<FloorDefinition>();
             var floorPaths = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -266,6 +269,8 @@ public sealed partial class IdvmPackageService
                 }
                 var floorDefinition = new FloorDefinition
                 {
+                    SharedStructure = floor.SharedStructure?.Clone(),
+                    ArtworkRegistration = floor.ArtworkRegistration?.Clone(),
                     Key = floor.Key,
                     DisplayName = floor.DisplayName,
                     SortOrder = floor.SortOrder,
@@ -302,6 +307,13 @@ public sealed partial class IdvmPackageService
                         profile.SideEntranceFeatureCenterX = featureDto.CenterX;
                         profile.SideEntranceFeatureCenterY = featureDto.CenterY;
                         profile.SideEntranceFeatureRadius   = featureDto.Radius;
+                        if (floor.SharedStructure is not null)
+                        {
+                            profile.SideEntranceFeatureFileName = Path.GetFileName(featurePhysical);
+                            profile.SideEntranceFeatureSha256 = featureDto.Sha256 ?? string.Empty;
+                            profile.SideEntranceFeatureSourceSha256 = featureDto.SourceSha256 ?? string.Empty;
+                            profile.SideEntranceFeatureAlgorithmVersion = featureDto.AlgorithmVersion ?? string.Empty;
+                        }
                         sideEntranceFeaturePaths[floor.Key] = featurePhysical;
                     }
                 }
@@ -324,7 +336,7 @@ public sealed partial class IdvmPackageService
                     ReferenceMayContainAnnotations = metadata.Recognition.WholeImage.ReferenceMayContainAnnotations
                 }
             };
-            recognition.EnsureStandardAnchors();
+            recognition.NormalizeForFloors(floorDefinitions);
             var draft = new MapDraft
             {
                 SourcePackageMapId = map.MapId,
@@ -435,6 +447,8 @@ public sealed partial class IdvmPackageService
 
     private static Size GetRecognitionSize(MetadataFloorDto floor, int imageWidth, int imageHeight)
     {
+        if (floor.SharedStructure is not null && floor.ArtworkRegistration is { } registration)
+            return new Size(registration.ReferenceWidth, registration.ReferenceHeight);
         if (floor.RecognitionRegion is null)
             return new Size(imageWidth, imageHeight);
         var region = floor.RecognitionRegion;

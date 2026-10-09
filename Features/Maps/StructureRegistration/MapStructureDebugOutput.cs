@@ -41,6 +41,16 @@ internal static class MapStructureDebugOutput
         QueryGeometry? query,
         IReadOnlyList<MapStructureCandidate> candidates)
     {
+        if (directory is null && MapDiagnosticModeCapture.TryDeferFitness(() =>
+            {
+                var bounds = query?.Bounds;
+                var points = candidates.Select(candidate =>
+                    new Point(candidate.ReferenceX, candidate.ReferenceY)).ToArray();
+                var structure = reference.StructureMask.Clone();
+                return new MapDiagnosticModeCapture.FitnessDrawing(
+                    () => RenderSearchVisual(structure, bounds, points), structure);
+            }))
+            return;
         if (directory is null && !MapDiagnosticModeCapture.IsActive)
             return;
         if (heatmap is not null && !heatmap.Empty())
@@ -58,27 +68,42 @@ internal static class MapStructureDebugOutput
             if (directory is not null)
                 TryWrite(Path.Combine(directory, "06-search-heatmap.png"), normalized);
         }
-        using var visual = new Mat();
-        Cv2.CvtColor(reference.StructureMask, visual, ColorConversionCodes.GRAY2BGR);
-        if (query is not null)
-        {
-            for (var index = 0; index < candidates.Count; index++)
-            {
-                var candidate = candidates[index];
-                Cv2.Rectangle(
-                    visual,
-                    new Rect(
-                        candidate.ReferenceX,
-                        candidate.ReferenceY,
-                        Math.Min(query.Bounds.Width, visual.Width - candidate.ReferenceX),
-                        Math.Min(query.Bounds.Height, visual.Height - candidate.ReferenceY)),
-                    index == 0 ? Scalar.LimeGreen : Scalar.OrangeRed,
-                    index == 0 ? 3 : 1);
-            }
-        }
+        using var visual = RenderSearchVisual(reference.StructureMask, query?.Bounds,
+            candidates.Select(candidate => new Point(candidate.ReferenceX, candidate.ReferenceY)).ToArray());
         MapDiagnosticModeCapture.WriteFitness(visual);
         if (directory is not null)
             TryWrite(Path.Combine(directory, "07-top-candidates.png"), visual);
+    }
+
+    private static Mat RenderSearchVisual(Mat structure, Rect? queryBounds, Point[] candidates)
+    {
+        var visual = new Mat();
+        try
+        {
+            Cv2.CvtColor(structure, visual, ColorConversionCodes.GRAY2BGR);
+            if (queryBounds is { } bounds)
+            {
+                for (var index = 0; index < candidates.Length; index++)
+                {
+                    var candidate = candidates[index];
+                    Cv2.Rectangle(
+                        visual,
+                        new Rect(
+                            candidate.X,
+                            candidate.Y,
+                            Math.Min(bounds.Width, visual.Width - candidate.X),
+                            Math.Min(bounds.Height, visual.Height - candidate.Y)),
+                        index == 0 ? Scalar.LimeGreen : Scalar.OrangeRed,
+                        index == 0 ? 3 : 1);
+                }
+            }
+            return visual;
+        }
+        catch
+        {
+            visual.Dispose();
+            throw;
+        }
     }
 
     internal static void WriteFinalDebug(
@@ -88,35 +113,66 @@ internal static class MapStructureDebugOutput
         MapStructureFeatures live,
         MapOverlayTransform transform)
     {
+        var size = request.LiveRoi.Size();
+        var viewport = request.ViewportBounds;
+        var scaleX = transform.ScaleX;
+        var scaleY = transform.ScaleY;
+        var offsetX = transform.OffsetX - viewport.X;
+        var offsetY = transform.OffsetY - viewport.Y;
+        if (directory is null && MapDiagnosticModeCapture.TryDeferFitness(() =>
+            {
+                var edges = reference.Edges.Clone();
+                try
+                {
+                    var liveEdges = live.Edges.Clone();
+                    return new MapDiagnosticModeCapture.FitnessDrawing(
+                        () => RenderFinalVisual(edges, liveEdges, size,
+                            scaleX, scaleY, offsetX, offsetY), edges, liveEdges);
+                }
+                catch { edges.Dispose(); throw; }
+            }))
+            return;
         if (directory is null && !MapDiagnosticModeCapture.IsActive)
             return;
+        using var visual = RenderFinalVisual(reference.Edges, live.Edges, size,
+            scaleX, scaleY, offsetX, offsetY);
+        MapDiagnosticModeCapture.WriteFitness(visual);
+        if (directory is not null)
+            TryWrite(Path.Combine(directory, "08-final-overlay.png"), visual);
+    }
+
+    private static Mat RenderFinalVisual(Mat referenceEdges, Mat liveEdges, Size size,
+        double scaleX, double scaleY, double offsetX, double offsetY)
+    {
         using var projected = new Mat();
         using var matrix = Mat.Zeros(2, 3, MatType.CV_64FC1).ToMat();
-        matrix.Set(0, 0, transform.ScaleX);
-        matrix.Set(0, 2, transform.OffsetX - request.ViewportBounds.X);
-        matrix.Set(1, 1, transform.ScaleY);
-        matrix.Set(1, 2, transform.OffsetY - request.ViewportBounds.Y);
+        matrix.Set(0, 0, scaleX);
+        matrix.Set(0, 2, offsetX);
+        matrix.Set(1, 1, scaleY);
+        matrix.Set(1, 2, offsetY);
         Cv2.WarpAffine(
-            reference.Edges,
+            referenceEdges,
             projected,
             matrix,
-            request.LiveRoi.Size(),
+            size,
             InterpolationFlags.Area,
             BorderTypes.Constant,
             Scalar.Black);
         Cv2.Threshold(projected, projected, 0d, 255d, ThresholdTypes.Binary);
-        using var visual = new Mat(
-            request.LiveRoi.Size(),
+        var visual = new Mat(
+            size,
             MatType.CV_8UC3,
             Scalar.Black);
-        visual.SetTo(new Scalar(0, 170, 0), live.Edges);
-        visual.SetTo(new Scalar(0, 0, 220), projected);
-        using var overlap = new Mat();
-        Cv2.BitwiseAnd(live.Edges, projected, overlap);
-        visual.SetTo(new Scalar(0, 255, 255), overlap);
-        MapDiagnosticModeCapture.WriteFitness(visual);
-        if (directory is not null)
-            TryWrite(Path.Combine(directory, "08-final-overlay.png"), visual);
+        try
+        {
+            visual.SetTo(new Scalar(0, 170, 0), liveEdges);
+            visual.SetTo(new Scalar(0, 0, 220), projected);
+            using var overlap = new Mat();
+            Cv2.BitwiseAnd(liveEdges, projected, overlap);
+            visual.SetTo(new Scalar(0, 255, 255), overlap);
+            return visual;
+        }
+        catch { visual.Dispose(); throw; }
     }
 
     internal static void TryWrite(string path, Mat image)

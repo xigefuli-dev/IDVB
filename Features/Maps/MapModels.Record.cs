@@ -91,6 +91,8 @@ public enum MapFloor
 /// <summary>V10: user-defined floor identifier and explicit local image bindings.</summary>
 public sealed class FloorDefinition
 {
+    public MapSharedFloorStructure? SharedStructure { get; set; }
+    public MapArtworkRegistration? ArtworkRegistration { get; set; }
     public string Key { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public int SortOrder { get; set; }
@@ -415,6 +417,8 @@ public sealed partial class MapRecord
             ClassProperties = ClassProperties.Clone(),
             Floors = Floors.Select(f => new FloorDefinition
             {
+                SharedStructure = f.SharedStructure?.Clone(),
+                ArtworkRegistration = f.ArtworkRegistration?.Clone(),
                 Key = f.Key,
                 DisplayName = f.DisplayName,
                 SortOrder = f.SortOrder,
@@ -481,6 +485,7 @@ public sealed partial class MapDraft
     public MapRecognitionProfile Recognition { get; set; } = new();
     /// <summary>IDVM 导入时，各楼层侧门特征图的临时暂存路径（floorKey → 磁盘绝对路径）。</summary>
     internal Dictionary<string, string> SideEntranceFeaturePaths { get; set; } = [];
+    internal Dictionary<string, FloorRecognitionProfile> SharedStructureSourceProfiles { get; set; } = [];
     internal Dictionary<string, string> PrebuiltStructureLinePaths { get; set; } = [];
     internal string? PrebuiltStructureAlgorithmPath { get; set; }
 }

@@ -130,7 +130,11 @@ internal static partial class MapStructureScaleSearch
             bounds,
             relativeEdgePoints,
             visibleMask: visibleMask,
-            appearance: appearance);
+            appearance: appearance,
+            resizeTargetSize: target,
+            templateSpectraSource: live.IsFrameOwnedNativeComputationFeature
+                ? live
+                : null);
     }
     internal static Mat CreateDistanceMap(
         MapStructureFeatures reference,

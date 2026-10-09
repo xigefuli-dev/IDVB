@@ -191,6 +191,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     private ulong[]? _dilatedBitsetK5;
     private ulong[]? _dilatedBitsetK3;
     private float[]? _precisionDistance;
+    private Point[]? _referenceEdgePoints;
+    private MapFrontEntryReferenceIndex? _automaticEntryIndex;
     private readonly object _precisionGate = new();
     private readonly long _baseMemoryBytes;
 
@@ -198,12 +200,27 @@ public sealed class Vpsg3PreparedFloor : IDisposable
     public bool HasPrecisionDistance => _precisionDistance is not null;
 
     public Vpsg3IndexCacheKey CacheKey { get; }
+    internal MapFrontEntryReferenceIndex? AutomaticEntryIndex
+    {
+        get => Volatile.Read(ref _automaticEntryIndex);
+        set => Volatile.Write(ref _automaticEntryIndex, value);
+    }
     public int ReferenceWidth { get; }
     public int ReferenceHeight { get; }
     public int EdgePixelCount { get; }
+    /// <summary>
+    /// Original reference edge pixels used as the source for this floor's
+    /// dilation. Empty means original points were not supplied.
+    /// </summary>
+    public ReadOnlyMemory<Point> ReferenceEdgePoints =>
+        _referenceEdgePoints is { } points
+            ? points.AsMemory()
+            : ReadOnlyMemory<Point>.Empty;
     public Vpsg3ScalePrior ScalePrior { get; }
     public int WordsPerRow { get; }
-    public long MemoryBytes => _baseMemoryBytes + (_precisionDistance is null ? 0L : _precisionDistance.LongLength * sizeof(float) + 24L);
+    public long MemoryBytes => _baseMemoryBytes
+        + (_precisionDistance is null ? 0L : _precisionDistance.LongLength * sizeof(float) + 24L)
+        + (AutomaticEntryIndex?.EstimatedManagedBytes ?? 0);
 
     public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
@@ -280,7 +297,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         ulong[] dilatedBitsetK5,
         ulong[] dilatedBitsetK3,
         long memoryBytes,
-        float[]? precisionDistance = null)
+        float[]? precisionDistance = null,
+        Point[]? referenceEdgePoints = null)
     {
         CacheKey = cacheKey;
         ReferenceWidth = referenceWidth;
@@ -290,9 +308,19 @@ public sealed class Vpsg3PreparedFloor : IDisposable
         WordsPerRow = wordsPerRow;
         _dilatedBitsetK5 = dilatedBitsetK5 ?? throw new ArgumentNullException(nameof(dilatedBitsetK5));
         _dilatedBitsetK3 = dilatedBitsetK3 ?? throw new ArgumentNullException(nameof(dilatedBitsetK3));
+        _referenceEdgePoints = referenceEdgePoints is { Length: > 0 } points
+            ? (Point[])points.Clone()
+            : Array.Empty<Point>();
         if (precisionDistance is not null && precisionDistance.LongLength != (long)referenceWidth * referenceHeight)
             throw new ArgumentException("Precision distance field must match the reference dimensions.", nameof(precisionDistance));
-        _baseMemoryBytes = memoryBytes - (precisionDistance is null ? 0L : precisionDistance.LongLength * sizeof(float) + 24L);
+        var precisionMemoryBytes = precisionDistance is null
+            ? 0L
+            : precisionDistance.LongLength * sizeof(float) + 24L;
+        var referencePointMemoryBytes = _referenceEdgePoints.Length == 0
+            ? 0L
+            : _referenceEdgePoints.LongLength * Marshal.SizeOf<Point>() + 24L;
+        _baseMemoryBytes = memoryBytes - precisionMemoryBytes
+            + referencePointMemoryBytes;
         _precisionDistance = precisionDistance;
     }
 
@@ -409,6 +437,8 @@ public sealed class Vpsg3PreparedFloor : IDisposable
             _dilatedBitsetK5 = null;
             _dilatedBitsetK3 = null;
             _precisionDistance = null;
+            _referenceEdgePoints = null;
+            AutomaticEntryIndex = null;
         }
     }
 

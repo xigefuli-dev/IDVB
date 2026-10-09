@@ -303,6 +303,7 @@ public sealed partial class MapListPage : UserControl
 
     private async Task ShowListAsync(MapListStartupData? prepared = null)
     {
+        CancelImportWorkflow();
         ResetMarkerEditorSession();
         ResetBatchOperation();
         var snapshot = prepared?.Catalog ?? await _repository.GetCatalogSnapshotAsync();

@@ -43,6 +43,13 @@ public sealed partial class MapRepository
 
                         var previousWidth = profile.RecognitionPixelWidth;
                         var previousHeight = profile.RecognitionPixelHeight;
+                        if (floor.SharedStructure is not null)
+                        {
+                            changed |= EnsureSharedFloorDerivedAssets(map, floor, profile);
+                            changed |= EnsureCurrentSideEntranceFeature(map, floor.Key, profile,
+                                GetFloorRecognitionPath(map, floor.Key));
+                            continue;
+                        }
                         var removeBackground = classProperties.TryGetValue(
                             map.Class,
                             out var properties)
@@ -208,6 +215,16 @@ public sealed partial class MapRepository
 
     private static void ValidateDraft(MapDraft draft)
     {
+        // Floor preparation edits a draft one floor at a time. The map owns
+        // one IDVA file, so validate the completed selection before any save.
+        var sharedAlgorithm = draft.Floors.FirstOrDefault(floor => floor.SharedStructure is not null
+            && floor.PrebuiltStructureLine is { IsComplete: true })?.PrebuiltStructureLine;
+        if (sharedAlgorithm is not null && draft.Floors.Any(floor =>
+                floor.PrebuiltStructureLine is { IsComplete: true } asset
+                && (!string.Equals(asset.AlgorithmId, sharedAlgorithm.AlgorithmId, StringComparison.Ordinal)
+                    || !string.Equals(asset.AlgorithmSha256, sharedAlgorithm.AlgorithmSha256, StringComparison.OrdinalIgnoreCase))))
+            throw new InvalidOperationException("同一地图的各层需使用相同制作算法，请完成其他楼层的结构选择后再保存；现有资源不会被覆盖。");
+
         // V6: validate at least one floor has a valid image
         var validFloorPaths = draft.FloorPaths
             .Where(kvp => IsSupportedImage(kvp.Value) && File.Exists(kvp.Value))
@@ -274,6 +291,14 @@ public sealed partial class MapRepository
             .ThenBy(floor => floor.Key, StringComparer.Ordinal)
             .FirstOrDefault()?.Key
             ?? draft.Recognition.FirstFloor.FloorKey;
+        foreach (var floor in draft.Floors.Where(floor => floor.SharedStructure?.Source is not null))
+        {
+            floor.SharedStructure!.Source!.Validate(floor.Key);
+            var profile = draft.Recognition.GetFloor(floor.Key);
+            if (!floor.SharedStructure!.Source!.Entrances.All(entrance =>
+                    profile?.FindAnchor(entrance.Role)?.IsMarked is true))
+                throw new InvalidOperationException($"请标记 {floor.DisplayName} 源数据中的真实入口。");
+        }
         if (!draft.Recognition.HasGateMarkers(primaryFloorKey)
             && !(string.Equals(
                     primaryFloorKey,

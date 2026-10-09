@@ -63,6 +63,13 @@ public sealed record MapOpenOperationContext
 /// <summary>Latest-wins cancellation with an explicit continuing identity-commit owner.</summary>
 internal sealed class MapOpenCancellationOwner
 {
+    // Identity publication and worker replacement share this owner's input
+    // transaction; there remains only one map-open cancellation writer.
+    internal object SyncRoot => _gate;
+    internal bool HasOwner
+    {
+        get { lock (_gate) return _current is not null; }
+    }
     private readonly object _gate = new();
     private CancellationTokenSource? _current;
 

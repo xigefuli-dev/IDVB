@@ -41,7 +41,7 @@ internal static partial class MapCvAlignmentService
 
         using var preparedReference = service.StructureCache.GetOrCreate(
             fingerprint.Map.Id,
-            fingerprint.Map.UpdatedAt,
+            MapStructureRevisionRules.GetFloorUpdatedAt(fingerprint.Map, fingerprint.FloorKey),
             reference,
                 (MapFloorRules.GetFloorProfile(
                 fingerprint.Map,

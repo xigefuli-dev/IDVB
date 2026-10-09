@@ -290,15 +290,19 @@ public sealed partial class MapListPage : UserControl
         Action onChanged,
         Button confirmButton)
     {
-        if (_pendingImportFloors?.Contains(entry) is not true)
-            return;
-
+        var cancellationToken = _importWorkflowCancellation?.Token ?? new CancellationToken(true);
+        var artworkPath = entry.ImagePath;
+        var floorKey = entry.FloorKey;
+        if (!IsCurrentImportFloor(entry, cancellationToken, artworkPath, floorKey)) return;
         var selectedPath = await PickImageAsync("替换楼层图片");
-        if (selectedPath is null)
+        if (selectedPath is null || !IsCurrentImportFloor(entry, cancellationToken, artworkPath, floorKey))
             return;
 
+        if (!string.Equals(entry.ImagePath, selectedPath, StringComparison.OrdinalIgnoreCase))
+            entry.ArtworkCropProfile = null;
         entry.ImagePath = selectedPath;
         entry.PreviewImagePath = selectedPath;
+        entry.ArtworkRegistration = null;
         confirmButton.IsEnabled = CanCommitImportFloors();
         onChanged();
     }

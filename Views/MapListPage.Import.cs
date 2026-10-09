@@ -101,11 +101,15 @@ public sealed partial class MapListPage : UserControl
 
     private async Task ShowImportAsync(MapDraft draft)
     {
+        CancelImportWorkflow();
+        _importWorkflowCancellation = new CancellationTokenSource();
+        var cancellationToken = _importWorkflowCancellation.Token;
         CancelPendingImportClick();
         ResetImportFloorDragSession(animateReturn: false);
         _draft = draft;
         if (draft.Id is null && draft.FloorPaths.Count == 0 && !IsBatchImport && !IsBatchOperation)
             await OfferMapTemplateAsync(draft);
+        if (!IsCurrentImportWorkflow(draft, cancellationToken)) return;
         _selectedImportFloorKey = null;
         _selectedImportFloorCard = null;
         _pendingImportFloors = draft.FloorPaths.Count > 0
@@ -128,6 +132,9 @@ public sealed partial class MapListPage : UserControl
             {
                 OriginalFloorKey = floor.Key,
                 FloorKey = floor.Key,
+                SharedStructure = draft.Floors.FirstOrDefault(item => item.Key == floor.Key)?.SharedStructure?.Clone(),
+                ArtworkRegistration = draft.Floors.FirstOrDefault(item => item.Key == floor.Key)?.ArtworkRegistration?.Clone(),
+                ArtworkCropProfile = GetImportArtworkCropProfile(draft, floor.Key),
                 DisplayName = floor.DisplayName,
                 MarkerKeys = MapFloorMarkerRules.Normalize(floor.MarkerKeys).ToList(),
                 ImagePath = draft.FloorPaths[floor.Key],
@@ -144,10 +151,12 @@ public sealed partial class MapListPage : UserControl
             }).ToList();
         draft.Recognition.EnsureStandardAnchors();
         var catalog = await _repository.GetCatalogSnapshotAsync();
+        if (!IsCurrentImportWorkflow(draft, cancellationToken)) return;
         var enabledTagGroups = (await new MapTagStore().LoadAsync(catalog.Maps, catalog.Classes))
             .Where(group => group.IsEnabled
                 && MapTagAuthorizationRules.IsAuthorized(group, draft.Class, catalog.Maps))
             .ToArray();
+        if (!IsCurrentImportWorkflow(draft, cancellationToken)) return;
 
         var root = new Grid
         {
@@ -188,6 +197,8 @@ public sealed partial class MapListPage : UserControl
         var backButton = CreateSecondaryButton("返回列表");
         backButton.Click += async (_, _) =>
         {
+            if (!IsCurrentImportWorkflow(draft, cancellationToken)) return;
+            CancelImportWorkflow();
             CancelPendingImportClick();
             ResetImportFloorDragSession(animateReturn: false);
             ResetBatchImport();
@@ -223,13 +234,38 @@ public sealed partial class MapListPage : UserControl
         continueButton.HorizontalAlignment = HorizontalAlignment.Center;
         continueButton.Width = 284;
         continueButton.IsEnabled = CanCommitImportFloors();
-        continueButton.Click += (_, _) =>
+        continueButton.Click += async (_, _) =>
         {
+            if (!IsCurrentImportWorkflow(draft, cancellationToken) || !CanCommitImportFloors()) return;
+            var entries = _pendingImportFloors!.Select(entry => entry.Clone()).ToArray();
             PlayDetailTriggerFeedback(continueButton);
             CancelPendingImportClick();
             ResetImportFloorDragSession(animateReturn: false);
-            CommitPendingFloorsToDraft();
-            ShowMarkerEditor();
+            continueButton.IsEnabled = false;
+            floorScrollViewer.IsEnabled = false;
+            try
+            {
+                await CommitImportFloorsWithStructuresAsync(draft, entries, cancellationToken);
+                if (IsCurrentImportWorkflow(draft, cancellationToken)) ShowMarkerEditor();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Returning or navigating away owns the page; do not reopen it.
+            }
+            catch (Exception ex)
+            {
+                if (!IsCurrentImportWorkflow(draft, cancellationToken)) return;
+                await new ContentDialog { XamlRoot = XamlRoot, Title = "结构底图尚未准备好",
+                    Content = ex.Message, CloseButtonText = "返回检查" }.ShowThemedAsync(this);
+            }
+            finally
+            {
+                if (IsCurrentImportWorkflow(draft, cancellationToken))
+                {
+                    floorScrollViewer.IsEnabled = true;
+                    continueButton.IsEnabled = CanCommitImportFloors();
+                }
+            }
         };
         Grid.SetRow(continueButton, 2);
         root.Children.Add(continueButton);
@@ -283,7 +319,9 @@ public sealed partial class MapListPage : UserControl
     }
 
     private bool CanCommitImportFloors() => _pendingImportFloors is { Count: > 0 }
-        && _pendingImportFloors.All(entry => !string.IsNullOrWhiteSpace(entry.ImagePath));
+        && _pendingImportFloors.All(entry => !string.IsNullOrWhiteSpace(entry.ImagePath)
+            && (entry.SharedStructure is null && entry.StructureSourceDirectory.Length == 0
+                || entry.ArtworkRegistration is not null));
 
     private async Task OfferMapTemplateAsync(MapDraft draft)
     {
@@ -378,28 +416,37 @@ public sealed partial class MapListPage : UserControl
         return panel;
     }
 
-    /// <summary>Transfers <see cref="_pendingImportFloors"/> into <see cref="_draft"/>.</summary>
-    private void CommitPendingFloorsToDraft()
+    /// <summary>Transfers the captured floor entries into their owning draft.</summary>
+    private static void CommitPendingFloorsToDraft(MapDraft draft, IReadOnlyList<ImportFloorEntry> entries)
     {
-        if (_draft is null || _pendingImportFloors is null)
-            return;
-
-        _draft.Recognition.EnsureStandardAnchors();
+        draft.Recognition.EnsureStandardAnchors();
         var profilesByKey = new Dictionary<string, FloorRecognitionProfile>(
-            _draft.Recognition.Floors,
+            draft.Recognition.Floors,
             StringComparer.OrdinalIgnoreCase);
-        var legacyFirstProfile = _draft.Recognition.FirstFloor;
-        var legacySecondProfile = _draft.Recognition.SecondFloor;
+        var legacyFirstProfile = draft.Recognition.FirstFloor;
+        var legacySecondProfile = draft.Recognition.SecondFloor;
 
-        _draft.FloorPaths.Clear();
-        _draft.Floors.Clear();
-        _draft.FloorTwoPath = null;
+        var previousFloors = draft.Floors.ToDictionary(floor => floor.Key, StringComparer.OrdinalIgnoreCase);
+        var recognitionPaths = new Dictionary<string, string>(draft.FloorRecognitionSourcePaths, StringComparer.OrdinalIgnoreCase);
+        var prebuiltPaths = new Dictionary<string, string>(draft.PrebuiltStructureLinePaths, StringComparer.OrdinalIgnoreCase);
+        var sideFeaturePaths = new Dictionary<string, string>(draft.SideEntranceFeaturePaths, StringComparer.OrdinalIgnoreCase);
+        var referenceProfiles = new Dictionary<string, FloorRecognitionProfile>(draft.SharedStructureSourceProfiles, StringComparer.OrdinalIgnoreCase);
+        var portableGates = draft.PortableGates.Select(gate => gate.Clone()).ToArray();
+        draft.FloorPaths.Clear();
+        draft.FloorPreviewPaths.Clear();
+        draft.FloorRecognitionSourcePaths.Clear();
+        draft.PrebuiltStructureLinePaths.Clear();
+        draft.SideEntranceFeaturePaths.Clear();
+        draft.SharedStructureSourceProfiles.Clear();
+        draft.PortableGates.Clear();
+        draft.Floors.Clear();
+        draft.FloorTwoPath = null;
         var profilesByNewKey = new Dictionary<string, FloorRecognitionProfile>(
             StringComparer.OrdinalIgnoreCase);
 
-        for (var i = 0; i < _pendingImportFloors.Count; i++)
+        for (var i = 0; i < entries.Count; i++)
         {
-            var entry = _pendingImportFloors[i];
+            var entry = entries[i];
             var sourceProfile = profilesByKey.GetValueOrDefault(entry.OriginalFloorKey)
                 ?? (entry.OriginalFloorKey.Equals("1f", StringComparison.OrdinalIgnoreCase)
                     ? legacyFirstProfile
@@ -410,9 +457,33 @@ public sealed partial class MapListPage : UserControl
             profile.FloorKey = entry.FloorKey;
             profile.Floor = i == 0 ? MapFloor.First : MapFloor.Second;
 
-            _draft.FloorPaths[entry.FloorKey] = entry.ImagePath;
-            _draft.Floors.Add(new FloorDefinition
+            draft.FloorPaths[entry.FloorKey] = entry.ImagePath;
+            draft.FloorPreviewPaths[entry.FloorKey] = entry.PreviewImagePath;
+            if (recognitionPaths.TryGetValue(entry.OriginalFloorKey, out var recognitionPath))
+                draft.FloorRecognitionSourcePaths[entry.FloorKey] = recognitionPath;
+            if (prebuiltPaths.TryGetValue(entry.OriginalFloorKey, out var prebuiltPath))
+                draft.PrebuiltStructureLinePaths[entry.FloorKey] = prebuiltPath;
+            if (sideFeaturePaths.TryGetValue(entry.OriginalFloorKey, out var sideFeaturePath))
+                draft.SideEntranceFeaturePaths[entry.FloorKey] = sideFeaturePath;
+            if (referenceProfiles.TryGetValue(entry.OriginalFloorKey, out var referenceProfile))
             {
+                var mappedProfile = referenceProfile.Clone();
+                mappedProfile.FloorKey = entry.FloorKey;
+                draft.SharedStructureSourceProfiles[entry.FloorKey] = mappedProfile;
+            }
+            foreach (var gate in portableGates.Where(gate => string.Equals(gate.FloorKey, entry.OriginalFloorKey, StringComparison.OrdinalIgnoreCase)))
+            {
+                var mapped = gate.Clone();
+                mapped.FloorKey = entry.FloorKey;
+                if (entry.FloorKey != entry.OriginalFloorKey)
+                    mapped.Id = $"{entry.FloorKey}-{mapped.Id}";
+                draft.PortableGates.Add(mapped);
+            }
+            draft.Floors.Add(new FloorDefinition
+            {
+                SharedStructure = previousFloors.GetValueOrDefault(entry.OriginalFloorKey)?.SharedStructure?.Clone(),
+                ArtworkRegistration = entry.ArtworkRegistration?.Clone(),
+                PrebuiltStructureLine = previousFloors.GetValueOrDefault(entry.OriginalFloorKey)?.PrebuiltStructureLine?.Clone(),
                 Key = entry.FloorKey,
                 DisplayName = entry.DisplayName,
                 SortOrder = i + 1,
@@ -423,15 +494,15 @@ public sealed partial class MapListPage : UserControl
             // 向后兼容：填充 FloorOnePath / FloorTwoPath
             if (i == 0)
             {
-                _draft.FloorOnePath = entry.ImagePath;
+                draft.FloorOnePath = entry.ImagePath;
             }
             else if (i == 1)
             {
-                _draft.FloorTwoPath = entry.ImagePath;
+                draft.FloorTwoPath = entry.ImagePath;
             }
         }
 
-        _draft.Recognition.Floors = profilesByNewKey;
-        _draft.Recognition.NormalizeForFloors(_draft.Floors);
+        draft.Recognition.Floors = profilesByNewKey;
+        draft.Recognition.NormalizeForFloors(draft.Floors);
     }
 }

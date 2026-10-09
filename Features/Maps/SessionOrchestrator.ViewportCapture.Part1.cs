@@ -22,10 +22,20 @@ public sealed partial class SessionOrchestrator
         int structureFallbackFrameCount,
         bool prepareNativeStructure,
         bool prepareVpsg3Structure,
-        AutoFloorCapture? autoFloor = null)
+        AutoFloorCapture? autoFloor = null,
+        FloorIndicatorTemplateRegistry.Group? identityFloorGroup = null,
+        bool useReferenceSignature = true,
+        bool captureFullClientForDiagnostics = false,
+        MapViewportColorSignature? referenceSignatureOverride = null,
+        bool cropAutomaticMapContentBeforeReadiness = false,
+        int? maximumAttempts = null,
+        string? requiredDetectedFloor = null)
     {
         var sessionTuning = _settings!.SessionTuning;
-        var captureViewport = autoFloor?.Expand(viewport) ?? viewport;
+        var captureViewport = autoFloor?.Expand(viewport)
+            ?? (identityFloorGroup is null ? viewport : FloorIndicatorCaptureRegion.IncludeMap(viewport));
+        if (captureFullClientForDiagnostics)
+            captureViewport = new NormalizedRectangle { X = 0, Y = 0, Width = 1, Height = 1 };
         string? previousFloor = null;
         // Readiness must remain bounded. A stale floor reference or a map that
         // was closed before settling must not keep the input handler alive
@@ -49,6 +59,9 @@ public sealed partial class SessionOrchestrator
         // 时刻越晚。分开记账，便于用日志校准而不是靠猜。
         var captureMilliseconds = 0d;
         var signatureMilliseconds = 0d;
+        var attemptLimit = maximumAttempts is { } configuredMaximumAttempts
+            ? Math.Max(1, configuredMaximumAttempts)
+            : int.MaxValue;
         _lastStableCaptureFailureReason = null;
 
         try
@@ -56,6 +69,7 @@ public sealed partial class SessionOrchestrator
             while (!_disposed
                 && !cancellationToken.IsCancellationRequested
                 && (shouldContinue?.Invoke() ?? true)
+                && attempts < attemptLimit
                 && stopwatch.ElapsedMilliseconds <= timeout)
             {
                 attempts++;
@@ -97,6 +111,18 @@ public sealed partial class SessionOrchestrator
                 if (captured && frameObj is CapturedGameFrame current)
                 {
                     successfulCaptures++;
+                    if (autoFloor is null
+                        && (identityFloorGroup is not null || captureFullClientForDiagnostics))
+                        current = ExtractAutomaticIdentityViewport(current, viewport, identityFloorGroup);
+                    if (!string.IsNullOrWhiteSpace(requiredDetectedFloor)
+                        && !string.Equals(current.DetectedFloorKey, requiredDetectedFloor,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        _lastStableCaptureFailureReason =
+                            "当前帧楼层与已接受识别结果不一致。";
+                        DisposeViewportFrame(current, attempts);
+                        break;
+                    }
                     if (autoFloor is not null)
                     {
                         current = autoFloor.Extract(current, viewport);
@@ -120,6 +146,12 @@ public sealed partial class SessionOrchestrator
                     }
                     DisposeViewportFrame(lastFrame, attempts);
                     lastFrame = current;
+                    if (cropAutomaticMapContentBeforeReadiness)
+                    {
+                        var cropped = CropAutomaticMapContent(current);
+                        current = cropped;
+                        lastFrame = cropped;
+                    }
                     afterSystemTicks = Math.Max(afterSystemTicks, current.CaptureSystemRelativeTicks);
                     // 本帧签名同时用于就绪判定和下一帧的明度基线，只能算一次。
                     var signatureTimer = Stopwatch.StartNew();
@@ -138,8 +170,16 @@ public sealed partial class SessionOrchestrator
                         signatureSpan?.Complete();
                     }
                     signatureTimer.Stop();
-                    var presenceReference =
-                        GetCurrentMapViewportPresenceReference(current.DetectedFloorKey);
+                    if (referenceSignatureOverride is not null
+                        && !(shouldContinue?.Invoke() ?? true))
+                    {
+                        _lastStableCaptureFailureReason = "就绪参考已失效。";
+                        break;
+                    }
+                    var presenceReference = referenceSignatureOverride
+                        ?? (useReferenceSignature
+                            ? GetCurrentMapViewportPresenceReference(current.DetectedFloorKey)
+                            : null);
                     double? referenceStructureSimilarity = null;
                     double? consecutiveStructureSimilarity = null;
                     lastPresence = MapViewportPresenceDetector.EvaluateReady(
@@ -299,6 +339,11 @@ public sealed partial class SessionOrchestrator
                         ? "地图截图失败。"
                         : failureReason;
                 }
+
+                // A bounded readiness probe must hand off immediately to its
+                // caller's established capture path after the requested sample.
+                if (attempts >= attemptLimit)
+                    break;
 
                 // A native frame is already paced by FrameArrived; never add a polling sleep to it.
                 if (lastFrame?.CaptureSystemRelativeTicks > 0)

@@ -321,6 +321,8 @@ public sealed partial class MapRepository
         var outputSource = lineSource;
         if (!sourceMatches || !asset.IsCurrent)
         {
+            if (floor.SharedStructure is not null)
+                throw new InvalidOperationException("结构二值图与底图不一致，请先修复结构资源；替换小抄不会重建底图。");
             // Recognition PNG bytes can change during import. Rebuild from the
             // current recognition image so the line and source hash stay bound.
             outputSource = Path.Combine(stagingDirectory, $"prebuilt-{floorKey}-rebuilt.png");

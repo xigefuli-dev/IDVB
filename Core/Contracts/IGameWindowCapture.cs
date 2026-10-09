@@ -38,6 +38,17 @@ public interface IGameWindowCapture
         out string failureReason);
 
     /// <summary>
+    /// Captures game UI independently of the map frame stream and its hot
+    /// viewport snapshot. Used while alignment or tracking owns that stream.
+    /// </summary>
+    bool TryCaptureUiRegion(object region, out object? frame, out string failureReason)
+    {
+        frame = null;
+        failureReason = "Independent game UI capture is unavailable.";
+        return false;
+    }
+
+    /// <summary>
     /// Tries to acquire a frame captured by an existing capture operation.
     /// Implementations without a hot frame return false and do not capture.
     /// </summary>

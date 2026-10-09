@@ -109,7 +109,10 @@ public sealed partial class SessionOrchestrator
                         frame.Image.Clone(),
                         frame.ClientBounds,
                         frame.ViewportBounds,
-                        frame.WindowHandle);
+                        frame.WindowHandle)
+                    {
+                        UiExclusionRegions = frame.UiExclusionRegions
+                    };
                     _pendingBackgroundLivePreview =
                         await MapManualCandidateWindow.PrepareLivePreviewAsync(
                             _pendingBackgroundCandidateFrame,

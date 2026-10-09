@@ -9,6 +9,7 @@ public sealed partial class SessionOrchestrator
         OrbTrackingContext context,
         RuntimeMapRecognition initialRecognition,
         MapOverlayTransform initialTransform,
+        bool useAutomaticCanvas,
         CancellationToken cancellationToken)
     {
         var currentRecognition = initialRecognition;
@@ -20,6 +21,8 @@ public sealed partial class SessionOrchestrator
         var visualFrameTx = priorTx;
         var visualFrameTy = priorTy;
         var hasVisualFrameAnchor = false;
+        var previousVisualTimestamp = 0L;
+        var lastMotionSample = 0L;
         var velTx = 0.0d;
         var velTy = 0.0d;
         var weakFrames = 0;
@@ -27,6 +30,7 @@ public sealed partial class SessionOrchestrator
         var gameWindowHandle = IntPtr.Zero;
 
         var wasDragging = false;
+        var mouseOwnsDragPosition = false;
         var mouseHistory = new TimestampedMouseHistory();
         using var opticalFlow = new Vpsg3_5OpticalFlowTracker();
         CancellationTokenSource? dragCaptureCancellation = null;
@@ -68,7 +72,7 @@ public sealed partial class SessionOrchestrator
                 && IsOrbTrackingContextCurrent(context))
             {
                 // Check if game window is foreground and if mouse left button is held
-                var isForeground = gameWindowHandle != IntPtr.Zero && GetForegroundWindow() == gameWindowHandle;
+                var isForeground = gameWindowHandle != IntPtr.Zero && ReadTrackingForegroundWindow() == gameWindowHandle;
                 if (!isForeground)
                 {
                     if (_captureSvc.TryGetForegroundClientBounds(out _, out var fgWindow, out _))
@@ -78,15 +82,17 @@ public sealed partial class SessionOrchestrator
                     }
                 }
 
-                var isLButtonDown = (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
+                var isLButtonDown = ReadTrackingLeftButtonDown();
                 var isDragging = isForeground && isLButtonDown;
 
                 if (!isDragging)
                 {
                     if (wasDragging)
                     {
-                        // Release Snap: player just released mouse button.
-                        // Perform one clean visual capture and solve to snap strictly to ground truth.
+                        // Mouse motion is transient display state, like the old
+                        // helper. Keep it across presses without a blocking solve
+                        // or a delayed persistent-pose writer. Reopening the map
+                        // still goes through normal current-frame alignment.
                         wasDragging = false;
                         dragDurationMs += Stopwatch.GetElapsedTime(dragStarted).TotalMilliseconds;
                         await DisposePendingCaptureAsync(
@@ -94,16 +100,19 @@ public sealed partial class SessionOrchestrator
                             dragCaptureCancellation).ConfigureAwait(false);
                         pendingCapture = null;
                         dragCaptureCancellation = null;
-                        var snapResult = await PerformReleaseSnapAsync(
+                        var snapResult = mouseOwnsDragPosition ? null : await PerformReleaseSnapAsync(
                             context,
                             currentRecognition,
                             lockedScale,
                             feedforwardTx,
                             feedforwardTy,
                             trackingConfig,
+                            useAutomaticCanvas,
                             cancellationToken).ConfigureAwait(false);
 
-                        if (snapResult is not null && snapResult.IsAccepted)
+                        if (snapResult is not null && snapResult.IsAccepted
+                            && !ReadTrackingLeftButtonDown()
+                            && IsOrbTrackingContextCurrent(context))
                         {
                             feedforwardTx = snapResult.OffsetX;
                             feedforwardTy = snapResult.OffsetY;
@@ -160,18 +169,24 @@ public sealed partial class SessionOrchestrator
                 {
                     wasDragging = true;
                     dragStarted = Stopwatch.GetTimestamp();
-                    if (GetCursorPos(out var initialCursor))
+                    if (TryReadTrackingCursor(out var initialCursor))
                     {
+                        mouseOwnsDragPosition = trackingConfig.EnableMouseFeedforward;
                         mouseHistory.Reset(
                             initialCursor.X,
                             initialCursor.Y,
                             SystemRelativeClock.GetTicks());
+                    }
+                    else
+                    {
+                        mouseOwnsDragPosition = false;
                     }
                     feedforwardTx = priorTx;
                     feedforwardTy = priorTy;
                     visualFrameTx = priorTx;
                     visualFrameTy = priorTy;
                     hasVisualFrameAnchor = false;
+                    previousVisualTimestamp = 0L;
                     opticalFlow.Reset();
                     lastAbsoluteCorrection = Stopwatch.GetTimestamp();
                     afterSystemTicks = SystemRelativeClock.GetTicks();
@@ -181,7 +196,7 @@ public sealed partial class SessionOrchestrator
                 }
 
                 // 1. Zero-latency Mouse Feedforward
-                if (trackingConfig.EnableMouseFeedforward && GetCursorPos(out var currentCursor))
+                if (trackingConfig.EnableMouseFeedforward && TryReadTrackingCursor(out var currentCursor))
                 {
                     var mouseTimestamp = SystemRelativeClock.GetTicks();
                     var (rawDx, rawDy) = mouseHistory.Record(
@@ -200,7 +215,8 @@ public sealed partial class SessionOrchestrator
                             feedforwardTx,
                             feedforwardTy,
                             mouseTimestamp,
-                            0.05d);
+                            0.05d,
+                            RealtimeTransformSource.MousePoll);
                     }
                 }
 
@@ -245,6 +261,8 @@ public sealed partial class SessionOrchestrator
 
                     if (frameObject is CapturedGameFrame frame)
                     {
+                        if (useAutomaticCanvas)
+                            frame = MapFrameUiExclusion.WithAutomaticCanvasContext(frame);
                         using (frame)
                         {
                             captureCount++;
@@ -261,18 +279,29 @@ public sealed partial class SessionOrchestrator
 
                             opticalAttempts++;
                             var flow = opticalFlow.Track(frame.Image);
+                            if (flow.Accepted)
+                                opticalAccepted++;
                             preprocessTotalMs += flow.PreprocessMilliseconds;
                             trackTotalMs += flow.TrackMilliseconds;
                             var pendingMouse = mouseHistory.DeltaAfter(frameTimestamp);
+                            var previousPendingMouse = mouseHistory.DeltaAfter(previousVisualTimestamp);
+                            if (previousVisualTimestamp > 0 && ElapsedMilliseconds(lastMotionSample) >= 200)
+                            {
+                                lastMotionSample = Stopwatch.GetTimestamp();
+                                LogTrackingMotionSample(context, frameTimestamp, previousVisualTimestamp,
+                                    previousPendingMouse.Dx - pendingMouse.Dx,
+                                    previousPendingMouse.Dy - pendingMouse.Dy,
+                                    flow, feedforwardTx, feedforwardTy, visualFrameTx, visualFrameTy);
+                            }
+                            previousVisualTimestamp = frameTimestamp;
                             if (!hasVisualFrameAnchor)
                             {
                                 visualFrameTx = feedforwardTx - pendingMouse.Dx;
                                 visualFrameTy = feedforwardTy - pendingMouse.Dy;
                                 hasVisualFrameAnchor = true;
                             }
-                            else if (flow.Accepted)
+                            else if (flow.Accepted && !mouseOwnsDragPosition)
                             {
-                                opticalAccepted++;
                                 visualFrameTx += flow.DeltaX;
                                 visualFrameTy += flow.DeltaY;
                                 feedforwardTx = visualFrameTx + pendingMouse.Dx;
@@ -287,14 +316,15 @@ public sealed partial class SessionOrchestrator
                             }
                             else
                             {
-                                // A rejected flow frame cannot advance the visual anchor.
-                                // Rebase it on the timestamped predictor before the next frame.
+                                // During pointer-driven drag the visual observation is
+                                // only a baseline. Delayed pixels or stationary scenery
+                                // must not undo the mouse displacement already displayed.
                                 visualFrameTx = feedforwardTx - pendingMouse.Dx;
                                 visualFrameTy = feedforwardTy - pendingMouse.Dy;
                             }
 
                             var now = Stopwatch.GetTimestamp();
-                            if (ElapsedMilliseconds(lastAbsoluteCorrection)
+                            if (!mouseOwnsDragPosition && ElapsedMilliseconds(lastAbsoluteCorrection)
                                 >= trackingConfig.VisualVerificationIntervalMs)
                             {
                                 lastAbsoluteCorrection = now;
@@ -302,7 +332,8 @@ public sealed partial class SessionOrchestrator
                                 var preprocessStarted = Stopwatch.GetTimestamp();
                                 using var obs = Vpsg3FastLiveExtractor.Extract(
                                     frame.Image,
-                                    frame.ViewportBounds);
+                                    frame.ViewportBounds,
+                                    excludedScreenRegions: frame.UiExclusionRegions);
                                 preprocessTotalMs += Stopwatch.GetElapsedTime(preprocessStarted)
                                     .TotalMilliseconds;
                                 if (obs.SparseEdgePoints.Count >= 8
@@ -323,7 +354,9 @@ public sealed partial class SessionOrchestrator
                                             trackingConfig);
                                     }
                                     solveSamples.Add(trackResult.Timing.TotalMs);
-                                    if (GetCursorPos(out var cursorAfterSolve))
+                                    LogTrackingCorrectionSample(context, frameTimestamp, trackResult,
+                                        visualFrameTx, visualFrameTy, feedforwardTx, feedforwardTy);
+                                    if (TryReadTrackingCursor(out var cursorAfterSolve))
                                     {
                                         var postSolveMouse = mouseHistory.Record(
                                             cursorAfterSolve.X,
@@ -427,6 +460,11 @@ public sealed partial class SessionOrchestrator
                             ["renderP95Ms"] = realtime.P95RenderMs,
                             ["endToEndMs"] = realtime.AverageEndToEndMs,
                             ["endToEndP95Ms"] = realtime.P95EndToEndMs,
+                            ["timingEndpoint"] = "overlay-callback-return-not-screen-presentation",
+                            ["mousePollSamples"] = realtime.MouseSampleCount,
+                            ["mousePollToCallbackP95Ms"] = realtime.MouseCallbackP95Ms,
+                            ["visualFrameSamples"] = realtime.VisualSampleCount,
+                            ["visualFrameToCallbackP95Ms"] = realtime.VisualCallbackP95Ms,
                             ["droppedFrames"] = droppedFrames,
                             ["coalescedTransforms"] = realtime.CoalescedTransforms
                         });

@@ -20,7 +20,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
     public IVpsg3PreparedIndexRegistry Vpsg3Registry => _vpsg3Registry;
 
 
-    private static bool TryGetVpsg3IndexKey(MapRecord map, string floorKey, out Vpsg3IndexCacheKey key) { key = default; var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase)); if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase)) return false; key = new Vpsg3IndexCacheKey(map.Id, floor.Key, MapFeatureCacheRules.ComputeContentFingerprint(map), map.UpdatedAt, Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt, schemaVersion: 1), SchemaVersion: 1); return true; }
+    private static bool TryGetVpsg3IndexKey(MapRecord map, string floorKey, out Vpsg3IndexCacheKey key) { key = default; var floor = map.Floors.FirstOrDefault(f => string.Equals(f.Key, floorKey, StringComparison.OrdinalIgnoreCase)); if (floor?.PrebuiltStructureLine is not { IsComplete: true } prebuilt || !string.Equals(prebuilt.SourceSha256, floor.RecognitionSha256, StringComparison.OrdinalIgnoreCase)) return false; key = new Vpsg3IndexCacheKey(map.Id, floor.Key, MapFeatureCacheRules.ComputeContentFingerprint(map, floor.Key), MapStructureRevisionRules.GetFloorUpdatedAt(map, floor.Key), Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt, schemaVersion: 1), SchemaVersion: 1); return true; }
 
     // ponytail: one in-flight shadow, no queue; add a bounded queue only if dropped
     // observations prevent certification. Cloned pixels and a lease outlive the caller.
@@ -50,7 +50,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 return Task.CompletedTask;
             }
             var key = new Vpsg3IndexCacheKey(map.Id, floor.Key,
-                MapFeatureCacheRules.ComputeContentFingerprint(map), map.UpdatedAt,
+                MapFeatureCacheRules.ComputeContentFingerprint(map, floor.Key), MapStructureRevisionRules.GetFloorUpdatedAt(map, floor.Key),
                 Vpsg3IndexCacheKey.CreatePrebuiltGenerationIdentity(prebuilt));
             if (!_vpsg3Registry.TryGet(key, out lease))
             {
@@ -73,6 +73,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
             var ownedPixels = pixels;
             var ownedLease = lease;
             var bounds = frame.ViewportBounds;
+            var excludedScreenRegions = frame.UiExclusionRegions;
             var capturedAt = DateTimeOffset.UtcNow;
             var referenceSha256 = prebuilt.Sha256;
             return Task.Run(() =>
@@ -83,7 +84,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
                     try
                     {
                         if (_disposed) return;
-                        using var observation = Vpsg3FastLiveExtractor.Extract(ownedPixels, bounds);
+                        using var observation = Vpsg3FastLiveExtractor.Extract(ownedPixels, bounds,
+                            excludedScreenRegions: excludedScreenRegions);
                         var result = Vpsg3FastBootstrapSolver.TrySolve(observation, ownedLease.Floor);
                         if (MapDiagnosticModeCapture.IsActive)
                         {
@@ -190,8 +192,6 @@ public sealed partial class MapCvRecognitionService : IDisposable
         var buildTasks = new List<(MapRecord Map, FloorDefinition Floor, string LinePath, Vpsg3IndexCacheKey CacheKey)>();
         foreach (var map in targets)
         {
-            var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(map);
-
             foreach (var floor in map.Floors)
             {
                 // Strict PrebuiltStructureLine contract: ineligible floors never get a VPSG3 index
@@ -219,8 +219,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 var cacheKey = new Vpsg3IndexCacheKey(
                     map.Id,
                     floor.Key,
-                    fingerprint,
-                    map.UpdatedAt,
+                    MapFeatureCacheRules.ComputeContentFingerprint(map, floor.Key),
+                    MapStructureRevisionRules.GetFloorUpdatedAt(map, floor.Key),
                     structureGen,
                     SchemaVersion: 1);
 

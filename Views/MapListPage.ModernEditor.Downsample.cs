@@ -176,6 +176,12 @@ public sealed partial class MapListPage : UserControl
         if (_draft is null)
             return;
 
+        if (_draft.Floors.Any(floor => floor.SharedStructure is not null))
+        {
+            SetModernStatus("此地图使用共享结构底图；请在结构制作时调整分辨率，避免覆盖正在复用的底图。", true);
+            return;
+        }
+
         SetModernStatus($"正在执行 {factor}x 降采样...", false);
 
         // 1. 彻底清空现有位图加载，释放文件句柄

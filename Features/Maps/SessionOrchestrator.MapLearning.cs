@@ -10,6 +10,7 @@ public sealed partial class SessionOrchestrator
     private MapScreenRect _lastLearningClientBounds;
     private MapScreenRect _lastLearningViewportBounds;
     private IntPtr _lastLearningWindowHandle;
+    private IReadOnlyList<MapScreenRect> _lastLearningUiExclusionRegions = [];
     private string _lastLearningMapClass = string.Empty;
     private bool _hasPendingMapLearningSample;
     private Guid? _lastRecordedMapLearningMapId;
@@ -136,6 +137,7 @@ public sealed partial class SessionOrchestrator
         _lastLearningClientBounds = frame.ClientBounds;
         _lastLearningViewportBounds = frame.ViewportBounds;
         _lastLearningWindowHandle = frame.WindowHandle;
+        _lastLearningUiExclusionRegions = frame.UiExclusionRegions;
         _lastLearningMapClass = mapClass;
         _lastCandidateChoices = choices;
     }
@@ -292,7 +294,10 @@ public sealed partial class SessionOrchestrator
             _lastLearningViewport.Clone(),
             _lastLearningClientBounds,
             _lastLearningViewportBounds,
-            _lastLearningWindowHandle);
+            _lastLearningWindowHandle)
+        {
+            UiExclusionRegions = _lastLearningUiExclusionRegions
+        };
         var decision = await MapManualCandidateWindow.ShowAsync(
             frame,
             scored.Choices,
@@ -493,6 +498,7 @@ public sealed partial class SessionOrchestrator
         _lastLearningClientBounds = default;
         _lastLearningViewportBounds = default;
         _lastLearningWindowHandle = IntPtr.Zero;
+        _lastLearningUiExclusionRegions = [];
         _lastLearningMapClass = string.Empty;
         _hasPendingMapLearningSample = false;
         _lastRecordedMapLearningMapId = null;

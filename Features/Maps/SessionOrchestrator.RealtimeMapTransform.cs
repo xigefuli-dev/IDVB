@@ -6,6 +6,7 @@ public sealed partial class SessionOrchestrator
     private int _realtimeTransformReferenceHeight;
     private int _realtimeTransformOrientationDegrees;
     private readonly LatestRealtimeTransformBuffer _hiddenRealtimeTransform = new();
+    private long _lastRealtimePositionSample;
 
     private void PublishRealtimeMapTransform(
         OrbTrackingContext context,
@@ -13,7 +14,8 @@ public sealed partial class SessionOrchestrator
         double tx,
         double ty,
         long timestamp,
-        double confidence)
+        double confidence,
+        RealtimeTransformSource source = RealtimeTransformSource.VisualFrame)
     {
         var state = new RealtimeTransformState(
             scale,
@@ -21,7 +23,8 @@ public sealed partial class SessionOrchestrator
             ty,
             timestamp,
             confidence,
-            context.Generation);
+            context.Generation,
+            source);
         if (_alignmentResultHidden)
         {
             _hiddenRealtimeTransform.Hold(state);
@@ -46,7 +49,7 @@ public sealed partial class SessionOrchestrator
         {
             _hiddenRealtimeTransform.Hold(state);
             if (_alignmentResultHidden)
-                return true;
+                return false;
             _hiddenRealtimeTransform.DiscardIfLatest(state);
         }
 
@@ -61,6 +64,20 @@ public sealed partial class SessionOrchestrator
             orientationDegrees: _realtimeTransformOrientationDegrees,
             alignmentMode: MapOverlayAlignmentMode.Uniform);
         _overlay.UpdateMapTransform(transform, preservePlayer: true);
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (System.Diagnostics.Stopwatch.GetElapsedTime(_lastRealtimePositionSample, now).TotalMilliseconds >= 200)
+        {
+            _lastRealtimePositionSample = now;
+            _logCollector.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
+                "实时贴图位置消费采样",
+                details: new()
+                {
+                    ["generation"] = state.Generation, ["source"] = state.Source.ToString(),
+                    ["tx"] = state.Tx, ["ty"] = state.Ty, ["scale"] = state.Scale,
+                    ["sourceTicks"] = state.Timestamp, ["overlayVisible"] = _overlay.IsVisible,
+                    ["endpoint"] = "overlay-callback-return-not-screen-presentation"
+                });
+        }
         return true;
     }
 

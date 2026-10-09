@@ -55,13 +55,9 @@ internal static class MapStructureEvaluator
         var edgesForPatch = matchingEdges
             ?? reciprocalScale.Edges
             ?? reference.Edges;
-        using var referenceStructurePatch = new Mat(
-            structureForPatch,
-            new Rect(
-                referenceX,
-                referenceY,
-                query.Bounds.Width,
-                query.Bounds.Height));
+        var asymmetricObserved = request.PreparedLive?.RawVisibleMask is not null
+            && request.PreparedLive.DiagnosticTiming?.Profile ==
+                MapStructurePreprocessingProfile.NativeObservedStructureLine;
         // Low-structure hypotheses span a much wider scale range, so their
         // reference-coordinate Chamfer values must be compared in screen
         // pixels. Keep the standard channel's established calibration intact.
@@ -74,17 +70,15 @@ internal static class MapStructureEvaluator
             ? new Mat(query.VisibleMask, query.Bounds)
             : null;
         using var visibleReferenceStructure = new Mat();
-        if (visibleMaskPatch is not null)
-            Cv2.BitwiseAnd(
-                referenceStructurePatch,
-                visibleMaskPatch,
-                visibleReferenceStructure);
-        else
-            referenceStructurePatch.CopyTo(visibleReferenceStructure);
-
-        var asymmetricObserved = request.PreparedLive?.RawVisibleMask is not null
-            && request.PreparedLive.DiagnosticTiming?.Profile ==
-                MapStructurePreprocessingProfile.NativeObservedStructureLine;
+        if (!asymmetricObserved)
+        {
+            using var referenceStructurePatch = new Mat(structureForPatch,
+                new Rect(referenceX, referenceY, query.Bounds.Width, query.Bounds.Height));
+            if (visibleMaskPatch is not null)
+                Cv2.BitwiseAnd(referenceStructurePatch, visibleMaskPatch, visibleReferenceStructure);
+            else
+                referenceStructurePatch.CopyTo(visibleReferenceStructure);
+        }
         var reverseChamfer = chamfer;
         using var visibleReferenceEdges = new Mat();
         if (request.Channel == MapAlignmentChannel.LowStructure
@@ -129,12 +123,17 @@ internal static class MapStructureEvaluator
         var edgeCoverage = covered / (double)Math.Max(1, query.EdgeCount);
 
         using var occupancyOverlap = new Mat();
-        Cv2.BitwiseAnd(
-            visibleReferenceStructure,
-            queryStructure,
-            occupancyOverlap);
         var queryStructureCount = Cv2.CountNonZero(queryStructure);
-        var overlapCount = Cv2.CountNonZero(occupancyOverlap);
+        var overlapCount = 0;
+        var visibleReferenceStructureCount = 0;
+        // Native observed lines use tolerance-based covered edges below.
+        // Their exact-pixel reference occupancy is neither scored nor returned.
+        if (!asymmetricObserved)
+        {
+            Cv2.BitwiseAnd(visibleReferenceStructure, queryStructure, occupancyOverlap);
+            overlapCount = Cv2.CountNonZero(occupancyOverlap);
+            visibleReferenceStructureCount = Cv2.CountNonZero(visibleReferenceStructure);
+        }
         // ObservedEdges is an asymmetric line-map contract. Its occupancy uses
         // the same physical tolerance as edge coverage, not exact pixel overlap.
         var occupancyCoverage = (asymmetricObserved ? covered : overlapCount)
@@ -147,8 +146,6 @@ internal static class MapStructureEvaluator
         // Only reference structure visible in the projected viewport belongs
         // in the denominator. Whole-canvas coverage couples the score to file
         // dimensions and systematically favors undersized queries.
-        var visibleReferenceStructureCount = Cv2.CountNonZero(
-            visibleReferenceStructure);
         var referenceCoverage = visibleReferenceStructureCount > 0
             ? overlapCount / (double)visibleReferenceStructureCount
             : 0d;

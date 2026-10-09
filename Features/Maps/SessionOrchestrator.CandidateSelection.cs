@@ -395,17 +395,22 @@ public sealed partial class SessionOrchestrator
         RuntimeMapRecognition selected,
         CapturedGameFrame frame,
         bool userConfirmed,
-        CancellationToken continuingMapOpenOwner = default)
-        => LockSelectedMapIdentity(selected, frame.ClientBounds, frame.WindowHandle, userConfirmed,
-            continuingMapOpenOwner);
+        CancellationToken continuingMapOpenOwner = default,
+        bool consumeAutomaticIdentity = false,
+        MapAutomaticIdentityAttempt? automaticIdentity = null)
+        => LockSelectedMapIdentity(selected, frame.ClientBounds, frame.WindowHandle,
+            userConfirmed, continuingMapOpenOwner, consumeAutomaticIdentity, automaticIdentity);
 
     private RuntimeMapRecognition LockSelectedMapIdentity(
         RuntimeMapRecognition selected,
         MapScreenRect clientBounds,
         IntPtr windowHandle,
         bool userConfirmed,
-        CancellationToken continuingMapOpenOwner = default)
+        CancellationToken continuingMapOpenOwner = default,
+        bool consumeAutomaticIdentity = false,
+        MapAutomaticIdentityAttempt? automaticIdentity = null)
     {
+        ClearAutomaticIdentityJob(invalidateOperation: !consumeAutomaticIdentity);
         InvalidateActiveMapOpenOperation("candidate-identity-committed", continuingMapOpenOwner);
         CancelMapObservation(clearPreview: true);
         _recentConfirmedFloorPreference = null;
@@ -425,7 +430,9 @@ public sealed partial class SessionOrchestrator
                 MapId = selected.Map.Id,
                 Floor = floorKey,
                 Confidence = selected.Result.Confidence,
-                IdentityConfidence = 1d,
+                IdentityConfidence = userConfirmed
+                    ? 1d
+                    : selected.Result.IdentityConfidence,
                 LocalizationConfidence = 0d,
                 Source = userConfirmed
                     ? MapRecognitionSource.UserConfirmed
@@ -435,7 +442,8 @@ public sealed partial class SessionOrchestrator
 
         _lastRecognition = identityLock;
         _pendingAlignmentIdentity = identityLock;
-        _mapLease.Bind(_matchSession.Snapshot, identityLock.Map.Id);
+        _mapLease.Bind(_matchSession.Snapshot, identityLock.Map.Id,
+            userConfirmed ? null : automaticIdentity, clearVariantIdentity: userConfirmed);
         _mapOpenSession.LockMapIdentity(
             identityLock.Map.Id,
             floorKey,
@@ -443,9 +451,13 @@ public sealed partial class SessionOrchestrator
         _currentFloorKey = floorKey;
         _lastGameBounds = clientBounds;
         _lastGameWindowHandle = windowHandle;
-        _statusMessage =
-            $"已锁定所选地图：{identityLock.Map.DisplayName} · "
-            + $"{floorKey.ToUpperInvariant()}；正在首次对齐……";
+        var groupedIdentity = !userConfirmed && automaticIdentity?.ConfirmedVariantGroupId is not null
+            && automaticIdentity.ConfirmedVariantMemberId is null;
+        _statusMessage = groupedIdentity
+            ? $"已自动确认相似地图组（{automaticIdentity!.ConfirmedVariantMapIds.Count}张）；"
+                + $"当前显示：{identityLock.Map.DisplayName} · {floorKey.ToUpperInvariant()}；正在首次对齐……"
+            : $"{(userConfirmed ? "已锁定所选地图" : "已自动识别地图")}：{identityLock.Map.DisplayName} · "
+                + $"{floorKey.ToUpperInvariant()}；正在首次对齐……";
         RefreshMiniMapForCurrentFloor();
         StateChanged?.Invoke(this, EventArgs.Empty);
 
@@ -454,11 +466,15 @@ public sealed partial class SessionOrchestrator
         _logCollector.Append(
             MapLogCategory.Session,
             MapLogLevel.Info,
-            $"{(userConfirmed ? "用户选择" : "合格模型建议")}后已立即锁定地图身份 · map={identityLock.Map.DisplayName} "
+            $"{(userConfirmed ? "用户选择" : "自动识别")}后已立即锁定{(groupedIdentity ? "相似地图组" : "地图身份")} · map={identityLock.Map.DisplayName} "
             + $"· floor={floorKey}",
             details: new()
             {
                 ["mapId"] = identityLock.Map.Id,
+                ["confirmedVariantGroupId"] = automaticIdentity?.ConfirmedVariantGroupId,
+                ["confirmedVariantMemberId"] = automaticIdentity?.ConfirmedVariantMemberId,
+                ["automaticVariantIdentity"] = _mapLease.VariantIdentity,
+                ["confirmedVariantMapIds"] = automaticIdentity?.ConfirmedVariantMapIds,
                 ["floor"] = floorKey,
                 ["identityLocked"] = true,
                 ["alignmentPending"] = true

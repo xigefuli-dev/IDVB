@@ -282,6 +282,9 @@ public sealed partial class MapListPage : UserControl
 
     private string? GetFloorImagePath(string floorKey) => _draft is null
         ? null
+        : _draft.Floors.Any(floor => floor.Key == floorKey && floor.SharedStructure is not null)
+            && _draft.FloorPreviewPaths.TryGetValue(floorKey, out var preview) && File.Exists(preview)
+            ? preview
         : _draft.FloorPaths.TryGetValue(floorKey, out var path)
             ? path
             : floorKey == "1f" ? _draft.FloorOnePath : _draft.FloorTwoPath;

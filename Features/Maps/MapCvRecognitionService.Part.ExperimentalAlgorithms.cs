@@ -55,6 +55,35 @@ public sealed partial class MapCvRecognitionService
                 ? tuning.VpsgScaleMode
                 : VpsgScaleMode.Structure;
 
+    // Success returns a frame-owned pair; false leaves creation to the caller-owned factory.
+    internal bool TryBorrowPrebuiltLiveStructureFeatures(
+        CapturedGameFrame frame,
+        out MapStructureFeatures computation,
+        out MapStructureFeatures original,
+        out bool cacheHit,
+        out double originalExtractionMilliseconds)
+    {
+        var extractionTimer = Stopwatch.StartNew();
+        var shared = ScanExecutionContext.Current is { IsAutomatic: true, Frame: { } evidence }
+            && ReferenceEquals(evidence.Source, frame.Image) ? evidence.Observation : null;
+        if (shared is not null)
+        {
+            extractionTimer.Stop();
+            computation = null!;
+            original = null!;
+            cacheHit = false;
+            originalExtractionMilliseconds = 0d;
+            return false;
+        }
+
+        return frame.TryGetOrCreateNativePrebuiltLiveStructureFeatures(
+            extractionTimer,
+            out computation,
+            out original,
+            out cacheHit,
+            out originalExtractionMilliseconds);
+    }
+
     internal void CreatePrebuiltLiveStructureFeatures(
         CapturedGameFrame frame,
         out MapStructureFeatures computation,

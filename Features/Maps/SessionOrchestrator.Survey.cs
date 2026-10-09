@@ -89,6 +89,7 @@ public sealed partial class SessionOrchestrator
             || operationMatch.Mode != MapRunMode.Normal)
             return;
 
+        ClearAutomaticIdentityJob();
         var floorKey = NormalizeSurveyFloorKey(_currentFloorKey);
         var predictedEpoch = operationMatch.Version + 1L;
         var start = await _surveyCoordinator.StartAsync(

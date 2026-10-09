@@ -22,7 +22,7 @@ public sealed partial class SessionOrchestrator
             var normalizedFloor = AdaptiveScaleAlignment.AdaptiveScaleKey
                 .NormalizeFloor(floorKey);
             var contentFingerprint = MapFeatureCacheRules
-                .ComputeContentFingerprint(identity.Map);
+                .ComputeContentFingerprint(identity.Map, normalizedFloor);
             ClearRuntimeAlignmentEvidence(
                 match,
                 identity.Map,

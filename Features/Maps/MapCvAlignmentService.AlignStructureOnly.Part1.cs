@@ -72,10 +72,130 @@ internal static partial class MapCvAlignmentService
         // PreparedReference 时才拿它现场预处理。此前每次对齐都要解码一张上百万
         // 像素的识别图（实测均值 15ms），只为通过判空与缓存的尺寸校验。
         var usePrebuiltLine = structureTuning.UsePrebuiltStructureLine && service.HasPrebuiltStructureLine(map, floorKey);
-        var referenceProfile = service.GetReferenceProfile(map, floorKey, structureTuning, MapStructurePreprocessingProfile.EdgesOnly); var cacheTimer = Stopwatch.StartNew(); var residentLease = service.StructureCache.TryRentResident(map.Id, map.UpdatedAt, floorKey, structureTuning.Generation, referenceProfile); cacheTimer.Stop(); diagnostics.ReferenceCacheMilliseconds = cacheTimer.Elapsed.TotalMilliseconds; Mat? decodedReference = null; MapStructureFeatures? ownedPreparedReference = null; if (residentLease is null) { var referencePath = service.GetAlignmentReferencePath(map, floorKey, structureTuning); if (!File.Exists(referencePath)) { return MapCvRecognitionDiagnostics.Failure(diagnostics, $"The alignment reference for floor '{floorKey}' is missing."); } var referenceLoadTimer = Stopwatch.StartNew(); decodedReference = Cv2.ImRead(referencePath, ImreadModes.Grayscale); referenceLoadTimer.Stop(); diagnostics.ReferenceImageLoadMilliseconds = referenceLoadTimer.Elapsed.TotalMilliseconds; if (decodedReference.Empty()) { decodedReference.Dispose(); return MapCvRecognitionDiagnostics.Failure(diagnostics, $"The alignment reference for floor '{floorKey}' cannot be read."); } cacheTimer.Restart(); ownedPreparedReference = service.StructureCache.GetOrCreate(map.Id, map.UpdatedAt, decodedReference, profile.WholeImageIgnoreRegions, floorKey, structureTuning.Generation, referenceProfile); cacheTimer.Stop(); diagnostics.ReferenceCacheMilliseconds += cacheTimer.Elapsed.TotalMilliseconds; }
+        var referenceProfile = service.GetReferenceProfile(map, floorKey, structureTuning, MapStructurePreprocessingProfile.EdgesOnly);
+        var referenceUpdatedAt = MapStructureRevisionRules.GetFloorUpdatedAt(map, floorKey);
+        var cacheTimer = Stopwatch.StartNew();
+        var residentLease = service.StructureCache.TryRentResident(map.Id, referenceUpdatedAt, floorKey, structureTuning.Generation, referenceProfile);
+        cacheTimer.Stop();
+        diagnostics.ReferenceCacheMilliseconds = cacheTimer.Elapsed.TotalMilliseconds;
+        Mat? decodedReference = null;
+        MapStructureFeatures? ownedPreparedReference = null;
+        if (residentLease is null)
+        {
+            var referencePath = service.GetAlignmentReferencePath(map, floorKey, structureTuning);
+            if (!File.Exists(referencePath))
+                return MapCvRecognitionDiagnostics.Failure(diagnostics, $"The alignment reference for floor '{floorKey}' is missing.");
+            var referenceLoadTimer = Stopwatch.StartNew();
+            decodedReference = Cv2.ImRead(referencePath, ImreadModes.Grayscale);
+            referenceLoadTimer.Stop();
+            diagnostics.ReferenceImageLoadMilliseconds = referenceLoadTimer.Elapsed.TotalMilliseconds;
+            if (decodedReference.Empty())
+            {
+                decodedReference.Dispose();
+                return MapCvRecognitionDiagnostics.Failure(diagnostics, $"The alignment reference for floor '{floorKey}' cannot be read.");
+            }
+            cacheTimer.Restart();
+            ownedPreparedReference = service.StructureCache.GetOrCreate(map.Id, referenceUpdatedAt, decodedReference, profile.WholeImageIgnoreRegions, floorKey, structureTuning.Generation, referenceProfile);
+            cacheTimer.Stop();
+            diagnostics.ReferenceCacheMilliseconds += cacheTimer.Elapsed.TotalMilliseconds;
+        }
         using var ownedDecodedReference = decodedReference; using var leaseScope = residentLease; using var ownedPreparedReferenceScope = ownedPreparedReference;         // 常驻命中时这是缓存持有的共享实例（只读使用，不得释放）；未命中时是
         // GetOrCreate 交出的副本，由上面的 using 负责释放。
-        var preparedReference = residentLease?.Features ?? ownedPreparedReference!; diagnostics.CacheMilliseconds = diagnostics.ReferenceCacheMilliseconds; IReadOnlyList<Rect> dynamicIgnoreRegions = useProjectedBoundaryMask ? MapCvRecognitionBuilders.BuildProjectedOutsideIgnoreRegions(map, floorKey, frame, scaleSeed) : []; var stopwatch = Stopwatch.StartNew(); MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info, $"结构参考输入就绪 · floor={floorKey}", elapsedMs: diagnostics.ReferenceImageLoadMilliseconds + diagnostics.ReferenceCacheMilliseconds, details: new() { ["mapId"] = map.Id, ["floor"] = floorKey, ["referenceImageLoadMs"] = diagnostics.ReferenceImageLoadMilliseconds, ["referenceCacheMs"] = diagnostics.ReferenceCacheMilliseconds, ["referenceDecoded"] = decodedReference is not null, ["referenceWidth"] = preparedReference.Edges.Width, ["referenceHeight"] = preparedReference.Edges.Height }); MapStructureFeatures preparedLive; MapStructureFeatures? ownedPreparedLive = null; MapStructureFeatures? ownedPreparedOriginalLive = null; PreprocessTiming liveTiming; bool liveFrameCacheHit; double originalExtractionMilliseconds; var canUseFrameCache = (liveIgnoreRegions is null || liveIgnoreRegions.Count == 0) && dynamicIgnoreRegions.Count == 0; if (usePrebuiltLine) { service.CreatePrebuiltLiveStructureFeatures(frame, out ownedPreparedLive, out ownedPreparedOriginalLive, out originalExtractionMilliseconds); preparedLive = ownedPreparedLive; liveTiming = preparedLive.DiagnosticTiming!; liveFrameCacheHit = false; } else if (canUseFrameCache) { preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(service.StructurePreprocessor, livePreprocessingProfile, out liveFrameCacheHit, out originalExtractionMilliseconds, out liveTiming, generateVisibleMask: structureTuning.EnableVisibleMask, generationTuning: structureTuning.Generation); } else { stopwatch.Restart(); ownedPreparedLive = service.StructurePreprocessor.ProcessLiveRoiDiagnostic(frame.ComputationImage, liveIgnoreRegions, dynamicIgnoreRegions.Select(frame.ToComputationRect).ToArray(), out liveTiming, profile: livePreprocessingProfile, generateVisibleMask: structureTuning.EnableVisibleMask, generationTuning: structureTuning.Generation); stopwatch.Stop(); preparedLive = ownedPreparedLive; liveFrameCacheHit = false; originalExtractionMilliseconds = stopwatch.Elapsed.TotalMilliseconds; }
+        var preparedReference = residentLease?.Features ?? ownedPreparedReference!;
+        diagnostics.CacheMilliseconds = diagnostics.ReferenceCacheMilliseconds;
+        IReadOnlyList<Rect> dynamicIgnoreRegions = useProjectedBoundaryMask
+            ? MapCvRecognitionBuilders.BuildProjectedOutsideIgnoreRegions(
+                map, floorKey, frame, scaleSeed)
+            : [];
+        var stopwatch = Stopwatch.StartNew();
+        MapLogCollector.Instance.Append(
+            MapLogCategory.StructureRegistration,
+            MapLogLevel.Info,
+            $"结构参考输入就绪 · floor={floorKey}",
+            elapsedMs: diagnostics.ReferenceImageLoadMilliseconds
+                + diagnostics.ReferenceCacheMilliseconds,
+            details: new()
+            {
+                ["mapId"] = map.Id,
+                ["floor"] = floorKey,
+                ["referenceImageLoadMs"] = diagnostics.ReferenceImageLoadMilliseconds,
+                ["referenceCacheMs"] = diagnostics.ReferenceCacheMilliseconds,
+                ["referenceDecoded"] = decodedReference is not null,
+                ["referenceWidth"] = preparedReference.Edges.Width,
+                ["referenceHeight"] = preparedReference.Edges.Height
+            });
+
+        MapStructureFeatures preparedLive;
+        MapStructureFeatures? preparedOriginalLive = null;
+        MapStructureFeatures? ownedPreparedLive = null;
+        MapStructureFeatures? ownedPreparedOriginalLive = null;
+        PreprocessTiming liveTiming;
+        bool liveFrameCacheHit;
+        double originalExtractionMilliseconds;
+        var canUseFrameCache = (liveIgnoreRegions is null || liveIgnoreRegions.Count == 0)
+            && dynamicIgnoreRegions.Count == 0;
+        MapStructureFeatures borrowedNativePrebuiltLive = null!;
+        MapStructureFeatures borrowedNativePrebuiltOriginalLive = null!;
+        var borrowedNativePrebuiltCacheHit = false;
+        var borrowedNativePrebuiltExtractionMilliseconds = 0d;
+        var borrowedNativePrebuiltFeatures =
+            structureTuning.Mode == MapStructureRegistrationMode.ScanVerification
+            && usePrebuiltLine
+            && canUseFrameCache
+            && service.TryBorrowPrebuiltLiveStructureFeatures(
+                frame,
+                out borrowedNativePrebuiltLive,
+                out borrowedNativePrebuiltOriginalLive,
+                out borrowedNativePrebuiltCacheHit,
+                out borrowedNativePrebuiltExtractionMilliseconds);
+
+        if (borrowedNativePrebuiltFeatures)
+        {
+            preparedLive = borrowedNativePrebuiltLive;
+            preparedOriginalLive = borrowedNativePrebuiltOriginalLive;
+            liveTiming = preparedLive.DiagnosticTiming!;
+            liveFrameCacheHit = borrowedNativePrebuiltCacheHit;
+            originalExtractionMilliseconds = borrowedNativePrebuiltExtractionMilliseconds;
+        }
+        else if (usePrebuiltLine)
+        {
+            service.CreatePrebuiltLiveStructureFeatures(
+                frame,
+                out ownedPreparedLive,
+                out ownedPreparedOriginalLive,
+                out originalExtractionMilliseconds);
+            preparedLive = ownedPreparedLive;
+            preparedOriginalLive = ownedPreparedOriginalLive;
+            liveTiming = preparedLive.DiagnosticTiming!;
+            liveFrameCacheHit = false;
+        }
+        else if (canUseFrameCache)
+        {
+            preparedLive = frame.GetOrCreateDefaultLiveStructureFeatures(
+                service.StructurePreprocessor,
+                livePreprocessingProfile,
+                out liveFrameCacheHit,
+                out originalExtractionMilliseconds,
+                out liveTiming,
+                generateVisibleMask: structureTuning.EnableVisibleMask,
+                generationTuning: structureTuning.Generation);
+        }
+        else
+        {
+            stopwatch.Restart();
+            ownedPreparedLive = service.StructurePreprocessor.ProcessLiveRoiDiagnostic(
+                frame.ComputationImage,
+                liveIgnoreRegions,
+                dynamicIgnoreRegions.Select(frame.ToComputationRect).ToArray(),
+                out liveTiming,
+                profile: livePreprocessingProfile,
+                generateVisibleMask: structureTuning.EnableVisibleMask,
+                generationTuning: structureTuning.Generation);
+            stopwatch.Stop();
+            preparedLive = ownedPreparedLive;
+            liveFrameCacheHit = false;
+            originalExtractionMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+        }
         using var ownedPreparedLiveDispose = ownedPreparedLive; using var ownedPreparedOriginalLiveDispose = ownedPreparedOriginalLive; var currentExtractionMilliseconds = liveFrameCacheHit ? 0d : originalExtractionMilliseconds; diagnostics.StructurePreprocessMilliseconds = currentExtractionMilliseconds; diagnostics.LiveStructurePreprocessMilliseconds = currentExtractionMilliseconds; MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info, liveFrameCacheHit ? "同一捕获帧的实时结构特征已复用" : "实时帧结构特征提取完成", elapsedMs: currentExtractionMilliseconds, details: CreateLiveStructureLogDetails(frame, preparedLive, liveTiming, liveFrameCacheHit ? "captured-frame-cache" : "new-extraction", originalExtractionMilliseconds, currentExtractionMilliseconds, diagnostics.ReferenceImageLoadMilliseconds, diagnostics.ReferenceCacheMilliseconds, liveIgnoreRegions?.Count ?? 0, dynamicIgnoreRegions.Count, requestedProfile: usePrebuiltLine ? MapStructurePreprocessingProfile.PrebuiltStructureLine : livePreprocessingProfile)); if (resolvedChannel.Channel == MapAlignmentChannel.LowStructure) AppendLowStructureInputContract(frame, map, floorKey, structureTuning, preparedReference, preparedLive, scaleSearchPolicy, lowStructurePlan, profile); if (structureTuning.Channel != MapAlignmentChannel.LowStructure && MapNoDoorAlignmentBudgetContext.RemainingMilliseconds is { } remainingMilliseconds) { var minimumRemainingMilliseconds = structureTuning.Mode == MapStructureRegistrationMode.ScanVerification ? MapOpenAlignmentRouteRules.ScanVerificationMinimumCandidateBudgetMilliseconds : MapOpenAlignmentRouteRules.MinimumNoDoorStageBudgetMilliseconds; if (remainingMilliseconds < minimumRemainingMilliseconds && structureTuning.Mode != MapStructureRegistrationMode.ScanVerification) { const string reason = "无门对齐预处理完成后已无足够的结构搜索预算，请保持地图打开并重试。"; var timedOut = MapStructureRegistrationResult.Reject(MapStructureRejectionReason.TimeBudgetExceeded, reason); diagnostics.StructureAttempted = true; diagnostics.StructureAccepted = false; diagnostics.StructureRejectionReason = MapStructureRejectionReason.TimeBudgetExceeded; diagnostics.StructureDisposition = MapStructureEvidenceDisposition.Inconclusive; totalTimer.Stop(); diagnostics.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds; return new MapRecognitionAttempt { Diagnostics = diagnostics, StructureResult = timedOut, FailureReason = reason, StructureAttempted = true, StructureAccepted = false, StructureFailureReason = reason, SearchStage = AlignmentSearchStage.StructureFallback }; } structureTuning.StructureFallbackBudgetMilliseconds = Math.Min(structureTuning.StructureFallbackBudgetMilliseconds, Math.Max(1, remainingMilliseconds)); }
         if (resolvedChannel.Channel == MapAlignmentChannel.LowStructure && lowStructurePlan is null && scaleSearchPolicy == MapScaleSearchPolicy.Search)
         {
@@ -121,7 +241,7 @@ internal static partial class MapCvAlignmentService
             ForceBestCandidate = false,
             PreparedReference = preparedReference,
             PreparedLive = preparedLive,
-            PreparedOriginalLive = ownedPreparedOriginalLive,
+            PreparedOriginalLive = preparedOriginalLive,
             LowStructurePlan = lowStructurePlan,
             FixedRotationDegrees = profile.OrientationDegrees,
             ValidMapBounds = profile.GetEffectiveValidMapBounds(

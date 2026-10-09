@@ -224,7 +224,7 @@ public sealed partial class SessionOrchestrator
             : "unsupported-target-resolution";
         if (!hasAdaptiveSeed && targetResolution.IsSupported)
         {
-            var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(candidate.Map);
+            var fingerprint = MapFeatureCacheRules.ComputeContentFingerprint(candidate.Map, candidate.FloorKey);
             var entries = _mapFeatureCacheRepository.GetSnapshot(
                 candidate.Map.Id,
                 fingerprint,

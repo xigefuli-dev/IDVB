@@ -46,7 +46,7 @@ public sealed partial class SessionOrchestrator
             IDVBuff.Features.Notifications.OverlayNotificationCenter.Notice(
                 userConfirmed
                     ? "你选择了一张变体地图，如果对齐贴合异常请在对局控件中快速切换。"
-                    : "已确认这是一张变体地图，如果对齐贴合异常请在对局控件中快速切换。");
+                    : "已自动确认相似地图组，可在对局控件中切换组内地图。");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -154,31 +154,7 @@ public sealed partial class SessionOrchestrator
             DiscardAutomaticMapCacheSamples("切换地图变体，丢弃旧地图尚未落盘的自动缓存样本");
             StartMatchCancellationScope();
 
-            _overlayStatus.Clear();
-            _overlay.Clear();
-            _overlay.ClearPersistentMiniMap();
-            _candidateStability.Reset();
-            _alignmentCommitGuard.Invalidate();
-            _recognition.ResetMatchState();
-            ClearPendingBackgroundScan();
-            EndAdaptiveMapOpen("map variant changed");
-            ClearAdaptiveSessionKeys();
-            ClearMapViewportPresenceReferences();
-            lock (_reliableFloorAlignmentGate)
-            {
-                _reliableFloorAlignments.Clear();
-            }
-            ClearManualFloorScaleLocks();
-            _recentConfirmedFloorPreference = null;
-            _recentConfirmedFloorMapId = Guid.Empty;
-
-            _lastRecognition = null;
-            _lastAlignmentSession = null;
-            _primaryFloorAlignmentSession = null;
-            _pendingAlignmentSeed = null;
-            _lastFloorRecognition = null;
-            _lastTrustedPlayerPoint = null;
-            _alignmentTrackingMode = MapAlignmentTrackingMode.None;
+            ResetVariantAlignmentState();
             _currentFloorKey = targetFloor;
             _pendingAlignmentIdentity = CreatePendingVariantIdentity(
                 targetMap,
@@ -207,6 +183,38 @@ public sealed partial class SessionOrchestrator
 
         if (realignImmediately)
             await RunMapOpenAlignmentAsync(openTransition);
+    }
+
+    // Both manual and automatic switches retire the old map's alignment state.
+    // Cancellation/draining belongs to each caller; this helper never waits on
+    // the current map-open operation.
+    private void ResetVariantAlignmentState()
+    {
+            _overlayStatus.Clear();
+            _overlay.Clear();
+            _overlay.ClearPersistentMiniMap();
+            _candidateStability.Reset();
+            _alignmentCommitGuard.Invalidate();
+            _recognition.ResetMatchState();
+            ClearPendingBackgroundScan();
+            EndAdaptiveMapOpen("map variant changed");
+            ClearAdaptiveSessionKeys();
+            ClearMapViewportPresenceReferences();
+            lock (_reliableFloorAlignmentGate)
+            {
+                _reliableFloorAlignments.Clear();
+            }
+            ClearManualFloorScaleLocks();
+            _recentConfirmedFloorPreference = null;
+            _recentConfirmedFloorMapId = Guid.Empty;
+
+            _lastRecognition = null;
+            _lastAlignmentSession = null;
+            _primaryFloorAlignmentSession = null;
+            _pendingAlignmentSeed = null;
+            _lastFloorRecognition = null;
+            _lastTrustedPlayerPoint = null;
+            _alignmentTrackingMode = MapAlignmentTrackingMode.None;
     }
 
     private RuntimeMapRecognition CreatePendingVariantIdentity(

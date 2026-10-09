@@ -9,14 +9,14 @@ internal static class FloorIndicatorCaptureRegion
             clientBounds.Width / group.ReferenceClientWidth,
             clientBounds.Height / (group.PixelHeight / group.Height));
 
-    // Map calibration must not truncate the independent floor-indicator UI.
-    // The registered header extent also works when a new resolution falls
-    // back to a full-client map viewport (Y = 0).
+    // The indicator may straddle the map viewport's top edge. Reserve one
+    // full indicator height past that edge; the map crop itself stays intact.
+    // The registered extent also covers full-client viewports (Y = 0).
     public static NormalizedRectangle Above(NormalizedRectangle viewport,
         FloorIndicatorTemplateRegistry.Group? group = null) => new()
     {
         X = 0, Y = 0, Width = 1,
-        Height = Math.Clamp(Math.Max(viewport.Y,
+        Height = Math.Clamp(Math.Max(viewport.Y + (group?.Height ?? 0),
             group is null ? 0 : group.Y + group.Height), 0, 1)
     };
 

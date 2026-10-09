@@ -44,6 +44,7 @@ public sealed partial class SessionOrchestrator
         && _settings is { IsEnabled: true, ContinuousObservationEnabled: true,
             SelectMapByTagsEnabled: false, BackgroundScanEnabled: false }
         && !_silentScanActive && !_manualSelectionActive
+        && !_mapOpenCancellationOwner.HasOwner
         && Volatile.Read(ref _activeScanOperations) == 0
         && _lastRecognition is null && _pendingAlignmentIdentity is null
         && _matchSession.Snapshot.IsStarted && _matchSession.Snapshot.Mode != MapRunMode.Survey && !IsMatchEnding;
@@ -145,6 +146,8 @@ public sealed partial class SessionOrchestrator
         {
             acquired = await _scanGate.WaitAsync(Math.Max(0, execution.RemainingMilliseconds - 60), pass.Token);
             if (!acquired || !execution.CanCompute) return;
+            ClearAutomaticIdentityJob();
+            await DrainAutomaticIdentityWorkerAsync(pass.Token);
             await EnsureMapCacheSynchronizedAsync().WaitAsync(
                 TimeSpan.FromMilliseconds(Math.Max(1, execution.RemainingMilliseconds - 60)), pass.Token);
             if (!execution.CanCompute) return;

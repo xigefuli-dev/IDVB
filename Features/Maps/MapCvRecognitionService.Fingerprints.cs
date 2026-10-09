@@ -431,7 +431,8 @@ public sealed partial class MapCvRecognitionService
     {
         var floorProfile = MapFloorRules.GetFloorProfile(map, floorKey);
         if (floorProfile is null) return Task.CompletedTask;
-        var key = $"{map.Id:D}|{map.UpdatedAt.UtcTicks}|{floorKey}|{tuning.Generation.CacheFingerprint}|{tuning.UsePrebuiltStructureLine}";
+        var structureUpdatedAt = MapStructureRevisionRules.GetFloorUpdatedAt(map, floorKey);
+        var key = $"{map.Id:D}|{structureUpdatedAt.UtcTicks}|{floorKey}|{tuning.Generation.CacheFingerprint}|{tuning.UsePrebuiltStructureLine}";
         var profile = GetReferenceProfile(map, floorKey, tuning, MapStructurePreprocessingProfile.EdgesAndFeatures);
         lock (_floorPrewarmGate)
         {
@@ -442,7 +443,7 @@ public sealed partial class MapCvRecognitionService
                 using var perfScope = RealtimePerformanceTracker.TrackScope("WarmFloorStructure", $"map={map.Id:N}|floor={floorKey}");
                 if (ct.IsCancellationRequested) return;
                 if (_structureCache.TryRentResident(
-                        map.Id, map.UpdatedAt, floorKey, tuning.Generation, profile) is { } resident)
+                        map.Id, structureUpdatedAt, floorKey, tuning.Generation, profile) is { } resident)
                 {
                     resident.Dispose();
                     return;
@@ -452,7 +453,7 @@ public sealed partial class MapCvRecognitionService
                 using var image = Cv2.ImRead(path, ImreadModes.Unchanged);
                 if (image.Empty() || ct.IsCancellationRequested) return;
                 using var prepared = _structureCache.GetOrCreate(
-                    map.Id, map.UpdatedAt, image, floorProfile.WholeImageIgnoreRegions,
+                    map.Id, structureUpdatedAt, image, floorProfile.WholeImageIgnoreRegions,
                     floorKey, tuning.Generation, profile);
             }, ct);
             _floorPrewarmTasks[key] = task;

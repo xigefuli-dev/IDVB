@@ -124,7 +124,7 @@ public sealed partial class MapCvRecognitionService
                 preprocessingProfile);
             using var residentReferenceLease = _structureCache.TryRentResident(
                 map.Id,
-                map.UpdatedAt,
+                MapStructureRevisionRules.GetFloorUpdatedAt(map, floorKey),
                 floorKey,
                 structureTuning.Generation,
                 referenceProfile);
@@ -152,7 +152,7 @@ public sealed partial class MapCvRecognitionService
 
                 ownedPreparedReference = _structureCache.GetOrCreate(
                     map.Id,
-                    map.UpdatedAt,
+                    MapStructureRevisionRules.GetFloorUpdatedAt(map, floorKey),
                     decodedReference,
                     profile.WholeImageIgnoreRegions,
                     floorKey,

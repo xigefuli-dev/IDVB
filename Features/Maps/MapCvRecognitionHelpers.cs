@@ -244,6 +244,20 @@ internal static class MapCvRecognitionHelpers
     /// </summary>
     internal static bool HaveSameFingerprintInputs(MapRecord left, MapRecord right)
     {
+        if (left.Floors.Count > 0 && left.Floors.All(floor => floor.SharedStructure is not null)
+            && right.Floors.Count > 0 && right.Floors.All(floor => floor.SharedStructure is not null))
+        {
+            return left.Id == right.Id
+                && string.Equals(left.Class, right.Class, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.ClassProperties?.ScanFloorKey, right.ClassProperties?.ScanFloorKey, StringComparison.OrdinalIgnoreCase)
+                && MapFeatureCacheRules.ComputeContentFingerprint(left) == MapFeatureCacheRules.ComputeContentFingerprint(right)
+                && left.Recognition.SchemaVersion == right.Recognition.SchemaVersion
+                && System.Text.Json.JsonSerializer.Serialize(left.Recognition.WholeImage) == System.Text.Json.JsonSerializer.Serialize(right.Recognition.WholeImage)
+                && MapFloorRules.GetOrderedFloors(left).All(floor =>
+                    right.Recognition.GetFloor(floor.Key) is { } other
+                    && MapStructureRevisionRules.GetRecognitionInputs(left.Recognition.GetFloor(floor.Key)!)
+                        == MapStructureRevisionRules.GetRecognitionInputs(other));
+        }
         if (left.Id != right.Id
             || left.UpdatedAt != right.UpdatedAt
             || left.Recognition.SchemaVersion != right.Recognition.SchemaVersion

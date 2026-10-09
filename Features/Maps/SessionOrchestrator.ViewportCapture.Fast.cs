@@ -37,7 +37,7 @@ public sealed partial class SessionOrchestrator
                 prepareNativeStructure: initialPrewarmTuning.UsePrebuiltStructureLine
                     && _recognition.HasPrebuiltStructureLine(locked.Map, floorKey),
                 prepareVpsg3Structure: _recognition.IsVpsg3Ready(locked.Map, floorKey),
-                autoFloor: autoFloor);
+                autoFloor: autoFloor, useAutomaticViewport: true);
         }
         finally
         {

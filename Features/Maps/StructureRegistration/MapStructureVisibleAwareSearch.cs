@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System.Diagnostics;
+using IDVBuff.Pipeline;
 
 namespace IDVBuff.Features.Maps;
 
@@ -88,11 +89,45 @@ internal sealed class VisibleAwareCorrelationSession : IDisposable
     public string? FallbackReason { get; private set; }
     public double UploadMilliseconds => _backend.UploadMilliseconds;
     public double DownloadMilliseconds => _backend.DownloadMilliseconds;
-    public Mat Correlate(Mat reference, Mat structure, Mat visible)
+    internal PreparedMatCorrelation? PrepareRefinement(
+        QueryGeometry query,
+        Mat structure,
+        Mat visible,
+        int factor,
+        int normalizedVisibleMaskErodePixels)
+    {
+        if (factor <= 1 || RequestedMode != VisibleAwareCorrelationMode.CoarseMat
+            || _backend is not MatCorrelationBackend) return null;
+        return PreparedMatCorrelation.TryCreate(
+            this,
+            query,
+            structure,
+            visible,
+            factor,
+            normalizedVisibleMaskErodePixels,
+            RequestedMode,
+            ActualBackend,
+            out _);
+    }
+    public Mat Correlate(Mat reference, Mat structure, Mat visible,
+        PreparedMatCorrelation? prepared = null)
     {
         try
         {
-            var response = _backend.Correlate(reference, structure, visible);
+            using var preparedAttempt = _backend is MatCorrelationBackend && prepared is not null
+                ? MapOperationTraceAmbient.StartChild(
+                    "visible_aware_prepared_correlation", MapOperationWaitKind.Compute,
+                    route: $"query={structure.Width}x{structure.Height}/reference={reference.Width}x{reference.Height}")
+                : null;
+            var preparedRoute = PreparedMatCorrelationRoute.UnsupportedReference;
+            Mat? preparedResponse = null;
+            var preparedUsed = _backend is MatCorrelationBackend && prepared is not null
+                && prepared.TryCorrelate(this, reference, structure, visible,
+                    out preparedResponse, out preparedRoute, out _);
+            var response = preparedUsed
+                ? preparedResponse!
+                : _backend.Correlate(reference, structure, visible);
+            preparedAttempt?.Complete(terminalReason: preparedRoute.ToString());
             if (response.Empty() || response.Width != reference.Width - structure.Width + 1
                 || response.Height != reference.Height - structure.Height + 1 || !Cv2.CheckRange(response))
             { response.Dispose(); throw new InvalidOperationException("Invalid correlation response"); }
@@ -122,8 +157,12 @@ internal static class MapStructureVisibleAwareSearch
     internal static Mat ComputeIoU(Mat reference, Mat structure, Mat visible)
     {
         using var tp = new Mat(); using var refVisible = new Mat();
-        Cv2.MatchTemplate(reference, structure, tp, TemplateMatchModes.CCorr);
-        Cv2.MatchTemplate(reference, visible, refVisible, TemplateMatchModes.CCorr);
+        using (MapOperationTraceAmbient.StartChild(
+            "visible_aware_structure_ccorr", MapOperationWaitKind.Compute))
+            Cv2.MatchTemplate(reference, structure, tp, TemplateMatchModes.CCorr);
+        using (MapOperationTraceAmbient.StartChild(
+            "visible_aware_visibility_ccorr", MapOperationWaitKind.Compute))
+            Cv2.MatchTemplate(reference, visible, refVisible, TemplateMatchModes.CCorr);
         using var union = new Mat();
         Cv2.Add(refVisible, Cv2.Sum(structure).Val0, union);
         Cv2.Subtract(union, tp, union); Cv2.Max(union, 1d, union);
@@ -148,8 +187,11 @@ internal static class MapStructureVisibleAwareSearch
         var visibleFraction = (double)totalVisible / (query.VisibleMask.Width * query.VisibleMask.Height);
         if (visibleFraction < tuning.VisibleAwareMinimumVisibleFraction) return VisibleAwareSearchDiagnostics.Empty;
         using var visible8 = new Mat(query.VisibleMask, query.Bounds);
+        var normalizedVisibleMaskErodePixels =
+            Math.Clamp(tuning.SafeVisibleMaskErodePixels, 0, 3);
         using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect,
-            new Size(1 + tuning.SafeVisibleMaskErodePixels * 2, 1 + tuning.SafeVisibleMaskErodePixels * 2));
+            new Size(1 + normalizedVisibleMaskErodePixels * 2,
+                1 + normalizedVisibleMaskErodePixels * 2));
         using var safe8 = new Mat(); Cv2.Erode(visible8, safe8, kernel);
         using var structure8 = new Mat(query.Structure, query.Bounds);
         using var edges8 = new Mat(query.Edges, query.Bounds);
@@ -166,6 +208,12 @@ internal static class MapStructureVisibleAwareSearch
         if (factor == 0) return VisibleAwareSearchDiagnostics.Empty;
 
         var coarseTimer = Stopwatch.StartNew();
+        using var coarseCorrelation = MapOperationTraceAmbient.StartChild(
+            "visible_aware_coarse_correlation", MapOperationWaitKind.Compute,
+            route: $"requested={session.RequestedBackend}/actual={session.ActualBackend}"
+                + $"/factor={factor}/query={structure.Width}x{structure.Height}"
+                + $"/reference={reference8.Width}x{reference8.Height}"
+                + $"/scale={scale:R}/bounds={query.Bounds.X},{query.Bounds.Y}");
         if (reciprocalScale.StructureMask is not null
             && (context.VisibleAwareReciprocalReference is null
                 || context.VisibleAwareReciprocalFactor != factor))
@@ -235,8 +283,17 @@ internal static class MapStructureVisibleAwareSearch
                     Scalar.All(0), -1);
         }
         var peaks = Peaks(coarseResponse, tuning.VisibleAwareTopK); coarseTimer.Stop();
+        coarseCorrelation.Complete();
         var refineTimer = Stopwatch.StartNew();
+        using var correlationRefinement = MapOperationTraceAmbient.StartChild(
+            "visible_aware_correlation_refinement", MapOperationWaitKind.Compute);
         var refined = new List<(int X, int Y, double Score)>();
+        using (var prepared = session.PrepareRefinement(
+            query,
+            structure,
+            safe,
+            factor,
+            normalizedVisibleMaskErodePixels))
         foreach (var peak in peaks)
         {
             if (tuning.EnforceTimeBudget
@@ -249,13 +306,31 @@ internal static class MapStructureVisibleAwareSearch
             var right = Math.Min(reference8.Width - structure.Width, cx + radius);
             var bottom = Math.Min(reference8.Height - structure.Height, cy + radius);
             if (right < left || bottom < top) continue;
+            using var refinementPeak = MapOperationTraceAmbient.StartChild(
+                "visible_aware_refinement_peak", MapOperationWaitKind.Compute,
+                route: $"requested={session.RequestedBackend}/actual={session.ActualBackend}"
+                    + $"/factor={factor}/query={structure.Width}x{structure.Height}"
+                    + $"/reference={structure.Width + right - left}x{structure.Height + bottom - top}"
+                    + $"/origin={left},{top}/peak={peak.X},{peak.Y}"
+                    + $"/scale={scale:R}/bounds={query.Bounds.X},{query.Bounds.Y}",
+                attemptIndex: refined.Count + 1);
             using var roi8 = new Mat(reference8, new Rect(left, top,
                 structure.Width + right - left, structure.Height + bottom - top));
-            using var roi = ToFloat(roi8); using var response = session.Correlate(roi, structure, safe);
+            using var conversion = MapOperationTraceAmbient.StartChild(
+                "visible_aware_roi_conversion", MapOperationWaitKind.Compute);
+            using var roi = ToFloat(roi8);
+            conversion.Complete();
+            using var correlation = MapOperationTraceAmbient.StartChild(
+                "visible_aware_roi_correlation", MapOperationWaitKind.Compute);
+            using var response = session.Correlate(roi, structure, safe, prepared);
+            correlation.Complete();
             Cv2.MinMaxLoc(response, out _, out var max, out _, out var location);
             refined.Add((left + location.X, top + location.Y, max));
         }
         refineTimer.Stop();
+        correlationRefinement.Complete();
+        using var candidateEvaluation = MapOperationTraceAmbient.StartChild(
+            "visible_aware_candidate_evaluation", MapOperationWaitKind.Compute);
         var costs = new List<double>();
         foreach (var peak in refined.DistinctBy(p => (p.X, p.Y)))
         {
@@ -269,6 +344,7 @@ internal static class MapStructureVisibleAwareSearch
                 VisibleEdgePixels = Cv2.CountNonZero(visibleEdges) });
         }
         costs.Sort();
+        candidateEvaluation.Complete();
         return new(true, coarseTimer.Elapsed.TotalMilliseconds + refineTimer.Elapsed.TotalMilliseconds,
             refined.Count, costs.Count > 0 ? costs[0] : double.PositiveInfinity,
             costs.Count > 1 ? costs[1] : double.PositiveInfinity, visibleFraction, structurePixels,

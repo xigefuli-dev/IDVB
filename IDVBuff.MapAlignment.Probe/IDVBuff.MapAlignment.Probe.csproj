@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="..\AppDataPaths.cs" Link="Production\AppDataPaths.cs" />
+    <Compile Include="..\Features\Maps\MapFrameUiExclusion.cs" Link="Production\MapFrameUiExclusion.cs" />
     <Compile Include="..\Features\Maps\CaptureStreamDemand.cs" Link="Production\CaptureStreamDemand.cs" />
     <Compile Include="..\Features\Maps\CaptureStreamWorker.cs" Link="Production\CaptureStreamWorker.cs" />
     <Compile Include="..\Features\Maps\CaptureDeviceOwner.cs" Link="Production\CaptureDeviceOwner.cs" />
@@ -48,6 +49,11 @@
     <Compile Include="..\Features\Maps\MapFloorMarkerRules.cs" Link="Production\MapFloorMarkerRules.cs" />
     <Compile Include="..\Features\Maps\MapAlignmentChannel.cs" Link="Production\MapAlignmentChannel.cs" />
     <Compile Include="..\Features\Maps\MapModels.Record.cs" Link="Production\MapModels.Record.cs" />
+    <Compile Include="..\Features\Maps\MapSharedFloorStructure.cs" Link="Production\MapSharedFloorStructure.cs" />
+    <Compile Include="..\Features\Maps\MapArtworkRegistration.cs" Link="Production\MapArtworkRegistration.cs" />
+    <Compile Include="..\Features\Maps\MapArtworkMinimaxSolver.cs" Link="Production\MapArtworkMinimaxSolver.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.SharedStructure.cs" Link="Production\MapRepository.SharedStructure.cs" />
+    <Compile Include="..\Features\Maps\MapRepository.TilemapStructure.cs" Link="Production\MapRepository.TilemapStructure.cs" />
     <Compile Include="..\Features\Maps\MapModels.PrebuiltStructure.cs" Link="Production\MapModels.PrebuiltStructure.cs" />
     <Compile Include="..\Features\Maps\MapModels.Provenance.cs" Link="Production\MapModels.Provenance.cs" />
     <Compile Include="..\Features\Maps\MapModels.Profile.cs" Link="Production\MapModels.Profile.cs" />
@@ -161,11 +167,14 @@
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureFeatureVoting.cs" Link="Production\MapStructureFeatureVoting.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructurePyramidSearch.cs" Link="Production\MapStructurePyramidSearch.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureVisibleAwareSearch.cs" Link="Production\MapStructureVisibleAwareSearch.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\PreparedMatCorrelation.cs" Link="Production\PreparedMatCorrelation.cs" />
+    <Compile Include="..\Features\Maps\StructureRegistration\TemplateSpectrumCache.cs" Link="Production\TemplateSpectrumCache.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureValidator.cs" Link="Production\MapStructureValidator.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureValidator.Part*.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureRefiner.cs" Link="Production\MapStructureRefiner.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureDebugOutput.cs" Link="Production\MapStructureDebugOutput.cs" />
     <Compile Include="..\Features\Maps\MapDiagnosticModeCapture.cs" Link="Production\MapDiagnosticModeCapture.cs" />
+    <Compile Include="..\Features\Maps\MapDiagnosticModeCapture.DeferredFitness.cs" Link="Production\MapDiagnosticModeCapture.DeferredFitness.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.cs" Link="Production\MapStructureReferenceCache.cs" />
     <Compile Include="..\Features\Maps\StructureRegistration\MapStructureReferenceCache.Part*.cs" />
     <Compile Include="..\Features\Maps\StructureFilling\MapStructureFiller.cs" Link="Production\MapStructureFiller.cs" />

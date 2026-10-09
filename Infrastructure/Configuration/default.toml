@@ -1,0 +1,76 @@
+# IDVB Global Default Configuration
+# This file contains parameters that are resolution-independent.
+# Resolution-specific values are in Presets/{W}x{H}/ subdirectories.
+
+[session]
+opening_animation_delay_ms = 10
+opening_timeout_ms = 3000
+stable_frame_interval_ms = 20
+stable_frame_count = 2
+stable_frame_difference = 0.015
+presence_polling_ms = 200
+player_polling_ms = 100
+window_validation_ms = 500
+integrity_check_interval_ms = 2000
+
+[confidence]
+high = 0.82
+medium = 0.62
+medium_confidence_frames = 3
+background_failure_frames = 3
+minimum_player_confidence = 0.70
+confirmation_advantage = 0.08
+
+[stability]
+position_tolerance_pixels = 3
+scale_tolerance_ratio = 0.003
+rotation_tolerance_degrees = 0.1
+max_history_entries = 5
+
+[evidence_weights]
+anchor_geometry = 0.20
+feature_consensus = 0.15
+candidate_separation = 0.10
+structure_quality = 0.25
+refinement_quality = 0.10
+bounds_and_prior = 0.10
+temporal_stability = 0.10
+
+[tracking]
+player_staleness_ms = 500
+max_calibration_entries = 128
+previous_alignment_search_radius_px = 96
+tracking_search_radius_px = 48
+
+[auxiliary]
+maximum_templates = 4
+direct_lock_confidence = 0.82
+minimum_anchor_score = 0.78
+minimum_distance_ratio = 0.05
+base_tolerance = 6.0
+viewport_tolerance_ratio = 0.005
+
+[side_entrance]
+clamp_feature_to_bounds = true
+feature_region_ratio = 0.40
+feature_source_mode = "RecognitionImage"
+use_auxiliary_anchor_recognition = false
+reuse_previous_alignment_result = true
+# 侧门扫描调参（三个分辨率预设目录可各自覆盖，见 Presets/{W}x{H}/side_entrance.toml）
+coarse_scale_step = 0.06
+refine_steps_per_side = 3
+coarse_pyramid_factor = 4
+refine_candidate_top_k = 5
+coarse_score_prune_threshold = 0.0
+scan_parallelism = 4
+
+[pipeline]
+use_new_pipeline = false
+floor_recognition_budget_ms = 350
+presence_missing_frame_threshold = 2
+monitor_polling_interval_ms = 50
+non_monitored_delay_ms = 100
+
+[adaptive_scale]
+# 内部诊断开关；不在主程序设置页展示。false 时仍计算当前帧缩放，但不自动锁定。
+automatic_scale_locking_enabled = true

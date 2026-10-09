@@ -12,7 +12,7 @@ public readonly record struct MapCatalogRevision(long LastWriteUtcTicks, long Le
 /// </summary>
 public sealed partial class MapRepository
 {
-    private const int CurrentStorageSchemaVersion = 18;
+    private const int CurrentStorageSchemaVersion = 19;
     private const string FloorOneRecognitionFileName = "floor-1-recognition.png";
     private const string FloorTwoRecognitionFileName = "floor-2-recognition.png";
     private const string FloorOneOverlayFileName = "floor-1-overlay.png";
@@ -67,7 +67,8 @@ public sealed partial class MapRepository
                 pair => pair.Key,
                 pair =>
                 {
-                    var previewPath = GetFloorRecognitionPath(record, pair.Key);
+                    var previewPath = record.Floors.Single(floor => floor.Key == pair.Key).SharedStructure is not null
+                        ? GetFloorOverlayPath(record, pair.Key) : GetFloorRecognitionPath(record, pair.Key);
                     return File.Exists(previewPath) ? previewPath : pair.Value;
                 },
                 StringComparer.Ordinal);
@@ -79,14 +80,17 @@ public sealed partial class MapRepository
                 FloorTwoPath = GetFloorTwoPath(record),
                 FloorPaths = floorPaths,
                 FloorPreviewPaths = floorPreviewPaths,
-                FloorRecognitionSourcePaths = string.Equals(record.Source, "survey", StringComparison.Ordinal)
-                    ? record.Floors.ToDictionary(
+                FloorRecognitionSourcePaths = record.Floors
+                    .Where(floor => floor.SharedStructure is not null
+                        || string.Equals(record.Source, "survey", StringComparison.Ordinal))
+                    .ToDictionary(
                         floor => floor.Key,
                         floor => GetFloorRecognitionPath(record, floor.Key),
-                        StringComparer.Ordinal)
-                    : [],
+                        StringComparer.Ordinal),
                 Floors = record.Floors.Select(f => new FloorDefinition
                 {
+                    SharedStructure = f.SharedStructure?.Clone(),
+                    ArtworkRegistration = f.ArtworkRegistration?.Clone(),
                     Key = f.Key,
                     DisplayName = f.DisplayName,
                     SortOrder = f.SortOrder,
@@ -112,6 +116,9 @@ public sealed partial class MapRepository
                 PortableGates = record.PortableGates.Select(gate => gate.Clone()).ToList(),
                 Tags = new Dictionary<Guid, string>(record.Tags),
                 Recognition = record.Recognition.Clone(),
+                SharedStructureSourceProfiles = record.Floors
+                    .Where(floor => floor.SharedStructure is not null)
+                    .ToDictionary(floor => floor.Key, floor => record.Recognition.GetFloor(floor.Key)!.Clone(), StringComparer.Ordinal),
                 PrebuiltStructureLinePaths = record.Floors
                     .Where(floor => floor.PrebuiltStructureLine?.IsComplete is true)
                     .ToDictionary(
@@ -122,7 +129,13 @@ public sealed partial class MapRepository
                     .FirstOrDefault(floor => floor.PrebuiltStructureLine?.IsComplete is true)
                     is { } algorithmFloor
                         ? GetPrebuiltStructureAlgorithmPath(record, algorithmFloor.Key)
-                        : null
+                        : null,
+                SideEntranceFeaturePaths = record.Floors
+                    .Select(floor => (floor.Key, Profile: record.Recognition.GetFloor(floor.Key)))
+                    .Where(item => !string.IsNullOrWhiteSpace(item.Profile?.SideEntranceFeatureFileName))
+                    .ToDictionary(item => item.Key,
+                        item => GetSafeMapFilePath(GetMapDirectory(record.Id), item.Profile!.SideEntranceFeatureFileName!),
+                        StringComparer.Ordinal)
             };
         }
         finally
@@ -154,6 +167,8 @@ public sealed partial class MapRepository
             var existing = draft.Id is { } id ? catalog.Maps.SingleOrDefault(map => map.Id == id) : null;
             if (draft.Id is not null && existing is null && !draft.CreateAsImportedCopy)
                 throw new InvalidOperationException("找不到要编辑的地图。");
+
+            var previous = existing?.Clone();
 
             var record = existing ?? new MapRecord
             {
@@ -216,6 +231,8 @@ public sealed partial class MapRepository
                     .ThenBy(floor => floor.Key, StringComparer.Ordinal)
                     .Select((floor, index) => new FloorDefinition
                     {
+                        SharedStructure = floor.SharedStructure?.Clone(),
+                        ArtworkRegistration = floor.ArtworkRegistration?.Clone(),
                         Key = floor.Key,
                         DisplayName = floor.DisplayName,
                         SortOrder = index + 1,
@@ -236,11 +253,15 @@ public sealed partial class MapRepository
                 .Select(floor => floor.Key)
                 .ToArray();
             if (isNewRecord && classDownsampleFactor != 0)
-                ScaleBackgroundBrushes(record.Recognition, 0, classDownsampleFactor);
+            {
+                foreach (var floor in record.Floors.Where(floor => floor.SharedStructure is null))
+                    ScaleBackgroundBrushes(record.Recognition.GetFloor(floor.Key)!, 0, classDownsampleFactor);
+            }
 
             async Task<string> CopyFloorInputAsync(string key, string path)
             {
-                if (isNewRecord && classDownsampleFactor != 0)
+                if (isNewRecord && classDownsampleFactor != 0
+                    && record.Floors.Single(floor => floor.Key == key).SharedStructure is null)
                 {
                     var index = Array.IndexOf(orderedFloorKeys, key);
                     var originals = GetDownsampleOriginalDirectory(
@@ -311,6 +332,11 @@ public sealed partial class MapRepository
                 var overlayFileName = GetFloorOverlayFileName(key);
                 var recognitionPath = Path.Combine(stagingDirectory, recognitionFileName);
                 var overlayPath = Path.Combine(stagingDirectory, overlayFileName);
+                if (floor.SharedStructure is not null)
+                {
+                    await SaveSharedFloorAssetsAsync(stagingDirectory, floor, profile, sourcePath, draft, previous);
+                    continue;
+                }
                 var hasSurveyStructure = draft.FloorRecognitionSourcePaths.TryGetValue(
                     key,
                     out var surveyStructurePath)

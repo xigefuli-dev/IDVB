@@ -25,7 +25,7 @@ public sealed partial class SessionOrchestrator : ISessionOrchestrator, IDisposa
         await _observationTask;
         if (!IsCurrentMatchOperation(operationMatch)) return;
 
-        if (!await _scanGate.WaitAsync(0))
+        if (!await TryAcquireExplicitRecognitionGateAsync(cancellationToken))
         {
             _statusMessage = "已有扫描正在进行，请稍候。";
             StateChanged?.Invoke(this, EventArgs.Empty);

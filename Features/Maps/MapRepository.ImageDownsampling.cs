@@ -75,6 +75,8 @@ public sealed partial class MapRepository
                     for (var index = 0; index < draft.Floors.Count; index++)
                     {
                         var floor = draft.Floors[index];
+                        if (floor.SharedStructure is not null)
+                            continue;
                         if (!draft.FloorPaths.TryGetValue(floor.Key, out var activeVisual))
                             continue;
                         var originalDirectory = GetDownsampleOriginalDirectory(originalsRoot, map.Id);
@@ -107,10 +109,9 @@ public sealed partial class MapRepository
                                 cancellationToken);
                         }
                     }
-                    ScaleBackgroundBrushes(
-                        draft.Recognition,
-                        current.ImageDownsampleFactor,
-                        normalizedFactor);
+                    foreach (var floor in draft.Floors.Where(floor => floor.SharedStructure is null))
+                        ScaleBackgroundBrushes(draft.Recognition.GetFloor(floor.Key)!,
+                            current.ImageDownsampleFactor, normalizedFactor);
                     draft.RemoveBackgroundOverride = targetRemoveBackground;
                     draft.BackgroundRemovalIntensityOverride = targetIntensity;
                     await SaveCoreAsync(draft, gateAlreadyHeld: true);
@@ -162,11 +163,11 @@ public sealed partial class MapRepository
     {
         var originalDirectory = GetDownsampleOriginalDirectory(
             Path.Combine(_rootDirectory, ".downsample-originals"), map.Id);
-        return Directory.Exists(originalDirectory)
-            && MapFloorRules.GetOrderedFloors(map).Select((_, index) => index).All(index =>
-                Directory.EnumerateFiles(
+        return MapFloorRules.GetOrderedFloors(map).Select((floor, index) => (floor, index))
+            .Where(item => item.floor.SharedStructure is null).All(item =>
+                Directory.Exists(originalDirectory) && Directory.EnumerateFiles(
                     originalDirectory,
-                    $"floor-{index + 1:D3}-visual.*",
+                    $"floor-{item.index + 1:D3}-visual.*",
                     SearchOption.TopDirectoryOnly)
                 .Any(IsSupportedImage));
     }
@@ -180,7 +181,8 @@ public sealed partial class MapRepository
         var active = recognitionSource
             ? GetFloorRecognitionPath(map, floorKey)
             : GetFloorImagePath(map, floorKey);
-        if (ClampImageDownsampleFactor(map.ClassProperties.ImageDownsampleFactor) == 0)
+        if (map.Floors.Single(floor => floor.Key == floorKey).SharedStructure is not null
+            || ClampImageDownsampleFactor(map.ClassProperties.ImageDownsampleFactor) == 0)
             return active;
 
         var originalDirectory = GetDownsampleOriginalDirectory(

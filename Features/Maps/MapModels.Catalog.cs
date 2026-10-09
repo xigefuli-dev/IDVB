@@ -99,6 +99,9 @@ public sealed record MapCatalogSnapshot(
     IReadOnlyList<string> Classes,
     IReadOnlyList<MapRecord> Maps)
 {
+    // Captured under the same repository gate as the catalog read. Consumers
+    // must not relabel this snapshot with a later on-disk revision.
+    public MapCatalogRevision Revision { get; init; } = MapCatalogRevision.Empty;
     public IReadOnlyDictionary<string, MapClassProperties> ClassProperties { get; init; } =
         new Dictionary<string, MapClassProperties>(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<MapVariantGroup> VariantGroups { get; init; } = [];

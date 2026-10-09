@@ -143,8 +143,11 @@ public sealed partial class MapCvRecognitionService : IDisposable
             // could repair files after the first scan had already cached stale lines.
             await _repository.HealMissingPrebuiltStructureLinesAsync(onlyOutdated: true);
             var catalog = await _repository.GetCatalogSnapshotAsync();
+            await _repository.EnsureDerivedAssetsAsync(catalog.Maps);
+            // Asset repair may persist metadata, and an editor may save anchors
+            // while repair runs. Re-read both together before preparing caches.
+            catalog = await _repository.GetCatalogSnapshotAsync();
             var maps = catalog.Maps;
-            await _repository.EnsureDerivedAssetsAsync(maps);
 
             var cacheDispatch = MapOperationTraceAmbient.StartChild(
                 "map_catalog_fingerprint_dispatch_wait",
@@ -177,7 +180,7 @@ public sealed partial class MapCvRecognitionService : IDisposable
                         var previousFingerprints = _fingerprints.ToDictionary(
                             fingerprint => fingerprint.Map.Id);
                         var changedIds = snapshot
-                            .Where(map => changedMapId == map.Id
+                            .Where(map => (changedMapId == map.Id && !map.Floors.All(floor => floor.SharedStructure is not null))
                                 || !previousMaps.TryGetValue(map.Id, out var previous)
                                 || !MapCvRecognitionHelpers.HaveSameFingerprintInputs(previous, map))
                             .Select(map => map.Id)
@@ -215,10 +218,13 @@ public sealed partial class MapCvRecognitionService : IDisposable
             _maps = cache.Maps;
             ScanVariantGroups = catalog.VariantGroups.Select(g => g.MapIds.ToArray()).ToArray();
             _fingerprints = cache.Fingerprints;
-            _catalogRevision = _repository.GetCatalogRevision();
+            // If another save occurred during preparation, this older revision
+            // deliberately remains visible so the next refresh cannot early-out.
+            _catalogRevision = catalog.Revision;
             _cacheInitialized = true;
             _structureCache.InvalidateMaps(cache.ChangedMapIds);
             InvalidateAndTriggerVpsg3Rebuild(ResidentMaps(cache.Maps), cache.ChangedMapIds);
+            ScheduleAutomaticEntryReferencePreparation(ResidentMaps(cache.Maps), _catalogRevision);
             // MapRepository may overwrite an image without changing its path.
             _invalidateOverlayImageCache?.Invoke();
 
@@ -286,7 +292,8 @@ public sealed partial class MapCvRecognitionService : IDisposable
                 frame.ViewportBounds,
                 frame.ClientBounds.Width,
                 tuning.GateTemplateThreshold,
-                new GateSearchContext { Mode = GateSearchMode.FullSearch });
+                new GateSearchContext { Mode = GateSearchMode.FullSearch },
+                excludedScreenRegions: frame.UiExclusionRegions);
         }
         var gates = gateResult.Gates;
         stopwatch.Stop();

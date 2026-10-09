@@ -19,31 +19,54 @@ public enum MapAlignmentPrerequisiteKind
 /// </summary>
 public sealed class MapMatchMapLease
 {
-    public Guid? MapId { get; private set; }
-    public int MatchVersion { get; private set; }
+    private sealed record Binding(Guid MapId, int MatchVersion, MapMatchVariantIdentity? VariantIdentity);
+    private Binding? _binding;
 
-    public void Bind(MapMatchSnapshot match, Guid mapId)
+    public Guid? MapId => Volatile.Read(ref _binding)?.MapId;
+    public int MatchVersion => Volatile.Read(ref _binding)?.MatchVersion ?? 0;
+    public MapMatchVariantIdentity? VariantIdentity => Volatile.Read(ref _binding)?.VariantIdentity;
+
+    public void Bind(MapMatchSnapshot match, Guid mapId, MapAutomaticIdentityAttempt? automaticIdentity = null,
+        bool clearVariantIdentity = false)
     {
         if (!match.IsStarted)
             throw new InvalidOperationException("A map can be selected only for an active match.");
         if (mapId == Guid.Empty)
             throw new ArgumentOutOfRangeException(nameof(mapId));
 
-        MapId = mapId;
-        MatchVersion = match.Version;
+        var previous = Volatile.Read(ref _binding);
+        // Alignment publishers rebind the same identity. They must not erase
+        // an unresolved group that the identity recognizer already confirmed.
+        MapMatchVariantIdentity? variant = automaticIdentity is null && !clearVariantIdentity
+            && previous?.MapId == mapId && previous.MatchVersion == match.Version
+                ? previous.VariantIdentity : null;
+        if (automaticIdentity?.Accepted == true
+            && automaticIdentity.Recognition?.Map.Id == mapId
+            && string.Equals(automaticIdentity.MapClass, match.MapClass, StringComparison.OrdinalIgnoreCase)
+            && automaticIdentity.ConfirmedVariantGroupId is { } groupId
+            && automaticIdentity.ConfirmedVariantMapIds.Contains(mapId))
+        {
+            variant = new(groupId,
+                Array.AsReadOnly(automaticIdentity.ConfirmedVariantMapIds.ToArray()),
+                automaticIdentity.ConfirmedVariantMemberId, automaticIdentity.CatalogRevision);
+        }
+        Volatile.Write(ref _binding, new Binding(mapId, match.Version, variant));
     }
 
-    public bool IsCurrent(MapMatchSnapshot match, Guid mapId) =>
-        match.IsStarted
-        && MapId == mapId
-        && MatchVersion == match.Version;
+    public bool IsCurrent(MapMatchSnapshot match, Guid mapId)
+    {
+        var binding = Volatile.Read(ref _binding);
+        return match.IsStarted && binding?.MapId == mapId && binding.MatchVersion == match.Version;
+    }
 
     public void Clear()
     {
-        MapId = null;
-        MatchVersion = 0;
+        Volatile.Write(ref _binding, null);
     }
 }
+
+public sealed record MapMatchVariantIdentity(Guid GroupId, IReadOnlyList<Guid> MapIds,
+    Guid? ConfirmedMemberId, MapCatalogRevision CatalogRevision);
 
 public static class MapMatchLifecycleRules
 {

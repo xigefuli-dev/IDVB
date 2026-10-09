@@ -152,12 +152,36 @@ public sealed partial class MapListPage : UserControl
 
     private sealed class ImportFloorEntry
     {
+        public Guid? StructureReferenceMapId { get; set; }
+        public string StructureReferenceFloorKey { get; set; } = string.Empty;
+        public string StructureSourceDirectory { get; set; } = string.Empty;
+        public string StructureSourceAlgorithmPath { get; set; } = string.Empty;
+        public MapSharedFloorStructure? SharedStructure { get; set; }
+        public MapArtworkRegistration? ArtworkRegistration { get; set; }
+        public FloorRecognitionProfile? ArtworkCropProfile { get; set; }
         public string OriginalFloorKey { get; set; } = string.Empty;
         public string FloorKey { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
         public List<string> MarkerKeys { get; set; } = [];
         public string ImagePath { get; set; } = string.Empty;
         public string PreviewImagePath { get; set; } = string.Empty;
+
+        public ImportFloorEntry Clone() => new()
+        {
+            StructureReferenceMapId = StructureReferenceMapId,
+            StructureReferenceFloorKey = StructureReferenceFloorKey,
+            StructureSourceDirectory = StructureSourceDirectory,
+            StructureSourceAlgorithmPath = StructureSourceAlgorithmPath,
+            SharedStructure = SharedStructure?.Clone(),
+            ArtworkRegistration = ArtworkRegistration?.Clone(),
+            ArtworkCropProfile = ArtworkCropProfile?.Clone(),
+            OriginalFloorKey = OriginalFloorKey,
+            FloorKey = FloorKey,
+            DisplayName = DisplayName,
+            MarkerKeys = [.. MarkerKeys],
+            ImagePath = ImagePath,
+            PreviewImagePath = PreviewImagePath
+        };
     }
 
     private sealed record FloorIdentity(

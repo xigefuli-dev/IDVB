@@ -31,6 +31,12 @@ public static class AppDataPaths
         // Unit tests must never migrate or write the user's installed data.
         return Path.Combine(Path.GetTempPath(), $"IDVB-UnitTests-{Environment.ProcessId}");
 #else
+#if IDVBUFF_TEST_BUILD
+        // Replays and manual feature tests can share an isolated data copy.
+        var testDataRoot = Environment.GetEnvironmentVariable("IDVB_TEST_DATA_ROOT");
+        if (!string.IsNullOrWhiteSpace(testDataRoot))
+            return Path.GetFullPath(testDataRoot);
+#endif
         var localAppData = Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData);
         var targetDirectory = Path.Combine(localAppData, ProductDirectoryName);

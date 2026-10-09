@@ -4,7 +4,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
         // _pendingAlignmentIdentity records that its transform is still
         // awaiting validation. Prefer the pending identity and keep using the
         // strict initial-alignment route until that transform is accepted.
-        var recoveringSelectedIdentity = _pendingAlignmentIdentity is not null;         var locked = _pendingAlignmentIdentity ?? _lastRecognition;         if (locked is null)         {             trace?.SetTerminal("failed", "no-locked-map");             _statusMessage = "尚未锁定地图，请先按快捷扫描键确认地图。";             StateChanged?.Invoke(this, EventArgs.Empty);             return;         }         _statusMessage = "地图已重新打开，正在重新对齐……";         var context = CaptureMapOpenOperationContext(toggle, operationMatch, locked, cancellationToken, _currentFloorKey);         var primaryFloorKey = MapFloorRules.GetPrimaryFloorKey(locked.Map);         var targetFloorKey = _currentFloorKey ?? primaryFloorKey;         var isOtherFloor = !string.Equals(             targetFloorKey,             primaryFloorKey,             StringComparison.Ordinal);         var isPendingVariantAlignment = IsPendingVariantAlignment(             locked.Map.Id,             targetFloorKey);         trace?.SetContext(             route: isOtherFloor ? "structure-only-floor" : "primary-floor",             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         _logCollector.Append(             MapLogCategory.Session,             MapLogLevel.Info,             $"开始仅对齐 · map={locked.Map.Id} · floor={targetFloorKey} "             + $"· route={(isOtherFloor ? "structure-only-floor" : "primary-floor")} "             + $"· toggleVersion={toggle.Version}");         // Presence detection owns readiness. A fixed animation delay makes the
+        var recoveringSelectedIdentity = _pendingAlignmentIdentity is not null;         var locked = _pendingAlignmentIdentity ?? _lastRecognition;         if (locked is null)         {             await RunAutomaticMapOpenIdentityAsync(toggle, operationMatch, cancellationToken);             return;         }         _statusMessage = "地图已重新打开，正在重新对齐……";         var context = CaptureMapOpenOperationContext(toggle, operationMatch, locked, cancellationToken, _currentFloorKey);         var primaryFloorKey = MapFloorRules.GetPrimaryFloorKey(locked.Map);         var targetFloorKey = _currentFloorKey ?? primaryFloorKey;         var isOtherFloor = !string.Equals(             targetFloorKey,             primaryFloorKey,             StringComparison.Ordinal);         var isPendingVariantAlignment = IsPendingVariantAlignment(             locked.Map.Id,             targetFloorKey);         trace?.SetContext(             route: isOtherFloor ? "structure-only-floor" : "primary-floor",             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         _logCollector.Append(             MapLogCategory.Session,             MapLogLevel.Info,             $"开始仅对齐 · map={locked.Map.Id} · floor={targetFloorKey} "             + $"· route={(isOtherFloor ? "structure-only-floor" : "primary-floor")} "             + $"· toggleVersion={toggle.Version}");         // Presence detection owns readiness. A fixed animation delay makes the
         // end-to-end target depend on a guessed timer and can discard the first
         // valid frame, so the alignment route no longer waits here.
         var openingWait = trace?.StartTopLevel(             "opening_animation_wait",             MapOperationWaitKind.Timer,             mapId: locked.Map.Id.ToString("D"),             floorKey: targetFloorKey);         try         {             cancellationToken.ThrowIfCancellationRequested();         }         finally         {             openingWait?.Complete();         }         const double openingAnimationWaitMs = 0d;         // Start immutable reference preparation while the first usable frame
@@ -43,7 +43,7 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
         var autoFloor = indicatorGroup is null ? null : new AutoFloorCapture(locked.Map, indicatorGroup);
         if (autoFloor is not null)
         {
-            var initialViewport = ResolveMapViewportForCurrentWindow();
+            var initialViewport = AutomaticMapViewport();
             autoFloor.LogMonitoringStarted(initialViewport, "仅对齐开图");
         }
         var initialPrewarmTuning = CreateStructureTuningForFloor(             locked.Map,             targetFloorKey,             CreateInitialAlignmentStructureTuning());         var initialPrewarmTask = _recognition.WarmFloorStructureCacheAsync(
@@ -52,6 +52,22 @@ using IDVBuff.Core.Contracts; using IDVBuff.Core.Diagnostics; using IDVBuff.Core
         // no second screenshot is taken after readiness is confirmed.
         var captureResult = await CaptureMapOpenViewportAsync(toggle, locked, targetFloorKey, initialPrewarmTuning, cancellationToken, autoFloor); CapturedGameFrame? frame = captureResult.Frame; var stableViewportWaitMs = captureResult.StableViewportWaitMilliseconds; var stableViewportMode = captureResult.StableViewportMode; var stableViewportFallback = captureResult.StableViewportFallback; var precomputedVpsg3Attempt = captureResult.PrecomputedVpsg3Attempt;         if (!_gameMapToggleState.IsCurrent(toggle) || !IsMapOpenOperationCurrent(context))         {             trace?.SetTerminal("superseded", "map-operation-version-changed");             frame?.Dispose();             return;         }         try         {             cancellationToken.ThrowIfCancellationRequested();         }         catch         {             frame?.Dispose();             throw;         }         if (frame is null)         {             trace?.SetTerminal("failed", "stable-viewport-capture-failed");             _statusMessage = string.IsNullOrWhiteSpace(_lastStableCaptureFailureReason)                 ? "地图截图失败。"                 : _lastStableCaptureFailureReason;             _logCollector.Append(                 MapLogCategory.ViewportCapture,                 MapLogLevel.Warning,                 _statusMessage,                 elapsedMs: alignmentWallClock.Elapsed.TotalMilliseconds);             var failureOverlay = trace?.StartTopLevel(                 "overlay_publish",                 MapOperationWaitKind.Compute,                 mapId: locked.Map.Id.ToString("D"),                 floorKey: targetFloorKey);             try             {                 _overlay.ClearMap();                 if (_lastGameBounds.IsValid && _lastGameWindowHandle != IntPtr.Zero)                 {                     ShowTransientOverlayStatus(                         MapOverlayStatusLevel.Failure,                         "地图重新对齐失败",                         _statusMessage,                         "请保持游戏完整地图打开且画面稳定，然后重新打开地图重试。",                         _lastGameBounds,                         _lastGameWindowHandle);                     _overlay.Show();                 }                 RestorePendingVariantStatusAfterTransient(                     _statusMessage,                     locked,                     targetFloorKey);             }             finally             {                 failureOverlay?.Complete();             }             StateChanged?.Invoke(this, EventArgs.Empty);
             return;
+        }
+
+        // Group resolution must precede restoring the previous member's transform.
+        try
+        {
+            if (await TryResolveAutomaticVariantAsync(frame, locked, toggle,
+                    operationMatch, cancellationToken))
+            {
+                frame.Dispose();
+                return;
+            }
+        }
+        catch
+        {
+            frame.Dispose();
+            throw;
         }
 
         // 截帧已成功完成，底层大地图图像已完全保存在 frame 内存中。

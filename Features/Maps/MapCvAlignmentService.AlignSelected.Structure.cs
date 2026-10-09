@@ -55,7 +55,7 @@ internal static partial class MapCvAlignmentService
         stopwatch.Restart();
         using var residentReferenceLease = service.StructureCache.TryRentResident(
             fingerprint.Map.Id,
-            fingerprint.Map.UpdatedAt,
+            MapStructureRevisionRules.GetFloorUpdatedAt(fingerprint.Map, fingerprint.FloorKey),
             fingerprint.FloorKey,
             structureTuning.Generation,
             structurePreprocessingProfile);
@@ -64,7 +64,7 @@ internal static partial class MapCvAlignmentService
         {
             ownedPreparedReference = service.StructureCache.GetOrCreate(
                 fingerprint.Map.Id,
-                fingerprint.Map.UpdatedAt,
+                MapStructureRevisionRules.GetFloorUpdatedAt(fingerprint.Map, fingerprint.FloorKey),
                 reference,
                 primaryProfile.WholeImageIgnoreRegions,
                 fingerprint.FloorKey,

@@ -110,11 +110,11 @@ public sealed partial class IdvmPackageService
             var manifest = new ManifestDto
             {
                 Format = "idvm",
-                FormatVersion = "1.4",
+                FormatVersion = selectedMaps.Any(map => map.Floors.Any(floor => floor.SharedStructure is not null)) ? "1.5" : "1.4",
                 PackageType = "class-set",
                 PackageId = packageId,
                 CreatedAt = createdAt,
-                MinimumReader = "1.4",
+                MinimumReader = selectedMaps.Any(map => map.Floors.Any(floor => floor.SharedStructure is not null)) ? "1.5" : "1.4",
                 SupportedPlatforms = IdvmPlatformCompatibility.All.ToList(),
                 Capabilities = new CapabilitiesDto
                 {
@@ -199,7 +199,8 @@ public sealed partial class IdvmPackageService
             var manifestBytes = SerializeUtf8(manifest);
             var manifestPath = Path.Combine(staging, "manifest.json");
             await File.WriteAllBytesAsync(manifestPath, manifestBytes, cancellationToken);
-            var header = CreateHeader(packageId, createdAt, SHA256.HashData(manifestBytes));
+            var header = CreateHeader(packageId, createdAt, SHA256.HashData(manifestBytes),
+                manifest.FormatVersion == "1.5" ? (ushort)5 : (ushort)4);
             await File.WriteAllBytesAsync(Path.Combine(staging, "header"), header, cancellationToken);
 
             await CreateArchiveAsync(staging, temporaryDestination, cancellationToken);
@@ -385,6 +386,8 @@ public sealed partial class IdvmPackageService
 
     private sealed class MetadataFloorDto
     {
+        public MapSharedFloorStructure? SharedStructure { get; set; }
+        public MapArtworkRegistration? ArtworkRegistration { get; set; }
         public string Key { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
         public int SortOrder { get; set; }
@@ -405,6 +408,9 @@ public sealed partial class IdvmPackageService
     /// <summary>侧门特征图的可移植元数据，写入 metadata.json。</summary>
     private sealed class SideEntranceFeatureDto
     {
+        public string? Sha256 { get; set; }
+        public string? SourceSha256 { get; set; }
+        public string? AlgorithmVersion { get; set; }
         /// <summary>特征图在 IDVM 包内的逻辑路径（{root}/data/floor-n-side-entrance-feature.png）。</summary>
         public string File { get; set; } = string.Empty;
         /// <summary>实际中心点 X（识别图像素，边界挤压后）。</summary>

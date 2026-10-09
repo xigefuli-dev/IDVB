@@ -281,7 +281,9 @@ public sealed class MapOpenSession
     public MapSessionSnapshot LockMapIdentity(
         Guid mapId,
         string floor,
-        double confidence)
+        double confidence,
+        MapRecalibrationReason reason = MapRecalibrationReason.None,
+        string? detail = null)
     {
         if (mapId == Guid.Empty)
             throw new ArgumentOutOfRangeException(nameof(mapId));
@@ -295,12 +297,13 @@ public sealed class MapOpenSession
             MapId = mapId,
             Floor = floor,
             State = MapSessionState.Confirming,
+            RecalibrationReason = reason,
             LocationMethod = MapLocationMethod.None,
             Confidence = Math.Clamp(
                 double.IsFinite(confidence) ? confidence : 0d,
                 0d,
                 1d),
-            Detail = "user-selected map identity locked; alignment pending"
+            Detail = detail ?? "user-selected map identity locked; alignment pending"
         };
         return Snapshot;
     }

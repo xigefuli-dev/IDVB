@@ -244,28 +244,77 @@ public sealed partial class IdvaStructureLineEngine
         return result;
     }
 
-    private static Mat FillSmallHoles(Mat source, int maximumArea)
+    private static Mat FillSmallHoles(
+        Mat source,
+        int maximumArea,
+        Mat sourceBackground,
+        int? minimumComponentArea,
+        CancellationToken cancellationToken)
     {
         var result = source.Clone();
-        using var inverse = new Mat();
-        Cv2.Compare(source, 0, inverse, CmpTypes.EQ);
-        using var labels = new Mat();
-        using var stats = new Mat();
-        using var centroids = new Mat();
-        var count = Cv2.ConnectedComponentsWithStats(
-            inverse, labels, stats, centroids, PixelConnectivity.Connectivity8);
-        var borderLabels = GetBorderLabels(labels);
-        for (var label = 1; label < count; label++)
+        try
         {
-            if (!borderLabels.Contains(label)
-                && stats.At<int>(label, (int)ConnectedComponentsTypes.Area) <= maximumArea)
+            using var inverse = new Mat();
+            Cv2.Compare(source, 0, inverse, CmpTypes.EQ);
+            using var labels = new Mat();
+            using var stats = new Mat();
+            using var centroids = new Mat();
+            var count = Cv2.ConnectedComponentsWithStats(
+                inverse, labels, stats, centroids, PixelConnectivity.Connectivity8);
+            var borderLabels = GetBorderLabels(labels);
+            for (var label = 1; label < count; label++)
             {
-                using var component = new Mat();
-                Cv2.Compare(labels, label, component, CmpTypes.EQ);
-                result.SetTo(Scalar.White, component);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!borderLabels.Contains(label)
+                    && stats.At<int>(label, (int)ConnectedComponentsTypes.Area) <= maximumArea)
+                {
+                    using var component = new Mat();
+                    Cv2.Compare(labels, label, component, CmpTypes.EQ);
+                    if (HasSolidSourceVoid(component, sourceBackground, stats, label, minimumComponentArea))
+                        continue;
+                    result.SetTo(Scalar.White, component);
+                }
             }
+            return result;
         }
-        return result;
+        catch
+        {
+            result.Dispose();
+            throw;
+        }
+    }
+
+    private static bool HasSolidSourceVoid(
+        Mat hole,
+        Mat sourceBackground,
+        Mat stats,
+        int label,
+        int? minimumComponentArea)
+    {
+        // Only a preceding declaration supplies the package's spatial noise scale.
+        // Total black ink area is insufficient: a thin text stroke can be very long.
+        // Require a solid two-dimensional square at that same area scale, then keep
+        // the WHOLE classified hole (including its anti-aliased boundary), not merely
+        // the black core. Coarse solid annotations remain indistinguishable here;
+        // this is a conservative geometry policy, not a general text classifier.
+        if (minimumComponentArea is not > 1)
+            return false;
+        var side = (int)Math.Ceiling(Math.Sqrt(minimumComponentArea.Value));
+        var bounds = new Rect(
+            stats.At<int>(label, (int)ConnectedComponentsTypes.Left),
+            stats.At<int>(label, (int)ConnectedComponentsTypes.Top),
+            stats.At<int>(label, (int)ConnectedComponentsTypes.Width),
+            stats.At<int>(label, (int)ConnectedComponentsTypes.Height));
+        if (bounds.Width < side || bounds.Height < side)
+            return false;
+        using var holeRegion = new Mat(hole, bounds);
+        using var sourceRegion = new Mat(sourceBackground, bounds);
+        using var blackVoid = new Mat();
+        Cv2.BitwiseAnd(holeRegion, sourceRegion, blackVoid);
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(side, side));
+        using var solid = new Mat();
+        Cv2.Erode(blackVoid, solid, kernel, borderType: BorderTypes.Constant, borderValue: Scalar.Black);
+        return Cv2.CountNonZero(solid) != 0;
     }
 
     private static HashSet<int> GetBorderLabels(Mat labels)

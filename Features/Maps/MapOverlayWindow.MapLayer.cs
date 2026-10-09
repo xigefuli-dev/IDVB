@@ -10,6 +10,7 @@ public sealed partial class MapOverlayWindow
     private int _mapLayerPixelHeight;
     private long _mapLayerBitmapBuildCount;
     private long _mapLayerTransformMoveCount;
+    private long _lastNativeMapMoveSample;
 
     public bool IsCaptureExclusionEnabled => _nativeWindow.IsCaptureExclusionEnabled
         && (_map is null || _mapNativeWindow.IsCaptureExclusionEnabled);
@@ -97,6 +98,25 @@ public sealed partial class MapOverlayWindow
             placement.ClipBounds,
             _nativeWindow.Handle);
         Interlocked.Increment(ref _mapLayerTransformMoveCount);
+        LogNativeMapMove(placement.Bounds);
+    }
+
+    private void LogNativeMapMove(MapScreenRect bounds)
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (System.Diagnostics.Stopwatch.GetElapsedTime(_lastNativeMapMoveSample, now).TotalMilliseconds >= 200)
+        {
+            _lastNativeMapMoveSample = now;
+            MapLogCollector.Instance.Append(MapLogCategory.StructureRegistration, MapLogLevel.Info,
+                "保留贴图层实际移动采样", details: new()
+                {
+                    ["screenX"] = bounds.X, ["screenY"] = bounds.Y,
+                    ["nativeMoveCount"] = MapLayerTransformMoveCount,
+                    ["nativeBitmapBuildCount"] = MapLayerBitmapBuildCount,
+                    ["visible"] = _mapNativeWindow.IsVisible,
+                    ["endpoint"] = "SetWindowPos-and-clip-return-not-screen-presentation"
+                });
+        }
     }
 
     private void MoveMapLayerOnly()
@@ -130,6 +150,7 @@ public sealed partial class MapOverlayWindow
             placement.ClipBounds,
             _nativeWindow.Handle);
         Interlocked.Increment(ref _mapLayerTransformMoveCount);
+        LogNativeMapMove(placement.Bounds);
     }
 
     private MapLayerPlacement ResolveMapLayerPlacement(MapOverlayRenderMap map)

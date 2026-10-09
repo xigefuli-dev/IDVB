@@ -32,12 +32,12 @@ public sealed partial class IdvmPackageService
         }
     }
 
-    private static byte[] CreateHeader(Guid packageId, DateTimeOffset createdAt, byte[] manifestHash)
+    private static byte[] CreateHeader(Guid packageId, DateTimeOffset createdAt, byte[] manifestHash, ushort minorVersion = 4)
     {
         var bytes = new byte[HeaderSize];
         Encoding.ASCII.GetBytes("IDVM").CopyTo(bytes, 0);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4, 2), 1);
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), 4);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6, 2), minorVersion);
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(8, 2), HeaderSize);
         WriteRfc4122Guid(packageId, bytes.AsSpan(12, 16));
         BinaryPrimitives.WriteInt64LittleEndian(
@@ -130,7 +130,7 @@ public sealed partial class IdvmPackageService
         for (var index = 0; index < orderedFloors.Count; index++)
         {
             var floor = orderedFloors[index];
-            var isDownsampled = MapRepository.ClampImageDownsampleFactor(
+            var isDownsampled = floor.SharedStructure is null && MapRepository.ClampImageDownsampleFactor(
                 classProperties.ImageDownsampleFactor) != 0;
             var source = _repository.GetFloorImagePathForPortableExport(map, floor.Key, index);
             if (!File.Exists(source))
@@ -146,10 +146,12 @@ public sealed partial class IdvmPackageService
                 throw new InvalidOperationException($"无法读取 {map.DisplayName} 的楼层图片。");
 
             string? recognitionLogicalPath = null;
-            if (string.Equals(map.Source, "survey", StringComparison.Ordinal))
+            if (floor.SharedStructure is not null || string.Equals(map.Source, "survey", StringComparison.Ordinal))
             {
                 var recognitionSource = _repository.GetFloorImagePathForPortableExport(
                     map, floor.Key, index, recognitionSource: true);
+                if (floor.SharedStructure is not null && !File.Exists(recognitionSource))
+                    throw new InvalidOperationException($"{map.DisplayName} 的楼层“{floor.DisplayName}”结构底图不存在，无法导出。");
                 if (File.Exists(recognitionSource))
                 {
                     recognitionLogicalPath = $"{root}/data/floor-{index + 1:D3}-recognition.png";
@@ -176,6 +178,8 @@ public sealed partial class IdvmPackageService
             manifestMap.Floors.Add(manifestFloor);
             metadata.Floors.Add(new MetadataFloorDto
             {
+                SharedStructure = floor.SharedStructure?.Clone(),
+                ArtworkRegistration = floor.ArtworkRegistration?.Clone(),
                 Key = floor.Key,
                 DisplayName = floor.DisplayName,
                 SortOrder = index + 1,
@@ -215,7 +219,7 @@ public sealed partial class IdvmPackageService
         foreach (var floor in orderedFloors)
         {
             var profile = map.Recognition.GetFloor(floor.Key)!.Clone();
-            if (MapRepository.ClampImageDownsampleFactor(classProperties.ImageDownsampleFactor) != 0)
+            if (floor.SharedStructure is null && MapRepository.ClampImageDownsampleFactor(classProperties.ImageDownsampleFactor) != 0)
                 MapRepository.ScaleBackgroundBrushes(profile, classProperties.ImageDownsampleFactor, 0);
             var floorAnchors = new AnchorFloorDto
             {
@@ -355,6 +359,9 @@ public sealed partial class IdvmPackageService
             return new SideEntranceFeatureDto
             {
                 File    = featureLogicalPath,
+                Sha256 = profile.SideEntranceFeatureSha256,
+                SourceSha256 = profile.SideEntranceFeatureSourceSha256,
+                AlgorithmVersion = profile.SideEntranceFeatureAlgorithmVersion,
                 CenterX = profile.SideEntranceFeatureCenterX,
                 CenterY = profile.SideEntranceFeatureCenterY,
                 Radius  = profile.SideEntranceFeatureRadius
@@ -371,6 +378,13 @@ public sealed partial class IdvmPackageService
     {
         var gates = map.PortableGates
             .Where(IsValidPortableGate)
+            .Where(gate => map.Floors.FirstOrDefault(floor => floor.Key == gate.FloorKey)
+                ?.SharedStructure?.Source is not { } source || gate.Role switch
+                {
+                    "mainEntrance" => source.Entrances.Any(entrance => entrance.Role == "main-entrance"),
+                    "sideEntrance" => source.Entrances.Any(entrance => entrance.Role == "side-entrance"),
+                    _ => true
+                })
             .Select(item => item.Clone())
             .ToList();
         foreach (var floor in MapFloorRules.GetOrderedFloors(map))

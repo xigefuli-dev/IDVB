@@ -14,7 +14,7 @@ public static partial class MapFeatureCacheRules
         string configFingerprint = "legacy") =>
         new(
             map.Id,
-            ComputeContentFingerprint(map),
+            ComputeContentFingerprint(map, floorKey),
             floorKey,
             resolution,
             channel == MapAlignmentChannel.LowStructure ? "low_structure" : "standard",

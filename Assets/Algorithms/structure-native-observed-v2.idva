@@ -1,0 +1,180 @@
+{
+  "format": "IDVA",
+  "format_name": "Identity Vision Algorithm",
+  "schema_version": "1.1",
+  "algorithm_id": "structure.native-observed.v2",
+  "display_name": "第五人格原生地图可观测结构线图",
+  "profile_family": "structure-map",
+  "profile_style": "identity-v-native-observed",
+  "geometry_policy": {
+    "preserve_input_size": true,
+    "allow_resize": false,
+    "allow_rotation": false,
+    "allow_warp": false
+  },
+  "runtime": {
+    "reference_runtime": "python3",
+    "dependencies": [
+      "opencv-python",
+      "numpy"
+    ],
+    "entrypoint": "process"
+  },
+  "input": {
+    "type": "raster-image",
+    "expected_color_order": "BGR after cv2.imread",
+    "reference_resolution": [
+      1003,
+      796
+    ],
+    "resolution_policy": "relative HUD ROI; structure geometry remains pixel-preserving"
+  },
+  "outputs": {
+    "ObservedEdges": {
+      "type": "binary-edge-map",
+      "background": 0,
+      "edge": 255,
+      "line_width_px": 2,
+      "meaning": "only structure boundaries confirmed by both semantic color and sharp source-image edge evidence"
+    },
+    "ValidMask": {
+      "type": "binary-validity-mask",
+      "valid": 255,
+      "invalid": 0,
+      "meaning": "invalidates detected fog/frontier uncertainty bands and dynamic HUD regions"
+    },
+    "FrontierDebug": {
+      "type": "binary-debug-mask",
+      "frontier": 255,
+      "meaning": "semantic boundary without sharp wall evidence; interpreted as fog/unexplored frontier or other uncertainty"
+    }
+  },
+  "pipeline": [
+    {
+      "stage": "dynamic_overlay_exclusion",
+      "rules": [
+        "bottom-left green HUD",
+        "upper aligned bright status glyph group"
+      ]
+    },
+    {
+      "stage": "structure_color_classification",
+      "mode": "HSV_RANGE",
+      "classes": [
+        "Room",
+        "Corridor"
+      ]
+    },
+    {
+      "stage": "mask_cleanup",
+      "open_kernel": [
+        3,
+        3
+      ],
+      "close_kernel": [
+        3,
+        3
+      ],
+      "component_min_area": 80,
+      "small_hole_max_area": 450
+    },
+    {
+      "stage": "semantic_candidate_edges",
+      "retrieval": "RETR_CCOMP",
+      "small_child_hole_min_area": 900,
+      "approx_poly_dp_epsilon": 0.55,
+      "line_width_px": 2
+    },
+    {
+      "stage": "source_edge_evidence",
+      "mode": "CANNY_SUPPORT_ONLY",
+      "canny_low": 80,
+      "canny_high": 180,
+      "l2_gradient": true,
+      "support_dilate_kernel": [
+        5,
+        5
+      ]
+    },
+    {
+      "stage": "fog_frontier_rejection",
+      "formula": "ObservedEdges = CandidateEdges AND SourceEdgeSupport",
+      "uncertain_formula": "Frontier = CandidateEdges AND NOT SourceEdgeSupport"
+    },
+    {
+      "stage": "valid_mask",
+      "frontier_invalid_dilate_kernel": [
+        11,
+        11
+      ],
+      "overlay_invalid_dilate_kernel": [
+        5,
+        5
+      ],
+      "confirmed_edges_force_valid": true
+    },
+    {
+      "stage": "edge_cleanup",
+      "observed_edge_component_min_area": 6
+    }
+  ],
+  "parameters": {
+    "room": {
+      "hue_ranges": [
+        [
+          0,
+          25
+        ],
+        [
+          170,
+          179
+        ]
+      ],
+      "saturation_range": [
+        18,
+        165
+      ],
+      "value_range": [
+        82,
+        200
+      ]
+    },
+    "corridor": {
+      "hue_range": [
+        95,
+        130
+      ],
+      "saturation_range": [
+        14,
+        105
+      ],
+      "value_range": [
+        82,
+        200
+      ]
+    },
+    "fog_frontier": {
+      "principle": "do not reconstruct unexplored geometry; reject semantic boundaries lacking sharp wall evidence",
+      "canny_low": 80,
+      "canny_high": 180,
+      "support_radius_px": 2,
+      "invalid_band_radius_px": 5
+    }
+  },
+  "registration_contract": {
+    "recommended_scoring": "asymmetric observed-to-reference matching",
+    "rule": "score only ObservedEdges pixels; if a symmetric/reference-side term is used, apply ValidMask first",
+    "critical_invariant": "missing edges are acceptable; invented fog-frontier edges are not"
+  },
+  "provenance": {
+    "status": "sandbox-tested",
+    "test_dataset": "显示区域.zip",
+    "test_image_count": 66,
+    "note": "v2 specifically fixes v1 treating unexplored/fog cutoffs as real walls. It does not reconstruct hidden rooms."
+  },
+  "reference_implementation": {
+    "language": "python",
+    "sha256": "240712492b483370d427ab25959f53e94fe49fee524b8fcdac30f6c1c33a19f9",
+    "source": "import cv2\nimport numpy as np\nfrom pathlib import Path\n\ndef _remove_small(mask, min_area):\n    n, labels, stats, _ = cv2.connectedComponentsWithStats(\n        (mask > 0).astype(np.uint8), 8\n    )\n    out = np.zeros_like(mask)\n    for i in range(1, n):\n        if stats[i, cv2.CC_STAT_AREA] >= min_area:\n            out[labels == i] = 255\n    return out\n\ndef _remove_short_edge_components(mask, min_area):\n    n, labels, stats, _ = cv2.connectedComponentsWithStats(\n        (mask > 0).astype(np.uint8), 8\n    )\n    out = np.zeros_like(mask)\n    for i in range(1, n):\n        if stats[i, cv2.CC_STAT_AREA] >= min_area:\n            out[labels == i] = 255\n    return out\n\ndef _fill_small_holes(mask, max_area):\n    inv = (mask == 0).astype(np.uint8)\n    n, labels, stats, _ = cv2.connectedComponentsWithStats(inv, 8)\n    out = mask.copy()\n\n    border_labels = set(\n        np.unique(\n            np.concatenate([\n                labels[0, :],\n                labels[-1, :],\n                labels[:, 0],\n                labels[:, -1],\n            ])\n        ).tolist()\n    )\n\n    for i in range(1, n):\n        if (\n            i not in border_labels\n            and stats[i, cv2.CC_STAT_AREA] <= max_area\n        ):\n            out[labels == i] = 255\n\n    return out\n\ndef _detect_dynamic_exclusion(img):\n    h, w = img.shape[:2]\n    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)\n    H, S, V = cv2.split(hsv)\n    yy, xx = np.indices((h, w))\n    exclusion = np.zeros((h, w), np.uint8)\n\n    # 左下绿色 HUD\n    roi = (yy >= int(0.68 * h)) & (xx < int(0.28 * w))\n    green_seed = (\n        (H >= 35) & (H <= 95) &\n        (S >= 55) &\n        (V >= 45) &\n        roi\n    ).astype(np.uint8) * 255\n\n    n, labels, stats, _ = cv2.connectedComponentsWithStats(\n        green_seed, 8\n    )\n\n    boxes = []\n    for i in range(1, n):\n        if stats[i, cv2.CC_STAT_AREA] >= 8:\n            x, y, ww, hh, _ = map(int, stats[i])\n            boxes.append((x, y, ww, hh))\n\n    if boxes:\n        x0 = min(b[0] for b in boxes)\n        y0 = min(b[1] for b in boxes)\n        x1 = max(b[0] + b[2] for b in boxes)\n        y1 = max(b[1] + b[3] for b in boxes)\n\n        if x0 < 0.15 * w and y1 > 0.75 * h:\n            pad = 15\n            exclusion[\n                max(0, y0 - pad):min(h, y1 + pad),\n                max(0, x0 - pad):min(w, x1 + pad)\n            ] = 255\n\n    # 顶部状态文字\n    top_roi = (\n        (yy >= int(0.03 * h)) &\n        (yy < int(0.23 * h)) &\n        (xx >= int(0.08 * w)) &\n        (xx < int(0.80 * w))\n    )\n\n    white_seed = (\n        (S <= 70) &\n        (V >= 115) &\n        top_roi\n    ).astype(np.uint8) * 255\n\n    n, labels, stats, _ = cv2.connectedComponentsWithStats(\n        white_seed, 8\n    )\n\n    glyphs = []\n    for i in range(1, n):\n        x, y, ww, hh, area = map(int, stats[i])\n        if (\n            14 <= ww <= 48 and\n            14 <= hh <= 48 and\n            120 <= area <= 900\n        ):\n            glyphs.append((x, y, ww, hh, area))\n\n    best_group = []\n    for g in glyphs:\n        group = [\n            q for q in glyphs\n            if abs(q[1] - g[1]) <= 5\n            and abs(q[3] - g[3]) <= 8\n        ]\n        if len(group) > len(best_group):\n            best_group = group\n\n    if len(best_group) >= 3:\n        x0 = min(g[0] for g in best_group)\n        y0 = min(g[1] for g in best_group)\n        x1 = max(g[0] + g[2] for g in best_group)\n        y1 = max(g[1] + g[3] for g in best_group)\n\n        if x1 - x0 >= 80:\n            exclusion[\n                max(0, y0 - 40):min(h, y1 + 40),\n                max(0, x0 - 70):min(w, x1 + 70)\n            ] = 255\n\n    return exclusion\n\ndef _classify_structure(img, exclusion):\n    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)\n    H, S, V = cv2.split(hsv)\n\n    room = (\n        ((H <= 25) | (H >= 170)) &\n        (S >= 18) & (S <= 165) &\n        (V >= 82) & (V <= 200)\n    ).astype(np.uint8) * 255\n\n    corridor = (\n        (H >= 95) & (H <= 130) &\n        (S >= 14) & (S <= 105) &\n        (V >= 82) & (V <= 200)\n    ).astype(np.uint8) * 255\n\n    room[exclusion > 0] = 0\n    corridor[exclusion > 0] = 0\n\n    kernel = np.ones((3, 3), np.uint8)\n\n    room = cv2.morphologyEx(\n        room, cv2.MORPH_OPEN, kernel\n    )\n    room = cv2.morphologyEx(\n        room, cv2.MORPH_CLOSE, kernel\n    )\n\n    corridor = cv2.morphologyEx(\n        corridor, cv2.MORPH_OPEN, kernel\n    )\n    corridor = cv2.morphologyEx(\n        corridor, cv2.MORPH_CLOSE, kernel\n    )\n\n    room = _remove_small(room, 80)\n    corridor = _remove_small(corridor, 80)\n\n    room = _fill_small_holes(room, 450)\n    corridor = _fill_small_holes(corridor, 450)\n\n    return room, corridor\n\ndef _semantic_candidate_edges(mask):\n    output = np.zeros(mask.shape, np.uint8)\n\n    contours, hierarchy = cv2.findContours(\n        mask,\n        cv2.RETR_CCOMP,\n        cv2.CHAIN_APPROX_SIMPLE\n    )\n\n    if hierarchy is None:\n        return output\n\n    hierarchy = hierarchy[0]\n\n    for idx, contour in enumerate(contours):\n        perimeter = cv2.arcLength(contour, True)\n        if perimeter < 30:\n            continue\n\n        parent = hierarchy[idx][3]\n\n        # 小型内部洞大多是图标/纹理，而不是地图结构。\n        if (\n            parent != -1\n            and abs(cv2.contourArea(contour)) < 900\n        ):\n            continue\n\n        contour = cv2.approxPolyDP(\n            contour,\n            0.55,\n            True\n        )\n\n        cv2.drawContours(\n            output,\n            [contour],\n            -1,\n            255,\n            2,\n            cv2.LINE_8\n        )\n\n    return output\n\ndef _strong_source_edge_support(img):\n    # 关键变化：\n    # 语义轮廓只负责提出“这里可能是结构边”；\n    # 原图中的高频锐利边缘负责证明“这里真的有墙线”。\n    #\n    # 迷雾截断通常是宽而软的渐变，没有稳定的锐利边缘，\n    # 因此不会通过这一层验证。\n    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)\n\n    strong = cv2.Canny(\n        gray,\n        80,\n        180,\n        apertureSize=3,\n        L2gradient=True\n    )\n\n    # 允许语义 Mask 和真实墙线存在少量像素偏差。\n    support = cv2.dilate(\n        strong,\n        np.ones((5, 5), np.uint8)\n    )\n\n    return strong, support\n\ndef process(input_path, output_path):\n    img = cv2.imread(str(input_path))\n    if img is None:\n        raise FileNotFoundError(input_path)\n\n    output_path = Path(output_path)\n\n    exclusion = _detect_dynamic_exclusion(img)\n    room, corridor = _classify_structure(\n        img, exclusion\n    )\n\n    room_edges = _semantic_candidate_edges(room)\n    corridor_edges = _semantic_candidate_edges(corridor)\n    candidate_edges = cv2.bitwise_or(\n        room_edges, corridor_edges\n    )\n\n    strong_source_edges, source_support = (\n        _strong_source_edge_support(img)\n    )\n\n    # ObservedEdges：\n    # 只有“结构语义 + 原图锐边证据”同时成立的边才保留。\n    observed_edges = cv2.bitwise_and(\n        candidate_edges,\n        source_support\n    )\n\n    observed_edges = _remove_short_edge_components(\n        observed_edges,\n        6\n    )\n\n    # Frontier / Unknown：\n    # 语义分类认为这里到了结构边，但原图没有对应的锐利墙线，\n    # 将其视为迷雾截断/不确定边，而不是合法结构。\n    uncertain_frontier = cv2.bitwise_and(\n        candidate_edges,\n        cv2.bitwise_not(source_support)\n    )\n\n    # ValidMask：\n    # 这里只标“评分时应排除的风险带”，不假装完整分割整片迷雾。\n    invalid = cv2.dilate(\n        uncertain_frontier,\n        np.ones((11, 11), np.uint8)\n    )\n    invalid = cv2.bitwise_or(\n        invalid,\n        cv2.dilate(\n            exclusion,\n            np.ones((5, 5), np.uint8)\n        )\n    )\n\n    valid_mask = cv2.bitwise_not(invalid)\n\n    # 防止 ValidMask 自己把已确认 ObservedEdges 排除掉。\n    valid_mask[observed_edges > 0] = 255\n\n    valid_path = output_path.with_name(\n        output_path.stem + \"_valid.png\"\n    )\n    frontier_path = output_path.with_name(\n        output_path.stem + \"_frontier.png\"\n    )\n\n    if not cv2.imwrite(\n        str(output_path), observed_edges\n    ):\n        raise IOError(\n            f\"Failed to write: {output_path}\"\n        )\n\n    if not cv2.imwrite(\n        str(valid_path), valid_mask\n    ):\n        raise IOError(\n            f\"Failed to write: {valid_path}\"\n        )\n\n    if not cv2.imwrite(\n        str(frontier_path), uncertain_frontier\n    ):\n        raise IOError(\n            f\"Failed to write: {frontier_path}\"\n        )\n\n    return {\n        \"width\": int(observed_edges.shape[1]),\n        \"height\": int(observed_edges.shape[0]),\n        \"observed_edge_pixels\": int(\n            np.count_nonzero(observed_edges)\n        ),\n        \"candidate_edge_pixels\": int(\n            np.count_nonzero(candidate_edges)\n        ),\n        \"frontier_pixels\": int(\n            np.count_nonzero(uncertain_frontier)\n        ),\n        \"valid_pixels\": int(\n            np.count_nonzero(valid_mask)\n        ),\n        \"excluded_pixels\": int(\n            np.count_nonzero(exclusion)\n        ),\n        \"valid_path\": str(valid_path),\n        \"frontier_path\": str(frontier_path),\n    }"
+  }
+}

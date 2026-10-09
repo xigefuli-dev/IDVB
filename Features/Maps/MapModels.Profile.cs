@@ -5,6 +5,7 @@ namespace IDVBuff.Features.Maps;
 
 public sealed class FloorRecognitionProfile
 {
+    internal HashSet<string>? SourceEntranceRoles { get; set; }
     public MapFloor Floor { get; set; }
 
     /// <summary>V6: string-based floor key matching <see cref="FloorDefinition.Key"/>.</summary>
@@ -69,6 +70,7 @@ public sealed class FloorRecognitionProfile
 
     public FloorRecognitionProfile Clone() => new()
     {
+        SourceEntranceRoles = SourceEntranceRoles is null ? null : new(SourceEntranceRoles, StringComparer.Ordinal),
         Floor = Floor,
         FloorKey = FloorKey,
         OrientationDegrees = OrientationDegrees,
@@ -205,6 +207,9 @@ public sealed partial class MapRecognitionProfile
             }
 
             candidate.FloorKey = floor.Key;
+            candidate.SourceEntranceRoles = floor.SharedStructure?.Source is { } source
+                ? source.Entrances.Select(entrance => entrance.Role).ToHashSet(StringComparer.Ordinal)
+                : null;
             var compatibilityFloor = index switch
             {
                 0 => MapFloor.First,
@@ -318,13 +323,19 @@ public sealed partial class MapRecognitionProfile
         {
             EnsureAnchor(profile, "main-entrance", "大门", RecognitionAnchorRole.Required, isBuiltIn: true);
             EnsureAnchor(profile, "side-entrance", "侧门", RecognitionAnchorRole.Required, isBuiltIn: true);
-            ConfigureBuiltInAnchor(profile, "main-entrance", "大门", RecognitionAnchorRole.Required);
-            ConfigureBuiltInAnchor(profile, "side-entrance", "侧门", RecognitionAnchorRole.Required);
+            ConfigureBuiltInAnchor(profile, "main-entrance", "大门",
+                profile.SourceEntranceRoles is null || profile.SourceEntranceRoles.Contains("main-entrance")
+                    ? RecognitionAnchorRole.Required : RecognitionAnchorRole.Optional);
+            ConfigureBuiltInAnchor(profile, "side-entrance", "侧门",
+                profile.SourceEntranceRoles is null || profile.SourceEntranceRoles.Contains("side-entrance")
+                    ? RecognitionAnchorRole.Required : RecognitionAnchorRole.Optional);
         }
         else if (compatibilityFloor == MapFloor.Second)
         {
             EnsureAnchor(profile, "second-floor-primary", "次要门特征", RecognitionAnchorRole.Optional, isBuiltIn: true);
-            ConfigureBuiltInAnchor(profile, "second-floor-primary", "次要门特征", RecognitionAnchorRole.Optional);
+            ConfigureBuiltInAnchor(profile, "second-floor-primary", "次要门特征",
+                profile.SourceEntranceRoles?.Contains("second-floor-primary") is true
+                    ? RecognitionAnchorRole.Required : RecognitionAnchorRole.Optional);
         }
     }
 
@@ -352,6 +363,10 @@ public sealed partial class MapRecognitionProfile
     /// </summary>
     public bool HasFirstFloorGateMarkers()
     {
+        if (FirstFloor.SourceEntranceRoles is not null)
+            return HasGateMarkers(FirstFloor.FloorKey)
+                && Floors.Values.Where(profile => profile.SourceEntranceRoles is { Count: > 0 })
+                    .All(profile => HasGateMarkers(profile.FloorKey));
         var main = FirstFloor.FindAnchor("main-entrance");
         var side = FirstFloor.FindAnchor("side-entrance");
         return main?.IsMarked is true && side?.IsMarked is true;
@@ -362,6 +377,8 @@ public sealed partial class MapRecognitionProfile
         var profile = GetFloor(floorKey);
         if (profile is null)
             return false;
+        if (profile.SourceEntranceRoles is { } roles)
+            return roles.Count > 0 && roles.All(role => profile.FindAnchor(role)?.IsMarked is true);
         var main = profile.FindAnchor("main-entrance");
         var side = profile.FindAnchor("side-entrance");
         return main?.IsMarked is true && side?.IsMarked is true;

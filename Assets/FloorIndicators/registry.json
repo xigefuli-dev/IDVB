@@ -1,0 +1,29 @@
+[
+  {
+    "Key": "nightmare",
+    "X": 0.7645833333333333,
+    "Y": 0.037037037037037035,
+    "Width": 0.125,
+    "Height": 0.07407407407407407,
+    "States": {
+      "b1f": "nightmare-b1f.png",
+      "1f": "nightmare-1f.png",
+      "2f": "nightmare-2f.png"
+    },
+    "PixelWidth": 240,
+    "PixelHeight": 80
+  },
+  {
+    "Key": "hard",
+    "X": 0.7645833333333333,
+    "Y": 0.037037037037037035,
+    "Width": 0.09166666666666666,
+    "Height": 0.07407407407407407,
+    "States": {
+      "1f": "hard-1f.png",
+      "2f": "hard-2f.png"
+    },
+    "PixelWidth": 176,
+    "PixelHeight": 80
+  }
+]

@@ -8,7 +8,8 @@ namespace IDVBuff.Features.Notifications;
 /// 通知窗定位到游戏窗口上，再走宿主统一的通知中心
 /// （与本体 <c>SessionOrchestrator.ToggleMatchStateAsync</c> 里那条提示同一路径）。
 ///
-/// 拿不到游戏客户区（例如游戏不是前台）时照样提示，只是沿用上一次的定位。
+/// 拿不到游戏客户区（例如游戏不是前台）时照样提示，但会清掉旧定位，
+/// 让通知窗退回当前前台窗口，而不是沿用很久以前的坐标。
 /// </summary>
 public sealed class GameOverlayToast : IGameOverlayToast
 {
@@ -44,7 +45,14 @@ public sealed class GameOverlayToast : IGameOverlayToast
                 && bounds.IsValid)
             {
                 OverlayNotificationCenter.UpdateGameBounds(bounds);
+                return;
             }
+            // 拿不到游戏客户区时必须清掉旧的定位值，不能沿用上一次的矩形。
+            // 旧逻辑失败就直接 return，通知窗口会继续用很久以前记下的坐标
+            // （例如窗口化时的位置），表现就是提示跑到屏幕右上方、不再居中。
+            // 清空后 OverlayNotificationWindow.GetTargetBounds 会退回当前前台窗口，
+            // 拿到的是这一局的真实位置。
+            OverlayNotificationCenter.UpdateGameBounds(default);
         }
         catch
         {

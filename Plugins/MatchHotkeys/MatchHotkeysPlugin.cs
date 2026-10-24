@@ -22,7 +22,7 @@ namespace IDVBuff.Plugins.MatchHotkeys;
     MatchHotkeysOptions.PluginId,
     DisplayName = "对局快捷键",
     Description = "两个可自定义的快捷键，各自一键进入/结束指定地图模式的对局；地图模式在插件设置里选。",
-    Version = "1.2.0",
+    Version = "1.2.2",
     AlwaysActive = true)]
 public sealed partial class MatchHotkeysPlugin
     : PluginBase, IPluginSettingsProvider, IHandle<MatchStateChangedMessage>
@@ -198,10 +198,10 @@ public sealed partial class MatchHotkeysPlugin
             if (result.State == HostOperationState.Applied)
             {
                 LogInfo($"{slotName}（{binding.DisplayName}）：{result.Message}（{elapsed}ms）");
-                // 可见反馈：与本体「对局状态开关」一样在屏幕上弹一条浮层提示，
-                // 否则开局只影响运行时状态、玩家那边什么也看不到。
-                Toast(warning: alreadyInTargetMatch,
-                    alreadyInTargetMatch ? "已结束对局" : $"已进入对局 · {target}");
+                // 结束对局时宿主 EndMatchCoreAsync 自己会弹「已结束对局状态。」，
+                // 插件再弹一条就是屏幕上两个黄框。只有「进入对局」宿主没有提示，由插件补一条。
+                if (!alreadyInTargetMatch)
+                    Toast(warning: false, $"已进入对局 · {target}");
             }
             else
             {

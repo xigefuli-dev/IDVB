@@ -10,17 +10,19 @@ namespace IDVBuff.Features.Notifications;
 /// </summary>
 public static class OverlayNotificationTheme
 {
-    public const float CardWidth = 520f;
-    public const float MinCardHeight = 64f;
-    public const float CornerRadius = 10f;
-    public const float CardSpacing = 10f;
-    public const float PaddingLeft = 16f;
-    public const float PaddingRight = 16f;
-    public const float PaddingTop = 16f;
-    public const float PaddingBottom = 16f;
-    public const float IconSize = 26f;
-    public const float IconGap = 12f;
-    public const float ProgressBarThickness = 3.5f;
+    // 卡片整体尺寸（玩家反馈：原来的 520×64 在 1080p 上要占掉四分之一屏宽，太大）。
+    // 这里按 0.58 左右收敛：宽 300、高 42、字 13px，约屏宽 15%，仍能放下一行中文提示。
+    public const float CardWidth = 300f;
+    public const float MinCardHeight = 42f;
+    public const float CornerRadius = 7f;
+    public const float CardSpacing = 8f;
+    public const float PaddingLeft = 11f;
+    public const float PaddingRight = 11f;
+    public const float PaddingTop = 10f;
+    public const float PaddingBottom = 10f;
+    public const float IconSize = 18f;
+    public const float IconGap = 8f;
+    public const float ProgressBarThickness = 3f;
 
     /// <summary>文字有效绘制宽度（用于换行自适应测量）。</summary>
     public static float AvailableTextWidth => CardWidth - (PaddingLeft + IconSize + IconGap + PaddingRight);
@@ -190,11 +192,11 @@ public sealed class NotificationMetrics
     {
         if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
             return Default;
-        // Use both axes so ultrawide screens do not inflate the card beyond their height.
-        // Keep an 18px readability floor on 720p/768p displays.
-        var scale = Math.Max(1d, Math.Min(width / 1920d, height / 1080d));
-        scale = Math.Min(scale, width / (OverlayNotificationTheme.CardWidth + 40d));
-        return new NotificationMetrics((float)scale);
+        // 固定 1.0 倍：卡片永远是 300×42、13px 字，不再随分辨率放大。
+        // 以前这里按 Math.Max(1, min(W/1920, H/1080)) 随分辨率放大——2K 屏 1.33 倍、
+        // 4K 屏 2 倍，一张卡片能吃掉四分之一屏宽，玩家反馈「比之前大很多」。
+        // 保持恒定尺寸后，任何分辨率、任何游戏窗口都是同一个小方块，定位仍按游戏窗口居中。
+        return new NotificationMetrics(1f);
     }
 
     public NotificationMetrics(float scale = 1.0f)
@@ -202,18 +204,18 @@ public sealed class NotificationMetrics
         Scale = Math.Max(0.5f, scale);
         CardWidth = OverlayNotificationTheme.CardWidth * Scale;
         MinCardHeight = OverlayNotificationTheme.MinCardHeight * Scale;
-        CornerRadius = 10f * Scale;
-        CardSpacing = 10f * Scale;
-        PaddingLeft = 16f * Scale;
-        PaddingRight = 16f * Scale;
-        PaddingTop = OverlayNotificationTheme.PaddingTop * Scale;
-        PaddingBottom = OverlayNotificationTheme.PaddingBottom * Scale;
-        IconSize = OverlayNotificationTheme.IconSize * Scale;
-        IconGap = 12f * Scale;
-        ProgressBarThickness = 3.5f * Scale;
+        CornerRadius = 7f * Scale;
+        CardSpacing = 8f * Scale;
+        PaddingLeft = 11f * Scale;
+        PaddingRight = 11f * Scale;
+        PaddingTop = 10f * Scale;
+        PaddingBottom = 10f * Scale;
+        IconSize = 18f * Scale;
+        IconGap = 8f * Scale;
+        ProgressBarThickness = 3f * Scale;
         OutlineThickness = Math.Max(1.0f, 1.4f * Scale);
-        IconStrokeThickness = Math.Max(1.5f, 2.0f * Scale);
-        FontSize = 18f * Scale;
+        IconStrokeThickness = Math.Max(1.2f, 1.6f * Scale);
+        FontSize = 13f * Scale;
         BaseTopOffset = 10f * Scale;
         AvailableTextWidth = CardWidth - (PaddingLeft + IconSize + IconGap + PaddingRight);
     }

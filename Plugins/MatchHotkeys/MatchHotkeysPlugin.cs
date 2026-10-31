@@ -6,10 +6,12 @@ using IdentityVisionBridge.PluginSdk;
 namespace IDVBuff.Plugins.MatchHotkeys;
 
 /// <summary>
-/// 对局快捷键：两个可自定义的快捷键，各自绑定一个地图模式（地图 Class）。
+/// 对局快捷键：五个可自定义的快捷键，各自绑定一个地图模式（地图 Class）。
 ///
 /// 按一下「进入该模式的对局」，再按一下「结束对局」；判定依据是宿主当前对局
 /// 是否正好是这个模式，因此不会误把别的模式的对局当成自己的开关。
+/// 槽位数量由 <see cref="MatchHotkeysOptions.SlotCount"/> 决定，主体与设置页都按表
+/// 遍历生成；用不到的槽位保持未设置，按下不会有任何动作。
 ///
 /// 全程走宿主既有的插件对局控制通道（<see cref="IHostMatchCapability"/> →
 /// SessionOrchestrator 的 QueuePluginMatchAsync），所以对局门控、地图缓存同步、
@@ -21,8 +23,8 @@ namespace IDVBuff.Plugins.MatchHotkeys;
 [Plugin(
     MatchHotkeysOptions.PluginId,
     DisplayName = "对局快捷键",
-    Description = "两个可自定义的快捷键，各自一键进入/结束指定地图模式的对局；地图模式在插件设置里选。",
-    Version = "1.2.2",
+    Description = "五个可自定义的快捷键，各自一键进入/结束指定地图模式的对局；地图模式在插件设置里选。",
+    Version = "1.3.1",
     AlwaysActive = true)]
 public sealed partial class MatchHotkeysPlugin
     : PluginBase, IPluginSettingsProvider, IHandle<MatchStateChangedMessage>
@@ -30,8 +32,21 @@ public sealed partial class MatchHotkeysPlugin
     /// <summary>地图库两次刷新之间的最短间隔，避免反复读目录。</summary>
     private const long MapClassRefreshCooldownMilliseconds = 3000;
 
-    /// <summary>首次渲染设置描述符时，同步等地图库的上限（见 EnsureMapClassesForFirstRender）。</summary>
+    /// <summary>首次渲染设置描述符时，同步等地图库的上限（见 RefreshMapClassesForSettings）。</summary>
     private const int MapClassSyncWaitMilliseconds = 3000;
+
+    /// <summary>
+    /// 之后每次渲染设置描述符时，同步等地图库的上限。地图库有修订版本缓存，
+    /// 命中时几乎立即返回；这里只是给「恰好赶上目录正在重写」留个退路。
+    /// </summary>
+    private const int MapClassSettingsSyncWaitMilliseconds = 800;
+
+    /// <summary>
+    /// 同一批渲染内复用地图库结果的时间窗。宿主渲染一次设置页会连续读若干次
+    /// <see cref="Settings"/>，有了这个窗口就不会每次都去读一遍目录；
+    /// 隔开更久再打开设置页，则一定会重新读。
+    /// </summary>
+    private const long MapClassSettingsRefreshWindowMilliseconds = 500;
 
     private const int OperationPollMilliseconds = 80;
 
@@ -92,10 +107,28 @@ public sealed partial class MatchHotkeysPlugin
         RequestMapClassRefresh();
 
         var options = _options;
-        LogInfo(
-            $"对局快捷键已启动：快捷键一 {options.HotkeyA.DisplayName} → {DescribeClass(options.MapClassA)}；"
-            + $"快捷键二 {options.HotkeyB.DisplayName} → {DescribeClass(options.MapClassB)}；"
-            + $"仅游戏内生效 {((options.ForegroundOnly) ? "开" : "关")}。");
+        LogInfo(DescribeStartup(options));
+    }
+
+    /// <summary>启动日志：只列出真的录了键（或选了地图）的槽位，全空时只记一条提示。</summary>
+    private static string DescribeStartup(MatchHotkeysOptions options)
+    {
+        var parts = new List<string>(MatchHotkeysOptions.SlotCount);
+        for (var slot = 0; slot < MatchHotkeysOptions.SlotCount; slot++)
+        {
+            var binding = options.HotkeyAt(slot);
+            var target = options.MapClassAt(slot);
+            if (!binding.IsConfigured && MatchHotkeysOptions.IsUnsetClass(target))
+                continue;
+            parts.Add(
+                $"{MatchHotkeysOptions.SlotNameAt(slot)} "
+                + $"{(binding.IsConfigured ? binding.DisplayName : "未设置")} → {DescribeClass(target)}");
+        }
+
+        var described = parts.Count == 0
+            ? $"{MatchHotkeysOptions.SlotCount} 个快捷键都还没设置"
+            : string.Join("；", parts);
+        return $"对局快捷键已启动：{described}；仅游戏内生效 {(options.ForegroundOnly ? "开" : "关")}。";
     }
 
     public override void OnDisable()
@@ -125,8 +158,9 @@ public sealed partial class MatchHotkeysPlugin
         if (_input is not { } input)
             return;
         var options = _options;
-        ApplyHotkeyBinding(input, MatchHotkeysOptions.HotkeyAKey, options.HotkeyA);
-        ApplyHotkeyBinding(input, MatchHotkeysOptions.HotkeyBKey, options.HotkeyB);
+        // 未配置的槽位也要写一次（none），宿主据此把该绑定键清空；不影响同一插件的其它绑定。
+        for (var slot = 0; slot < MatchHotkeysOptions.SlotCount; slot++)
+            ApplyHotkeyBinding(input, MatchHotkeysOptions.HotkeyKeyAt(slot), options.HotkeyAt(slot));
     }
 
     private void ApplyHotkeyBinding(IPluginInputService input, string bindingKey, PluginInputBinding binding)
@@ -146,18 +180,18 @@ public sealed partial class MatchHotkeysPlugin
     {
         if (!string.Equals(args.PluginId, Id, StringComparison.Ordinal) || !args.IsDown)
             return;
-        if (string.Equals(args.BindingKey, MatchHotkeysOptions.HotkeyAKey, StringComparison.Ordinal))
-            _ = ToggleMatchAsync(slotA: true);
-        else if (string.Equals(args.BindingKey, MatchHotkeysOptions.HotkeyBKey, StringComparison.Ordinal))
-            _ = ToggleMatchAsync(slotA: false);
+        var slot = MatchHotkeysOptions.SlotOfHotkeyKey(args.BindingKey);
+        if (slot < 0)
+            return;
+        _ = ToggleMatchAsync(slot);
     }
 
-    private async Task ToggleMatchAsync(bool slotA)
+    private async Task ToggleMatchAsync(int slot)
     {
         var options = _options;
-        var slotName = slotA ? "快捷键一" : "快捷键二";
-        var binding = slotA ? options.HotkeyA : options.HotkeyB;
-        var target = (slotA ? options.MapClassA : options.MapClassB).Trim();
+        var slotName = MatchHotkeysOptions.SlotNameAt(slot);
+        var binding = options.HotkeyAt(slot);
+        var target = options.MapClassAt(slot).Trim();
 
         if (MatchHotkeysOptions.IsUnsetClass(target))
         {
@@ -168,6 +202,14 @@ public sealed partial class MatchHotkeysPlugin
         if (_matches is not { } matches)
         {
             LogWarning($"{slotName}：宿主没有提供对局控制能力，已忽略这次按键。");
+            return;
+        }
+        // 目标被删掉 / 被地图包更新替换后就成了「幽灵目标」：下拉里已经没有它，
+        // 直接交给宿主只会拿到「没有此模式：X」。这里先拦一次，给一条能照做的提示。
+        if (!IsTargetInCatalog(target))
+        {
+            LogWarning($"{slotName}的目标「{target}」已不在地图库里，已忽略这次按键。");
+            Toast(warning: true, $"{slotName}的目标已失效，请到插件设置里重新选择地图模式");
             return;
         }
         if (options.ForegroundOnly && !IsGameForeground())

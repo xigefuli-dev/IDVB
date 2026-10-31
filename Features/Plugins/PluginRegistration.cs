@@ -30,5 +30,9 @@ public static class PluginRegistration
         // 常驻（AlwaysActive）：开局前宿主会关掉非常驻插件的运行时闸门，而它正是用来开局的。
         using (StartupTimeline.Measure("Built-in construct and register: IDVBuff.Plugins.MatchHotkeys.MatchHotkeysPlugin"))
             host.Register(new IDVBuff.Plugins.MatchHotkeys.MatchHotkeysPlugin());
+        // 关闭拾取面板：认出「可拾取」面板后自动按一下 ESC 把它关掉（等同于点面板右上角的 ✕）。
+        // 常驻（AlwaysActive）：开关检测的热键在局外也要按得动，与「背包辅助」保持一致。
+        using (StartupTimeline.Measure("Built-in construct and register: IDVBuff.Plugins.PickupEscape.PickupEscapePlugin"))
+            host.Register(new IDVBuff.Plugins.PickupEscape.PickupEscapePlugin());
     }
 }
